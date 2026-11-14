@@ -14,7 +14,8 @@
 //! the document, apart from reserving fresh ids.
 
 use crate::*;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::hash::{Hash, Hasher};
 
 impl OverrideField {
     pub const ALL: [OverrideField; 18] = [
@@ -65,6 +66,8 @@ struct Ctx<'a> {
     kept_for_return: usize,
     /// Instances that entered or received a non-empty parked list during this context's swap operations.
     had_parked: BTreeSet<NodeId>,
+    /// Cached quantized solver-output signatures keyed by `(parent_id, parent_w_bits, parent_h_bits)` across a sync pass.
+    parent_solve_sigs: HashMap<(NodeId, u32, u32), u64>,
 }
 
 impl<'a> Ctx<'a> {
@@ -80,6 +83,7 @@ impl<'a> Ctx<'a> {
             dropped_changes: 0,
             kept_for_return: 0,
             had_parked: BTreeSet::new(),
+            parent_solve_sigs: HashMap::new(),
         }
     }
     fn push(&mut self, c: Command) {
@@ -1063,6 +1067,7 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
             n.component.own_variant_bindings.len(),
             n.component.variant_picks.len(),
             n.component.parked_overrides.len(),
+            n.component.derived.is_some(),
         );
         for f in fields {
             n.component.overrides.remove(f);
@@ -1078,10 +1083,15 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
                 }
                 OverrideField::Layout => {
                     n.component.grid_align_overrides = [false, false];
+                    n.component.derived = None;
                 }
                 OverrideField::Size => {
                     n.plugin_data.remove("pen:explicit_width");
                     n.plugin_data.remove("pen:explicit_height");
+                    n.component.derived = None;
+                }
+                OverrideField::Transform => {
+                    n.component.derived = None;
                 }
                 OverrideField::Stroke => {
                     n.plugin_data.remove("pen:explicit_stroke_fields");
@@ -1096,6 +1106,7 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
             n.component.own_variant_bindings.len(),
             n.component.variant_picks.len(),
             n.component.parked_overrides.len(),
+            n.component.derived.is_some(),
         ) != before
         {
             c.update(n);
@@ -1149,10 +1160,12 @@ pub fn reset_instance(doc: &mut Document, instance: NodeId) -> Command {
             || !n.component.parked_overrides.is_empty()
             || n.component.grid_align_overrides != [false, false]
             || !own_values.is_empty()
+            || n.component.derived.is_some()
         {
             n.component.overrides.clear();
             n.component.parked_overrides.clear();
             n.component.grid_align_overrides = [false, false];
+            n.component.derived = None;
             for name in &own_values {
                 n.component.values.remove(name);
             }
@@ -1540,9 +1553,490 @@ pub fn drop_baked_outline_of_parametric_shape(n: &mut Node) {
     }
 }
 
+#[inline]
+fn quantize_1024(v: f32) -> i64 {
+    if !v.is_finite() {
+        0
+    } else {
+        ((v as f64) * 1024.0).round() as i64
+    }
+}
+
+struct FnvHasher(u64);
+
+impl FnvHasher {
+    fn new() -> Self {
+        Self(0xcbf29ce484222325)
+    }
+}
+
+impl std::hash::Hasher for FnvHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 ^= b as u64;
+            self.0 = self.0.wrapping_mul(0x100000001b3);
+        }
+    }
+}
+
+fn flow_child_input_for_node(doc: &Document, raw: &Node, horiz: bool) -> Option<crate::layout_solver::ChildIn> {
+    let bound = crate::resolve_node(doc, raw);
+    if !bound.visible || raw.layout_child.absolute {
+        return None;
+    }
+    let (fit_w, fit_h) = if matches!(raw.kind, NodeKind::Group) {
+        (true, true)
+    } else {
+        raw.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map_or((false, false), crate::layout_solver::hugged_axes)
+    };
+    let tf = raw.transform;
+    let natural_extent = raw.layout_child.natural_size(crate::layout_rotated::extent(&tf, raw.size), horiz);
+    let mut natural = crate::layout_rotated::local_size(&tf, natural_extent, raw.size);
+    if let NodeKind::Text(tp) = &bound.kind {
+        let text_changed = (matches!(&bound, std::borrow::Cow::Owned(_)) && raw.kind.any_text() != Some(tp))
+            || raw.variables.bindings.keys().any(|k| {
+                matches!(
+                    k.as_str(),
+                    "characters"
+                        | "fontFamily"
+                        | "fontStyle"
+                        | "fontSize"
+                        | "fontWeight"
+                        | "lineHeight"
+                        | "letterSpacing"
+                        | "paragraphSpacing"
+                        | "paragraphIndent"
+                )
+            });
+        if tp.auto_resize == crate::TextAutoResize::WidthAndHeight && (bound.layout_child.max_w.is_some() || text_changed) {
+            if let Some(measure) = crate::text_measure::layout_measurer() {
+                natural = crate::text_measure::measure_hug_text_with(tp, bound.layout_child.max_w, |t, w| measure.measure(t, w));
+            }
+        }
+    }
+    let has_w_bind = raw.variables.bindings.contains_key("width");
+    let has_h_bind = raw.variables.bindings.contains_key("height");
+    let size = crate::layout_rotated::extent(
+        &tf,
+        Vec2::new(
+            if fit_w {
+                raw.size.x
+            } else if has_w_bind {
+                bound.size.x
+            } else {
+                natural.x
+            },
+            if fit_h {
+                raw.size.y
+            } else if has_h_bind {
+                bound.size.y
+            } else {
+                natural.y
+            },
+        ),
+    );
+    let mut input = crate::layout_solver::ChildIn::from_layout_child(size, &bound.layout_child, horiz);
+    crate::layout_rotated::fix_tilted_input(&tf, &mut input);
+    Some(input)
+}
+
+fn constrain_trial_direct_children(p_node: &Node, trial_kids: &mut [Node], old: Vec2, new: Vec2) {
+    if (new.x - old.x).abs() <= 1e-4 && (new.y - old.y).abs() <= 1e-4 {
+        return;
+    }
+    let has_al = p_node.kind.frame_props().is_some_and(|f| f.auto_layout.is_some());
+    let in_shape = matches!(p_node.kind, NodeKind::BooleanOp(_));
+    for child in trial_kids.iter_mut() {
+        if has_al && !child.layout_child.absolute && !in_shape {
+            continue;
+        }
+        let mut probe = child.clone();
+        if in_shape {
+            probe.constraints = Constraints { horizontal: Constraint::Scale, vertical: Constraint::Scale };
+        }
+        let Some((new_tf, new_sz)) = crate::layout_constraints::constrain_child(&probe, old, new) else {
+            continue;
+        };
+        let tf = if child.component.overrides.contains(&OverrideField::Transform) { child.transform } else { new_tf };
+        let sz = if child.component.overrides.contains(&OverrideField::Size) { child.size } else { new_sz };
+        child.transform = tf;
+        child.size = sz;
+    }
+}
+
+fn solve_trial_auto_layout(doc: &Document, p_node: &mut Node, trial_kids: &mut [Node], old: Vec2, new: Vec2) {
+    let resolved = crate::resolve_node(doc, p_node);
+    let Some(mut al) = resolved.kind.frame_props().and_then(|f| f.auto_layout.clone()) else { return };
+    let stroke = resolved.stroke.clone();
+    let horiz = al.direction != LayoutDirection::Vertical;
+    if (new.x - old.x).abs() > 1e-4 {
+        let target = if al.primary_is_horizontal() { &mut al.primary_sizing } else { &mut al.counter_sizing };
+        if *target == Sizing::Hug {
+            *target = Sizing::Fixed;
+        }
+    }
+    if (new.y - old.y).abs() > 1e-4 {
+        let target = if al.primary_is_horizontal() { &mut al.counter_sizing } else { &mut al.primary_sizing };
+        if *target == Sizing::Hug {
+            *target = Sizing::Fixed;
+        }
+    }
+    for cnode in trial_kids.iter_mut() {
+        if let Some(old_horiz) = cnode.layout_child.stretched.last_parent_horiz {
+            if old_horiz != horiz {
+                cnode.layout_child.apply_parent_direction_change(old_horiz, horiz);
+            }
+        }
+    }
+    let measure = crate::text_measure::layout_measurer();
+    let own_limits = crate::layout_solver::SizeLimits::from(&p_node.layout_child);
+    let mut second_pass = false;
+    loop {
+        let frame_size = p_node.size;
+        let mut flow_indices: Vec<usize> = Vec::with_capacity(trial_kids.len());
+        let mut flow_ids: Vec<NodeId> = Vec::with_capacity(trial_kids.len());
+        let mut kids: Vec<crate::layout_solver::ChildIn> = Vec::with_capacity(trial_kids.len());
+        for (idx, cnode) in trial_kids.iter().enumerate() {
+            if let Some(k) = flow_child_input_for_node(doc, cnode, horiz) {
+                flow_indices.push(idx);
+                flow_ids.push(cnode.id);
+                kids.push(k);
+            }
+        }
+        let out = crate::layout_solver::compute_then_refit_wrapped(&al, frame_size, own_limits, &stroke, &flow_ids, &mut kids, |id, w| {
+            let measure = measure.as_deref()?;
+            let cnode = trial_kids.iter().find(|n| n.id == id)?;
+            crate::text_measure::height_resize_text_height(cnode, w, measure)
+        });
+        if ((out.frame.x - frame_size.x).abs() > 1e-3 || (out.frame.y - frame_size.y).abs() > 1e-3)
+            && !p_node.component.overrides.contains(&OverrideField::Size)
+        {
+            p_node.size = out.frame;
+            constrain_trial_direct_children(p_node, trial_kids, frame_size, out.frame);
+        }
+        for ((&idx, kid), r) in flow_indices.iter().zip(&kids).zip(&out.rects) {
+            let cnode = &mut trial_kids[idx];
+            let write = crate::layout_rotated::slot_write(&cnode.transform, cnode.size, *r);
+            let (new_tf, new_sz) = (write.transform, write.size);
+            let tf = if cnode.component.overrides.contains(&OverrideField::Transform) { cnode.transform } else { new_tf };
+            let sz = if cnode.component.overrides.contains(&OverrideField::Size) { cnode.size } else { new_sz };
+            cnode.transform = tf;
+            cnode.size = sz;
+            cnode.layout_child.record_stretched(kid.size, crate::layout_rotated::extent(&tf, sz), horiz, kid.stretches_cross());
+        }
+        let drifted = flow_indices.iter().zip(out.rects.iter()).any(|(&idx, r)| {
+            let n = &trial_kids[idx];
+            crate::layout_rotated::slot_drifted(&n.transform, n.size, *r)
+        });
+        if second_pass || !drifted {
+            break;
+        }
+        second_pass = true;
+    }
+}
+
+fn sync_trial_child_from_ref(doc: &Document, rc: &Node, ic: &mut Node, values: &BTreeMap<String, PropValue>) {
+    let slot_comp = instance_component(rc);
+    if matches!(ic.kind, NodeKind::Instance { .. }) && matches!(rc.kind, NodeKind::Instance { .. }) {
+        if let Some(followed) = follow_reference_variant_bindings(doc, ic, rc) {
+            *ic = followed;
+        }
+    }
+    let mut rn = rc.clone();
+    let mut swapped_here = false;
+    if let Some(cur) = instance_component(ic) {
+        let mut desired = cur;
+        if !ic.component.overrides.contains(&OverrideField::MainComponent) {
+            if let Some(rc_comp) = slot_comp {
+                desired = rc_comp;
+            }
+        }
+        let bindings: BTreeMap<_, _> = rc.component.bindings.iter().chain(ic.component.bindings.iter()).map(|(k, v)| (*k, v.clone())).collect();
+        let mut prop_target = false;
+        if let Some(PropValue::Instance(sw)) = bindings.get(&OverrideField::MainComponent).and_then(|p| values.get(p)) {
+            if matches!(doc.get(*sw).map(|n| &n.kind), Some(NodeKind::Component(_))) {
+                desired = *sw;
+                prop_target = true;
+            }
+        }
+        let mut choices = bound_variant_choices(doc, ic.id, ic, cur);
+        choices.retain(|name, _| !ic.component.variant_picks.contains(name));
+        if !choices.is_empty() && !prop_target {
+            if let Some(v) = variant_target_from(doc, desired, &choices) {
+                desired = v;
+            }
+        }
+        if desired != cur && !would_hold_itself(doc, desired, ic.id) {
+            swapped_here = true;
+            if let NodeKind::Instance { component, .. } = &mut ic.kind {
+                *component = Some(desired);
+            }
+        }
+        let mine = instance_component(ic);
+        if mine != slot_comp {
+            if let Some(root) = mine.and_then(|m| doc.get(m)).cloned() {
+                rn = root;
+            }
+        }
+    }
+    if instance_component(ic) != slot_comp {
+        let mut node_ref = rc.clone();
+        let orig_slot_comp = slot_comp.and_then(|oc| doc.get(oc));
+        let slot_ov = orig_slot_comp.map(|oc| record_override(oc, &node_ref)).unwrap_or_default();
+        if swapped_here {
+            if let Some(comp_node) = instance_component(ic).and_then(|m| doc.get(m)) {
+                node_ref.size = comp_node.size;
+            }
+        } else {
+            let keep_x = orig_slot_comp.is_some_and(|oc| (node_ref.size.x - oc.size.x).abs() > 1e-4);
+            let keep_y = orig_slot_comp.is_some_and(|oc| (node_ref.size.y - oc.size.y).abs() > 1e-4);
+            if !keep_x {
+                node_ref.size.x = rn.size.x;
+            }
+            if !keep_y {
+                node_ref.size.y = rn.size.y;
+            }
+        }
+        for f in [
+            OverrideField::Opacity,
+            OverrideField::Blend,
+            OverrideField::Fills,
+            OverrideField::Stroke,
+            OverrideField::Effects,
+            OverrideField::CornerRadii,
+            OverrideField::Layout,
+        ] {
+            if !node_ref.component.overrides.contains(&f) && !slot_ov.contains(&f) {
+                copy_field(f, &rn, &mut node_ref);
+            }
+        }
+        apply_reference(&node_ref, ic, false, values, false);
+    } else {
+        apply_reference(&rn, ic, false, values, false);
+    }
+    apply_bindings(ic, values);
+}
+
+fn parent_solve_signature(doc: &Document, parent: &Node, r_parent: &Node) -> u64 {
+    let holder = holder_of(doc, parent.id);
+    let values = doc.get(holder).map(|h| h.component.values.clone()).unwrap_or_default();
+    let mut p_node = parent.clone();
+    apply_reference(r_parent, &mut p_node, is_top(parent), &values, false);
+    apply_bindings(&mut p_node, &values);
+    p_node.size = parent.size;
+    p_node.transform = parent.transform;
+
+    let in_slot =
+        r_parent.component.bindings.contains_key(&OverrideField::SlotContent) || is_slot_container(doc, parent.id) || is_slot_container(doc, r_parent.id);
+    let mut by_src: BTreeMap<NodeId, NodeId> = BTreeMap::new();
+    for k in &parent.children {
+        if let Some(s) = doc.get(*k).and_then(|x| x.component.source) {
+            if in_slot {
+                by_src.entry(s).or_insert(*k);
+            } else {
+                by_src.insert(s, *k);
+            }
+        }
+    }
+
+    let child_holder = if matches!(parent.kind, NodeKind::Instance { .. }) { parent.id } else { holder };
+    let child_values = doc.get(child_holder).map(|h| h.component.values.clone()).unwrap_or_default();
+
+    let mut trial_kids: Vec<Node> = Vec::with_capacity(r_parent.children.len().max(parent.children.len()));
+    let mut matched_ids: BTreeSet<NodeId> = BTreeSet::new();
+    for rc_id in &r_parent.children {
+        if let Some(ic_id) = by_src.get(rc_id).copied() {
+            if let Some(mut ic) = doc.get(ic_id).cloned() {
+                matched_ids.insert(ic_id);
+                if let Some(rc) = doc.get(*rc_id) {
+                    sync_trial_child_from_ref(doc, rc, &mut ic, &child_values);
+                }
+                trial_kids.push(ic);
+                continue;
+            }
+        }
+        if let Some(rc) = doc.get(*rc_id) {
+            let mut ic = rc.clone();
+            ic.component.source = Some(*rc_id);
+            ic.component.overrides.clear();
+            apply_bindings(&mut ic, &child_values);
+            trial_kids.push(ic);
+        }
+    }
+    let rset: BTreeSet<NodeId> = r_parent.children.iter().copied().collect();
+    for k in &parent.children {
+        if matched_ids.contains(k) {
+            continue;
+        }
+        let Some(kn) = doc.get(*k) else { continue };
+        let stale = match kn.component.source {
+            Some(s) => !rset.contains(&s) || (in_slot && by_src.get(&s) != Some(k)),
+            None => in_slot,
+        };
+        if !stale {
+            trial_kids.push(kn.clone());
+        }
+    }
+
+    let has_al = p_node.kind.frame_props().is_some_and(|f| f.auto_layout.is_some());
+    let p_size = p_node.size;
+    constrain_trial_direct_children(&p_node, &mut trial_kids, r_parent.size, p_size);
+    if has_al && !matches!(p_node.kind, NodeKind::BooleanOp(_)) {
+        solve_trial_auto_layout(doc, &mut p_node, &mut trial_kids, r_parent.size, p_size);
+    }
+
+    let mut h = FnvHasher::new();
+    quantize_1024(p_node.size.x).hash(&mut h);
+    quantize_1024(p_node.size.y).hash(&mut h);
+    trial_kids.len().hash(&mut h);
+    for child in &trial_kids {
+        child.id.0.hash(&mut h);
+        child.component.source.map(|s| s.0).hash(&mut h);
+        quantize_1024(child.transform.a).hash(&mut h);
+        quantize_1024(child.transform.b).hash(&mut h);
+        quantize_1024(child.transform.c).hash(&mut h);
+        quantize_1024(child.transform.d).hash(&mut h);
+        quantize_1024(child.transform.tx).hash(&mut h);
+        quantize_1024(child.transform.ty).hash(&mut h);
+        quantize_1024(child.size.x).hash(&mut h);
+        quantize_1024(child.size.y).hash(&mut h);
+    }
+    match h.finish() {
+        0 => 1,
+        v => v,
+    }
+}
+
+fn top_instance_solve_signature(doc: &Document, n: &Node, r: &Node) -> u64 {
+    let mut p_node = n.clone();
+    apply_reference(r, &mut p_node, true, &n.component.values, false);
+    apply_bindings(&mut p_node, &n.component.values);
+    let resolved_p = crate::resolve_node(doc, &p_node);
+    let resolved_r = crate::resolve_node(doc, r);
+    let own_sizing = resolved_p
+        .kind
+        .frame_props()
+        .and_then(|f| f.auto_layout.as_ref())
+        .map(|al| (al.primary_is_horizontal(), al.primary_sizing as u8, al.counter_sizing as u8));
+    let mut h = FnvHasher::new();
+    own_sizing.hash(&mut h);
+    quantize_1024(resolved_p.size.x).hash(&mut h);
+    quantize_1024(resolved_p.size.y).hash(&mut h);
+    quantize_1024(resolved_r.size.x).hash(&mut h);
+    quantize_1024(resolved_r.size.y).hash(&mut h);
+    match h.finish() {
+        0 => 1,
+        v => v,
+    }
+}
+
+fn derived_layout_fingerprint_with_cache(
+    doc: &Document,
+    r: &Node,
+    r_parent: Option<&Node>,
+    n: &Node,
+    parent: Option<&Node>,
+    parent_solve_sigs: &mut HashMap<(NodeId, u32, u32), u64>,
+) -> u64 {
+    if let (Some(p), Some(rp)) = (parent, r_parent) {
+        let key = (p.id, p.size.x.to_bits(), p.size.y.to_bits());
+        *parent_solve_sigs.entry(key).or_insert_with(|| parent_solve_signature(doc, p, rp))
+    } else {
+        top_instance_solve_signature(doc, n, r)
+    }
+}
+
+/// Records the current size, transform and solver-output fingerprint of instance layer `id` so a later sync keeps
+/// its imported geometry while our solver's output for its parent remains unchanged, reusing cached parent signatures.
+pub fn record_derived_layout_with_cache(doc: &mut Document, id: NodeId, parent_solve_sigs: &mut HashMap<(NodeId, u32, u32), u64>) {
+    let Some((size, transform, parent_id, top)) = doc.get(id).map(|n| (n.size, n.transform, n.parent, is_top(n))) else {
+        return;
+    };
+    let Some(r) = reference_of(doc, id).and_then(|rid| doc.get(rid)) else {
+        return;
+    };
+    let (ref_size, ref_transform) = (r.size, r.transform);
+    let r_parent = if top { None } else { r.parent.and_then(|pid| doc.get(pid)) };
+    let parent = if top { None } else { parent_id.and_then(|pid| doc.get(pid)) };
+    let parent_size = parent.map(|p| p.size);
+    let Some(n_ref) = doc.get(id) else {
+        return;
+    };
+    let fingerprint = derived_layout_fingerprint_with_cache(doc, r, r_parent, n_ref, parent, parent_solve_sigs);
+    if let Some(n) = doc.get_mut(id) {
+        n.component.derived =
+            Some(DerivedLayout { size, transform, ref_size, ref_transform, parent_size, fingerprint, solver_version: DERIVED_SOLVER_VERSION });
+    }
+}
+
+/// Records the current size, transform and solver-output fingerprint of instance layer `id` so a later sync keeps
+/// its imported geometry while our solver's output for its parent remains unchanged.
+pub fn record_derived_layout(doc: &mut Document, id: NodeId) {
+    let mut cache = HashMap::new();
+    record_derived_layout_with_cache(doc, id, &mut cache);
+}
+
+fn same_vec2(a: Vec2, b: Vec2) -> bool {
+    (a.x - b.x).abs() <= 1e-3 && (a.y - b.y).abs() <= 1e-3
+}
+
+fn same_affine(a: Affine, b: Affine) -> bool {
+    (a.a - b.a).abs() <= 1e-3
+        && (a.b - b.b).abs() <= 1e-3
+        && (a.c - b.c).abs() <= 1e-3
+        && (a.d - b.d).abs() <= 1e-3
+        && (a.tx - b.tx).abs() <= 1e-3
+        && (a.ty - b.ty).abs() <= 1e-3
+}
+
+fn derived_matches_ref(
+    d: &Document,
+    r: &Node,
+    r_parent: Option<&Node>,
+    n: &Node,
+    parent: Option<&Node>,
+    parent_solve_sigs: &mut HashMap<(NodeId, u32, u32), u64>,
+) -> bool {
+    let Some(dl) = n.component.derived else { return false };
+    // A fingerprint of 0 exists only in files saved by an earlier commit of an unreleased branch; treat 0 as invalid so the solver runs.
+    if dl.fingerprint == 0 {
+        return false;
+    }
+    let boxes_match = same_vec2(n.size, dl.size)
+        && same_affine(n.transform, dl.transform)
+        && same_vec2(r.size, dl.ref_size)
+        && same_affine(r.transform, dl.ref_transform)
+        && match (parent.map(|p| p.size), dl.parent_size) {
+            (Some(a), Some(b)) => same_vec2(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+    if !boxes_match {
+        return false;
+    }
+    // A derived record still present at save time under a different solver version is valid by construction;
+    // sync refreshes its fingerprint to the current DERIVED_SOLVER_VERSION so subsequent syncs compare against it.
+    if dl.solver_version != DERIVED_SOLVER_VERSION {
+        return true;
+    }
+    dl.fingerprint == derived_layout_fingerprint_with_cache(d, r, r_parent, n, parent, parent_solve_sigs)
+}
+
+fn derived_valid_in(d: &Document, n: &Node, parent_solve_sigs: &mut HashMap<(NodeId, u32, u32), u64>) -> bool {
+    let Some(r) = reference_of(d, n.id).and_then(|rid| d.get(rid)) else { return false };
+    let top = is_top(n);
+    let r_parent = if top { None } else { r.parent.and_then(|pid| d.get(pid)) };
+    let parent = if top { None } else { n.parent.and_then(|pid| d.get(pid)) };
+    derived_matches_ref(d, r, r_parent, n, parent, parent_solve_sigs)
+}
+
 /// Copies every field of `r` that `n` does not override onto `n`.
-fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, PropValue>) {
+fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, PropValue>, keep_derived: bool) {
     let ov = n.component.overrides.clone();
+    let own_layout_child = n.layout_child;
     let own_arc_before = match &n.kind {
         NodeKind::Ellipse(a) => Some(*a),
         _ => None,
@@ -1557,6 +2051,9 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
         };
         (fills, n.style_refs.get("fill").cloned())
     });
+    if !keep_derived {
+        n.component.derived = None;
+    }
     for f in OverrideField::ALL {
         if f == OverrideField::Size
             && ov.contains(&OverrideField::Size)
@@ -1609,6 +2106,12 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
         if top && matches!(f, OverrideField::Name | OverrideField::Transform | OverrideField::Visible | OverrideField::Locked) {
             continue;
         }
+        if keep_derived && matches!(f, OverrideField::Size | OverrideField::Transform) {
+            continue;
+        }
+        if keep_derived && f == OverrideField::Stroke && r.stroke.paints.is_empty() && n.stroke.paints.is_empty() {
+            continue;
+        }
         if f == OverrideField::Name && matches!(n.kind, NodeKind::Instance { .. }) {
             continue;
         }
@@ -1658,6 +2161,8 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
                 n.layout_child.grid_align_v = r.layout_child.grid_align_v;
             }
         }
+    } else {
+        n.layout_child = own_layout_child;
     }
     n.is_mask = r.is_mask;
     n.mask_type = r.mask_type;
@@ -1691,6 +2196,7 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
         (NodeKind::Text(_), NodeKind::Text(_)) => {}
         (a, b) if a.frame_props().is_some() && b.frame_props().is_some() => {}
         (NodeKind::Ellipse(_), NodeKind::Ellipse(_)) if ov.contains(&OverrideField::Arc) => {}
+        (NodeKind::Vector { .. }, NodeKind::Vector { .. }) if keep_derived => {}
         (a, b) if std::mem::discriminant(a) == std::mem::discriminant(b) => n.kind = a.clone(),
         (a, _) => n.kind = a.clone(),
     }
@@ -2869,6 +3375,20 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
 
     // --- node properties ---
     let mut n = inode.clone();
+    let keep_derived = !swapped_here && derived_valid_in(c.s, &n, &mut c.parent_solve_sigs);
+    if keep_derived {
+        if let Some(mut dl) = n.component.derived {
+            if dl.solver_version != DERIVED_SOLVER_VERSION {
+                if let Some(r_node) = reference_of(c.s, n.id).and_then(|rid| c.s.get(rid)) {
+                    let r_parent = if top { None } else { r_node.parent.and_then(|pid| c.s.get(pid)) };
+                    let parent = if top { None } else { n.parent.and_then(|pid| c.s.get(pid)) };
+                    dl.fingerprint = derived_layout_fingerprint_with_cache(c.s, r_node, r_parent, &n, parent, &mut c.parent_solve_sigs);
+                    dl.solver_version = DERIVED_SOLVER_VERSION;
+                    n.component.derived = Some(dl);
+                }
+            }
+        }
+    }
     let eff_constraints = if inode.component.overrides.contains(&OverrideField::Layout) { inode.constraints } else { slot_constraints };
     let eff_layout_child = if inode.component.overrides.contains(&OverrideField::Layout) { inode.layout_child } else { slot_layout_child };
     let in_auto_layout_flow =
@@ -2905,14 +3425,14 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
                     copy_field(f, &rn, &mut node_ref);
                 }
             }
-            apply_reference(&node_ref, &mut n, top, &values);
+            apply_reference(&node_ref, &mut n, top, &values, keep_derived);
         } else {
-            apply_reference(&rn, &mut n, top, &values);
+            apply_reference(&rn, &mut n, top, &values, keep_derived);
         }
     } else {
-        apply_reference(&rn, &mut n, top, &values);
+        apply_reference(&rn, &mut n, top, &values, keep_derived);
     }
-    if sync_root && !top && !swapped_here {
+    if sync_root && !top && !swapped_here && !keep_derived {
         if let Some((instance_parent_size, main_parent_size)) =
             c.s.get(i)
                 .and_then(|node| node.parent)
@@ -3060,9 +3580,13 @@ fn apply_instance_constraints(c: &mut Ctx, parent: NodeId, old: Vec2, new: Vec2,
                 continue;
             }
             let Some(mut child) = c.s.get(cid).cloned() else { continue };
-            let tf = if child.component.overrides.contains(&OverrideField::Transform) { child.transform } else { new_tf };
-            let sz = if child.component.overrides.contains(&OverrideField::Size) { child.size } else { new_sz };
-            if tf != child.transform || sz != child.size {
+            let keep_derived = derived_valid_in(c.s, &child, &mut c.parent_solve_sigs);
+            if !keep_derived {
+                child.component.derived = None;
+            }
+            let tf = if child.component.overrides.contains(&OverrideField::Transform) || keep_derived { child.transform } else { new_tf };
+            let sz = if child.component.overrides.contains(&OverrideField::Size) || keep_derived { child.size } else { new_sz };
+            if tf != child.transform || sz != child.size || !keep_derived {
                 crate::layout_constraints::apply_constrained_geometry(&mut child, tf, sz);
                 c.update(child);
             }
@@ -3085,11 +3609,15 @@ fn constrain_direct_children(c: &mut Ctx, parent: NodeId, old: Vec2, new: Vec2, 
             continue;
         }
         let Some(mut child) = c.s.get(cid).cloned() else { continue };
-        let old_child = child.size;
+        let keep_derived = derived_valid_in(c.s, &child, &mut c.parent_solve_sigs);
+        if !keep_derived {
+            child.component.derived = None;
+        }
+        let old_child = if keep_derived { reference_of(c.s, cid).and_then(|r| c.s.get(r)).map(|rn| rn.size).unwrap_or(child.size) } else { child.size };
         let is_container = child.kind.is_container();
-        let tf = if child.component.overrides.contains(&OverrideField::Transform) { child.transform } else { new_tf };
-        let sz = if child.component.overrides.contains(&OverrideField::Size) { child.size } else { new_sz };
-        if tf != child.transform || sz != child.size {
+        let tf = if child.component.overrides.contains(&OverrideField::Transform) || keep_derived { child.transform } else { new_tf };
+        let sz = if child.component.overrides.contains(&OverrideField::Size) || keep_derived { child.size } else { new_sz };
+        if tf != child.transform || sz != child.size || !keep_derived {
             crate::layout_constraints::apply_constrained_geometry(&mut child, tf, sz);
             c.update(child);
         }
@@ -3145,20 +3673,26 @@ fn solve_instance_auto_layout(c: &mut Ctx, root: NodeId, old: Vec2, new: Vec2, d
         };
         if ((out.frame.x - frame_size.x).abs() > 1e-3 || (out.frame.y - frame_size.y).abs() > 1e-3)
             && !frame_node.component.overrides.contains(&OverrideField::Size)
+            && !derived_valid_in(c.s, &frame_node, &mut c.parent_solve_sigs)
         {
             let mut fnode = frame_node;
+            fnode.component.derived = None;
             fnode.size = out.frame;
             c.update(fnode);
             constrain_direct_children(c, root, frame_size, out.frame, depth);
         }
         for ((cid, kid), r) in flow_ids.iter().zip(&kids).zip(&out.rects) {
             let Some(mut cnode) = c.s.get(*cid).cloned() else { continue };
-            let old_child = cnode.size;
+            let keep_derived = derived_valid_in(c.s, &cnode, &mut c.parent_solve_sigs);
+            if !keep_derived {
+                cnode.component.derived = None;
+            }
+            let old_child = if keep_derived { reference_of(c.s, *cid).and_then(|r| c.s.get(r)).map(|rn| rn.size).unwrap_or(cnode.size) } else { cnode.size };
             let is_container = cnode.kind.is_container();
             let write = crate::layout_rotated::slot_write(&cnode.transform, cnode.size, *r);
             let (new_tf, new_sz) = (write.transform, write.size);
-            let tf = if cnode.component.overrides.contains(&OverrideField::Transform) { cnode.transform } else { new_tf };
-            let sz = if cnode.component.overrides.contains(&OverrideField::Size) { cnode.size } else { new_sz };
+            let tf = if cnode.component.overrides.contains(&OverrideField::Transform) || keep_derived { cnode.transform } else { new_tf };
+            let sz = if cnode.component.overrides.contains(&OverrideField::Size) || keep_derived { cnode.size } else { new_sz };
             let size_changed = (sz.x - old_child.x).abs() > 1e-3 || (sz.y - old_child.y).abs() > 1e-3;
             if size_changed
                 && matches!(
@@ -3177,7 +3711,9 @@ fn solve_instance_auto_layout(c: &mut Ctx, root: NodeId, old: Vec2, new: Vec2, d
                 cnode.transform = tf;
                 cnode.size = sz;
             }
-            cnode.layout_child.record_stretched(kid.size, crate::layout_rotated::extent(&tf, sz), horiz, kid.stretches_cross());
+            if !keep_derived {
+                cnode.layout_child.record_stretched(kid.size, crate::layout_rotated::extent(&tf, sz), horiz, kid.stretches_cross());
+            }
             c.update(cnode);
             if size_changed && is_container {
                 apply_instance_constraints(c, *cid, old_child, sz, depth - 1);
@@ -12529,5 +13065,147 @@ mod tests {
             expected_c_sub,
             "returning text uses same_text_sizing and keeps target C's box when fontSize binding differs"
         );
+    }
+
+    #[test]
+    fn no_change_sync_keeps_derived_layout_and_solver_output_change_drops_it() {
+        let mut d = Document::new("test");
+        let page = d.add_page("Page 1");
+
+        let comp = d.alloc_id();
+        let mut comp_node = Node::new(
+            comp,
+            NodeKind::Component(FrameProps {
+                auto_layout: Some(AutoLayout {
+                    direction: LayoutDirection::Horizontal,
+                    padding: [8.0, 10.0, 8.0, 10.0],
+                    item_spacing: 8.0,
+                    stroke_included: true,
+                    layout_version: 0,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+        );
+        comp_node.name = "Row".into();
+        comp_node.size = Vec2::new(100.0, 40.0);
+        comp_node.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        comp_node.stroke.weight = 8.0;
+        comp_node.stroke.align = StrokeAlign::Inside;
+        apply(&mut d, Command::Insert { parent: page, index: 0, nodes: vec![comp_node] });
+
+        let main_badge = d.alloc_id();
+        let mut badge_node = Node::new(main_badge, NodeKind::Rectangle);
+        badge_node.name = "Badge".into();
+        badge_node.size = Vec2::new(20.0, 24.0);
+        badge_node.transform = Affine::translate(18.0, 16.0);
+        apply(&mut d, Command::Insert { parent: comp, index: 0, nodes: vec![badge_node] });
+
+        let main_fill = d.alloc_id();
+        let mut fill_node = Node::new(main_fill, NodeKind::Frame(FrameProps::default()));
+        fill_node.name = "Inner".into();
+        fill_node.size = Vec2::new(36.0, 24.0);
+        fill_node.transform = Affine::translate(46.0, 16.0);
+        fill_node.layout_child.horizontal = Sizing::Fill;
+        fill_node.layout_child.grow = 1.0;
+        apply(&mut d, Command::Insert { parent: comp, index: 1, nodes: vec![fill_node] });
+
+        let c = create_instance(&mut d, comp, page, Vec2::new(200.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let inst_badge = d.get(inst).unwrap().children[0];
+        let inst_fill = d.get(inst).unwrap().children[1];
+
+        d.get_mut(inst).unwrap().size = Vec2::new(160.0, 40.0);
+        d.get_mut(inst_badge).unwrap().size = Vec2::new(20.0, 24.0);
+        d.get_mut(inst_badge).unwrap().transform = Affine::translate(18.0, 16.0);
+        // Figma derived width (98.0) differs slightly from our solver's 96.0 (160 - 18 - 18 - 20 - 8).
+        d.get_mut(inst_fill).unwrap().size = Vec2::new(98.0, 24.0);
+        d.get_mut(inst_fill).unwrap().transform = Affine::translate(46.0, 16.0);
+
+        record_derived_layout(&mut d, inst);
+        record_derived_layout(&mut d, inst_badge);
+        record_derived_layout(&mut d, inst_fill);
+
+        // No-change sync keeps Figma's derived width (98.0) instead of overwriting with our solver's 96.0.
+        let sync_noop = sync_instances(&mut d, comp);
+        apply(&mut d, sync_noop);
+        assert_eq!(d.get(inst_fill).unwrap().size, Vec2::new(98.0, 24.0));
+        assert!(d.get(inst_fill).unwrap().component.derived.is_some());
+
+        // Changing stroke paint opacity from 1.0 to 0.0 collapses the 8px inside stroke inset,
+        // changing our solver's output to 112.0 (160 - 10 - 10 - 20 - 8) and dropping the derived record.
+        d.get_mut(comp).unwrap().stroke.paints[0].opacity = 0.0;
+        let sync_changed = sync_instances(&mut d, comp);
+        apply(&mut d, sync_changed);
+        assert!(d.get(inst_fill).unwrap().component.derived.is_none());
+        assert_eq!(d.get(inst_fill).unwrap().transform, Affine::translate(38.0, 8.0));
+        assert_eq!(d.get(inst_fill).unwrap().size, Vec2::new(112.0, 24.0));
+    }
+
+    #[test]
+    fn solver_version_mismatch_recomputes_fingerprint_on_sync_without_dropping_derived_layout() {
+        let mut d = Document::new("test");
+        let page = d.add_page("Page 1");
+
+        let comp = d.alloc_id();
+        let mut comp_node = Node::new(
+            comp,
+            NodeKind::Component(FrameProps {
+                auto_layout: Some(AutoLayout {
+                    direction: LayoutDirection::Horizontal,
+                    padding: [8.0, 10.0, 8.0, 10.0],
+                    item_spacing: 8.0,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+        );
+        comp_node.name = "Row".into();
+        comp_node.size = Vec2::new(100.0, 40.0);
+        apply(&mut d, Command::Insert { parent: page, index: 0, nodes: vec![comp_node] });
+
+        let main_fill = d.alloc_id();
+        let mut fill_node = Node::new(main_fill, NodeKind::Frame(FrameProps::default()));
+        fill_node.name = "Inner".into();
+        fill_node.size = Vec2::new(80.0, 24.0);
+        fill_node.transform = Affine::translate(10.0, 8.0);
+        fill_node.layout_child.horizontal = Sizing::Fill;
+        fill_node.layout_child.grow = 1.0;
+        apply(&mut d, Command::Insert { parent: comp, index: 0, nodes: vec![fill_node] });
+
+        let c = create_instance(&mut d, comp, page, Vec2::new(200.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let inst_fill = d.get(inst).unwrap().children[0];
+
+        d.get_mut(inst).unwrap().size = Vec2::new(160.0, 40.0);
+        d.get_mut(inst_fill).unwrap().size = Vec2::new(142.0, 24.0);
+        d.get_mut(inst_fill).unwrap().transform = Affine::translate(10.0, 8.0);
+        record_derived_layout(&mut d, inst);
+        record_derived_layout(&mut d, inst_fill);
+
+        let expected_fp = d.get(inst_fill).unwrap().component.derived.unwrap().fingerprint;
+        {
+            let dl = d.get_mut(inst_fill).unwrap().component.derived.as_mut().unwrap();
+            dl.fingerprint = 0xdead_beef_cafe_babe;
+            dl.solver_version = DERIVED_SOLVER_VERSION + 1;
+        }
+
+        // First sync after opening a file from a different solver version keeps the derived layout
+        // and upgrades its fingerprint + solver_version in place.
+        let sync1 = sync_instances(&mut d, comp);
+        apply(&mut d, sync1);
+        assert_eq!(d.get(inst_fill).unwrap().size, Vec2::new(142.0, 24.0));
+        let upgraded = d.get(inst_fill).unwrap().component.derived.expect("derived kept");
+        assert_eq!(upgraded.solver_version, DERIVED_SOLVER_VERSION);
+        assert_eq!(upgraded.fingerprint, expected_fp);
+
+        // A subsequent layout edit on main now invalidates the upgraded fingerprint and re-solves.
+        d.get_mut(comp).unwrap().kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().padding = [8.0, 20.0, 8.0, 20.0];
+        let sync2 = sync_instances(&mut d, comp);
+        apply(&mut d, sync2);
+        assert!(d.get(inst_fill).unwrap().component.derived.is_none());
+        assert_eq!(d.get(inst_fill).unwrap().size, Vec2::new(120.0, 24.0));
     }
 }

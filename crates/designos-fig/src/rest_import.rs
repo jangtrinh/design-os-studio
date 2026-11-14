@@ -940,6 +940,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
     crate::variables::import_variables_value(&mut cx.doc, &v);
     designos_doc::settle_bound_props(&mut cx.doc);
     apply_style_node_values(&mut cx.doc, v.get("styles"));
+    refresh_all_derived_layouts(&mut cx.doc);
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
     let missing_variable_bindings = count_missing_variable_bindings(&cx.doc);
     drop(v);
@@ -1086,6 +1087,7 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
     crate::variables::import_variables_value(&mut cx.doc, v);
     designos_doc::settle_bound_props(&mut cx.doc);
     apply_style_node_values(&mut cx.doc, v.get("styles"));
+    refresh_all_derived_layouts(&mut cx.doc);
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
     let missing_variable_bindings = count_missing_variable_bindings(&cx.doc);
     let report = ImportReport {
@@ -2954,6 +2956,7 @@ impl<'a> Ctx<'a> {
                     }
                     designos_doc::apply_constrained_geometry(km, new_transform, new_size);
                 }
+                mark_derived(&mut self.doc, c);
             }
         }
     }
@@ -2961,7 +2964,18 @@ impl<'a> Ctx<'a> {
     /// Applies `.fig` `symbolOverrides` and then `derivedSymbolData` to the
     /// instance's copied subtree.
     fn apply_overrides(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> Result<(), FigError> {
-        let Some(mut ov) = self.overrides.remove(&inst) else { return Ok(()) };
+        mark_derived(&mut self.doc, inst);
+        let inst_resized = self
+            .doc
+            .get(inst)
+            .and_then(|n| Some((n.size, self.doc.get(n.component.source?)?.size)))
+            .is_some_and(|(a, b)| (a.x - b.x).abs() > 1e-4 || (a.y - b.y).abs() > 1e-4);
+        let Some(mut ov) = self.overrides.remove(&inst) else {
+            if inst_resized {
+                mark_derived_subtree(&mut self.doc, inst);
+            }
+            return Ok(());
+        };
         let mut subtree_maps: HashMap<NodeId, HashMap<String, NodeId>> = HashMap::new();
         let mut explicitly_sized: HashSet<NodeId> = HashSet::new();
         for e in &ov.set {
@@ -2978,6 +2992,7 @@ impl<'a> Ctx<'a> {
         for e in &ov.derived {
             if let Some(t) = self.resolve_path_cached(inst, &e.path, &mut subtree_maps) {
                 let _ = self.apply_override(t, &e.set, true, targets, done, &mut explicitly_sized)?;
+                mark_derived(&mut self.doc, t);
             }
         }
         ov.fast_derived.sort_by_key(|d| d.path.len());
@@ -2985,6 +3000,9 @@ impl<'a> Ctx<'a> {
             if let Some(t) = self.resolve_path_cached(inst, &d.path, &mut subtree_maps) {
                 self.apply_fast_derived(t, d, &mut explicitly_sized);
             }
+        }
+        if inst_resized && ov.derived.is_empty() && ov.fast_derived.is_empty() {
+            mark_derived_subtree(&mut self.doc, inst);
         }
         Ok(())
     }
@@ -3074,6 +3092,7 @@ impl<'a> Ctx<'a> {
             }
             n.stroke_geometry = Some(g);
         }
+        mark_derived(&mut self.doc, id);
     }
 
     fn source_tail_of(&self, mut id: NodeId) -> Option<&str> {
@@ -3782,6 +3801,50 @@ impl<'a> Ctx<'a> {
     }
 }
 
+fn mark_derived(doc: &mut Document, id: NodeId) {
+    if let Some(n) = doc.get_mut(id) {
+        n.component.derived.get_or_insert_with(DerivedLayout::default);
+    }
+}
+
+fn mark_derived_subtree(doc: &mut Document, root: NodeId) {
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        let Some(children) = doc.get_mut(id).map(|n| {
+            n.component.derived.get_or_insert_with(DerivedLayout::default);
+            n.children.clone()
+        }) else {
+            continue;
+        };
+        stack.extend(children);
+    }
+}
+
+fn refresh_existing_derived_in_subtrees(doc: &mut Document, roots: &[NodeId]) {
+    let mut parent_solve_sigs: HashMap<(NodeId, u32, u32), u64> = HashMap::new();
+    let mut stack: Vec<NodeId> = roots.to_vec();
+    while let Some(id) = stack.pop() {
+        let Some((has_derived, children)) = doc.get(id).map(|n| (n.component.derived.is_some(), n.children.clone())) else {
+            continue;
+        };
+        if has_derived {
+            designos_doc::record_derived_layout_with_cache(doc, id, &mut parent_solve_sigs);
+        }
+        stack.extend(children);
+    }
+}
+
+fn refresh_all_derived_layouts(doc: &mut Document) {
+    let derived_ids: Vec<NodeId> = doc.nodes.values().filter(|n| n.component.derived.is_some()).map(|n| n.id).collect();
+    if derived_ids.is_empty() {
+        return;
+    }
+    let mut parent_solve_sigs: HashMap<(NodeId, u32, u32), u64> = HashMap::new();
+    for id in derived_ids {
+        designos_doc::record_derived_layout_with_cache(doc, id, &mut parent_solve_sigs);
+    }
+}
+
 struct DeferredFigHydrator {
     pending_by_page: HashMap<NodeId, Vec<NodeId>>,
     hydrated_pages: HashSet<NodeId>,
@@ -3951,6 +4014,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             }
         }
         cx.mark_custom_instance_slots();
+        refresh_existing_derived_in_subtrees(&mut cx.doc, &insts);
         if cx.next_clone > 1 {
             cx.doc.reserve_ids(NodeId(cx.next_clone - 1));
         }
@@ -5418,5 +5482,1105 @@ mod grid_sizing_tests {
                 GridTrack::Flex(1.0),
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod derived_layout_sync_tests {
+    use crate::container::{self, Compression};
+    use crate::kiwi::KiwiValue as V;
+    use crate::testkit::{en, figma_like_schema, fl, guid, matrix, msg, node, solid, st, vec2};
+    use designos_doc::{
+        record_derived_layout, reset_instance, sync_instances, Affine, AutoLayout, BlendMode, Color, Command, Constraint, Document, Effect, GridTrack,
+        LayoutDirection, Node, NodeId, NodeKind, OverrideField, Paint, Sizing, StrokeAlign, TextAutoResize, TextProps, TextStyle, Variable, VariableCollection,
+        VariableKind, VariableMode, VariableValue, Vec2, VectorNetwork, DERIVED_SOLVER_VERSION,
+    };
+
+    fn rect_blob(w: f32, h: f32) -> Vec<u8> {
+        let mut b = Vec::new();
+        for (op, pts) in [(1u8, &[0.0f32, 0.0][..]), (2, &[w, 0.0]), (2, &[w, h]), (2, &[0.0, h])] {
+            b.push(op);
+            for p in pts {
+                b.extend(p.to_le_bytes());
+            }
+        }
+        b.push(0);
+        b
+    }
+
+    fn resized_icon_instance_fig() -> Vec<u8> {
+        let changes = vec![
+            node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
+            node((0, 1), (0, 0), "a", "CANVAS", "Page 1", vec![]),
+            node((1, 1), (0, 1), "a", "SYMBOL", "Icon", vec![("size", vec2(16.0, 16.0)), ("transform", matrix(0.0, 0.0))]),
+            node(
+                (1, 2),
+                (1, 1),
+                "a",
+                "VECTOR",
+                "Glyph",
+                vec![
+                    ("size", vec2(16.0, 16.0)),
+                    ("transform", matrix(0.0, 0.0)),
+                    ("horizontalConstraint", en("SCALE")),
+                    ("verticalConstraint", en("SCALE")),
+                    ("fillPaints", V::Array(vec![solid(0.1, 0.2, 0.3)])),
+                    ("fillGeometry", V::Array(vec![msg(vec![("windingRule", en("NONZERO")), ("commandsBlob", V::Uint(0))])])),
+                ],
+            ),
+            node(
+                (2, 1),
+                (0, 1),
+                "b",
+                "INSTANCE",
+                "Icon instance",
+                vec![
+                    ("size", vec2(24.0, 24.0)),
+                    ("transform", matrix(40.0, 10.0)),
+                    ("symbolData", msg(vec![("symbolID", guid(1, 1))])),
+                    (
+                        "derivedSymbolData",
+                        V::Array(vec![msg(vec![
+                            ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 2)]))])),
+                            ("size", vec2(24.0, 24.0)),
+                            ("transform", matrix(0.0, 0.0)),
+                            ("fillGeometry", V::Array(vec![msg(vec![("windingRule", en("NONZERO")), ("commandsBlob", V::Uint(1))])])),
+                        ])]),
+                    ),
+                ],
+            ),
+        ];
+        let schema = figma_like_schema();
+        let root = schema.find("Message").expect("Message in schema");
+        let body = schema
+            .encode_message(
+                root,
+                &msg(vec![
+                    ("nodeChanges", V::Array(changes)),
+                    ("blobs", V::Array(vec![st(vec![("bytes", V::Bytes(rect_blob(16.0, 16.0)))]), st(vec![("bytes", V::Bytes(rect_blob(24.0, 24.0)))])])),
+                ]),
+            )
+            .expect("encode fig message");
+        container::write_container(&schema.encode(), &body, Compression::Zstd, 106)
+    }
+
+    fn resized_auto_layout_instance_fig() -> Vec<u8> {
+        let changes = vec![
+            node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
+            node((0, 1), (0, 0), "a", "CANVAS", "Page 1", vec![]),
+            node(
+                (1, 1),
+                (0, 1),
+                "a",
+                "SYMBOL",
+                "Row",
+                vec![
+                    ("size", vec2(100.0, 40.0)),
+                    ("transform", matrix(0.0, 0.0)),
+                    ("stackMode", en("HORIZONTAL")),
+                    ("stackSpacing", fl(8.0)),
+                    ("stackHorizontalPadding", fl(10.0)),
+                    ("stackPaddingRight", fl(10.0)),
+                    ("stackVerticalPadding", fl(8.0)),
+                    ("stackPaddingBottom", fl(8.0)),
+                ],
+            ),
+            node((1, 2), (1, 1), "a", "RECTANGLE", "Badge", vec![("size", vec2(20.0, 24.0)), ("transform", matrix(10.0, 8.0))]),
+            node((1, 3), (1, 1), "b", "FRAME", "Inner", vec![("size", vec2(52.0, 24.0)), ("transform", matrix(38.0, 8.0)), ("stackChildPrimaryGrow", fl(1.0))]),
+            node(
+                (2, 1),
+                (0, 1),
+                "b",
+                "INSTANCE",
+                "Row instance",
+                vec![
+                    ("size", vec2(160.0, 40.0)),
+                    ("transform", matrix(24.0, 32.0)),
+                    ("stackMode", en("HORIZONTAL")),
+                    ("stackSpacing", fl(8.0)),
+                    ("stackHorizontalPadding", fl(10.0)),
+                    ("stackPaddingRight", fl(10.0)),
+                    ("stackVerticalPadding", fl(8.0)),
+                    ("stackPaddingBottom", fl(8.0)),
+                    ("symbolData", msg(vec![("symbolID", guid(1, 1))])),
+                    (
+                        "derivedSymbolData",
+                        V::Array(vec![
+                            msg(vec![
+                                ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 2)]))])),
+                                ("size", vec2(20.0, 24.0)),
+                                ("transform", matrix(10.0, 8.0)),
+                            ]),
+                            msg(vec![
+                                ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 3)]))])),
+                                ("size", vec2(112.0, 24.0)),
+                                ("transform", matrix(38.0, 8.0)),
+                            ]),
+                        ]),
+                    ),
+                ],
+            ),
+        ];
+        let schema = figma_like_schema();
+        let root = schema.find("Message").expect("Message in schema");
+        let body = schema.encode_message(root, &msg(vec![("nodeChanges", V::Array(changes))])).expect("encode fig message");
+        container::write_container(&schema.encode(), &body, Compression::Zstd, 106)
+    }
+
+    fn resized_variant_instance_fig() -> Vec<u8> {
+        let changes = vec![
+            node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
+            node((0, 1), (0, 0), "a", "CANVAS", "Page 1", vec![]),
+            node((1, 1), (0, 1), "a", "FRAME", "Button", vec![("size", vec2(200.0, 100.0)), ("transform", matrix(0.0, 0.0)), ("isStateGroup", V::Bool(true))]),
+            node((1, 2), (1, 1), "a", "SYMBOL", "Size=md", vec![("size", vec2(100.0, 40.0)), ("transform", matrix(0.0, 0.0))]),
+            node(
+                (1, 3),
+                (1, 2),
+                "a",
+                "FRAME",
+                "Inner",
+                vec![
+                    ("size", vec2(80.0, 24.0)),
+                    ("transform", matrix(10.0, 8.0)),
+                    ("horizontalConstraint", en("STRETCH")),
+                    ("verticalConstraint", en("CENTER")),
+                ],
+            ),
+            node(
+                (1, 4),
+                (1, 3),
+                "a",
+                "TEXT",
+                "Label",
+                vec![
+                    ("size", vec2(60.0, 16.0)),
+                    ("transform", matrix(10.0, 4.0)),
+                    ("horizontalConstraint", en("STRETCH")),
+                    ("textAutoResize", en("HEIGHT")),
+                    ("textData", msg(vec![("characters", V::String("Hello".into()))])),
+                    ("fontSize", fl(14.0)),
+                ],
+            ),
+            node(
+                (2, 1),
+                (0, 1),
+                "b",
+                "INSTANCE",
+                "Button instance",
+                vec![
+                    ("size", vec2(160.0, 40.0)),
+                    ("transform", matrix(24.0, 32.0)),
+                    ("symbolData", msg(vec![("symbolID", guid(1, 2))])),
+                    (
+                        "derivedSymbolData",
+                        V::Array(vec![
+                            msg(vec![
+                                ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 3)]))])),
+                                ("size", vec2(140.0, 24.0)),
+                                ("transform", matrix(10.0, 8.0)),
+                            ]),
+                            msg(vec![
+                                ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 3), guid(1, 4)]))])),
+                                ("size", vec2(120.0, 20.0)),
+                                ("transform", matrix(10.0, 2.0)),
+                            ]),
+                        ]),
+                    ),
+                ],
+            ),
+        ];
+        let schema = figma_like_schema();
+        let root = schema.find("Message").expect("Message in schema");
+        let body = schema.encode_message(root, &msg(vec![("nodeChanges", V::Array(changes))])).expect("encode fig message");
+        container::write_container(&schema.encode(), &body, Compression::Zstd, 106)
+    }
+
+    fn ids(doc: &Document) -> (NodeId, NodeId, NodeId, NodeId) {
+        let set = doc.nodes.values().find(|n| n.name == "Button" && matches!(n.kind, NodeKind::ComponentSet(_))).expect("Button component set").id;
+        let inst = doc.nodes.values().find(|n| n.name == "Button instance" && matches!(n.kind, NodeKind::Instance { .. })).expect("Button instance").id;
+        let inner = doc.get(inst).unwrap().children[0];
+        let text = doc.get(inner).unwrap().children[0];
+        (set, inst, inner, text)
+    }
+
+    #[test]
+    fn no_change_sync_keeps_imported_instance_sizes_and_transforms() {
+        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
+        let (set, inst, inner, text) = ids(&doc);
+        let layers_before = doc.nodes.len();
+        let before = (doc.get(inst).unwrap().clone(), doc.get(inner).unwrap().clone(), doc.get(text).unwrap().clone());
+        assert_eq!(before.0.size, Vec2::new(160.0, 40.0));
+        assert_eq!(before.0.transform, Affine::translate(24.0, 32.0));
+        assert_eq!(before.1.size, Vec2::new(140.0, 24.0));
+        assert_eq!(before.1.transform, Affine::translate(10.0, 8.0));
+        assert_eq!(before.2.size, Vec2::new(120.0, 20.0));
+        assert_eq!(before.2.transform, Affine::translate(10.0, 2.0));
+
+        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
+
+        let after = (doc.get(inst).unwrap().clone(), doc.get(inner).unwrap().clone(), doc.get(text).unwrap().clone());
+        assert_eq!(doc.nodes.len(), layers_before);
+        assert_eq!(after, before);
+
+        let mut icon_doc = crate::import_fig(&resized_icon_instance_fig()).expect("import icon fig");
+        let comp = icon_doc.nodes.values().find(|n| n.name == "Icon" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let icon_inst = icon_doc.nodes.values().find(|n| n.name == "Icon instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let glyph = icon_doc.get(icon_inst).unwrap().children[0];
+        let icon_before = (icon_doc.get(icon_inst).unwrap().clone(), icon_doc.get(glyph).unwrap().clone());
+        sync_instances(&mut icon_doc, comp).apply(&mut icon_doc).unwrap();
+        let icon_after = (icon_doc.get(icon_inst).unwrap().clone(), icon_doc.get(glyph).unwrap().clone());
+        assert_eq!(icon_after, icon_before);
+    }
+
+    #[test]
+    fn imported_icon_instance_keeps_vector_paths_filling_imported_box_after_main_fill_edit_and_no_change_sync() {
+        let mut doc = crate::import_fig(&resized_icon_instance_fig()).expect("import icon fig");
+        let comp = doc.nodes.values().find(|n| n.name == "Icon" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let main_glyph = doc.get(comp).unwrap().children[0];
+        let inst = doc.nodes.values().find(|n| n.name == "Icon instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let glyph = doc.get(inst).unwrap().children[0];
+        let imported_kind = doc.get(glyph).unwrap().kind.clone();
+        let path_bounds = |kind: &NodeKind| -> Option<Vec2> {
+            let NodeKind::Vector { paths, .. } = kind else { return None };
+            let mut max = Vec2::ZERO;
+            for p in paths {
+                for cmd in &p.cmds {
+                    if let designos_doc::PathCmd::MoveTo(v) | designos_doc::PathCmd::LineTo(v) = *cmd {
+                        max.x = max.x.max(v.x);
+                        max.y = max.y.max(v.y);
+                    }
+                }
+            }
+            Some(max)
+        };
+        assert_eq!(doc.get(glyph).unwrap().size, Vec2::new(24.0, 24.0));
+        assert_eq!(path_bounds(&imported_kind), Some(Vec2::new(24.0, 24.0)));
+
+        let new_fill = vec![Paint::solid(Color::rgba(25, 204, 77, 255))];
+        doc.get_mut(main_glyph).unwrap().fills = new_fill.clone();
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+
+        assert_eq!(doc.get(glyph).unwrap().fills, new_fill);
+        assert_eq!(doc.get(glyph).unwrap().size, Vec2::new(24.0, 24.0));
+        assert_eq!(doc.get(glyph).unwrap().kind, imported_kind);
+        assert_eq!(path_bounds(&doc.get(glyph).unwrap().kind), Some(Vec2::new(24.0, 24.0)));
+
+        let before_noop = doc.get(glyph).unwrap().clone();
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(glyph).unwrap(), &before_noop);
+    }
+
+    #[test]
+    fn switching_main_child_from_fill_to_fixed_with_unchanged_box_updates_instance_on_sync() {
+        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
+        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let inner = doc.get(inst).unwrap().children[1];
+        let main_inner = doc.get(inner).unwrap().component.source.unwrap();
+        assert_eq!(doc.get(main_inner).unwrap().size, Vec2::new(52.0, 24.0));
+        assert_eq!(doc.get(main_inner).unwrap().layout_child.horizontal, Sizing::Fill);
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
+
+        let main_node = doc.get_mut(main_inner).unwrap();
+        main_node.layout_child.horizontal = Sizing::Fixed;
+        main_node.layout_child.grow = 0.0;
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(52.0, 24.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn switching_main_child_constraint_from_stretch_to_left_with_unchanged_box_updates_instance_on_sync() {
+        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
+        let (set, _inst, inner, _text) = ids(&doc);
+        let main_inner = doc.get(inner).unwrap().component.source.unwrap();
+        assert_eq!(doc.get(main_inner).unwrap().size, Vec2::new(80.0, 24.0));
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(140.0, 24.0));
+
+        doc.get_mut(main_inner).unwrap().constraints.horizontal = Constraint::Min;
+        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
+
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(80.0, 24.0));
+        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(10.0, 8.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn changing_main_auto_layout_padding_updates_instance_child_on_sync() {
+        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
+        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let badge = doc.get(inst).unwrap().children[0];
+        let inner = doc.get(inst).unwrap().children[1];
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
+        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(38.0, 8.0));
+
+        doc.get_mut(comp).unwrap().kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().padding = [8.0, 20.0, 8.0, 20.0];
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+
+        assert_eq!(doc.get(badge).unwrap().transform, Affine::translate(20.0, 8.0));
+        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(48.0, 8.0));
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(92.0, 24.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn changing_main_auto_layout_gap_updates_instance_children_on_sync() {
+        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
+        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let inner = doc.get(inst).unwrap().children[1];
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
+        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(38.0, 8.0));
+
+        doc.get_mut(comp).unwrap().kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().item_spacing = 20.0;
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+
+        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(50.0, 8.0));
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(100.0, 24.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn reset_instance_drops_derived_layout_and_returns_sizes_to_main() {
+        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
+        let (_set, inst, inner, text) = ids(&doc);
+        doc.get_mut(inst).unwrap().size = Vec2::new(160.0, 40.0);
+        doc.get_mut(inst).unwrap().component.overrides.insert(OverrideField::Size);
+
+        reset_instance(&mut doc, inst).apply(&mut doc).unwrap();
+
+        assert_eq!(doc.get(inst).unwrap().size, Vec2::new(100.0, 40.0));
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(80.0, 24.0));
+        assert_eq!(doc.get(text).unwrap().size, Vec2::new(60.0, 16.0));
+        assert!(doc.get(inst).unwrap().component.derived.is_none());
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+        assert!(doc.get(text).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn changing_main_fill_updates_instance_fill_without_changing_derived_sizes_or_transforms() {
+        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
+        let (set, inst, inner, text) = ids(&doc);
+        let main_inner = doc.get(inner).unwrap().component.source.expect("main inner source");
+        let new_fill = vec![Paint::solid(Color::rgba(25, 204, 77, 255))];
+        doc.get_mut(main_inner).unwrap().fills = new_fill.clone();
+
+        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
+
+        assert_eq!(doc.get(inner).unwrap().fills, new_fill);
+        assert_eq!(doc.get(inst).unwrap().size, Vec2::new(160.0, 40.0));
+        assert_eq!(doc.get(inst).unwrap().transform, Affine::translate(24.0, 32.0));
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(140.0, 24.0));
+        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(10.0, 8.0));
+        assert_eq!(doc.get(text).unwrap().size, Vec2::new(120.0, 20.0));
+        assert_eq!(doc.get(text).unwrap().transform, Affine::translate(10.0, 2.0));
+    }
+
+    #[test]
+    fn resizing_outer_instance_re_derives_children_on_sync() {
+        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
+        let (set, inst, inner, text) = ids(&doc);
+        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(140.0, 24.0));
+        assert_eq!(doc.get(text).unwrap().size, Vec2::new(120.0, 20.0));
+
+        let inst_node = doc.get_mut(inst).unwrap();
+        inst_node.size = Vec2::new(200.0, 40.0);
+        inst_node.component.overrides.insert(OverrideField::Size);
+
+        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
+
+        assert_eq!(doc.get(inst).unwrap().size, Vec2::new(200.0, 40.0));
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(180.0, 24.0));
+        assert_eq!(doc.get(text).unwrap().size.x, 160.0);
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+        assert!(doc.get(text).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn resizing_main_child_re_derives_instance_child_on_sync() {
+        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
+        let (set, _inst, inner, text) = ids(&doc);
+        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(140.0, 24.0));
+        assert_eq!(doc.get(text).unwrap().size, Vec2::new(120.0, 20.0));
+
+        let main_inner = doc.get(inner).unwrap().component.source.expect("main inner source");
+        doc.get_mut(main_inner).unwrap().size = Vec2::new(90.0, 24.0);
+
+        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
+
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(150.0, 24.0));
+        assert_eq!(doc.get(text).unwrap().size, Vec2::new(120.0, 16.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+        assert!(doc.get(text).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn changing_main_sibling_size_with_unchanged_box_updates_instance_on_sync() {
+        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
+        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let badge = doc.get(inst).unwrap().children[0];
+        let inner = doc.get(inst).unwrap().children[1];
+        let main_badge = doc.get(badge).unwrap().component.source.unwrap();
+        let main_inner = doc.get(inner).unwrap().component.source.unwrap();
+        assert_eq!(doc.get(main_inner).unwrap().size, Vec2::new(52.0, 24.0));
+        assert_eq!(doc.get(main_inner).unwrap().transform, Affine::translate(38.0, 8.0));
+
+        // Change sibling `main_badge` width from 20 to 40 while leaving `main_inner` box untouched.
+        doc.get_mut(main_badge).unwrap().size.x = 40.0;
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+
+        assert_eq!(doc.get(badge).unwrap().size, Vec2::new(40.0, 24.0));
+        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(58.0, 8.0));
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(92.0, 24.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn hiding_main_sibling_with_unchanged_box_updates_instance_on_sync() {
+        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
+        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let badge = doc.get(inst).unwrap().children[0];
+        let inner = doc.get(inst).unwrap().children[1];
+        let main_badge = doc.get(badge).unwrap().component.source.unwrap();
+        let main_inner = doc.get(inner).unwrap().component.source.unwrap();
+        assert_eq!(doc.get(main_inner).unwrap().size, Vec2::new(52.0, 24.0));
+        assert_eq!(doc.get(main_inner).unwrap().transform, Affine::translate(38.0, 8.0));
+
+        // Hide sibling `main_badge` while leaving `main_inner` box untouched.
+        doc.get_mut(main_badge).unwrap().visible = false;
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+
+        assert!(!doc.get(badge).unwrap().visible);
+        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(10.0, 8.0));
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(140.0, 24.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn swapping_main_sibling_order_with_unchanged_boxes_updates_instance_on_sync() {
+        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
+        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let badge = doc.get(inst).unwrap().children[0];
+        let inner = doc.get(inst).unwrap().children[1];
+
+        // Reverse `comp.children` without changing either child's stored box on `comp`.
+        doc.get_mut(comp).unwrap().children.reverse();
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+
+        assert_eq!(doc.get(inst).unwrap().children, vec![inner, badge]);
+        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(10.0, 8.0));
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
+        assert_eq!(doc.get(badge).unwrap().transform, Affine::translate(130.0, 8.0));
+        assert_eq!(doc.get(badge).unwrap().size, Vec2::new(20.0, 24.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+        assert!(doc.get(badge).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn changing_main_grid_column_track_from_flex_to_fixed_updates_instance_on_sync() {
+        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
+        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let badge = doc.get(inst).unwrap().children[0];
+        let inner = doc.get(inst).unwrap().children[1];
+        let main_badge = doc.get(badge).unwrap().component.source.unwrap();
+        let main_inner = doc.get(inner).unwrap().component.source.unwrap();
+
+        for container in [comp, inst] {
+            let al = doc.get_mut(container).unwrap().kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap();
+            al.direction = LayoutDirection::Grid;
+            al.padding = [0.0; 4];
+            al.item_spacing = 0.0;
+            al.counter_spacing = 0.0;
+            al.grid_columns = 2;
+            al.grid_rows = 1;
+            al.grid_col_tracks = [GridTrack::Flex(1.0), GridTrack::Flex(1.0)].into();
+            al.grid_row_tracks = [GridTrack::Flex(1.0)].into();
+        }
+        for (col, id, w, x) in [(0u16, main_badge, 50.0, 0.0), (1, main_inner, 50.0, 50.0), (0, badge, 80.0, 0.0), (1, inner, 80.0, 80.0)] {
+            let n = doc.get_mut(id).unwrap();
+            n.size = Vec2::new(w, 40.0);
+            n.transform = Affine::translate(x, 0.0);
+            n.layout_child.horizontal = Sizing::Fill;
+            n.layout_child.vertical = Sizing::Fill;
+            n.layout_child.grid_column = Some(col);
+            n.layout_child.grid_row = Some(0);
+        }
+        record_derived_layout(&mut doc, badge);
+        record_derived_layout(&mut doc, inner);
+
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(badge).unwrap().size, Vec2::new(80.0, 40.0));
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(80.0, 40.0));
+        assert!(doc.get(badge).unwrap().component.derived.is_some());
+
+        // Change column 0 track on `comp` from 1fr to 40px while leaving `main_badge` and `main_inner` boxes untouched.
+        doc.get_mut(comp).unwrap().kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().grid_col_tracks[0] = GridTrack::Fixed(40.0);
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+
+        assert_eq!(doc.get(badge).unwrap().size, Vec2::new(40.0, 40.0));
+        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(40.0, 0.0));
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(120.0, 40.0));
+        assert!(doc.get(badge).unwrap().component.derived.is_none());
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn changing_main_parent_stroke_weight_when_stroke_takes_space_updates_instance_on_sync() {
+        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
+        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let badge = doc.get(inst).unwrap().children[0];
+        let inner = doc.get(inst).unwrap().children[1];
+
+        for container in [comp, inst] {
+            let n = doc.get_mut(container).unwrap();
+            n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+            n.stroke.weight = 1.0;
+            n.stroke.align = StrokeAlign::Inside;
+            let al = n.kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap();
+            al.stroke_included = true;
+            al.layout_version = 0;
+        }
+        record_derived_layout(&mut doc, badge);
+        record_derived_layout(&mut doc, inner);
+
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_some());
+
+        // Increase `comp` stroke weight from 1px to 8px while leaving `main_badge` and `main_inner` boxes untouched.
+        doc.get_mut(comp).unwrap().stroke.weight = 8.0;
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+
+        assert_eq!(doc.get(badge).unwrap().transform, Affine::translate(18.0, 16.0));
+        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(46.0, 16.0));
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(96.0, 24.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn changing_main_text_auto_resize_or_font_size_with_unchanged_box_keeps_instance_derived_layout_on_sync() {
+        // Case 1: `auto_resize` changed on `main_text` with `main_text.size` left at 60x16 inside a non-auto-layout frame.
+        // Our constraint solver's output for `Inner`'s children is unchanged, so Figma's derived box (120x20) is kept.
+        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
+        let (set, _inst, _inner, text) = ids(&doc);
+        let main_text = doc.get(text).unwrap().component.source.unwrap();
+        assert_eq!(doc.get(main_text).unwrap().size, Vec2::new(60.0, 16.0));
+        assert_eq!(doc.get(text).unwrap().size, Vec2::new(120.0, 20.0));
+
+        if let NodeKind::Text(tp) = &mut doc.get_mut(main_text).unwrap().kind {
+            tp.auto_resize = TextAutoResize::WidthAndHeight;
+        }
+        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(text).unwrap().size, Vec2::new(120.0, 20.0));
+        assert!(doc.get(text).unwrap().component.derived.is_some());
+
+        // Case 2: `style.font_size` changed on `main_text` with `main_text.size` left at 60x16 inside a non-auto-layout frame.
+        let mut doc2 = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
+        let (set2, _inst2, _inner2, text2) = ids(&doc2);
+        let main_text2 = doc2.get(text2).unwrap().component.source.unwrap();
+        if let NodeKind::Text(tp) = &mut doc2.get_mut(main_text2).unwrap().kind {
+            tp.style.font_size = 24.0;
+        }
+        sync_instances(&mut doc2, set2).apply(&mut doc2).unwrap();
+        assert_eq!(doc2.get(text2).unwrap().size, Vec2::new(120.0, 20.0));
+        assert!(doc2.get(text2).unwrap().component.derived.is_some());
+    }
+
+    #[test]
+    fn moving_main_vector_network_tangent_without_changing_path_cmds_keeps_instance_derived_layout_on_sync() {
+        let mut doc = crate::import_fig(&resized_icon_instance_fig()).expect("import icon fig");
+        let comp = doc.nodes.values().find(|n| n.name == "Icon" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let main_glyph = doc.get(comp).unwrap().children[0];
+        let inst = doc.nodes.values().find(|n| n.name == "Icon instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let glyph = doc.get(inst).unwrap().children[0];
+
+        for id in [main_glyph, glyph] {
+            if let NodeKind::Vector { paths, network } = &mut doc.get_mut(id).unwrap().kind {
+                *network = Some(VectorNetwork::from_paths(paths));
+            }
+        }
+        record_derived_layout(&mut doc, glyph);
+
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+        assert!(doc.get(glyph).unwrap().component.derived.is_some());
+
+        // Move a segment tangent on `main_glyph.network` without changing `main_glyph.size` or constraints.
+        // Our solver's output for `Icon instance`'s child box (24x24 at (0, 0)) is unchanged, so derived layout is kept.
+        if let NodeKind::Vector { network: Some(net), .. } = &mut doc.get_mut(main_glyph).unwrap().kind {
+            net.segments[0].ta = Vec2::new(4.0, 2.0);
+        }
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+
+        assert!(doc.get(glyph).unwrap().component.derived.is_some());
+        assert_eq!(doc.get(glyph).unwrap().size, Vec2::new(24.0, 24.0));
+    }
+
+    #[test]
+    fn switching_instance_variable_mode_for_bound_gap_updates_instance_on_sync() {
+        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
+        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let badge = doc.get(inst).unwrap().children[0];
+        let inner = doc.get(inst).unwrap().children[1];
+
+        doc.variable_collections.insert(
+            "c1".into(),
+            VariableCollection {
+                id: "c1".into(),
+                name: "Spacing".into(),
+                modes: vec![VariableMode { id: "m1".into(), name: "Compact".into() }, VariableMode { id: "m2".into(), name: "Spacious".into() }],
+                default_mode: "m1".into(),
+                variables: vec!["v_gap".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        doc.variables.insert(
+            "v_gap".into(),
+            Variable {
+                id: "v_gap".into(),
+                name: "gap".into(),
+                collection: "c1".into(),
+                kind: VariableKind::Number,
+                values: [("m1".to_string(), VariableValue::Number(8.0)), ("m2".to_string(), VariableValue::Number(20.0))].into_iter().collect(),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        doc.get_mut(comp).unwrap().variables.bindings.insert("itemSpacing".into(), "v_gap".into());
+        doc.get_mut(inst).unwrap().variables.bindings.insert("itemSpacing".into(), "v_gap".into());
+        record_derived_layout(&mut doc, badge);
+        record_derived_layout(&mut doc, inner);
+
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
+        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(38.0, 8.0));
+
+        // Switch mode on `inst` from m1 (8px) to m2 (20px) without editing `comp`.
+        doc.get_mut(inst).unwrap().variables.modes.insert("c1".into(), "m2".into());
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+
+        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(50.0, 8.0));
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(100.0, 24.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn setting_hug_layout_override_on_instance_layer_updates_instance_on_sync() {
+        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
+        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let inner = doc.get(inst).unwrap().children[1];
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
+
+        // Override `inner` from Fill to Hug on the instance while its stored box is still 112x24.
+        let inner_node = doc.get_mut(inner).unwrap();
+        inner_node.layout_child.horizontal = Sizing::Hug;
+        inner_node.layout_child.grow = 0.0;
+        inner_node.component.overrides.insert(OverrideField::Layout);
+
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(52.0, 24.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn main_fill_rename_effect_and_opacity_edits_preserve_imported_instance_whole_nodes_on_sync() {
+        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
+        let (set, inst, inner, text) = ids(&doc);
+        let main_inner = doc.get(inner).unwrap().component.source.unwrap();
+        let expected_inst = doc.get(inst).unwrap().clone();
+        let mut expected_inner = doc.get(inner).unwrap().clone();
+        let expected_text = doc.get(text).unwrap().clone();
+
+        let new_fill = vec![Paint::solid(Color::rgba(25, 204, 77, 255))];
+        doc.get_mut(main_inner).unwrap().fills = new_fill.clone();
+        expected_inner.fills = new_fill;
+        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inst).unwrap(), &expected_inst);
+        assert_eq!(doc.get(inner).unwrap(), &expected_inner);
+        assert_eq!(doc.get(text).unwrap(), &expected_text);
+
+        doc.get_mut(main_inner).unwrap().name = "Inner renamed".into();
+        expected_inner.name = "Inner renamed".into();
+        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inst).unwrap(), &expected_inst);
+        assert_eq!(doc.get(inner).unwrap(), &expected_inner);
+        assert_eq!(doc.get(text).unwrap(), &expected_text);
+
+        let new_effects = vec![Effect::DropShadow {
+            color: Color::rgba(0, 0, 0, 64),
+            offset: Vec2::new(0.0, 2.0),
+            radius: 4.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: BlendMode::Normal,
+        }];
+        doc.get_mut(main_inner).unwrap().effects = new_effects.clone();
+        expected_inner.effects = new_effects;
+        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inst).unwrap(), &expected_inst);
+        assert_eq!(doc.get(inner).unwrap(), &expected_inner);
+        assert_eq!(doc.get(text).unwrap(), &expected_text);
+
+        doc.get_mut(main_inner).unwrap().opacity = 0.75;
+        expected_inner.opacity = 0.75;
+        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inst).unwrap(), &expected_inst);
+        assert_eq!(doc.get(inner).unwrap(), &expected_inner);
+        assert_eq!(doc.get(text).unwrap(), &expected_text);
+    }
+
+    #[test]
+    fn native_save_and_reopen_with_derived_records_keeps_everything_on_no_change_sync() {
+        let doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
+        let json = doc.to_json().expect("serialize native json");
+        let mut reopened = Document::from_json(&json).expect("deserialize native json");
+        let (set, inst, inner, text) = ids(&reopened);
+        let before = (reopened.get(inst).unwrap().clone(), reopened.get(inner).unwrap().clone(), reopened.get(text).unwrap().clone());
+        assert!(before.1.component.derived.is_some());
+        assert!(before.2.component.derived.is_some());
+        assert_eq!(before.1.component.derived.unwrap().solver_version, DERIVED_SOLVER_VERSION);
+        assert_eq!(before.2.component.derived.unwrap().solver_version, DERIVED_SOLVER_VERSION);
+
+        sync_instances(&mut reopened, set).apply(&mut reopened).unwrap();
+        let after = (reopened.get(inst).unwrap().clone(), reopened.get(inner).unwrap().clone(), reopened.get(text).unwrap().clone());
+        assert_eq!(after, before);
+
+        // A file saved under a different `solver_version` keeps its valid records on sync and upgrades
+        // `solver_version` + `fingerprint` in place rather than dropping every derived record on upgrade.
+        let expected_inner_fp = reopened.get(inner).unwrap().component.derived.unwrap().fingerprint;
+        let expected_text_fp = reopened.get(text).unwrap().component.derived.unwrap().fingerprint;
+        for id in [inner, text] {
+            let dl = reopened.get_mut(id).unwrap().component.derived.as_mut().unwrap();
+            dl.fingerprint = 0xfeed_face_cafe_beef;
+            dl.solver_version = DERIVED_SOLVER_VERSION + 1;
+        }
+        let older_json = reopened.to_json().expect("serialize older-version json");
+        let mut upgraded = Document::from_json(&older_json).expect("deserialize older-version json");
+        sync_instances(&mut upgraded, set).apply(&mut upgraded).unwrap();
+        assert_eq!(upgraded.get(inner).unwrap().size, Vec2::new(140.0, 24.0));
+        assert_eq!(upgraded.get(text).unwrap().size, Vec2::new(120.0, 20.0));
+        assert_eq!(upgraded.get(inner).unwrap().component.derived.unwrap().solver_version, DERIVED_SOLVER_VERSION);
+        assert_eq!(upgraded.get(text).unwrap().component.derived.unwrap().solver_version, DERIVED_SOLVER_VERSION);
+        assert_eq!(upgraded.get(inner).unwrap().component.derived.unwrap().fingerprint, expected_inner_fp);
+        assert_eq!(upgraded.get(text).unwrap().component.derived.unwrap().fingerprint, expected_text_fp);
+
+        // An unreleased-branch record with fingerprint == 0 is treated as invalid so the solver runs.
+        reopened.get_mut(inner).unwrap().component.derived.as_mut().unwrap().fingerprint = 0;
+        reopened.get_mut(text).unwrap().component.derived.as_mut().unwrap().fingerprint = 0;
+        sync_instances(&mut reopened, set).apply(&mut reopened).unwrap();
+        assert!(reopened.get(inner).unwrap().component.derived.is_none());
+        assert!(reopened.get(text).unwrap().component.derived.is_none());
+        assert_eq!(reopened.get(text).unwrap().size, Vec2::new(120.0, 16.0));
+    }
+
+    #[test]
+    fn undo_and_redo_of_sync_that_dropped_derived_record_restores_whole_node() {
+        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
+        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let badge = doc.get(inst).unwrap().children[0];
+        let inner = doc.get(inst).unwrap().children[1];
+        let main_badge = doc.get(badge).unwrap().component.source.unwrap();
+
+        let inner_before = doc.get(inner).unwrap().clone();
+        assert!(inner_before.component.derived.is_some());
+
+        doc.get_mut(main_badge).unwrap().size.x = 40.0;
+        let undo_cmd = sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+        let inner_after = doc.get(inner).unwrap().clone();
+        assert!(inner_after.component.derived.is_none());
+        assert_eq!(inner_after.size, Vec2::new(92.0, 24.0));
+
+        let redo_cmd = undo_cmd.apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inner).unwrap(), &inner_before);
+
+        redo_cmd.apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inner).unwrap(), &inner_after);
+    }
+
+    #[test]
+    fn changing_main_parent_stroke_paint_opacity_or_visibility_when_stroke_takes_space_updates_instance_on_sync() {
+        // Case 1: stroke paint opacity 1.0 -> 0.0 with weight 8 Inside and `stroke_included = true`.
+        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
+        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let badge = doc.get(inst).unwrap().children[0];
+        let inner = doc.get(inst).unwrap().children[1];
+
+        for container in [comp, inst] {
+            let n = doc.get_mut(container).unwrap();
+            n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+            n.stroke.weight = 8.0;
+            n.stroke.align = StrokeAlign::Inside;
+            let al = n.kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap();
+            al.stroke_included = true;
+            al.layout_version = 0;
+        }
+        doc.get_mut(badge).unwrap().transform = Affine::translate(18.0, 16.0);
+        doc.get_mut(inner).unwrap().transform = Affine::translate(46.0, 16.0);
+        doc.get_mut(inner).unwrap().size = Vec2::new(98.0, 24.0);
+        record_derived_layout(&mut doc, badge);
+        record_derived_layout(&mut doc, inner);
+
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(98.0, 24.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_some());
+
+        // Setting stroke paint opacity to 0.0 makes `has_visible_paint()` false and collapses the 8px stroke inset.
+        doc.get_mut(comp).unwrap().stroke.paints[0].opacity = 0.0;
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+
+        assert_eq!(doc.get(badge).unwrap().transform, Affine::translate(10.0, 8.0));
+        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(38.0, 8.0));
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+
+        // Case 2: stroke paint `visible` true -> false with weight 8 Inside and `stroke_included = true`.
+        let mut doc2 = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
+        let comp2 = doc2.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let inst2 = doc2.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let badge2 = doc2.get(inst2).unwrap().children[0];
+        let inner2 = doc2.get(inst2).unwrap().children[1];
+
+        for container in [comp2, inst2] {
+            let n = doc2.get_mut(container).unwrap();
+            n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+            n.stroke.weight = 8.0;
+            n.stroke.align = StrokeAlign::Inside;
+            let al = n.kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap();
+            al.stroke_included = true;
+            al.layout_version = 0;
+        }
+        doc2.get_mut(badge2).unwrap().transform = Affine::translate(18.0, 16.0);
+        doc2.get_mut(inner2).unwrap().transform = Affine::translate(46.0, 16.0);
+        doc2.get_mut(inner2).unwrap().size = Vec2::new(98.0, 24.0);
+        record_derived_layout(&mut doc2, badge2);
+        record_derived_layout(&mut doc2, inner2);
+
+        doc2.get_mut(comp2).unwrap().stroke.paints[0].visible = false;
+        sync_instances(&mut doc2, comp2).apply(&mut doc2).unwrap();
+
+        assert_eq!(doc2.get(badge2).unwrap().transform, Affine::translate(10.0, 8.0));
+        assert_eq!(doc2.get(inner2).unwrap().transform, Affine::translate(38.0, 8.0));
+        assert_eq!(doc2.get(inner2).unwrap().size, Vec2::new(112.0, 24.0));
+        assert!(doc2.get(inner2).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn changing_variable_value_in_same_mode_or_collection_default_mode_updates_instance_on_sync() {
+        let setup = || {
+            let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
+            let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+            let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+            let badge = doc.get(inst).unwrap().children[0];
+            let inner = doc.get(inst).unwrap().children[1];
+
+            doc.variable_collections.insert(
+                "c1".into(),
+                VariableCollection {
+                    id: "c1".into(),
+                    name: "Spacing".into(),
+                    modes: vec![VariableMode { id: "m1".into(), name: "Compact".into() }, VariableMode { id: "m2".into(), name: "Spacious".into() }],
+                    default_mode: "m1".into(),
+                    variables: vec!["v_gap".into()],
+                    key: None,
+                    source_library_key: None,
+                    extensions: Default::default(),
+                },
+            );
+            doc.variables.insert(
+                "v_gap".into(),
+                Variable {
+                    id: "v_gap".into(),
+                    name: "gap".into(),
+                    collection: "c1".into(),
+                    kind: VariableKind::Number,
+                    values: [("m1".to_string(), VariableValue::Number(8.0)), ("m2".to_string(), VariableValue::Number(20.0))].into_iter().collect(),
+                    description: String::new(),
+                    scopes: Vec::new(),
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: Default::default(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
+                },
+            );
+            doc.get_mut(comp).unwrap().variables.bindings.insert("itemSpacing".into(), "v_gap".into());
+            doc.get_mut(inst).unwrap().variables.bindings.insert("itemSpacing".into(), "v_gap".into());
+            record_derived_layout(&mut doc, badge);
+            record_derived_layout(&mut doc, inner);
+            (doc, comp, inst, badge, inner)
+        };
+
+        // Case 1: variable value in the active mode ("m1") changes from 8.0 to 20.0 without touching any node or mode map.
+        let (mut doc, comp, _inst, _badge, inner) = setup();
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_some());
+
+        doc.variables.get_mut("v_gap").unwrap().values.insert("m1".into(), VariableValue::Number(20.0));
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(50.0, 8.0));
+        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(100.0, 24.0));
+        assert!(doc.get(inner).unwrap().component.derived.is_none());
+
+        // Case 2: collection `default_mode` changes from "m1" (8.0) to "m2" (20.0) without editing node mode maps.
+        let (mut doc2, comp2, _inst2, _badge2, inner2) = setup();
+        doc2.variable_collections.get_mut("c1").unwrap().default_mode = "m2".into();
+        sync_instances(&mut doc2, comp2).apply(&mut doc2).unwrap();
+        assert_eq!(doc2.get(inner2).unwrap().transform, Affine::translate(50.0, 8.0));
+        assert_eq!(doc2.get(inner2).unwrap().size, Vec2::new(100.0, 24.0));
+        assert!(doc2.get(inner2).unwrap().component.derived.is_none());
+    }
+
+    #[test]
+    fn nested_hug_frame_inner_text_font_size_sync_matches_sync_without_derived_except_where_solve_output_is_unchanged() {
+        // Pre-existing solver gap (see V1/V2 in report):
+        // - `Document::flow_child_input` (`crates/designos-doc/src/layout_apply.rs:102-119`) only re-measures
+        //   `TextAutoResize::WidthAndHeight` text when `c.size.x <= 1.0 && c.size.y <= 1.0` and `layout_measurer()`
+        //   is installed, and `sync_pair` (`crates/designos-doc/src/components.rs:3018-3048`) solves top-down
+        //   without refitting nested `Hug` frames before their parent's auto-layout pass.
+        // This test pins the output-signature model's exact guarantee: after a sync, the instance equals,
+        // node for node, the result of the same sync with derived records removed beforehand, except where
+        // our solver's own output is unchanged and Figma's derived numbers are kept.
+        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
+        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
+        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+        let badge = doc.get(inst).unwrap().children[0];
+        let inner = doc.get(inst).unwrap().children[1];
+        let main_inner = doc.get(inner).unwrap().component.source.unwrap();
+
+        // Configure `main_inner` / `inner` as a nested Hug auto-layout frame containing a text node,
+        // and add a trailing Fill sibling (`main_tail` / `inst_tail`) in `Row`.
+        for id in [main_inner, inner] {
+            let n = doc.get_mut(id).unwrap();
+            n.layout_child.horizontal = Sizing::Hug;
+            n.layout_child.grow = 0.0;
+            n.kind.frame_props_mut().unwrap().auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Hug,
+                counter_sizing: Sizing::Hug,
+                padding: [4.0, 6.0, 4.0, 6.0],
+                item_spacing: 4.0,
+                ..Default::default()
+            });
+        }
+        doc.get_mut(inner).unwrap().size = Vec2::new(56.0, 24.0);
+        doc.get_mut(inner).unwrap().transform = Affine::translate(38.0, 8.0);
+
+        let main_label = doc.alloc_id();
+        let mut main_label_node = Node::new(
+            main_label,
+            NodeKind::Text(TextProps {
+                content: "Label".into(),
+                style: TextStyle { font_size: 14.0, ..Default::default() },
+                auto_resize: TextAutoResize::WidthAndHeight,
+                ..Default::default()
+            }),
+        );
+        main_label_node.name = "Label".into();
+        main_label_node.size = Vec2::new(40.0, 16.0);
+        main_label_node.transform = Affine::translate(6.0, 4.0);
+        Command::Insert { parent: main_inner, index: 0, nodes: vec![main_label_node] }.apply(&mut doc).unwrap();
+
+        let inst_label = doc.alloc_id();
+        let mut inst_label_node = doc.get(main_label).unwrap().clone();
+        inst_label_node.id = inst_label;
+        inst_label_node.parent = Some(inner);
+        inst_label_node.component.source = Some(main_label);
+        inst_label_node.size = Vec2::new(44.0, 16.0);
+        inst_label_node.transform = Affine::translate(6.0, 4.0);
+        Command::Insert { parent: inner, index: 0, nodes: vec![inst_label_node] }.apply(&mut doc).unwrap();
+
+        let main_tail = doc.alloc_id();
+        let mut main_tail_node = Node::new(main_tail, NodeKind::Rectangle);
+        main_tail_node.name = "Tail".into();
+        main_tail_node.size = Vec2::new(12.0, 24.0);
+        main_tail_node.transform = Affine::translate(98.0, 8.0);
+        main_tail_node.layout_child.horizontal = Sizing::Fill;
+        main_tail_node.layout_child.grow = 1.0;
+        Command::Insert { parent: comp, index: 2, nodes: vec![main_tail_node] }.apply(&mut doc).unwrap();
+
+        let inst_tail = doc.alloc_id();
+        let mut inst_tail_node = doc.get(main_tail).unwrap().clone();
+        inst_tail_node.id = inst_tail;
+        inst_tail_node.parent = Some(inst);
+        inst_tail_node.component.source = Some(main_tail);
+        inst_tail_node.size = Vec2::new(48.0, 24.0);
+        inst_tail_node.transform = Affine::translate(102.0, 8.0);
+        Command::Insert { parent: inst, index: 2, nodes: vec![inst_tail_node] }.apply(&mut doc).unwrap();
+
+        doc.get_mut(inst).unwrap().component.overrides.insert(OverrideField::Size);
+        for id in [inst, badge, inner, inst_label, inst_tail] {
+            record_derived_layout(&mut doc, id);
+        }
+
+        let imported_snapshot: std::collections::BTreeMap<NodeId, (Vec2, Affine)> =
+            [inst, badge, inner, inst_label, inst_tail].into_iter().map(|id| (id, (doc.get(id).unwrap().size, doc.get(id).unwrap().transform))).collect();
+
+        // Baseline document with all derived records removed beforehand.
+        let mut without_derived = doc.clone();
+        for n in without_derived.nodes.values_mut() {
+            n.component.derived = None;
+        }
+        let mut without_derived_noop = without_derived.clone();
+        sync_instances(&mut without_derived_noop, comp).apply(&mut without_derived_noop).unwrap();
+
+        // Phase 1: change only `main_label` font size (14.0 -> 24.0) inside the nested hug frame.
+        for d in [&mut doc, &mut without_derived] {
+            if let NodeKind::Text(tp) = &mut d.get_mut(main_label).unwrap().kind {
+                tp.style.font_size = 24.0;
+            }
+            sync_instances(d, comp).apply(d).unwrap();
+        }
+
+        for id in [inst, badge, inner, inst_label, inst_tail] {
+            let with_dl = doc.get(id).unwrap();
+            let no_dl = without_derived.get(id).unwrap();
+            let no_dl_noop = without_derived_noop.get(id).unwrap();
+            let solve_output_unchanged = no_dl.size == no_dl_noop.size && no_dl.transform == no_dl_noop.transform;
+            if solve_output_unchanged {
+                assert!(with_dl.component.derived.is_some());
+                assert_eq!((with_dl.size, with_dl.transform), imported_snapshot[&id]);
+            }
+            let mut normalized = with_dl.clone();
+            normalized.component.derived = None;
+            if solve_output_unchanged {
+                normalized.size = no_dl.size;
+                normalized.transform = no_dl.transform;
+                normalized.layout_child.stretched = no_dl.layout_child.stretched;
+            }
+            assert_eq!(&normalized, no_dl);
+        }
+
+        // Phase 2: also change `comp` item_spacing (8.0 -> 16.0), which changes our solver's output for `Row`
+        // (and drops `Inner`'s derived size from 56x24 to 52x24, cascading to `inst_label`), so every child
+        // drops its derived record and matches `without_derived` node for node.
+        for d in [&mut doc, &mut without_derived] {
+            d.get_mut(comp).unwrap().kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().item_spacing = 16.0;
+            sync_instances(d, comp).apply(d).unwrap();
+        }
+        for id in [badge, inner, inst_label, inst_tail] {
+            assert!(doc.get(id).unwrap().component.derived.is_none());
+            assert_eq!(doc.get(id).unwrap(), without_derived.get(id).unwrap());
+        }
     }
 }

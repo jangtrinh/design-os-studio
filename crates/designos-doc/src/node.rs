@@ -387,6 +387,32 @@ pub struct ComponentLink {
     /// override's base-name path; re-applied when a later switch brings that layer back.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parked_overrides: Vec<ParkedOverride>,
+    /// Imported `.fig` derived geometry (`derivedSymbolData`) kept across a sync when the solver output holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derived: Option<DerivedLayout>,
+}
+
+/// Version stamp of the instance-side layout solver used to compute [`DerivedLayout::fingerprint`].
+pub const DERIVED_SOLVER_VERSION: u32 = 1;
+
+/// Imported `.fig` derived layout (`derivedSymbolData`) cached on an instance node so a no-change
+/// main component sync preserves Figma's resolved box until the solver's own output for the parent changes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DerivedLayout {
+    pub size: Vec2,
+    pub transform: Affine,
+    pub ref_size: Vec2,
+    pub ref_transform: Affine,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_size: Option<Vec2>,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub fingerprint: u64,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub solver_version: u32,
+}
+
+fn is_zero_u64(v: &u64) -> bool {
+    *v == 0
 }
 
 /// An override parked on an instance while the shown variant or component lacks a layer at `path`.
@@ -500,6 +526,7 @@ impl ComponentLink {
             && self.variant_picks.is_empty()
             && self.prop_default_variables.is_empty()
             && self.parked_overrides.is_empty()
+            && self.derived.is_none()
     }
 }
 
@@ -1477,5 +1504,26 @@ mod mask_type_serde_tests {
         let sync_cmd = crate::components::sync_instances(&mut doc, comp_id);
         sync_cmd.apply(&mut doc).unwrap();
         assert_eq!(doc.get(inst_mask).unwrap().mask_type, MaskType::Vector, "component instance sync must propagate mask_type changes");
+    }
+
+    #[test]
+    fn component_link_derived_layout_is_not_empty_and_roundtrips_json() {
+        let mut link = ComponentLink::default();
+        assert!(link.is_empty());
+
+        link.derived = Some(DerivedLayout {
+            size: Vec2::new(82.0, 20.0),
+            transform: Affine::translate(12.0, 6.0),
+            ref_size: Vec2::new(60.0, 20.0),
+            ref_transform: Affine::translate(12.0, 6.0),
+            parent_size: Some(Vec2::new(106.0, 32.0)),
+            fingerprint: 0x1234_5678_9abc_def0,
+            solver_version: DERIVED_SOLVER_VERSION,
+        });
+        assert!(!link.is_empty());
+
+        let json = serde_json::to_string(&link).unwrap();
+        let back: ComponentLink = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.derived, link.derived);
     }
 }
