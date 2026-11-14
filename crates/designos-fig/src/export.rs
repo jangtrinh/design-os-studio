@@ -416,9 +416,7 @@ fn frame_fields(m: &mut Map<String, Value>, f: &FrameProps, doc: &Document, node
     }
     m.insert("layoutWrap".into(), if al.wrap { "WRAP" } else { "NO_WRAP" }.into());
     m.insert("itemSpacing".into(), n(al.item_spacing));
-    if !al.counter_spacing_auto {
-        m.insert("counterAxisSpacing".into(), n(al.counter_spacing));
-    }
+    m.insert("counterAxisSpacing".into(), n(al.counter_spacing));
     m.insert("paddingTop".into(), n(al.padding[0]));
     m.insert("paddingRight".into(), n(al.padding[1]));
     m.insert("paddingBottom".into(), n(al.padding[2]));

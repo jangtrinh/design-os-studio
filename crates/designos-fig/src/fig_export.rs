@@ -1631,9 +1631,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 fields.push(("gridRowGap", fl(al.counter_spacing)));
             }
             fields.push(("stackSpacing", fl(al.item_spacing)));
-            if !al.counter_spacing_auto {
-                fields.push(("stackCounterSpacing", fl(al.counter_spacing)));
-            }
+            fields.push(("stackCounterSpacing", fl(al.counter_spacing)));
             // Figma stores top and left padding on the vertical and horizontal padding fields.
             fields.push(("stackVerticalPadding", fl(al.padding[0])));
             fields.push(("stackPaddingRight", fl(al.padding[1])));
@@ -3184,9 +3182,7 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                             ov.push(("gridRowGap", fl(al.counter_spacing)));
                         }
                         ov.push(("stackSpacing", fl(al.item_spacing)));
-                        if !al.counter_spacing_auto {
-                            ov.push(("stackCounterSpacing", fl(al.counter_spacing)));
-                        }
+                        ov.push(("stackCounterSpacing", fl(al.counter_spacing)));
                         ov.push(("stackVerticalPadding", fl(al.padding[0])));
                         ov.push(("stackPaddingRight", fl(al.padding[1])));
                         ov.push(("stackPaddingBottom", fl(al.padding[2])));

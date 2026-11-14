@@ -1138,10 +1138,6 @@ pub struct AutoLayout {
     pub wrap: bool,
     pub item_spacing: f32,
     pub counter_spacing: f32,
-    /// A wrapped frame with no explicit counter gap follows `item_spacing`.
-    /// Keep this distinction through instance partial overrides and serialization.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub counter_spacing_auto: bool,
     /// top, right, bottom, left
     pub padding: [f32; 4],
     pub primary_align: LayoutAlign,
