@@ -636,9 +636,31 @@ pub fn set_cell_text(doc: &Document, table: NodeId, row_index: usize, col_index:
     let pos = (row_index, col_index);
     let key = d.key_at(grid.covering_anchor(pos).unwrap_or(pos));
     let cell = d.cell_text_mut(key).ok_or_else(|| E::BrokenTable("The cell is missing. Use a table operation to repair the table.".into()))?;
+    let unchanged = cell.content == text;
     cell.content = text.to_string();
     cell.runs.clear();
     cell.lists.clear();
+    if unchanged {
+        return Err(E::NoChange("Nothing to change in the table.".into()));
+    }
+    if d.props.merges.is_empty() {
+        if let Some(measurer) = text_measure::layout_measurer() {
+            let node = d.cells.get(&key).expect("cell was opened above");
+            let width = (node.size.x - 2.0 * TABLE_CELL_PADDING.0).max(1.0);
+            let needed = text_measure::intrinsic_text_size(&node.kind.board_text().expect("table cell text"), Some(width), Some(measurer.as_ref())).y
+                + 2.0 * TABLE_CELL_PADDING.1;
+            let baseline = d.props.rows[row_index].size.max(TABLE_MIN_TRACK);
+            if (node.size.y - baseline).abs() <= f32::EPSILON && needed <= baseline + f32::EPSILON {
+                let mut next = node.clone();
+                if let NodeKind::TableCell(c) = &mut next.kind {
+                    c.text.content = text.to_string();
+                    c.text.runs.clear();
+                    c.text.lists.clear();
+                }
+                return Ok(Command::Update { node: Box::new(next) });
+            }
+        }
+    }
     d.finish()
 }
 

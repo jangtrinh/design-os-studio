@@ -878,6 +878,8 @@ pub(crate) fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut 
 fn apply_with_table_relayout(doc: &mut Document, c: Command) -> Result<Command, DocError> {
     let mut edited = std::collections::BTreeSet::new();
     table::text_edited_tables(doc, &c, &mut edited);
+    let mut edited_cells = std::collections::BTreeMap::new();
+    table::text_edited_cells(doc, &c, &mut edited_cells);
     let prop_scope = prop_resync_scope(doc, &c);
     let inv = c.apply_atomic(doc)?;
     let mut steps = vec![inv];
@@ -891,7 +893,10 @@ fn apply_with_table_relayout(doc: &mut Document, c: Command) -> Result<Command, 
             }
         }
     }
-    let fix: Vec<Command> = edited.iter().flat_map(|&t| table::relayout(doc, t)).collect();
+    let fix: Vec<Command> = edited
+        .iter()
+        .flat_map(|&t| edited_cells.get(&t).and_then(|cells| table::relayout_text_edit(doc, t, cells)).unwrap_or_else(|| table::relayout(doc, t)))
+        .collect();
     if !fix.is_empty() {
         match Command::Batch(fix).apply_atomic(doc) {
             Ok(fix_inv) => steps.insert(0, fix_inv),
