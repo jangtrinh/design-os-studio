@@ -657,14 +657,26 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
     );
     match key {
         "width" => {
-            n.size.x = x.max(0.0);
+            let mut new_size = n.size;
+            new_size.x = x.max(0.0);
+            if matches!(n.kind, NodeKind::Line) {
+                crate::apply_constrained_geometry(n, n.transform, new_size);
+            } else {
+                n.size = new_size;
+            }
             if is_rect_like {
                 n.fill_geometry = None;
                 n.stroke_geometry = None;
             }
         }
         "height" => {
-            n.size.y = x.max(0.0);
+            let mut new_size = n.size;
+            new_size.y = x.max(0.0);
+            if matches!(n.kind, NodeKind::Line) {
+                crate::apply_constrained_geometry(n, n.transform, new_size);
+            } else {
+                n.size = new_size;
+            }
             if is_rect_like {
                 n.fill_geometry = None;
                 n.stroke_geometry = None;
@@ -1673,5 +1685,29 @@ mod tests {
 
         d.get_mut(fid).unwrap().variables.bindings.insert("easingData".into(), "good-ease".into());
         assert_eq!(easing_binding_problem(&d, fid, "easingData"), None);
+    }
+
+    #[test]
+    fn width_binding_scales_an_imported_line_outline() {
+        let mut n = Node::new(NodeId(1), NodeKind::Line);
+        n.size = Vec2::new(100.0, 0.0);
+        n.stroke.weight = 10.0;
+        n.stroke_geometry = Some(vec![Path {
+            cmds: vec![
+                PathCmd::MoveTo(Vec2::new(-5.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(105.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(105.0, 0.0)),
+                PathCmd::LineTo(Vec2::new(-5.0, 0.0)),
+                PathCmd::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+        }]);
+        let mut expected = n.clone();
+        let tf = expected.transform;
+        crate::apply_constrained_geometry(&mut expected, tf, Vec2::new(200.0, 0.0));
+
+        set_bound_property(&mut n, "width", &VariableValue::Number(200.0));
+
+        assert_eq!(n, expected);
     }
 }
