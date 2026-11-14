@@ -17,6 +17,8 @@ pub type FigmaExtensions = BTreeMap<String, serde_json::Value>;
 /// variable still uses it. Such an entry stays in the document so bindings and aliases resolve, but it is not
 /// listed, offered or published, and it does not take a name.
 pub const SOFT_DELETED_EXTENSION_KEY: &str = "org.designos.softDeleted";
+/// Internal marker preserving a collection-level Figma publish switch.
+pub const HIDDEN_FROM_PUBLISHING_EXTENSION_KEY: &str = "org.designos.hiddenFromPublishing";
 
 fn has_soft_deleted_mark(extensions: &FigmaExtensions) -> bool {
     extensions.get(SOFT_DELETED_EXTENSION_KEY).and_then(serde_json::Value::as_bool) == Some(true)
@@ -58,6 +60,15 @@ impl VariableCollection {
     /// True for a collection the file deleted but still keeps because some variable it holds is in use.
     pub fn is_soft_deleted(&self) -> bool {
         has_soft_deleted_mark(&self.extensions)
+    }
+
+    /// Whether Figma marks this whole collection hidden from publishing.
+    pub fn is_hidden_from_publishing(&self) -> bool {
+        self.extensions.get(HIDDEN_FROM_PUBLISHING_EXTENSION_KEY).and_then(serde_json::Value::as_bool) == Some(true)
+    }
+
+    pub fn set_hidden_from_publishing(&mut self, hidden: bool) {
+        self.extensions.insert(HIDDEN_FROM_PUBLISHING_EXTENSION_KEY.into(), serde_json::Value::Bool(hidden));
     }
 }
 

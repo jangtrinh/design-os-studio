@@ -73,6 +73,174 @@ fn message_fields_mut(v: &mut V) -> Option<&mut Vec<(std::sync::Arc<str>, V)>> {
     }
 }
 
+fn kiwi_float(v: &V) -> Option<f32> {
+    match v {
+        V::Float(f) => Some(*f),
+        V::Int(i) => Some(*i as f32),
+        V::Uint(u) => Some(*u as f32),
+        _ => None,
+    }
+}
+
+fn own_float(own_entries: &[&V], key: &str) -> Option<f32> {
+    own_entries.iter().rev().find_map(|e| e.get(key).and_then(kiwi_float))
+}
+
+fn own_size_axis(own_entries: &[&V], axis: &str) -> Option<f32> {
+    own_entries.iter().rev().find_map(|e| e.get("size").and_then(|s| s.get(axis)).and_then(kiwi_float))
+}
+
+fn consumption_field_removed(field: &str, key: OverrideField) -> bool {
+    matches!(
+        (field, key),
+        ("WIDTH" | "HEIGHT", OverrideField::Size)
+            | ("VISIBLE", OverrideField::Visible)
+            | ("OPACITY", OverrideField::Opacity)
+            | ("STROKE_WEIGHT" | "BORDER_TOP_WEIGHT" | "BORDER_RIGHT_WEIGHT" | "BORDER_BOTTOM_WEIGHT" | "BORDER_LEFT_WEIGHT", OverrideField::Stroke)
+            | (
+                "CORNER_RADIUS"
+                    | "RECTANGLE_CORNER_RADII"
+                    | "RECTANGLE_TOP_LEFT_CORNER_RADIUS"
+                    | "RECTANGLE_TOP_RIGHT_CORNER_RADIUS"
+                    | "RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS"
+                    | "RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS",
+                OverrideField::CornerRadii
+            )
+    )
+}
+
+fn stale_consumption_fields(
+    node: &Node,
+    main_node: Option<&Node>,
+    opened: &BTreeMap<OverrideField, u64>,
+    own_entries: &[&V],
+    edited: &BTreeSet<OverrideField>,
+    reset: &BTreeSet<OverrideField>,
+) -> BTreeSet<&'static str> {
+    let mut stale = BTreeSet::new();
+    const ALL_CONSUMPTION_FIELDS: [&str; 15] = [
+        "WIDTH",
+        "HEIGHT",
+        "VISIBLE",
+        "OPACITY",
+        "STROKE_WEIGHT",
+        "BORDER_TOP_WEIGHT",
+        "BORDER_RIGHT_WEIGHT",
+        "BORDER_BOTTOM_WEIGHT",
+        "BORDER_LEFT_WEIGHT",
+        "CORNER_RADIUS",
+        "RECTANGLE_CORNER_RADII",
+        "RECTANGLE_TOP_LEFT_CORNER_RADIUS",
+        "RECTANGLE_TOP_RIGHT_CORNER_RADIUS",
+        "RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS",
+        "RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS",
+    ];
+    for &field in reset {
+        for &name in &ALL_CONSUMPTION_FIELDS {
+            if consumption_field_removed(name, field) {
+                stale.insert(name);
+            }
+        }
+    }
+    if edited.contains(&OverrideField::Visible) {
+        stale.insert("VISIBLE");
+    }
+    if edited.contains(&OverrideField::Opacity) {
+        stale.insert("OPACITY");
+    }
+    if edited.contains(&OverrideField::Size) {
+        let opened_size = crate::instance_self_digest::opened_size(opened);
+        let axis_changed = |cur: f32, opened_axis: Option<f32>, axis_key: &str, main_axis: Option<f32>| -> bool {
+            if opened_axis.is_some_and(|o| (cur - o).abs() <= 1e-5) {
+                return false;
+            }
+            if let Some(rec) = own_size_axis(own_entries, axis_key) {
+                (cur - rec).abs() > 1e-5
+            } else if let Some(o) = opened_axis {
+                (cur - o).abs() > 1e-5
+            } else {
+                main_axis.is_none_or(|m| (cur - m).abs() > 1e-5)
+            }
+        };
+        if axis_changed(node.size.x, opened_size.map(|(x, _)| x), "x", main_node.map(|m| m.size.x)) {
+            stale.insert("WIDTH");
+        }
+        if axis_changed(node.size.y, opened_size.map(|(_, y)| y), "y", main_node.map(|m| m.size.y)) {
+            stale.insert("HEIGHT");
+        }
+    }
+    if edited.contains(&OverrideField::Stroke) {
+        let old_sw = own_float(own_entries, "strokeWeight").or_else(|| main_node.map(|m| m.stroke.weight));
+        if old_sw.is_none_or(|w| (node.stroke.weight - w).abs() > 1e-5) {
+            stale.insert("STROKE_WEIGHT");
+        }
+        for (name, key, idx) in [
+            ("BORDER_TOP_WEIGHT", "borderTopWeight", 0usize),
+            ("BORDER_RIGHT_WEIGHT", "borderRightWeight", 1usize),
+            ("BORDER_BOTTOM_WEIGHT", "borderBottomWeight", 2usize),
+            ("BORDER_LEFT_WEIGHT", "borderLeftWeight", 3usize),
+        ] {
+            let cur = node.stroke.side_weights.map(|sw| sw[idx]).unwrap_or(node.stroke.weight);
+            let old = own_float(own_entries, key)
+                .or_else(|| own_float(own_entries, "strokeWeight"))
+                .or_else(|| main_node.map(|m| m.stroke.side_weights.map(|sw| sw[idx]).unwrap_or(m.stroke.weight)));
+            if old.is_none_or(|w| (cur - w).abs() > 1e-5) {
+                stale.insert(name);
+            }
+        }
+    }
+    if edited.contains(&OverrideField::CornerRadii) {
+        let mut any_corner_changed = false;
+        for (name, key, idx) in [
+            ("RECTANGLE_TOP_LEFT_CORNER_RADIUS", "rectangleTopLeftCornerRadius", 0usize),
+            ("RECTANGLE_TOP_RIGHT_CORNER_RADIUS", "rectangleTopRightCornerRadius", 1usize),
+            ("RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS", "rectangleBottomRightCornerRadius", 2usize),
+            ("RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS", "rectangleBottomLeftCornerRadius", 3usize),
+        ] {
+            let cur = node.corner_radii[idx];
+            let old = own_float(own_entries, key).or_else(|| own_float(own_entries, "cornerRadius")).or_else(|| main_node.map(|m| m.corner_radii[idx]));
+            if old.is_none_or(|r| (cur - r).abs() > 1e-5) {
+                stale.insert(name);
+                if idx == 0 {
+                    stale.insert("CORNER_RADIUS");
+                }
+                any_corner_changed = true;
+            }
+        }
+        if any_corner_changed {
+            stale.insert("RECTANGLE_CORNER_RADII");
+        }
+    }
+    stale
+}
+
+fn drop_stale_consumption_entries(record: &mut Vec<(std::sync::Arc<str>, V)>, stale_fields: &BTreeSet<&'static str>) {
+    for (key, value) in record.iter_mut() {
+        if !matches!(&**key, "variableConsumptionMap" | "parameterConsumptionMap") {
+            continue;
+        }
+        let Some(entries) = value.get_mut("entries").and_then(|v| match v {
+            V::Array(a) => Some(a),
+            _ => None,
+        }) else {
+            continue;
+        };
+        entries.retain(|entry| {
+            let Some(variable_field) = entry.get("variableField") else { return true };
+            let name = match variable_field {
+                V::Enum(name) => name.as_ref(),
+                V::String(name) => name.as_str(),
+                _ => return true,
+            };
+            !stale_fields.contains(name)
+        });
+    }
+    record.retain(|(key, value)| {
+        !matches!(&**key, "variableConsumptionMap" | "parameterConsumptionMap")
+            || value.get("entries").and_then(V::as_array).is_none_or(|entries| !entries.is_empty())
+    });
+}
+
 /// Re-adds the blobs a geometry list names to this file's table and points the list at them. A blob the loader holds
 /// no bytes for leaves its geometry out: an index into another file's table would draw something else.
 fn remap_geometry(cx: &mut ExportCtx<'_>, kept: &Kept, list: &mut V) {
@@ -143,7 +311,7 @@ pub(super) fn pending_symbol_overrides(cx: &mut ExportCtx<'_>, inst_id: NodeId, 
         }
         remap_prop_assignments(cx, &kept, e, inst_id, main_guid);
     }
-    restate_edited_self_fields(cx, inst_id, main_guid, &mut entries);
+    restate_edited_self_fields(cx, inst_id, main, main_guid, &mut entries);
     (!entries.is_empty()).then_some(entries)
 }
 
@@ -169,29 +337,72 @@ pub(super) fn size_edited(doc: &Document, inst_id: NodeId) -> bool {
 /// The record states the instance's own fields as they were when the file was opened. A field the user changed on the
 /// instance since then (its digest moved, see [`crate::instance_self_digest`]) is written from the node instead, in
 /// place of what the record says for it; every other part of the record is written as it was.
-fn restate_edited_self_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main_guid: (u32, u32), entries: &mut Vec<V>) {
+fn restate_edited_self_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main: NodeId, main_guid: (u32, u32), entries: &mut Vec<V>) {
     let edited = edited_self_fields(cx.doc, inst_id);
-    if edited.is_empty() {
+    let opened = cx.doc.pending_instance_self_digests(inst_id).unwrap_or_default();
+    let Some(node) = cx.doc.get(inst_id) else { return };
+    // A reset removes the override flag before export. The opened digest still records that field, but
+    // `edited_fields` cannot see it because it only walks fields currently flagged on the node. Remove the
+    // corresponding kept record instead of writing the stale value back.
+    let mut reset = BTreeSet::new();
+    for entry in entries.iter() {
+        if !is_own_entry(entry, main_guid) {
+            continue;
+        }
+        let fields = match entry {
+            V::Message(fields) | V::Struct(fields) => fields,
+            _ => continue,
+        };
+        for (key, _) in fields.iter() {
+            if let Some(field) = field_removed_with(key) {
+                if opened.contains_key(&field) && !node.component.has_override(&field) {
+                    reset.insert(field);
+                }
+            }
+        }
+    }
+    if edited.is_empty() && reset.is_empty() {
         return;
     }
-    // The instance has no children, so what it reads from the node is its own entry alone.
-    let Some(mut fresh) = collect_instance_overrides_for(cx, inst_id, Some(&edited)).into_iter().find(|e| is_own_entry(e, main_guid)) else { return };
+    // The instance has no children, so what it reads from the node is its own entry alone. A reset has no fresh
+    // value to append; edited fields still replace the old value with the current node state.
+    let mut fresh = collect_instance_overrides_for(cx, inst_id, Some(&edited)).into_iter().find(|e| is_own_entry(e, main_guid));
     let own: Vec<usize> = entries.iter().enumerate().filter(|(_, e)| is_own_entry(e, main_guid)).map(|(i, _)| i).collect();
     let Some(&last) = own.last() else {
-        entries.insert(0, fresh);
+        if let Some(fresh) = fresh {
+            entries.insert(0, fresh);
+        }
         return;
     };
-    let Some(restated) = message_fields_mut(&mut fresh) else { return };
-    restated.retain(|(k, _)| &**k != "guidPath");
+    let mut restated = fresh.as_mut().and_then(message_fields_mut);
+    if let Some(fields) = restated.as_mut() {
+        fields.retain(|(k, _)| &**k != "guidPath");
+    }
+    let stale_consumption = {
+        let Some(node) = cx.doc.get(inst_id) else { return };
+        let main_node = cx.doc.get(main);
+        let own_refs: Vec<&V> = own.iter().map(|&i| &entries[i]).collect();
+        stale_consumption_fields(node, main_node, &opened, &own_refs, &edited, &reset)
+    };
+    let mut removed = edited;
+    removed.extend(reset);
     // Entries on one path apply in list order, so a key left in an earlier one would still be read where the last does not
     // override it: the old value goes from all of them and the new one is stated by the last.
     for &i in &own {
         let Some(record) = message_fields_mut(&mut entries[i]) else { continue };
-        record.retain(|(k, _)| !field_removed_with(k).is_some_and(|f| edited.contains(&f)));
+        record.retain(|(k, _)| !field_removed_with(k).is_some_and(|f| removed.contains(&f)));
+        drop_stale_consumption_entries(record, &stale_consumption);
     }
-    if let Some(record) = message_fields_mut(&mut entries[last]) {
+    if let (Some(record), Some(restated)) = (message_fields_mut(&mut entries[last]), restated.take()) {
         record.append(restated);
     }
+    entries.retain(|entry| {
+        !is_own_entry(entry, main_guid)
+            || match entry {
+                V::Message(fields) | V::Struct(fields) => fields.iter().any(|(k, _)| &**k != "guidPath"),
+                _ => true,
+            }
+    });
 }
 
 #[cfg(test)]

@@ -2005,7 +2005,16 @@ impl Document {
         // Apply root component properties (`props`), slots (`slots`, E15-2), and descendant overrides (`overrides`)
         if let Err(e) = apply_instance_props_with_ctx(self, inst_id, &spec.props, ctx)
             .and_then(|()| apply_instance_slots_with_ctx(self, inst_id, &spec.slots, "slots", ctx))
-            .and_then(|()| apply_overrides_with_ctx(self, inst_id, &spec.overrides, ctx))
+            .and_then(|()| {
+                if !spec.name.is_empty() {
+                    if let Some(inst_node) = self.get_mut(inst_id) {
+                        if spec.name != inst_node.name {
+                            inst_node.name = spec.name.clone();
+                        }
+                    }
+                }
+                apply_overrides_with_ctx(self, inst_id, &spec.overrides, ctx)
+            })
         {
             let _ = Command::Remove { id: inst_id }.apply(self);
             return Err(e);

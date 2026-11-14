@@ -269,7 +269,8 @@ fn row_instance_node(doc: &Document, i: usize) -> NodeId {
 }
 
 fn flags_of(doc: &Document, i: usize) -> Vec<OverrideField> {
-    doc.get(row_instance_node(doc, i)).expect("instance").component.overrides.iter().copied().collect()
+    let node = doc.get(row_instance_node(doc, i)).expect("instance");
+    OverrideField::ALL.into_iter().filter(|field| node.component.has_override(field)).collect()
 }
 
 /// The entry that states the field the row's key belongs to: the key itself, or, for a baked outline or smoothing, the

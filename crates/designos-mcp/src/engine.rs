@@ -640,6 +640,12 @@ impl Engine {
                 let mut variables = json!(live_variables);
                 for v in variables.as_object_mut().into_iter().flat_map(|m| m.values_mut()).filter_map(|v| v.as_object_mut()) {
                     v.entry("code_syntax").or_insert_with(|| json!({}));
+                    if let Some(raw) = v.get_mut("extensions").and_then(|x| x.as_object_mut()) {
+                        raw.remove(designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY);
+                        if raw.is_empty() {
+                            v.remove("extensions");
+                        }
+                    }
                 }
                 let mut collections = json!(live_collections);
                 for (id, c) in &live_collections {
@@ -648,6 +654,7 @@ impl Engine {
                     if let Some(raw) = entry.get_mut("extensions").and_then(|x| x.as_object_mut()) {
                         raw.remove(designos_doc::EXTENSION_KEY);
                         raw.remove(designos_doc::EXTENDABLE_KEY);
+                        raw.remove(designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY);
                         if raw.is_empty() {
                             entry.remove("extensions");
                         }
@@ -2738,7 +2745,7 @@ pub fn tools() -> Vec<Value> {
     let code_langs: Vec<&str> = designos_export::CodeLanguage::ALL.iter().map(|l| l.id()).chain(std::iter::once("svg")).collect();
     add(
         "generate_code",
-        "Generate developer handoff code or SVG for a layer using resolved variable values. Returns source text; writes no files.",
+        "Generate handoff code or SVG for a layer using resolved variable values. Returns source text; writes no files.",
         json!({"node_id":id,"language":{"type":"string","enum":code_langs},"fragment":{"type":"boolean","default":false,"description":"When language is html, emit only <style> and the root element without <!doctype html>, <html>, <head>, or <body>."}}),
         vec!["node_id", "language"],
         json!({
@@ -2795,7 +2802,7 @@ pub fn tools() -> Vec<Value> {
     );
     add(
         "add_comment",
-        "Pin a new comment thread to a node (with local offset x/y) or page coordinates. Supports undo.",
+        "Pin a new comment thread to a node (local offset x/y) or page coordinates. Supports undo.",
         json!({"text":{"type":"string","minLength":1,"maxLength":10000},"author":{"type":"string","maxLength":256},"node_id":id,"page_id":id,"x":coordinate,"y":coordinate,"idempotency_key":idempotency_key}),
         vec!["text"],
         json!({
@@ -7107,5 +7114,73 @@ mod tests {
         // An easing binding must point at a string variable, a duration at a number variable.
         assert!(e.call("designos_update_node", json!({ "node_id": id.0, "bindings": { "easingData": "var:Motion/Duration" } })).is_err());
         assert!(e.call("designos_update_node", json!({ "node_id": id.0, "bindings": { "timelineDuration": "var:Motion/Easing" } })).is_err());
+    }
+
+    #[test]
+    fn get_variables_strips_internal_hidden_from_publishing_extension_key() {
+        let nodes = json!([
+            {"type": "DOCUMENT", "guid": {"sessionID": 0, "localID": 0}, "phase": "CREATED", "name": "Doc"},
+            {"type": "CANVAS", "guid": {"sessionID": 0, "localID": 1}, "phase": "CREATED", "name": "Page 1", "parentIndex": {"guid": {"sessionID": 0, "localID": 0}, "position": "!"}},
+            {
+                "type": "VARIABLE_SET",
+                "guid": {"sessionID": 1, "localID": 5},
+                "phase": "CREATED",
+                "name": "Brand",
+                "key": "set-1-5",
+                "isPublishable": true,
+                "variableSetModes": [{"id": {"sessionID": 1, "localID": 6}, "name": "Light", "sortPosition": "!"}]
+            },
+            {
+                "type": "VARIABLE",
+                "guid": {"sessionID": 1, "localID": 20},
+                "phase": "CREATED",
+                "name": "Primary",
+                "key": "var-1-20",
+                "isPublishable": true,
+                "variableSetID": {"guid": {"sessionID": 1, "localID": 5}},
+                "variableResolvedType": "FLOAT",
+                "variableDataValues": {"entries": [{"modeID": {"sessionID": 1, "localID": 6}, "variableData": {"dataType": "FLOAT", "value": {"floatValue": 12.0}}}]}
+            }
+        ]);
+        let doc = designos_fig::import_fig_node_changes(&nodes, "Test").unwrap();
+        let mut e = Engine { doc, ..Default::default() };
+        assert!(e.doc.variable_collections["VariableCollectionId:1:5"].extensions.contains_key(designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY));
+        assert!(e.doc.variables["VariableID:1:20"].extensions.contains_key(designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY));
+
+        let reply = e.call("designos_get_variables", json!({})).unwrap();
+        assert!(
+            !reply.to_string().contains(designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY),
+            "internal publishability extension key must not leak in designos_get_variables: {reply}"
+        );
+        assert_eq!(
+            reply,
+            json!({
+                "collections": {
+                    "VariableCollectionId:1:5": {
+                        "default_mode": "1:6",
+                        "id": "VariableCollectionId:1:5",
+                        "key": "set-1-5",
+                        "modes": [{"id": "1:6", "name": "Light"}],
+                        "name": "Brand",
+                        "variables": ["VariableID:1:20"]
+                    }
+                },
+                "effective_bindings": null,
+                "variables": {
+                    "VariableID:1:20": {
+                        "code_syntax": {},
+                        "collection": "VariableCollectionId:1:5",
+                        "description": "",
+                        "hidden_from_publishing": false,
+                        "id": "VariableID:1:20",
+                        "key": "var-1-20",
+                        "kind": "Number",
+                        "name": "Primary",
+                        "scopes": [],
+                        "values": {"1:6": {"Number": 12.0}}
+                    }
+                }
+            })
+        );
     }
 }

@@ -136,6 +136,7 @@ fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, o
     if link {
         n.component.source = Some(src);
         n.component.overrides.clear();
+        n.component.clear_fig_own_entry_flags();
         n.component.parked_overrides.clear();
         release_own_variant_bindings(&mut n);
         // A linked copy inherits property values from its main-side source.
@@ -248,13 +249,13 @@ fn is_top(n: &Node) -> bool {
 /// override/binding on itself or its master component node, or bound to a `PropKind::Slot` property).
 pub fn is_slot_container(doc: &Document, id: NodeId) -> bool {
     let Some(n) = doc.get(id) else { return false };
-    if n.component.is_slot || n.component.overrides.contains(&OverrideField::SlotContent) || n.component.bindings.contains_key(&OverrideField::SlotContent) {
+    if n.component.is_slot || n.component.has_override(&OverrideField::SlotContent) || n.component.bindings.contains_key(&OverrideField::SlotContent) {
         return true;
     }
     if let Some(src_id) = n.component.source {
         if let Some(src) = doc.get(src_id) {
             if src.component.is_slot
-                || src.component.overrides.contains(&OverrideField::SlotContent)
+                || src.component.has_override(&OverrideField::SlotContent)
                 || src.component.bindings.contains_key(&OverrideField::SlotContent)
             {
                 return true;
@@ -1058,6 +1059,7 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
         let Some(mut n) = c.s.get(id).cloned() else { continue };
         let before = (
             n.component.overrides.len(),
+            n.component.fig_own_entry_flags.len(),
             n.component.grid_align_overrides,
             n.plugin_data.len(),
             n.component.own_variant_bindings.len(),
@@ -1065,7 +1067,7 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
             n.component.parked_overrides.len(),
         );
         for f in fields {
-            n.component.overrides.remove(f);
+            n.component.remove_override(f);
             if *f == OverrideField::MainComponent {
                 n.component.parked_overrides.clear();
             } else {
@@ -1091,6 +1093,7 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
         }
         if (
             n.component.overrides.len(),
+            n.component.fig_own_entry_flags.len(),
             n.component.grid_align_overrides,
             n.plugin_data.len(),
             n.component.own_variant_bindings.len(),
@@ -1145,12 +1148,13 @@ pub fn reset_instance(doc: &mut Document, instance: NodeId) -> Command {
         let own_values = if exposed_values.contains(&id) { overriding_value_keys(c.s, &n) } else { Vec::new() };
         let released_binding = release_own_variant_bindings(&mut n);
         if released_binding
-            || !n.component.overrides.is_empty()
+            || n.component.has_any_override()
             || !n.component.parked_overrides.is_empty()
             || n.component.grid_align_overrides != [false, false]
             || !own_values.is_empty()
         {
             n.component.overrides.clear();
+            n.component.clear_fig_own_entry_flags();
             n.component.parked_overrides.clear();
             n.component.grid_align_overrides = [false, false];
             for name in &own_values {
@@ -1502,7 +1506,7 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
 /// already fitted, size.
 fn keeps_own_text_size(r: &Node, n: &Node, values: &BTreeMap<String, PropValue>) -> bool {
     let bound_text = r.component.bindings.get(&OverrideField::Characters).is_some_and(|p| values.contains_key(p));
-    (n.component.overrides.contains(&OverrideField::Characters) || n.component.overrides.contains(&OverrideField::TextStyle) || bound_text)
+    (n.component.has_override(&OverrideField::Characters) || n.component.has_override(&OverrideField::TextStyle) || bound_text)
         && matches!(&n.kind, NodeKind::Text(t) if matches!(t.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height))
 }
 
@@ -1513,7 +1517,7 @@ fn keeps_own_text_size(r: &Node, n: &Node, values: &BTreeMap<String, PropValue>)
 pub fn size_comes_from_main(doc: &Document, id: NodeId) -> bool {
     let Some(n) = doc.get(id).filter(|n| is_linked(n)) else { return false };
     let Some(r) = reference_of(doc, id).and_then(|r| doc.get(r)) else { return false };
-    if n.component.overrides.contains(&OverrideField::Size) {
+    if n.component.has_override(&OverrideField::Size) {
         return false;
     }
     let no_values = BTreeMap::new();
@@ -1542,7 +1546,7 @@ pub fn drop_baked_outline_of_parametric_shape(n: &mut Node) {
 
 /// Copies every field of `r` that `n` does not override onto `n`.
 fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, PropValue>) {
-    let ov = n.component.overrides.clone();
+    let ov = n.component.override_fields();
     let own_arc_before = match &n.kind {
         NodeKind::Ellipse(a) => Some(*a),
         _ => None,
@@ -1744,7 +1748,7 @@ fn orig_in_main<'a>(d: &'a Document, comp: Option<NodeId>, kn: &Node) -> Option<
 }
 
 fn effective_child_overrides(d: &Document, old_comp: Option<NodeId>, kn: &Node) -> BTreeSet<OverrideField> {
-    let mut fields = kn.component.overrides.clone();
+    let mut fields = kn.component.override_fields();
     let mut chain_fields = BTreeSet::new();
     let mut cur_src = kn.component.source;
     let mut orig_in_old_comp: Option<&Node> = None;
@@ -1963,7 +1967,7 @@ fn apply_parked_override_to_node(po: &ParkedOverride, to: &mut Node) {
             to.corner_smoothing = *smoothing;
         }
         ParkedOverrideValue::Characters { content, fitted_size, sizing_text } => {
-            let can_restore_size = !to.component.overrides.contains(&OverrideField::Size)
+            let can_restore_size = !to.component.has_override(&OverrideField::Size)
                 && sizing_text.as_ref().is_some_and(|a| {
                     let mut from_probe = Node::text(NodeId(0), Rect::new(0.0, 0.0, 0.0, 0.0), String::new(), a.style.clone());
                     from_probe.kind = NodeKind::Text((**a).clone());
@@ -2067,7 +2071,7 @@ fn find_layer_at_path_with_comp<'a>(d: &'a Document, root_comp: NodeId, path: &[
         matched_comp = active_comp;
         let orig = orig_in_main(d, root_main, kn);
         let is_swapped_inst = matches!(kn.kind, NodeKind::Instance { .. })
-            && (kn.component.overrides.contains(&OverrideField::MainComponent) || orig.and_then(instance_component) != instance_component(kn));
+            && (kn.component.has_override(&OverrideField::MainComponent) || orig.and_then(instance_component) != instance_component(kn));
         active_comp = if is_swapped_inst || matches!(kn.kind, NodeKind::Instance { .. }) { instance_component(kn).or(active_comp) } else { active_comp };
         cur_id = kn.id;
     }
@@ -2257,7 +2261,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             path.push((base_name, occurrence));
             let is_inst = matches!(kn.kind, NodeKind::Instance { .. });
             let is_swapped_inst =
-                is_inst && (kn.component.overrides.contains(&OverrideField::MainComponent) || orig.and_then(instance_component) != instance_component(kn));
+                is_inst && (kn.component.has_override(&OverrideField::MainComponent) || orig.and_then(instance_component) != instance_component(kn));
             let has_parked = is_inst && !kn.component.parked_overrides.is_empty();
             if is_swapped_inst || has_parked {
                 // Only a nested instance the old main itself holds has a counterpart in the new main; anything else cannot move.
@@ -2326,11 +2330,11 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
     let auto_named = old_comp_node.as_ref().is_some_and(|oc| {
         oc.name == n.name || oc.parent.and_then(|p| c.s.get(p)).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_))).is_some_and(|set| set.name == n.name)
     });
-    if !same_family && !n.component.overrides.contains(&OverrideField::Name) && auto_named {
+    if !same_family && !n.component.has_override(&OverrideField::Name) && auto_named {
         n.name = comp.name.clone();
     }
     if top_swap && same_family {
-        if !n.component.overrides.contains(&OverrideField::Size) {
+        if !n.component.has_override(&OverrideField::Size) {
             n.size = comp.size;
         }
     } else {
@@ -2377,7 +2381,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             path.push((base_name, occurrence));
             out.entry(path.clone()).or_insert(*k);
             let is_swapped_inst = matches!(kn.kind, NodeKind::Instance { .. })
-                && (kn.component.overrides.contains(&OverrideField::MainComponent) || orig.and_then(instance_component) != instance_component(kn));
+                && (kn.component.has_override(&OverrideField::MainComponent) || orig.and_then(instance_component) != instance_component(kn));
             let child_active_comp = if is_swapped_inst { instance_component(kn).or(active_comp) } else { active_comp };
             index(d, *k, new_comp, child_active_comp, path, out);
             path.pop();
@@ -2443,7 +2447,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             (matches!(old.kind, NodeKind::Text(_)) && fields.iter().any(|f| matches!(f, OverrideField::Characters | OverrideField::TextStyle))).then_some(lone)
         }) else {
             for &f in &fields {
-                if same_family && old.component.overrides.contains(&f) {
+                if same_family && old.component.has_override(&f) {
                     if let Some(po) = extract_parked_override(&path, &old, orig_id, f) {
                         newly_parked.push(po);
                     } else {
@@ -2480,7 +2484,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                 keep
             });
             for f in rest {
-                if same_family && old.component.overrides.contains(&f) {
+                if same_family && old.component.has_override(&f) {
                     if let Some(po) = extract_parked_override(&path, &old, orig_id, f) {
                         newly_parked.push(po);
                     } else {
@@ -2565,7 +2569,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                 }
                 continue;
             }
-            if nn.component.overrides.contains(&po.field) {
+            if nn.component.has_override(&po.field) {
                 // Live override on the returning layer wins; parked entry is removed.
                 continue;
             }
@@ -2573,7 +2577,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                 dropped_fields += 1;
                 continue;
             };
-            let path_has_chars = nn.component.overrides.contains(&OverrideField::Characters)
+            let path_has_chars = nn.component.has_override(&OverrideField::Characters)
                 || prior_parked.iter().any(|p| {
                     p.path == po.path && p.field == OverrideField::Characters && !newly_parked.iter().any(|np| np.path == p.path && np.field == p.field)
                 });
@@ -2604,7 +2608,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             });
             let mut changed = false;
             for po in &pos {
-                if !nn.component.overrides.contains(&po.field) {
+                if !nn.component.has_override(&po.field) {
                     if po.field == OverrideField::Layout {
                         if let (Some(orig), Some(new_orig)) =
                             (po.origin_source.and_then(|id| c.s.get(id)).cloned(), nn.component.source.and_then(|s| c.s.get(s)).cloned())
@@ -2936,7 +2940,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
     let mut swapped_here = false;
     if let Some(cur) = instance_component(&inode) {
         let mut desired = cur;
-        if !inode.component.overrides.contains(&OverrideField::MainComponent) {
+        if !inode.component.has_override(&OverrideField::MainComponent) {
             if let Some(rc) = instance_component(&rn).filter(|_| !top) {
                 desired = rc;
             }
@@ -2974,7 +2978,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
         } else if desired != cur {
             // The switch a bound variant property makes on a copy holding a pick leaves the pick recorded (the swap drops
             // the record); a switch any other way (an instance-swap property) takes the record with it, as it always did.
-            let holds_pick = bound_switch && inode.component.overrides.contains(&OverrideField::MainComponent);
+            let holds_pick = bound_switch && inode.component.has_override(&OverrideField::MainComponent);
             swap_main(c, i, desired);
             swapped_here = true;
             inode = match c.s.get(i) {
@@ -2998,8 +3002,8 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
 
     // --- node properties ---
     let mut n = inode.clone();
-    let eff_constraints = if inode.component.overrides.contains(&OverrideField::Layout) { inode.constraints } else { slot_constraints };
-    let eff_layout_child = if inode.component.overrides.contains(&OverrideField::Layout) { inode.layout_child } else { slot_layout_child };
+    let eff_constraints = if inode.component.has_override(&OverrideField::Layout) { inode.constraints } else { slot_constraints };
+    let eff_layout_child = if inode.component.has_override(&OverrideField::Layout) { inode.layout_child } else { slot_layout_child };
     let in_auto_layout_flow =
         !eff_layout_child.absolute && inode.parent.and_then(|ip| c.s.get(ip)).and_then(|p| p.kind.frame_props()).is_some_and(|fp| fp.auto_layout.is_some());
     if !top && instance_component(&inode) != slot_comp {
@@ -3030,7 +3034,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
                 OverrideField::CornerRadii,
                 OverrideField::Layout,
             ] {
-                if !node_ref.component.overrides.contains(&f) && !slot_ov.contains(&f) {
+                if !node_ref.component.has_override(&f) && !slot_ov.contains(&f) {
                     copy_field(f, &rn, &mut node_ref);
                 }
             }
@@ -3060,18 +3064,18 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
             let dx = (instance_parent_size.x - main_parent_size.x).abs() > 1e-4;
             let dy = (instance_parent_size.y - main_parent_size.y).abs() > 1e-4;
             if in_auto_layout_flow {
-                if dx && eff_layout_child.horizontal == Sizing::Fill && !n.component.overrides.contains(&OverrideField::Size) {
+                if dx && eff_layout_child.horizontal == Sizing::Fill && !n.component.has_override(&OverrideField::Size) {
                     n.size.x = inode.size.x;
                 }
-                if dy && eff_layout_child.vertical == Sizing::Fill && !n.component.overrides.contains(&OverrideField::Size) {
+                if dy && eff_layout_child.vertical == Sizing::Fill && !n.component.has_override(&OverrideField::Size) {
                     n.size.y = inode.size.y;
                 }
             } else if dx || dy {
                 let mut probe = n.clone();
                 probe.constraints = eff_constraints;
                 if let Some((new_tf, new_sz)) = crate::layout_constraints::constrain_child(&probe, main_parent_size, instance_parent_size) {
-                    let tf = if n.component.overrides.contains(&OverrideField::Transform) { n.transform } else { new_tf };
-                    let sz = if n.component.overrides.contains(&OverrideField::Size) { n.size } else { new_sz };
+                    let tf = if n.component.has_override(&OverrideField::Transform) { n.transform } else { new_tf };
+                    let sz = if n.component.has_override(&OverrideField::Size) { n.size } else { new_sz };
                     if tf != n.transform || sz != n.size {
                         crate::layout_constraints::apply_constrained_geometry(&mut n, tf, sz);
                     }
@@ -3093,7 +3097,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
     // --- children ---
     // A slot the user has edited keeps its content; once the override is cleared (Reset) the slot
     // mirrors the main component's children again, including dropping anything the user added.
-    if inode.component.overrides.contains(&OverrideField::SlotContent) {
+    if inode.component.has_override(&OverrideField::SlotContent) {
         return;
     }
     // A main that holds an instance of itself, met again inside its own mirror, is a repeat: the instance keeps the
@@ -3116,7 +3120,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
     // reference's layers instead of being rebuilt from them, which would drop its overrides.
     if !top
         && !swapped_here
-        && (has_prop_binding(&inode) || inode.component.overrides.contains(&OverrideField::MainComponent))
+        && (has_prop_binding(&inode) || inode.component.has_override(&OverrideField::MainComponent))
         && matches!(rn.kind, NodeKind::Instance { .. })
         && instance_component(&inode) == instance_component(&rn)
     {
@@ -3177,7 +3181,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
             c.push(Command::Reparent { id: *id, parent: i, index: k });
         }
     }
-    let kept_size_override = c.s.get(i).is_some_and(|x| x.component.overrides.contains(&OverrideField::Size));
+    let kept_size_override = c.s.get(i).is_some_and(|x| x.component.has_override(&OverrideField::Size));
     if (!(top && swapped_here) || kept_size_override) && c.s.get(i).is_some_and(|x| x.kind.is_container()) {
         if let Some(slot_after) = c.s.get(i).map(|x| x.size).filter(|&sz| sz != rn.size) {
             apply_instance_constraints(c, i, rn.size, slot_after, 64);
@@ -3197,8 +3201,8 @@ fn apply_instance_constraints(c: &mut Ctx, parent: NodeId, old: Vec2, new: Vec2,
                 continue;
             }
             let Some(mut child) = c.s.get(cid).cloned() else { continue };
-            let tf = if child.component.overrides.contains(&OverrideField::Transform) { child.transform } else { new_tf };
-            let sz = if child.component.overrides.contains(&OverrideField::Size) { child.size } else { new_sz };
+            let tf = if child.component.has_override(&OverrideField::Transform) { child.transform } else { new_tf };
+            let sz = if child.component.has_override(&OverrideField::Size) { child.size } else { new_sz };
             if tf != child.transform || sz != child.size {
                 crate::layout_constraints::apply_constrained_geometry(&mut child, tf, sz);
                 c.update(child);
@@ -3224,8 +3228,8 @@ fn constrain_direct_children(c: &mut Ctx, parent: NodeId, old: Vec2, new: Vec2, 
         let Some(mut child) = c.s.get(cid).cloned() else { continue };
         let old_child = child.size;
         let is_container = child.kind.is_container();
-        let tf = if child.component.overrides.contains(&OverrideField::Transform) { child.transform } else { new_tf };
-        let sz = if child.component.overrides.contains(&OverrideField::Size) { child.size } else { new_sz };
+        let tf = if child.component.has_override(&OverrideField::Transform) { child.transform } else { new_tf };
+        let sz = if child.component.has_override(&OverrideField::Size) { child.size } else { new_sz };
         if tf != child.transform || sz != child.size {
             crate::layout_constraints::apply_constrained_geometry(&mut child, tf, sz);
             c.update(child);
@@ -3280,8 +3284,7 @@ fn solve_instance_auto_layout(c: &mut Ctx, root: NodeId, old: Vec2, new: Vec2, d
                 crate::text_measure::height_resize_text_height(doc.get(id)?, w, measure)
             })
         };
-        if ((out.frame.x - frame_size.x).abs() > 1e-3 || (out.frame.y - frame_size.y).abs() > 1e-3)
-            && !frame_node.component.overrides.contains(&OverrideField::Size)
+        if ((out.frame.x - frame_size.x).abs() > 1e-3 || (out.frame.y - frame_size.y).abs() > 1e-3) && !frame_node.component.has_override(&OverrideField::Size)
         {
             let mut fnode = frame_node;
             fnode.size = out.frame;
@@ -3294,8 +3297,8 @@ fn solve_instance_auto_layout(c: &mut Ctx, root: NodeId, old: Vec2, new: Vec2, d
             let is_container = cnode.kind.is_container();
             let write = crate::layout_rotated::slot_write(&cnode.transform, cnode.size, *r);
             let (new_tf, new_sz) = (write.transform, write.size);
-            let tf = if cnode.component.overrides.contains(&OverrideField::Transform) { cnode.transform } else { new_tf };
-            let sz = if cnode.component.overrides.contains(&OverrideField::Size) { cnode.size } else { new_sz };
+            let tf = if cnode.component.has_override(&OverrideField::Transform) { cnode.transform } else { new_tf };
+            let sz = if cnode.component.has_override(&OverrideField::Size) { cnode.size } else { new_sz };
             let size_changed = (sz.x - old_child.x).abs() > 1e-3 || (sz.y - old_child.y).abs() > 1e-3;
             if size_changed
                 && matches!(
@@ -4314,7 +4317,7 @@ fn instance_region_was_visible(doc: &Document, inst: NodeId, copy_id: NodeId, vi
         }
     }
     if let Some(cn) = doc.get(copy_id) {
-        if cn.component.overrides.contains(&OverrideField::Visible) {
+        if cn.component.has_override(&OverrideField::Visible) {
             return cn.visible;
         }
         return default_vis && cn.visible;
@@ -9866,7 +9869,7 @@ mod tests {
         let c = set_nested_instance_prop(&mut d, inst1_leading, "Size", Some(PropValue::Variant("Lg".into())));
         apply(&mut d, c);
         assert!(
-            d.get(inst1_leading).unwrap().component.overrides.contains(&OverrideField::MainComponent),
+            d.get(inst1_leading).unwrap().component.has_override(&OverrideField::MainComponent),
             "the variant edit is recorded as a swap on the nested instance"
         );
         let c = set_instance_prop(&mut d, inst1_leading, "Show dot", Some(PropValue::Bool(false)));

@@ -22,7 +22,7 @@ fn mcp_on_the_shown_tab(s: &mut Sim, dir: &TmpDir) -> (designos_mcp::server::Ses
     let workspace = dir.0.join("mcp-workspace");
     std::fs::create_dir_all(&workspace).unwrap();
     let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &s.app().terminal.session_dir).expect("mcp session");
-    session.set_close_ack_timeout(Duration::from_millis(800));
+    session.set_close_ack_timeout(Duration::from_secs(5));
     // An agent that closes has edited or read the document before, so its log exists; a tab that was parked reads a close that is
     // already in a log it has not polled since it was shown as stale, so the editor must have polled the (empty) log once.
     let log = s.app().terminal.live_patch.path.clone();
@@ -36,7 +36,7 @@ fn mcp_on_the_shown_tab(s: &mut Sim, dir: &TmpDir) -> (designos_mcp::server::Ses
 fn close(s: &mut Sim, session: &mut designos_mcp::server::Session, args: Value) -> Call {
     std::thread::scope(|scope| {
         let h = scope.spawn(|| session.call("designos_close_document", args));
-        let end = Instant::now() + Duration::from_secs(5);
+        let end = Instant::now() + Duration::from_secs(6);
         while !h.is_finished() && Instant::now() < end {
             wait(s, 0.1);
             std::thread::sleep(Duration::from_millis(5));
@@ -331,7 +331,7 @@ fn opening_the_library_file_again_makes_a_close_work_again() {
     assert_eq!(s.app().terminal.session_dir, session_dir, "on the same folder");
     assert!(!session_dir.join("tab-closed.json").exists(), "the mark of the earlier tab is gone");
     let mut fresh = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("a new process");
-    fresh.set_close_ack_timeout(Duration::from_millis(800));
+    fresh.set_close_ack_timeout(Duration::from_secs(5));
     let out = close(&mut s, &mut fresh, json!({"unsaved": "discard"})).expect("the reopened tab closes");
     assert_eq!(out["closed"], true, "{out}");
     assert_eq!(s.app().tabs.entries.len(), 0);

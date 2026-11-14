@@ -3224,6 +3224,7 @@ pub fn apply_micro_interaction_showcase_preset(app: &mut App, preset: &str) {
                     start_count: star_cnt,
                     start_ratio: if select_star { star_ratio } else { arc_ratio },
                     start_end_angle: arc_end,
+                    moved: false,
                 });
                 app.startup_zoom = Some(1.50);
             }
@@ -3971,6 +3972,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                     start_count: star_cnt,
                     start_ratio: if select_star { star_ratio } else { arc_ratio },
                     start_end_angle: arc_end,
+                    moved: false,
                 });
             }
 

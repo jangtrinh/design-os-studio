@@ -38,6 +38,15 @@ fn derived_data() -> Value {
     ])
 }
 
+fn derived_data_with_instance_self() -> Value {
+    let mut entries = derived_data().as_array().cloned().expect("derived entries");
+    entries.push(json!({
+        "guidPath": {"guids": [guid(BUTTON.0, BUTTON.1)]},
+        "transform": matrix(10.0, 20.0)
+    }));
+    Value::Array(entries)
+}
+
 fn dots() -> Vec<Value> {
     [(DOT, "Dot"), (SECOND_DOT, "Second dot")]
         .into_iter()
@@ -164,6 +173,43 @@ fn after_its_main_component_is_edited_the_derived_data_is_omitted_and_the_overri
     let saved = export_fig(&live).expect("export");
     assert!(saved_derived(&saved, INSTANCE).is_empty(), "derived data computed for the old content is not written");
     assert_eq!(saved_entries(&saved, INSTANCE), saved_entries(&fig, INSTANCE), "the override entries are");
+}
+
+#[test]
+fn a_move_of_an_unopened_instance_drops_only_its_stale_derived_transform() {
+    let fig = fixture_with(json!({"derivedSymbolData": derived_data_with_instance_self()}), text_and_stroke_overrides(), dots(), blobs());
+    let mut live = import_fig(&fig).expect("import");
+    let instance = variant_button(&live);
+    live.get_mut(instance).expect("instance").transform.tx += 100.0;
+
+    let saved = export_fig(&live).expect("export");
+    let derived = saved_derived(&saved, INSTANCE);
+    assert!(
+        !derived.iter().any(|e| e["guidPath"]["guids"].as_array().is_some_and(|g| g.len() == 1 && g[0] == guid(BUTTON.0, BUTTON.1))),
+        "the stale self transform must not overwrite the moved instance"
+    );
+    assert!(derived.iter().any(|e| e.get("size").is_some()), "descendant derived data remains available");
+
+    let reopened = reopened_label_size(&saved);
+    assert_eq!(reopened, Vec2::new(90.0, 20.0), "the save remains readable after dropping only the stale self transform");
+    let mut reopened_doc = import_fig(&saved).expect("reopen moved instance");
+    reopened_doc.hydrate_all_pages();
+    let reopened_instance = variant_button(&reopened_doc);
+    assert!(
+        (reopened_doc.get(reopened_instance).expect("reopened instance").transform.tx - 100.0).abs() < 1e-4,
+        "reopen preserves the moved instance position"
+    );
+
+    // Moving the unopened instance and returning it to its open-time transform leaves derived data and own entries intact.
+    let no_edit_saved = export_fig(&import_fig(&fig).expect("import")).expect("export");
+    let mut moved_back = import_fig(&fig).expect("import");
+    let b = variant_button(&moved_back);
+    let initial = moved_back.get(b).expect("instance").transform;
+    moved_back.get_mut(b).expect("instance").transform.tx += 100.0;
+    moved_back.get_mut(b).expect("instance").transform = initial;
+    let saved_back = export_fig(&moved_back).expect("export");
+    assert_eq!(saved_derived(&saved_back, INSTANCE), saved_derived(&no_edit_saved, INSTANCE));
+    assert_eq!(saved_entries(&saved_back, INSTANCE), saved_entries(&no_edit_saved, INSTANCE));
 }
 
 #[test]
