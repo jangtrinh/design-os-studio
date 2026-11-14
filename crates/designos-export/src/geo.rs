@@ -91,18 +91,25 @@ fn oval(out: &mut Vec<PathCmd>, cx: f32, cy: f32, rx: f32, ry: f32, reverse: boo
     out.push(PathCmd::Close);
 }
 
+/// An ellipse whose inner radius reaches the outer one: it has a path but no area.
+fn is_hairline_ring(arc: &ArcData) -> bool {
+    arc.inner_radius >= 0.999
+}
+
 /// Ellipse / arc / ring outline, same construction as the renderer.
 fn ellipse_cmds(w: f32, h: f32, arc: &ArcData) -> Option<Vec<PathCmd>> {
     if w <= 0.0 || h <= 0.0 {
         return None;
     }
     let (cx, cy, rx, ry) = (w / 2.0, h / 2.0, w / 2.0, h / 2.0);
+    // a ring whose inner radius reaches the outer one has no width: it is a single circle, not two
+    let hairline = is_hairline_ring(arc);
     let ir = arc.inner_radius.clamp(0.0, 0.999);
     let raw = arc.end - arc.start;
     let mut out = Vec::new();
     if raw.abs() >= TAU - 1e-4 {
         oval(&mut out, cx, cy, rx, ry, false);
-        if ir > 0.0 {
+        if ir > 0.0 && !hairline {
             oval(&mut out, cx, cy, rx * ir, ry * ir, true);
         }
         return Some(out);
@@ -228,7 +235,7 @@ pub fn node_geo(n: &Node) -> Option<Geo> {
         NodeKind::Ellipse(arc) => {
             let full = (arc.end - arc.start).abs() >= TAU - 1e-4 && arc.inner_radius <= 0.0;
             let kind = if full { GeoKind::Ellipse { w, h } } else { GeoKind::Path };
-            let fillable = arc.inner_radius < 0.999;
+            let fillable = !is_hairline_ring(arc);
             Some(single(ellipse_cmds(w, h, arc)?, kind, true, fillable, false))
         }
         NodeKind::Line => {
