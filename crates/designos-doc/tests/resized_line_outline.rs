@@ -80,11 +80,14 @@ fn dashes_and_marker_caps_drop_the_outline() {
 #[test]
 fn an_all_zero_dash_pattern_is_solid_and_keeps_the_outline() {
     let band = vec![PathCmd::MoveTo(Vec2::new(0.0, -10.0)), PathCmd::LineTo(Vec2::new(100.0, -10.0)), PathCmd::LineTo(Vec2::new(100.0, 0.0)), PathCmd::Close];
+    let mut solid = line_with_outline(100.0, band.clone());
+    apply_constrained_geometry(&mut solid, Affine::IDENTITY, Vec2::new(200.0, 0.0));
+
     let mut n = line_with_outline(100.0, band);
     n.stroke.dashes = vec![0.0, 0.0];
     apply_constrained_geometry(&mut n, Affine::IDENTITY, Vec2::new(200.0, 0.0));
-    assert!(n.stroke_geometry.is_some(), "an all-zero dash pattern is solid, so its stored band remains valid");
-    assert_eq!(points(n.stroke_geometry.as_ref().unwrap())[1], (200.0, -10.0));
+    assert_eq!(n.stroke_geometry, solid.stroke_geometry, "an all-zero dash pattern is solid, so its stored band stretches identically to a solid line");
+    assert_eq!(points(n.stroke_geometry.as_ref().unwrap()), vec![(0.0, -10.0), (200.0, -10.0), (200.0, 0.0)]);
 }
 
 #[test]

@@ -107,9 +107,22 @@ fn build_line_size_only_fixture() -> Vec<u8> {
             ("derivedSymbolData", V::Array(vec![ov(&[(90, 101)], vec![("size", vec2(200.0, 0.0))])])),
         ],
     );
-    let changes = V::Array(vec![doc, page, main, line, instance]);
+    let instance_with_outline = node(
+        (2, 2),
+        (0, 1),
+        "c",
+        "INSTANCE",
+        "LineInstanceWithOutline",
+        vec![
+            ("size", vec2(200.0, 10.0)),
+            ("symbolData", msg(vec![("symbolID", guid(1, 100))])),
+            ("derivedSymbolData", V::Array(vec![ov(&[(90, 101)], vec![("size", vec2(200.0, 0.0)), ("strokeGeometry", geo("NONZERO", 1))])])),
+        ],
+    );
+    let changes = V::Array(vec![doc, page, main, line, instance, instance_with_outline]);
     let outline_blob = path_blob(&[(1, &[0.0, -10.0]), (2, &[100.0, -10.0]), (2, &[100.0, 0.0]), (2, &[0.0, 0.0]), (0, &[])]);
-    let blobs = V::Array(vec![st(vec![("bytes", V::Bytes(outline_blob))])]);
+    let override_outline_blob = path_blob(&[(1, &[0.0, -6.0]), (2, &[200.0, -6.0]), (2, &[200.0, 0.0]), (2, &[0.0, 0.0]), (0, &[])]);
+    let blobs = V::Array(vec![st(vec![("bytes", V::Bytes(outline_blob))]), st(vec![("bytes", V::Bytes(override_outline_blob))])]);
     let message = msg(vec![("nodeChanges", changes), ("blobs", blobs)]);
     let schema = figma_like_schema();
     let root = schema.find("Message").unwrap();
@@ -553,15 +566,34 @@ fn size_only_line_instance_override_keeps_and_scales_imported_stroke_band() {
     let doc = import_fig(&build_line_size_only_fixture()).unwrap();
     let line = find_in_subtree(&doc, find(&doc, "LineInstance").id, "Line");
     let outline = line.stroke_geometry.as_ref().expect("size-only line override keeps imported outline");
-    let xs: Vec<f32> = outline
-        .iter()
-        .flat_map(|p| p.cmds.iter())
-        .filter_map(|c| match c {
-            PathCmd::MoveTo(p) | PathCmd::LineTo(p) => Some(p.x),
-            _ => None,
-        })
-        .collect();
-    assert!(xs.contains(&200.0), "line outline must stretch to the derived width, got {xs:?}");
+    assert_eq!(
+        outline,
+        &vec![Path {
+            cmds: vec![
+                PathCmd::MoveTo(Vec2::new(0.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(200.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(200.0, 0.0)),
+                PathCmd::LineTo(Vec2::new(0.0, 0.0)),
+                PathCmd::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+        }]
+    );
+
+    let with_outline = find_in_subtree(&doc, find(&doc, "LineInstanceWithOutline").id, "Line");
+    assert_eq!(
+        with_outline.stroke_geometry.as_ref().expect("override with its own strokeGeometry keeps it"),
+        &vec![Path {
+            cmds: vec![
+                PathCmd::MoveTo(Vec2::new(0.0, -6.0)),
+                PathCmd::LineTo(Vec2::new(200.0, -6.0)),
+                PathCmd::LineTo(Vec2::new(200.0, 0.0)),
+                PathCmd::LineTo(Vec2::new(0.0, 0.0)),
+                PathCmd::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+        }]
+    );
 }
 
 #[test]
