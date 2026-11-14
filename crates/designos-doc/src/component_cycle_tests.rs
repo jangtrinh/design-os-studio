@@ -187,6 +187,32 @@ fn apply_spec_swap_refuses_a_held_main_without_mutating() {
 }
 
 #[test]
+fn apply_spec_instance_swap_refusal_pins_whole_string_and_names_component_not_layer() {
+    let mut d = Document::new("spec swap cycle");
+    let page = d.add_page("P");
+    let b = main_on(&mut d, page, "B");
+    let a = main_on(&mut d, page, "A");
+    place(&mut d, b, a);
+    let dot = main_on(&mut d, page, "Dot");
+    let c = main_on(&mut d, page, "C");
+    place(&mut d, dot, c);
+    let before = d.to_json().unwrap();
+    let spec: crate::NodeSpec = serde_json::from_value(json!({
+        "kind": "instance",
+        "component": "C",
+        "overrides": [{"path": "Dot", "swap": "A"}]
+    }))
+    .unwrap();
+    let err = d.apply_spec_with_report(b, &spec).unwrap_err();
+    assert_eq!(err.code, "INSTANCE_CYCLE");
+    assert_eq!(err.message, "Can't swap: B would contain itself (B \u{2192} C \u{2192} Dot \u{2192} A \u{2192} B)");
+    assert!(!err.message.contains("Layer"), "spec swap refusal names the component, not Layer: {}", err.message);
+    let raw = d.apply_spec(b, &spec).unwrap_err();
+    assert_eq!(raw, "INSTANCE_CYCLE: Can't swap: B would contain itself (B \u{2192} C \u{2192} Dot \u{2192} A \u{2192} B) (at overrides[0].swap)");
+    assert_eq!(d.to_json().unwrap(), before);
+}
+
+#[test]
 fn apply_spec_create_refuses_a_held_main_without_mutating() {
     let mut d = Document::new("spec create cycle");
     let page = d.add_page("P");
@@ -197,7 +223,7 @@ fn apply_spec_create_refuses_a_held_main_without_mutating() {
     let before = d.to_json().unwrap();
     let spec: crate::NodeSpec = serde_json::from_value(json!({"kind":"instance", "component":"A"})).unwrap();
     let err = d.apply_spec(parent, &spec).unwrap_err();
-    assert!(err.contains("INSTANCE_CYCLE") && err.contains("Can't add: B would contain itself (B \u{2192} Layer \u{2192} A \u{2192} B)"), "{err}");
+    assert_eq!(err, "INSTANCE_CYCLE: Can't add: B would contain itself (B \u{2192} Layer \u{2192} A \u{2192} B) (at component)");
     assert_eq!(d.to_json().unwrap(), before);
 }
 

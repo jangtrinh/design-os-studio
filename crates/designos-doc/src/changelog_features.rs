@@ -1373,6 +1373,7 @@ impl PrototypeRuntime {
                 } else {
                     instance_root_of(doc, source_node).unwrap_or(source_node)
                 };
+                // Prototype player's `Change to` mutates the live preview session directly and records no undo step.
                 swap_instance_to_component(doc, inst_id, *dest)?;
             }
             Action::SetVariable { variable, value } => {
@@ -1419,6 +1420,8 @@ impl PrototypeRuntime {
 
 /// Swaps `instance_id` to target component variant `dest_comp` in-place,
 /// updating variant property values and reflowing any enclosing Auto-Layout.
+///
+/// The only production caller is the prototype player's `Change to`, which records no undo step.
 pub fn swap_instance_to_component(doc: &mut Document, instance_id: NodeId, dest_comp: NodeId) -> Result<NodeId, DocError> {
     if doc.get(instance_id).is_none() {
         return Err(DocError::NotFound(instance_id));
@@ -1441,6 +1444,8 @@ pub fn swap_instance_to_component(doc: &mut Document, instance_id: NodeId, dest_
 
 /// Swaps `instance_id` to the sibling variant inside its `ComponentSet` where
 /// `prop_name == variant_value` (e.g. `("State", "Hover")`).
+///
+/// The only production caller is the prototype player's `Change to`, which records no undo step.
 pub fn swap_instance_variant(doc: &mut Document, instance_id: NodeId, prop_name: &str, variant_value: &str) -> Result<NodeId, DocError> {
     let cmd = set_instance_prop(doc, instance_id, prop_name, Some(PropValue::Variant(variant_value.to_string())));
     cmd.apply(doc)?;

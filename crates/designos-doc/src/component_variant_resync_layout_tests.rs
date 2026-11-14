@@ -414,6 +414,95 @@ fn ordinary_group_edit_preserves_imported_stored_bounds() {
     assert_eq!(f.d.nodes, after_resync, "redo after non-sizing resync restores the whole document node map");
 }
 
+#[test]
+fn imported_group_refits_on_direct_climb_and_variant_switch_while_ordinary_edits_in_resync_scope_keep_stored_bounds() {
+    let mut f = build();
+    let group = f.d.alloc_id();
+    let mut group_node = Node::new(group, NodeKind::Group);
+    group_node.size = Vec2::new(300.0, 80.0);
+    let group = f.d.insert(f.hug_quiet, group_node).unwrap();
+    f.d.reparent(f.quiet, group, 0).unwrap();
+    f.d.relayout_subtree(f.stage);
+    let group_before = f.d.get(group).unwrap().clone();
+    let nodes_before = f.d.nodes.clone();
+
+    // 1. Ordinary child resize inside `group` batched with a mode switch that enters `climb_groups_and_relayout`:
+    // `f.top` resyncs to Large and refits its own chain, while `group` keeps its imported 300x80 bounds.
+    let mut resized_child = f.d.get(f.quiet).unwrap().clone();
+    resized_child.size.x = 120.0;
+    let mut stage_dark = f.d.get(f.stage).unwrap().clone();
+    stage_dark.variables.modes.insert("theme".into(), "dark".into());
+    f.h.exec(&mut f.d, Command::Batch(vec![Command::Update { node: Box::new(resized_child) }, Command::Update { node: Box::new(stage_dark) }])).unwrap();
+    assert_eq!(shown(&f, f.top), LARGE, "mode switch in the same batch enters the resync and refit pass");
+    assert_eq!(f.d.get(f.quiet).unwrap().size.x, 120.0);
+    assert_eq!(f.d.get(group).unwrap(), &group_before, "ordinary resize in a resync scope must not refit the imported group");
+    assert!(f.h.undo(&mut f.d).unwrap());
+    assert_eq!(f.d.nodes, nodes_before, "undo restores the entire node map after the batched resize");
+
+    // 2. Ordinary child move inside `group` batched with a mode switch that enters `climb_groups_and_relayout`:
+    // `f.top` resyncs to Large, while `group` keeps its imported 300x80 bounds.
+    let mut moved_child = f.d.get(f.quiet).unwrap().clone();
+    moved_child.transform.tx = 24.0;
+    moved_child.transform.ty = 12.0;
+    let mut stage_dark = f.d.get(f.stage).unwrap().clone();
+    stage_dark.variables.modes.insert("theme".into(), "dark".into());
+    f.h.exec(&mut f.d, Command::Batch(vec![Command::Update { node: Box::new(moved_child) }, Command::Update { node: Box::new(stage_dark) }])).unwrap();
+    assert_eq!(shown(&f, f.top), LARGE, "mode switch in the same batch enters the resync and refit pass");
+    assert_eq!(f.d.get(f.quiet).unwrap().transform.tx, 24.0);
+    assert_eq!(f.d.get(group).unwrap(), &group_before, "ordinary move in a resync scope must not refit the imported group");
+    assert!(f.h.undo(&mut f.d).unwrap());
+    assert_eq!(f.d.nodes, nodes_before, "undo restores the entire node map after the batched move");
+
+    // 3. Driving `climb_groups_and_relayout` and `apply_resize_to_fit_one` directly on the imported group refits it,
+    // whereas the ordinary edit path never called it.
+    let mut resized_only = f.d.get(f.quiet).unwrap().clone();
+    resized_only.size.x = 120.0;
+    f.h.exec(&mut f.d, Command::Update { node: Box::new(resized_only) }).unwrap();
+    assert_eq!(f.d.get(group).unwrap(), &group_before, "ordinary edit path never calls the group refit");
+    let after_ordinary_resize = f.d.nodes.clone();
+
+    let old_nodes = crate::component_prop_variables::climb_groups_and_relayout(&mut f.d, &[f.quiet], &[group]);
+    assert_eq!(f.d.get(group).unwrap().size, Vec2::new(120.0, 30.0), "direct climb_groups_and_relayout refits the imported group");
+    assert_eq!(width(&f, f.hug_quiet), 128.0, "direct climb_groups_and_relayout also solves the enclosing hug host");
+    assert_eq!(old_nodes.get(&group), Some(&group_before), "climb_groups_and_relayout records the pre-fit group node");
+    f.d.nodes = after_ordinary_resize.clone();
+
+    crate::apply_resize_to_fit_one(&mut f.d, group, |_, _| {}).unwrap();
+    assert_eq!(f.d.get(group).unwrap().size, Vec2::new(120.0, 30.0), "direct apply_resize_to_fit_one refits the imported group");
+    f.d.nodes = after_ordinary_resize;
+    assert!(f.h.undo(&mut f.d).unwrap());
+    assert_eq!(f.d.nodes, nodes_before);
+
+    // 4. Variant switch on an instance inside the imported group enters the refit path and refits `group`.
+    let small = instance_component(f.d.get(f.top).unwrap()).unwrap();
+    create_instance(&mut f.d, small, group, Vec2::ZERO).apply(&mut f.d).unwrap();
+    let group_inst = last_child(&f.d, group);
+    let sw = set_instance_prop(&mut f.d, group_inst, "Size", Some(PropValue::Variant("Large".into())));
+    f.h.exec(&mut f.d, sw).unwrap();
+    assert_eq!(f.d.get(group).unwrap().size, Vec2::new(200.0, 40.0), "variant switch path refits the imported group to the switched child bounds");
+}
+
+#[test]
+fn group_depth_and_group_climb_stop_at_node_count_on_parent_cycle() {
+    let mut doc = Document::new("DamagedParentCycle");
+    let page = doc.add_page("P");
+    let g1_id = doc.alloc_id();
+    let g1 = doc.insert(page, Node::new(g1_id, NodeKind::Group)).unwrap();
+    let g2_id = doc.alloc_id();
+    let g2 = doc.insert(g1, Node::new(g2_id, NodeKind::Group)).unwrap();
+    let leaf_id = doc.alloc_id();
+    let leaf = doc.insert(g2, Node::rectangle(leaf_id, Rect::new(0.0, 0.0, 40.0, 20.0))).unwrap();
+
+    // Hand-make a parent cycle between g1 and g2 as in a damaged file.
+    doc.get_mut(g1).unwrap().parent = Some(g2);
+    doc.get_mut(g2).unwrap().parent = Some(g1);
+    let expected_cap = doc.nodes.len();
+
+    let depth = crate::component_prop_variables::group_depth(&doc, leaf);
+    assert_eq!(depth, expected_cap, "group_depth stops after walking at most doc.nodes.len() ancestors");
+    let _ = crate::component_prop_variables::climb_groups_and_relayout(&mut doc, &[leaf], &[g2]);
+}
+
 /// A hugging frame (4 px padding) at `x` on the stage that holds `levels` nested groups around one bound instance.
 fn hug_around_groups(f: &mut Fx, x: f32, levels: usize) -> (NodeId, NodeId, Vec<NodeId>) {
     let host = hugging_frame(&mut f.d, f.stage, x, 4.0);
