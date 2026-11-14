@@ -462,6 +462,109 @@ fn mode_control_sets_the_permission_mode() {
     finish(s);
 }
 
+/// With a running tab focused the menu draws over the terminal viewport. A row click belongs to the row: the window default for
+/// new tabs changes, the running tab keeps the mode it started with, and the control keeps showing what the next send uses.
+#[test]
+fn a_mode_menu_row_click_over_a_running_tab_sets_the_default_and_leaves_the_tab_alone() {
+    use crate::agent_permissions::AgentPermissionMode;
+    let mut s = session_sim();
+    s.shell.app.terminal.permission_mode = AgentPermissionMode::AskRisky;
+    frames(&mut s, 2);
+    assert_eq!(s.shell.app.terminal.tabs[0].permission_mode, AgentPermissionMode::Ask, "the running tab started in Ask first");
+    let mode = recorded(&s, "agents-composer-mode-btn").unwrap();
+    s.click(mode.center());
+    frames(&mut s, 2);
+    assert!(s.shell.app.terminal.mode_menu_open, "the menu opens");
+    let vp = recorded(&s, "agents-terminal-viewport").expect("the panel recorded its viewport");
+    let skip = recorded(&s, "agents-composer-mode-skip").expect("Skip permissions row");
+    assert!(vp.contains(skip.center()), "the row sits over the terminal viewport, which is what makes the test meaningful");
+    s.click(skip.center());
+    frames(&mut s, 3);
+    assert_eq!(s.shell.app.terminal.permission_mode, AgentPermissionMode::Skip, "the row click set the window default");
+    assert_eq!(s.shell.app.terminal.tabs[0].permission_mode, AgentPermissionMode::Ask, "the running tab keeps its own mode");
+    assert!(!s.shell.app.terminal.mode_menu_open, "a pick closes the menu");
+    let texts = painted(&s);
+    assert!(texts.iter().any(|t| t == "Ask first"), "the control shows the mode the next send uses, the focused tab's own: {texts:?}");
+    assert!(!texts.iter().any(|t| t == "Skip permissions"), "not the new-tab default: {texts:?}");
+    finish(s);
+}
+
+/// The attach menu is drawn the same way as the mode menu and overhangs the viewport too: its rows take their clicks as well.
+#[test]
+fn an_attach_menu_row_click_over_a_running_tab_toggles_the_row() {
+    let mut s = session_sim();
+    let before = s.shell.app.terminal.active_composer().attach_prd;
+    let add = recorded(&s, "agents-composer-add-btn").unwrap();
+    s.click(add.center());
+    frames(&mut s, 2);
+    assert!(s.shell.app.terminal.attach_menu_open, "the menu opens");
+    let vp = recorded(&s, "agents-terminal-viewport").expect("the panel recorded its viewport");
+    let row = recorded(&s, "agents-composer-attach-prd").expect("Attach PRD row");
+    assert!(vp.contains(row.center()), "the row sits over the terminal viewport");
+    s.click(row.center());
+    frames(&mut s, 3);
+    assert_ne!(s.shell.app.terminal.active_composer().attach_prd, before, "the row click toggled Attach PRD");
+    finish(s);
+}
+
+/// The `@` mention popup is drawn in the composer pass too, above the caret and over the viewport: its rows take their clicks.
+#[test]
+fn a_mention_row_click_over_a_running_tab_picks_the_row() {
+    let mut s = session_sim();
+    let input = recorded(&s, "agents-composer-input").unwrap();
+    s.click(input.center());
+    frames(&mut s, 2);
+    s.type_text("@");
+    frames(&mut s, 4);
+    assert!(s.shell.app.terminal.mention_popup.is_open(), "typing @ opens the popup");
+    let vp = recorded(&s, "agents-terminal-viewport").expect("the panel recorded its viewport");
+    let row = recorded(&s, "agent-mention-row-0").expect("the popup has a first row");
+    assert!(vp.contains(row.center()), "the row sits over the terminal viewport");
+    s.click(row.center());
+    frames(&mut s, 3);
+    assert!(!s.shell.app.terminal.mention_popup.is_open(), "the row click picked the mention and closed the popup");
+    assert!(!s.shell.app.terminal.active_mentions.is_empty(), "the pick is a mention on the composer");
+    finish(s);
+}
+
+/// The terminal yields pointer input only while a menu is open: with every menu closed it still takes a click (focus) and the wheel
+/// (scrollback).
+#[test]
+fn the_terminal_takes_clicks_and_scroll_when_no_menu_is_open() {
+    let mut s = session_sim();
+    {
+        let mut buf = String::new();
+        for i in 1..=200 {
+            buf.push_str(&format!("LINE_{i:03}\r\n"));
+        }
+        let mut parser = s.shell.app.terminal.tabs[0].parser.lock().unwrap();
+        parser.process(buf.as_bytes());
+        parser.set_scrollback(0);
+    }
+    frames(&mut s, 2);
+    let at = viewport_point(&s);
+    // A menu opened and closed first, so the test also proves the terminal takes input back.
+    let mode = recorded(&s, "agents-composer-mode-btn").unwrap();
+    s.click(mode.center());
+    frames(&mut s, 2);
+    assert!(s.shell.app.terminal.mode_menu_open);
+    s.key(Key::Escape);
+    frames(&mut s, 3);
+    assert!(!s.shell.app.terminal.mode_menu_open);
+    s.shell.app.terminal.viewport_focused = false;
+    s.click(at);
+    frames(&mut s, 2);
+    assert!(s.shell.app.terminal.viewport_focused, "a click in the viewport focuses the terminal again");
+    s.frame(vec![
+        Event::PointerMoved(at),
+        Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: Vec2::new(0.0, 80.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE },
+    ]);
+    frames(&mut s, 1);
+    let scrolled = s.shell.app.terminal.tabs[0].parser.lock().unwrap().screen().scrollback();
+    assert!(scrolled > 0, "the wheel scrolls the terminal scrollback, got {scrolled}");
+    finish(s);
+}
+
 #[test]
 fn chrome_focus_band_is_the_header_only() {
     let mut s = session_sim();

@@ -240,6 +240,7 @@ impl MentionPopupState {
         let p = ui.painter().clone();
         widgets::kit::popover_surface(&p, popup_rect);
         widgets::record(ui, "agent-mention-popup", popup_rect);
+        crate::agent_composer_menus::note_overlay(ui.ctx(), popup_rect);
 
         let cur_y = popup_rect.top() + inset;
         let list_rect = Rect::from_min_size(Pos2::new(popup_rect.left() + inset, cur_y), Vec2::new(popup_rect.width() - inset * 2.0, visible_list_h));
