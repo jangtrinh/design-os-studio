@@ -277,3 +277,91 @@ fn a_refused_move_or_add_reads_the_way_the_agent_tools_word_it() {
     assert_eq!(refused(layer_of(&s, b)), "Can't move: B would contain itself (B \u{2192} Layer \u{2192} A \u{2192} B)");
     assert_eq!(crate::comp_cycle_refusal::insert_refusal(doc, a, b).as_deref(), Some("Can't add: B would contain itself (B \u{2192} A \u{2192} B)"));
 }
+
+#[test]
+fn editor_and_spec_cycle_refusal_toasts_pin_whole_rendered_strings_without_double_colons() {
+    let assert_exact_toast = |s: &Sim, expected: &str| {
+        let toast = s.app().toast.as_ref().expect("the refusal raises a toast");
+        assert!(toast.error, "an error toast: {}", toast.text);
+        assert_eq!(toast.text, expected);
+        assert_eq!(toast.text.matches(':').count(), 1, "single colon in refusal toast: {}", toast.text);
+        assert!(!toast.text.contains("::"), "no double colon in refusal toast: {}", toast.text);
+    };
+
+    // 1. Variant switch (`set_instance_prop`) and nested variant switch (`set_nested_instance_prop`).
+    let mut s = main_sim();
+    let c = comps(&s);
+    let b = add_main(&mut s, c, DRect::new(700.0, 0.0, 120.0, 120.0), "B");
+    let one = add_frame(&mut s, c, DRect::new(0.0, 700.0, 60.0, 60.0), "State=One");
+    let two = add_frame(&mut s, c, DRect::new(100.0, 700.0, 60.0, 60.0), "State=Two");
+    for m in [one, two] {
+        add_frame(&mut s, m, DRect::new(5.0, 5.0, 20.0, 20.0), "Dot");
+        create_component(&mut s.shell.app.doc, m).apply(&mut s.shell.app.doc).unwrap();
+    }
+    combine_as_variants(&mut s.shell.app.doc, &[one, two]).apply(&mut s.shell.app.doc).unwrap();
+    let i = place(&mut s, one, b);
+    place(&mut s, b, two);
+    s.shell.app.set_instance_prop(i, "State", Some(PropValue::Variant("Two".into())));
+    assert_exact_toast(&s, "Can't switch variant: B would contain itself (B \u{2192} Component set \u{2192} State=Two \u{2192} B)");
+
+    s.shell.app.toast = None;
+    s.shell.app.set_nested_instance_prop(i, "State", Some(PropValue::Variant("Two".into())));
+    assert_exact_toast(&s, "Can't switch variant: B would contain itself (B \u{2192} Component set \u{2192} State=Two \u{2192} B)");
+
+    // 2. Instance swap property (`set_instance_prop`) and direct `swap_instance`.
+    let mut s = main_sim();
+    let (a, b) = a_holds_b(&mut s);
+    let c = comps(&s);
+    let z = add_main(&mut s, c, DRect::new(1100.0, 0.0, 60.0, 60.0), "Z");
+    let card = add_main(&mut s, c, DRect::new(0.0, 900.0, 200.0, 100.0), "Card");
+    let slot = place(&mut s, z, card);
+    let def = ComponentPropDef { name: "Icon".into(), kind: PropKind::InstanceSwap { preferred: vec![] }, default: PropValue::Instance(z) };
+    add_prop(&mut s.shell.app.doc, card, def).apply(&mut s.shell.app.doc).unwrap();
+    bind_prop(&mut s.shell.app.doc, slot, OverrideField::MainComponent, Some("Icon")).apply(&mut s.shell.app.doc).unwrap();
+    let k = place(&mut s, card, b);
+    s.shell.app.set_instance_prop(k, "Icon", Some(PropValue::Instance(a)));
+    assert_exact_toast(&s, "Can't swap: B would contain itself (B \u{2192} Card \u{2192} Z \u{2192} A \u{2192} B)");
+
+    s.shell.app.toast = None;
+    let z_in_b = place(&mut s, z, b);
+    s.shell.app.swap_instance(z_in_b, a);
+    assert_exact_toast(&s, "Can't swap: B would contain itself (B \u{2192} Z \u{2192} A \u{2192} B)");
+
+    // 3. Slot fill (`insert_instance_into_slot`) and refused move (`explain_move`).
+    s.shell.app.toast = None;
+    let slot_in_b = layer_of(&s, b);
+    s.shell.app.doc.get_mut(slot_in_b).unwrap().component.is_slot = true;
+    assert!(s.shell.app.insert_instance_into_slot(slot_in_b, a).is_none());
+    assert_exact_toast(&s, "Can't add: B would contain itself (B \u{2192} Layer \u{2192} A \u{2192} B)");
+
+    s.shell.app.toast = None;
+    let page = s.app().page;
+    let inst_on_page = place(&mut s, a, page);
+    let refusal = crate::comp_cycle_refusal::move_refusal(&s.app().doc, &[inst_on_page], b);
+    s.shell.app.explain_move(refusal, false);
+    assert_exact_toast(&s, "Can't move: B would contain itself (B \u{2192} A \u{2192} B)");
+
+    // 4. Screenshot preset (`apply_toast_preset`).
+    let mut s = main_sim();
+    crate::comp_cycle_refusal::apply_toast_preset(&mut s.shell.app);
+    assert_exact_toast(&s, "Can't swap: Card would contain itself (Card \u{2192} Icon \u{2192} Row \u{2192} Card)");
+
+    // 5. Spec swap refusal through `App::apply_node_spec` names the component (`Chip`), not `"Layer"`, and has no double colon.
+    let mut s = main_sim();
+    let page = s.app().page;
+    let row = add_main(&mut s, page, DRect::new(0.0, 0.0, 200.0, 80.0), "Row");
+    let dot = add_main(&mut s, page, DRect::new(240.0, 0.0, 24.0, 24.0), "Dot");
+    let chip = add_main(&mut s, page, DRect::new(300.0, 0.0, 80.0, 32.0), "Chip");
+    place(&mut s, dot, chip);
+    let card = add_main(&mut s, page, DRect::new(420.0, 0.0, 200.0, 120.0), "Card");
+    place(&mut s, row, card);
+    let spec: designos_doc::NodeSpec = serde_json::from_value(serde_json::json!({
+        "kind": "instance",
+        "component": "Chip",
+        "overrides": [{"path": "Dot", "swap": "Card"}]
+    }))
+    .unwrap();
+    s.shell.app.page = row;
+    s.shell.app.apply_node_spec(&spec, "cycle-swap-spec");
+    assert_exact_toast(&s, "Can't swap: Row would contain itself (Row \u{2192} Chip \u{2192} Dot \u{2192} Card \u{2192} Row)");
+}
