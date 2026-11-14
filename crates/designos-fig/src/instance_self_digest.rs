@@ -79,7 +79,7 @@ pub(crate) fn transform_moved(node: &Node, opened: &BTreeMap<OverrideField, u64>
 
 /// The digest of each field of `node` that the instance overrides and a save can restate.
 pub(crate) fn digests(node: &Node) -> BTreeMap<OverrideField, u64> {
-    SELF_FIELDS.iter().copied().filter(|f| node.component.overrides.contains(f)).map(|f| (f, digest(node, f))).collect()
+    SELF_FIELDS.iter().copied().filter(|f| node.component.has_override(f)).map(|f| (f, digest(node, f))).collect()
 }
 
 /// The fields of `node` that differ from `opened`, the digests taken when the file was opened: a field overridden now
