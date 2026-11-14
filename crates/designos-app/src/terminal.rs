@@ -1598,6 +1598,10 @@ pub struct TerminalState {
     pub(crate) in_system_prompt_poll: bool,
     /// Toasts raised by held image-job transitions during bridge polling or tab close.
     pub(crate) pending_image_job_toasts: Vec<(String, bool)>,
+    /// Active watcher flag for the single in-flight image job running on this terminal.
+    pub(crate) in_flight_image_watcher: Option<Arc<std::sync::atomic::AtomicBool>>,
+    /// Set when a held image job on this terminal ends without leaving a running watcher, so a waiting document queue can pump.
+    pub(crate) hold_released_needs_pump: bool,
 }
 
 /// Removes a scratch session folder but keeps `close-result.json`: an agent's close of this very tab writes its answer there, and
@@ -1890,6 +1894,8 @@ impl TerminalState {
             viewport_size: (28, 100),
             in_system_prompt_poll: false,
             pending_image_job_toasts: Vec::new(),
+            in_flight_image_watcher: None,
+            hold_released_needs_pump: false,
         }
     }
 
@@ -3462,9 +3468,17 @@ impl TerminalState {
         let _ = self.send_to_agent(prompt, file_path);
     }
 
+    /// True while this terminal has an image job in flight: either held on one of its tabs, or running with a watcher.
+    pub fn has_in_flight_image_job(&self) -> bool {
+        self.tabs.iter().any(|t| t.held_image_job.is_some())
+            || self.in_flight_image_watcher.as_ref().is_some_and(|f| f.load(std::sync::atomic::Ordering::SeqCst))
+    }
+
     /// Picks a live tab started as `preset` for an image job, preferring a non-working tab.
     pub fn find_tab_for_image_job(&mut self, preset: AgentCliPreset) -> Option<usize> {
-        let is_reusable = |t: &mut TerminalTab| t.spawn_preset == preset && t.start_failure.is_none() && !t.exited_notice_shown && t.accepts_agent_input();
+        let is_reusable = |t: &mut TerminalTab| {
+            t.spawn_preset == preset && t.start_failure.is_none() && !t.exited_notice_shown && t.held_image_job.is_none() && t.accepts_agent_input()
+        };
         let is_busy = |t: &TerminalTab| t.agent_status.lock().ok().is_some_and(|st| matches!(*st, AgentTabStatus::Working(_)));
         let active = self.active_tab;
         if let Some(t) = self.tabs.get_mut(active) {
@@ -3511,11 +3525,11 @@ impl TerminalState {
     }
 
     /// Picks a live tab started as `preset` (or spawns a new tab running `preset`) and hands `prompt` to that tab
-    /// without changing `active_tab` when reusing an existing tab.
+    /// without changing `active_tab` or `picker_open`.
     pub fn submit_system_image_prompt_detailed(&mut self, preset: AgentCliPreset, prompt: &str, file_path: Option<&Path>) -> Result<usize, ImagePromptRefusal> {
         let idx = match self.find_tab_for_image_job(preset) {
             Some(idx) => idx,
-            None => self.spawn_tab(preset, file_path).map_err(|message| ImagePromptRefusal { message, temporary: false, tab_idx: None })?,
+            None => self.spawn_tab_for_image_job(preset, file_path).map_err(|message| ImagePromptRefusal { message, temporary: false, tab_idx: None })?,
         };
         self.hand_image_prompt_to_tab(idx, prompt, file_path, true)?;
         Ok(idx)
@@ -3618,6 +3632,15 @@ impl TerminalState {
     /// Spawns a new tab with `preset` bound to this file's isolated [`SessionEnv`] and switches `active_tab` to it.
     /// For registrable agent CLIs, records a new entry in `sessions.json` (`#653`) and updates `last_cli` (`#652`).
     pub fn spawn_tab(&mut self, preset: AgentCliPreset, file_path: Option<&Path>) -> Result<usize, String> {
+        self.spawn_tab_inner(preset, file_path, true)
+    }
+
+    /// Spawns a new tab with `preset` for a system-generated image job without changing `active_tab`, `picker_open`, or New chat.
+    pub fn spawn_tab_for_image_job(&mut self, preset: AgentCliPreset, file_path: Option<&Path>) -> Result<usize, String> {
+        self.spawn_tab_inner(preset, file_path, false)
+    }
+
+    fn spawn_tab_inner(&mut self, preset: AgentCliPreset, file_path: Option<&Path>, focus_tab: bool) -> Result<usize, String> {
         // One reading of the saved mode serves the launch command, the session files, the environment and the tab.
         self.refresh_permission_mode_from_disk();
         let mode = self.permission_mode;
@@ -3626,9 +3649,9 @@ impl TerminalState {
             let session_uuid =
                 if crate::agent_sessions::uses_preassigned_session_id(preset) { Some(crate::agent_sessions::generate_session_uuid()) } else { None };
             let launch_cmd = crate::agent_permissions::build_new_session_command_for_mode(preset, mode, session_uuid.as_deref());
-            self.spawn_tab_with_registration(preset, file_path, Some(&launch_cmd), session_uuid, false, None, true, mode)
+            self.spawn_tab_with_registration_focused(preset, file_path, Some(&launch_cmd), session_uuid, false, None, true, mode, focus_tab)
         } else {
-            self.spawn_tab_with_registration(preset, file_path, None, None, false, None, false, mode)
+            self.spawn_tab_with_registration_focused(preset, file_path, None, None, false, None, false, mode, focus_tab)
         }
     }
 
@@ -3658,6 +3681,22 @@ impl TerminalState {
         custom_title: Option<String>,
         register_new_entry: bool,
         mode: crate::agent_permissions::AgentPermissionMode,
+    ) -> Result<usize, String> {
+        self.spawn_tab_with_registration_focused(preset, file_path, command, session_uuid, is_resumed, custom_title, register_new_entry, mode, true)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn spawn_tab_with_registration_focused(
+        &mut self,
+        preset: AgentCliPreset,
+        file_path: Option<&Path>,
+        command: Option<&str>,
+        session_uuid: Option<String>,
+        is_resumed: bool,
+        custom_title: Option<String>,
+        register_new_entry: bool,
+        mode: crate::agent_permissions::AgentPermissionMode,
+        focus_tab: bool,
     ) -> Result<usize, String> {
         // The agent's working folder must be one Studio made: a link or foreign folder there stops the tab, with the reason.
         if let Err(e) = crate::agent_session_files::ensure_session_dir(&self.session_dir) {
@@ -3767,7 +3806,7 @@ impl TerminalState {
                         tab.usage.set_reading(Some(cached));
                     }
                 }
-                if self.tabs.is_empty() || self.picker_open {
+                if focus_tab && (self.tabs.is_empty() || self.picker_open) {
                     tab.composer = std::mem::take(&mut self.unattached_composer);
                 }
                 if register_new_entry && crate::agent_sessions::is_agent_cli_preset(preset) {
@@ -3793,25 +3832,30 @@ impl TerminalState {
                     }
                     self.persist_session_registry();
                 }
+                let new_idx = self.tabs.len();
                 self.tabs.push(tab);
-                self.active_tab = self.tabs.len() - 1;
-                self.picker_open = false;
-                self.sessions_popover_open = false;
-                self.sync_active_tab_approvals();
-                if is_resumed {
-                    self.refresh_tab_usage(self.active_tab);
+                if focus_tab {
+                    self.active_tab = new_idx;
+                    self.picker_open = false;
+                    self.sessions_popover_open = false;
+                    self.sync_active_tab_approvals();
+                    if is_resumed {
+                        self.refresh_tab_usage(self.active_tab);
+                    }
+                    self.viewport_focused = true;
                 }
-                self.viewport_focused = true;
                 let spawned = format!("Spawned {} ({} · {})", preset.tab_title(), self.doc_name, self.current_page_name);
                 // What was moved out of the CLI's way is said in the same line: a plain status line set earlier would be overwritten here.
                 self.status_msg = Some(match self.set_aside_note.take() {
                     Some(note) => format!("{spawned}. {note}"),
                     None => spawned,
                 });
-                if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
-                    self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
+                if focus_tab {
+                    if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
+                        self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
+                    }
                 }
-                Ok(self.active_tab)
+                Ok(new_idx)
             }
             Err(e) => {
                 // The tab never started, so nothing will read the hooks file written for it.

@@ -363,7 +363,15 @@ enum WatcherOutcome {
 pub(crate) struct RunningWatcher {
     job_id: String,
     cancel: Arc<AtomicBool>,
+    in_flight: Arc<AtomicBool>,
     rx: mpsc::Receiver<WatcherOutcome>,
+}
+
+impl Drop for RunningWatcher {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::SeqCst);
+        self.in_flight.store(false, Ordering::SeqCst);
+    }
 }
 
 /// Popover state for `Expand…` (top / right / bottom / left px or `25%` preset).
@@ -586,7 +594,8 @@ impl ImageJobsState {
 
     /// Moves this tab's `ImageJobsState` out for parking in `ProjectTab`, leaving a clean state with the same config overrides.
     pub fn take_for_park(&mut self) -> Self {
-        let replacement = Self::new_inheriting_config_from(self);
+        let mut replacement = Self::new_inheriting_config_from(self);
+        replacement.next_seq = self.next_seq;
         std::mem::replace(self, replacement)
     }
 
@@ -853,9 +862,15 @@ impl App {
             self.image_jobs.clear_shared_held_entry(cid);
         }
 
+        let doc_tab_id = self.tabs.current_or_next_tab_id();
+        self.image_jobs.set_document_tab_id(doc_tab_id);
         let mut cancelled_held = false;
         for tab in &mut self.terminal.tabs {
-            if tab.held_image_job.as_ref().is_some_and(|h| cancelled_ids.iter().any(|cid| cid == &h.job_id)) {
+            if tab
+                .held_image_job
+                .as_ref()
+                .is_some_and(|h| (h.document_tab_id == doc_tab_id || h.document_tab_id == 0) && cancelled_ids.iter().any(|cid| cid == &h.job_id))
+            {
                 tab.held_image_job = None;
                 tab.held_image_job_shared = None;
                 cancelled_held = true;
@@ -863,7 +878,11 @@ impl App {
         }
         for entry in &mut self.tabs.entries {
             for tab in &mut entry.terminal.tabs {
-                if tab.held_image_job.as_ref().is_some_and(|h| cancelled_ids.iter().any(|cid| cid == &h.job_id)) {
+                if tab
+                    .held_image_job
+                    .as_ref()
+                    .is_some_and(|h| (h.document_tab_id == doc_tab_id || h.document_tab_id == 0) && cancelled_ids.iter().any(|cid| cid == &h.job_id))
+                {
                     tab.held_image_job = None;
                     tab.held_image_job_shared = None;
                     cancelled_held = true;
@@ -874,14 +893,17 @@ impl App {
         if cancelled_running {
             if let Some(w) = self.image_jobs.watcher.take() {
                 w.cancel.store(true, Ordering::SeqCst);
+                w.in_flight.store(false, Ordering::SeqCst);
             }
             if let Some(refusal) = self.pump_next_queued_image_job() {
                 self.show_toast(refusal, true);
             }
+            self.pump_parked_queues_with_free_terminals();
         } else if cancelled_held {
             if let Some(refusal) = self.pump_next_queued_image_job() {
                 self.show_toast(refusal, true);
             }
+            self.pump_parked_queues_with_free_terminals();
         }
         self.changed();
     }
@@ -1124,7 +1146,7 @@ impl App {
         if self.image_jobs.watcher.is_some() {
             let pos = self.image_jobs.queue.len();
             self.show_toast(format!("Queued image job · {pos} in queue"), false);
-        } else if !self.image_jobs.is_head_held() {
+        } else if !self.image_jobs.is_head_held() && !self.terminal.has_in_flight_image_job() {
             if let Some(refusal) = self.pump_next_queued_image_job() {
                 self.show_toast(refusal, true);
             }
@@ -1141,6 +1163,30 @@ impl App {
         pump_next_queued_image_job_for(&mut self.image_jobs, &mut self.terminal, fp.as_deref(), preset)
     }
 
+    fn pump_parked_queues_with_free_terminals(&mut self) {
+        let mut toasts = Vec::new();
+        for idx in 0..self.tabs.entries.len() {
+            let is_parked = self.tabs.parked_in_home || self.home.is_some() || !self.tabs.is_hist_in_app() || idx != self.tabs.active_idx;
+            if !is_parked {
+                continue;
+            }
+            let entry = &mut self.tabs.entries[idx];
+            if (!entry.terminal.tabs.is_empty() || entry.image_jobs.agent_script.is_some())
+                && !entry.image_jobs.queue.is_empty()
+                && !entry.terminal.has_in_flight_image_job()
+            {
+                let fp = entry.file_path.clone();
+                let preset = preferred_agent_cli_preset_for(&entry.terminal, &entry.image_jobs).unwrap_or(AgentCliPreset::Claude);
+                if let Some(refusal) = pump_next_queued_image_job_for(&mut entry.image_jobs, &mut entry.terminal, fp.as_deref(), preset) {
+                    toasts.push(refusal);
+                }
+            }
+        }
+        for refusal in toasts {
+            self.show_toast_behind_current(refusal, true);
+        }
+    }
+
     /// Flushes any pending image-job toasts recorded by `TerminalState` (from `close_tab` or `poll_live_agent_bridge`).
     pub(crate) fn flush_pending_image_job_toasts(&mut self) {
         let mut toasts: Vec<(String, bool)> = std::mem::take(&mut self.terminal.pending_image_job_toasts);
@@ -1150,6 +1196,20 @@ impl App {
         for (msg, is_err) in toasts {
             self.show_toast(msg, is_err);
         }
+        if self.terminal.hold_released_needs_pump {
+            self.terminal.hold_released_needs_pump = false;
+            if !self.image_jobs.queue.is_empty() && !self.terminal.has_in_flight_image_job() {
+                if let Some(refusal) = self.pump_next_queued_image_job() {
+                    self.show_toast_behind_current(refusal, true);
+                }
+            }
+        }
+        for entry in &mut self.tabs.entries {
+            if entry.terminal.hold_released_needs_pump {
+                entry.terminal.hold_released_needs_pump = false;
+            }
+        }
+        self.pump_parked_queues_with_free_terminals();
     }
 
     /// Polls the background `output.png` watcher and applies finished jobs on the UI thread
@@ -1202,6 +1262,7 @@ impl App {
             if let Some(refusal) = self.pump_next_queued_image_job() {
                 self.show_toast(refusal, true);
             }
+            self.pump_parked_queues_with_free_terminals();
             self.changed();
         }
 
@@ -1289,7 +1350,11 @@ impl App {
                 }
                 let fp = tab.file_path.clone();
                 let tab_preset = preferred_agent_cli_preset_for(&tab.terminal, &tab.image_jobs).unwrap_or(AgentCliPreset::Claude);
-                let refusal = pump_next_queued_image_job_for(&mut tab.image_jobs, &mut tab.terminal, fp.as_deref(), tab_preset);
+                let refusal = if !tab.terminal.tabs.is_empty() || tab.image_jobs.agent_script.is_some() {
+                    pump_next_queued_image_job_for(&mut tab.image_jobs, &mut tab.terminal, fp.as_deref(), tab_preset)
+                } else {
+                    None
+                };
                 if toast_to_show.is_none() {
                     toast_to_show = refusal.map(|reason| (reason, true));
                 } else {
@@ -1301,6 +1366,11 @@ impl App {
             }
             if let Some(refusal) = refusal_toast {
                 self.show_toast_behind_current(refusal, true);
+            }
+            if !self.image_jobs.queue.is_empty() && !self.terminal.has_in_flight_image_job() {
+                if let Some(active_refusal) = self.pump_next_queued_image_job() {
+                    self.show_toast_behind_current(active_refusal, true);
+                }
             }
             self.changed();
         }
@@ -1341,7 +1411,7 @@ fn pump_next_queued_image_job_for(
     file_path: Option<&std::path::Path>,
     preset: AgentCliPreset,
 ) -> Option<String> {
-    if image_jobs.watcher.is_some() || image_jobs.is_head_held() {
+    if image_jobs.watcher.is_some() || image_jobs.is_head_held() || terminal.has_in_flight_image_job() {
         return None;
     }
     let doc_tab_id = image_jobs.document_tab_id();
@@ -1379,9 +1449,14 @@ fn pump_next_queued_image_job_for(
                     image_jobs.sync_job_to_shared(&job_ref, file_path, preset, true);
                     if let Some(t_idx) = err.tab_idx {
                         if let Some(tab) = terminal.tabs.get_mut(t_idx) {
-                            tab.held_image_job =
-                                Some(crate::terminal::HeldImageJob { document_tab_id: doc_tab_id, job_id: job.id.clone(), told_reason: err.message.clone() });
-                            tab.held_image_job_shared = Some(Arc::clone(&image_jobs.shared));
+                            if tab.held_image_job.is_none() {
+                                tab.held_image_job = Some(crate::terminal::HeldImageJob {
+                                    document_tab_id: doc_tab_id,
+                                    job_id: job.id.clone(),
+                                    told_reason: err.message.clone(),
+                                });
+                                tab.held_image_job_shared = Some(Arc::clone(&image_jobs.shared));
+                            }
                         }
                     }
                     terminal.status_msg = Some(err.message.clone());
@@ -1400,10 +1475,11 @@ fn pump_next_queued_image_job_for(
             image_jobs.clear_shared_held_entry(&job.id);
         }
 
-        let tab_status: Option<Arc<Mutex<AgentTabStatus>>> =
-            used_tab_idx.and_then(|ti| terminal.tabs.get(ti)).or_else(|| terminal.active_tab()).map(|t| Arc::clone(&t.agent_status));
+        let tab_status: Option<Arc<Mutex<AgentTabStatus>>> = used_tab_idx.and_then(|ti| terminal.tabs.get(ti)).map(|t| Arc::clone(&t.agent_status));
         let cancel = Arc::new(AtomicBool::new(false));
         let cancel_bg = Arc::clone(&cancel);
+        let in_flight = Arc::new(AtomicBool::new(true));
+        terminal.in_flight_image_watcher = Some(Arc::clone(&in_flight));
         let (tx, rx) = mpsc::channel();
         let stable_window = image_jobs.stable_window;
         let timeout = image_jobs.job_timeout;
@@ -1415,7 +1491,7 @@ fn pump_next_queued_image_job_for(
             let _ = tx.send(outcome);
         });
 
-        image_jobs.watcher = Some(RunningWatcher { job_id, cancel, rx });
+        image_jobs.watcher = Some(RunningWatcher { job_id, cancel, in_flight, rx });
         break;
     }
     refusal
@@ -1444,7 +1520,7 @@ pub(crate) fn fail_held_job_on_tab_close(
 }
 
 pub(crate) fn resume_held_jobs_in_bridge_poll(terminal: &mut crate::terminal::TerminalState) {
-    if terminal.in_system_prompt_poll {
+    if terminal.in_system_prompt_poll || terminal.in_flight_image_watcher.as_ref().is_some_and(|f| f.load(Ordering::SeqCst)) {
         return;
     }
 
@@ -1471,6 +1547,9 @@ pub(crate) fn resume_held_jobs_in_bridge_poll(terminal: &mut crate::terminal::Te
             s.held_entries.iter().find(|e| e.job.id == hold.job_id).cloned()
         };
         let Some(entry) = entry else {
+            if !terminal.has_in_flight_image_job() {
+                terminal.hold_released_needs_pump = true;
+            }
             continue;
         };
 
@@ -1486,6 +1565,8 @@ pub(crate) fn resume_held_jobs_in_bridge_poll(terminal: &mut crate::terminal::Te
                 let tab_status = terminal.tabs.get(idx).map(|t| Arc::clone(&t.agent_status));
                 let cancel = Arc::new(AtomicBool::new(false));
                 let cancel_bg = Arc::clone(&cancel);
+                let in_flight = Arc::new(AtomicBool::new(true));
+                terminal.in_flight_image_watcher = Some(Arc::clone(&in_flight));
                 let (tx, rx) = mpsc::channel();
                 let stable_window = entry.stable_window;
                 let timeout = entry.job_timeout;
@@ -1503,8 +1584,9 @@ pub(crate) fn resume_held_jobs_in_bridge_poll(terminal: &mut crate::terminal::Te
                 s.transitions.push(HeldJobTransition::Accepted {
                     job_id: job_id.clone(),
                     started_at: Instant::now(),
-                    watcher: RunningWatcher { job_id, cancel, rx },
+                    watcher: RunningWatcher { job_id, cancel, in_flight, rx },
                 });
+                break;
             }
             Err(refusal) if refusal.temporary => {
                 if refusal.message != hold.told_reason {
@@ -1513,6 +1595,7 @@ pub(crate) fn resume_held_jobs_in_bridge_poll(terminal: &mut crate::terminal::Te
                 terminal.tabs[idx].held_image_job =
                     Some(crate::terminal::HeldImageJob { document_tab_id: hold.document_tab_id, job_id: hold.job_id, told_reason: refusal.message });
                 terminal.tabs[idx].held_image_job_shared = Some(shared);
+                break;
             }
             Err(refusal) => {
                 terminal.pending_image_job_toasts.push((refusal.message.clone(), true));
@@ -1534,6 +1617,8 @@ pub(crate) fn resume_held_jobs_in_bridge_poll(terminal: &mut crate::terminal::Te
                             let tab_status = terminal.tabs.get(used_idx).map(|t| Arc::clone(&t.agent_status));
                             let cancel = Arc::new(AtomicBool::new(false));
                             let cancel_bg = Arc::clone(&cancel);
+                            let in_flight = Arc::new(AtomicBool::new(true));
+                            terminal.in_flight_image_watcher = Some(Arc::clone(&in_flight));
                             let (tx, rx) = mpsc::channel();
                             let stable_window = next_entry.stable_window;
                             let timeout = next_entry.job_timeout;
@@ -1551,19 +1636,21 @@ pub(crate) fn resume_held_jobs_in_bridge_poll(terminal: &mut crate::terminal::Te
                             s.transitions.push(HeldJobTransition::Accepted {
                                 job_id: job_id.clone(),
                                 started_at: Instant::now(),
-                                watcher: RunningWatcher { job_id, cancel, rx },
+                                watcher: RunningWatcher { job_id, cancel, in_flight, rx },
                             });
                             break;
                         }
                         Err(next_err) if next_err.temporary => {
                             if let Some(t_idx) = next_err.tab_idx {
                                 if let Some(tab) = terminal.tabs.get_mut(t_idx) {
-                                    tab.held_image_job = Some(crate::terminal::HeldImageJob {
-                                        document_tab_id: hold.document_tab_id,
-                                        job_id: next_entry.job.id.clone(),
-                                        told_reason: next_err.message,
-                                    });
-                                    tab.held_image_job_shared = Some(Arc::clone(&shared));
+                                    if tab.held_image_job.is_none() {
+                                        tab.held_image_job = Some(crate::terminal::HeldImageJob {
+                                            document_tab_id: hold.document_tab_id,
+                                            job_id: next_entry.job.id.clone(),
+                                            told_reason: next_err.message,
+                                        });
+                                        tab.held_image_job_shared = Some(Arc::clone(&shared));
+                                    }
                                 }
                             }
                             let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
@@ -1579,6 +1666,10 @@ pub(crate) fn resume_held_jobs_in_bridge_poll(terminal: &mut crate::terminal::Te
                         }
                     }
                 }
+                if !terminal.has_in_flight_image_job() {
+                    terminal.hold_released_needs_pump = true;
+                }
+                break;
             }
         }
     }
@@ -1660,23 +1751,18 @@ fn build_completed_image_job_tx(doc: &mut Document, job: &ImageJob, png_bytes: V
 }
 
 fn is_agent_run_done(tab_status: &Option<Arc<Mutex<AgentTabStatus>>>, status_file_path: &std::path::Path) -> bool {
-    if let Some(raw) = crate::agent_session_files::read_session_text(status_file_path) {
-        if let Some(parsed) = parse_agent_status_payload(raw.trim()) {
-            if let Some(ts) = tab_status {
-                if let Ok(mut guard) = ts.lock() {
-                    *guard = parsed.clone();
-                }
-            }
-            if matches!(parsed, AgentTabStatus::Done) {
-                return true;
+    if let Some(ts) = tab_status {
+        if let Ok(guard) = ts.lock() {
+            match *guard {
+                AgentTabStatus::Done => return true,
+                AgentTabStatus::Working(_) | AgentTabStatus::WaitingForInput(_) => return false,
+                _ => {}
             }
         }
     }
-    if let Some(ts) = tab_status {
-        if let Ok(guard) = ts.lock() {
-            if matches!(*guard, AgentTabStatus::Done) {
-                return true;
-            }
+    if let Some(raw) = crate::agent_session_files::read_session_text(status_file_path) {
+        if matches!(parse_agent_status_payload(raw.trim()), Some(AgentTabStatus::Done)) {
+            return true;
         }
     }
     false
@@ -3777,6 +3863,182 @@ mod tests {
         assert_eq!(app.image_jobs.jobs.iter().find(|j| j.id == job2).map(|j| &j.state), Some(&ImageJobState::Failed(expected.to_string())));
         assert!(app.terminal.tabs.iter().all(|t| t.held_image_job.is_none()), "a permanent refusal never leaves a hold on a tab");
         assert!(app.image_jobs.queue.is_empty());
+        app.cleanup_image_jobs_on_file_close();
+        app.terminal.shutdown();
+    }
+
+    #[test]
+    fn a_second_documents_image_job_waits_for_the_first_documents_held_job_to_finish() {
+        let tmp = TestDir::new("second-doc-waits-for-held-job");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.stable_window = Duration::ZERO;
+        app.terminal.bind_session(&format!("second-doc-hold-{}", std::process::id()));
+        app.image_jobs.agent_script = None;
+
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.reconcile_frame(&mut app);
+        app.tabs = tabs;
+
+        let idx = ready_agent_tab_for_image_test(&mut app, tmp.path(), AgentCliPreset::Claude, "claude");
+        *app.terminal.tabs[idx].agent_status.lock().unwrap() = AgentTabStatus::WaitingForInput(None);
+
+        let user_job = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("user job queued and held");
+        let user_out_path = app.image_jobs.jobs[0].output_path.clone();
+        assert_eq!(app.terminal.tabs[idx].held_image_job.as_ref().map(|h| h.job_id.as_str()), Some(user_job.as_str()));
+
+        // Agent opens a second document beside the user's document; that document also has an image layer.
+        let mut agent_doc = app.doc.clone();
+        agent_doc.name = "Agent Document".to_string();
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.show_agent_document_beside_the_users(&mut app, agent_doc);
+        app.tabs = tabs;
+
+        // Start an image job on the agent document while the user's job is still held on the shared Claude tab.
+        let users_tab_id = app.tabs.entries[0].id;
+        let agent_job = app.start_image_job(orig_id, 0, ImageOp::IsolateSubject).expect("agent document job queued");
+        assert_eq!(
+            app.terminal.tabs[idx].held_image_job.as_ref().map(|h| (h.document_tab_id, h.job_id.as_str())),
+            Some((users_tab_id, user_job.as_str())),
+            "the hold on the live Claude tab must stay on the user's job and never be replaced"
+        );
+        assert_eq!(app.image_jobs.jobs[0].state, ImageJobState::Queued, "the agent document's job stays Queued while the terminal holds the user's job");
+
+        // Answer the permission prompt so the user's held job resumes.
+        *app.terminal.tabs[idx].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+        let _ = app.terminal.poll_live_agent_bridge();
+        app.poll_image_jobs();
+        assert_eq!(app.tabs.entries[0].image_jobs.jobs[0].state, ImageJobState::Running, "the user's job resumes first");
+        assert_eq!(app.image_jobs.jobs[0].state, ImageJobState::Queued, "the agent document's job stays Queued while the user's job runs");
+
+        // Finish the user's job and verify the agent document's job starts when it completes.
+        write_rgba_png(&user_out_path, 100, 100, true);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline && app.tabs.entries[0].image_jobs.jobs[0].state == ImageJobState::Running {
+            app.poll_image_jobs();
+            std::thread::yield_now();
+        }
+        assert_eq!(app.tabs.entries[0].image_jobs.jobs[0].state, ImageJobState::Done, "the user's job completed");
+        assert_eq!(
+            app.image_jobs.jobs.iter().find(|j| j.id == agent_job).map(|j| &j.state),
+            Some(&ImageJobState::Running),
+            "when the user's job finishes, the agent document's queued job starts"
+        );
+
+        app.cancel_image_job(Some(orig_id));
+        app.cleanup_image_jobs_on_file_close();
+        app.terminal.shutdown();
+        for entry in &mut app.tabs.entries {
+            entry.terminal.shutdown();
+        }
+    }
+
+    #[test]
+    fn two_holds_on_different_tabs_of_one_terminal_are_impossible() {
+        let tmp = TestDir::new("no-two-holds-on-one-terminal");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.terminal.bind_session(&format!("no-two-holds-{}", std::process::id()));
+        app.image_jobs.agent_script = None;
+
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.reconcile_frame(&mut app);
+        app.tabs = tabs;
+
+        let claude_idx = ready_agent_tab_for_image_test(&mut app, tmp.path(), AgentCliPreset::Claude, "claude");
+        let codex_idx = ready_agent_tab_for_image_test(&mut app, tmp.path(), AgentCliPreset::Codex, "codex");
+        *app.terminal.tabs[claude_idx].agent_status.lock().unwrap() = AgentTabStatus::WaitingForInput(None);
+        *app.terminal.tabs[codex_idx].agent_status.lock().unwrap() = AgentTabStatus::WaitingForInput(None);
+        app.terminal.active_tab = claude_idx;
+
+        let user_job = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("first document job held on Claude tab");
+        assert_eq!(app.terminal.tabs[claude_idx].held_image_job.as_ref().map(|h| h.job_id.as_str()), Some(user_job.as_str()));
+
+        // Split into a second document that shares the same live terminal, and select the waiting Codex tab.
+        let mut agent_doc = app.doc.clone();
+        agent_doc.name = "Second Document".to_string();
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.show_agent_document_beside_the_users(&mut app, agent_doc);
+        app.tabs = tabs;
+
+        app.terminal.active_tab = codex_idx;
+        let second_job = app.start_image_job(orig_id, 0, ImageOp::IsolateSubject).expect("second document job queued");
+
+        assert_eq!(app.terminal.tabs.iter().filter(|t| t.held_image_job.is_some()).count(), 1, "at most one hold may exist across all tabs of a terminal");
+        assert_eq!(app.terminal.tabs[claude_idx].held_image_job.as_ref().map(|h| h.job_id.as_str()), Some(user_job.as_str()));
+        assert!(app.terminal.tabs[codex_idx].held_image_job.is_none(), "second document must not place a second hold on the Codex tab");
+        assert_eq!(app.image_jobs.jobs.iter().find(|j| j.id == second_job).map(|j| &j.state), Some(&ImageJobState::Queued));
+
+        app.cleanup_image_jobs_on_file_close();
+        app.terminal.shutdown();
+        for entry in &mut app.tabs.entries {
+            entry.terminal.shutdown();
+        }
+    }
+
+    #[test]
+    fn spawning_a_tab_for_an_image_job_keeps_active_tab_new_chat_and_turn_marks() {
+        let tmp = TestDir::new("spawn-keeps-focus-new-chat-and-marks");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.terminal.bind_session(&format!("spawn-marks-{}", std::process::id()));
+        app.image_jobs.agent_script = None;
+
+        // Tab 0 is the person's tab (a Shell tab); Claude is the active runtime so the image job will spawn a new Claude tab at index 1.
+        put_stub_cli_on_path(&mut app, tmp.path(), "claude");
+        app.terminal.spawn_tab(AgentCliPreset::Shell, None).expect("spawn person's tab");
+        app.terminal.active_tab = 0;
+        app.terminal.active_runtime = AgentCliPreset::Claude;
+        app.terminal.picker_open = true;
+        app.terminal.unattached_composer.draft = "unsent new chat draft".to_string();
+
+        // Plant an unread turn mark before the image job spawns a tab.
+        let marks_path = app.terminal.prepared_hook_paths().turn_marks();
+        std::fs::write(&marks_path, "{\"v\":1,\"turn_mark\":\"start\",\"cli\":\"claude\",\"patch_bytes\":0}\n").unwrap();
+
+        let _job_id = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("image job spawns Claude tab");
+
+        assert_eq!(app.terminal.tabs.len(), 2, "a new Claude tab was spawned for the image job");
+        assert_eq!(app.terminal.active_tab, 0, "image-job spawn must leave active_tab on the person's tab");
+        assert!(app.terminal.picker_open, "image-job spawn must leave picker_open untouched");
+        assert_eq!(app.terminal.unattached_composer.draft, "unsent new chat draft", "image-job spawn must leave New chat draft untouched");
+        assert!(!app.terminal.tabs[0].turn_ledger.turns.is_empty(), "planted turn mark must land on the person's tab ledger");
+        assert!(app.terminal.tabs[1].turn_ledger.turns.is_empty(), "newly spawned image-job tab must not take the person's turn mark");
+
+        app.cancel_image_job(Some(orig_id));
+        app.cleanup_image_jobs_on_file_close();
+        app.terminal.shutdown();
+    }
+
+    #[test]
+    fn a_done_in_the_shared_status_file_while_the_jobs_tab_is_working_does_not_finish_the_job() {
+        let tmp = TestDir::new("shared-status-done-while-tab-working");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.terminal.bind_session(&format!("shared-done-{}", std::process::id()));
+        app.image_jobs.agent_script = None;
+
+        let idx = ready_agent_tab_for_image_test(&mut app, tmp.path(), AgentCliPreset::Claude, "claude");
+        let job_id = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job starts on tab");
+        *app.terminal.tabs[idx].agent_status.lock().unwrap() = AgentTabStatus::Working(Some("Generating image…".into()));
+
+        let status_path = app.terminal.prepared_hook_paths().status();
+        std::fs::write(&status_path, r#"{"state":"done"}"#).unwrap();
+
+        let tab_status = Some(Arc::clone(&app.terminal.tabs[idx].agent_status));
+        assert!(
+            !is_agent_run_done(&tab_status, &status_path),
+            "a done in the shared status file while this job's tab is still Working must not report the job as done"
+        );
+        assert_eq!(
+            *app.terminal.tabs[idx].agent_status.lock().unwrap(),
+            AgentTabStatus::Working(Some("Generating image…".into())),
+            "shared status file payload must never be copied into this tab's agent_status"
+        );
+        app.poll_image_jobs();
+        assert_eq!(
+            app.image_jobs.jobs.iter().find(|j| j.id == job_id).map(|j| &j.state),
+            Some(&ImageJobState::Running),
+            "the job must stay Running while its tab is Working"
+        );
+
+        app.cancel_image_job(Some(orig_id));
         app.cleanup_image_jobs_on_file_close();
         app.terminal.shutdown();
     }

@@ -2740,7 +2740,7 @@ mod tests {
             let written = String::from_utf8_lossy(&tab.written_bytes).into_owned();
             assert!(!written.contains("Image task"), "tab {i} must never receive the system prompt: {written:?}");
         }
-        assert_eq!(st.active_tab, 2, "the new agent tab is active");
+        assert_eq!(st.active_tab, 0, "the person's selected tab stays active when an image job spawns a tab");
         let received = wait_for_file_containing(&mut st, &recv, "Image task 9");
         assert!(received.contains("Image task 9"), "the Claude tab receives the prompt: {received:?}");
 
@@ -4025,9 +4025,15 @@ mod tests {
         // Hook-less turn completion where output timestamp changed relative to `output_at_enter` (even if `< enter_written_at`):
         // exercises the `output_at_enter != Some(out_at)` branch and flushes the queued image job second.
         let enter_at = st.tabs[0].composer.enter_written_at.expect("enter_written_at recorded");
-        *st.tabs[0].last_output_at.lock().unwrap() = Some(enter_at - READY_QUIET_OUTPUT - Duration::from_millis(50));
-        st.tick_composer();
-        st.flush_pending_enter_now();
+        for _ in 0..10 {
+            if tab_written_string(&st, 0).contains("Image task 7: Remove background.") {
+                break;
+            }
+            st.tabs[0].composer.output_at_enter = Some(enter_at);
+            *st.tabs[0].last_output_at.lock().unwrap() = Some(enter_at - READY_QUIET_OUTPUT - Duration::from_millis(50));
+            st.tick_composer();
+            st.flush_pending_enter_now();
+        }
         let w2 = tab_written_string(&st, 0);
         let p_user = w2.find("user prompt at start").expect("user prompt written");
         let p_img = w2.find("Image task 7: Remove background.").expect("image job written second");
