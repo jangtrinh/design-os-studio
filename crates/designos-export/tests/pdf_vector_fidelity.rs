@@ -688,6 +688,7 @@ fn precomputed_stroke_outline_is_filled_like_the_canvas() {
     let n = doc.get_mut(id).unwrap();
     n.stroke = red_stroke(4.0, StrokeAlign::Inside);
     n.stroke_geometry = Some(vec![Path { cmds, fill_rule: FillRule::NonZero }]);
+    n.stamp_stroke_geometry();
     let out = export(&doc, frame);
     out.assert_canvas_shows("outline band", (60.0, 25.0), [200, 30, 30], 3);
     out.assert_canvas_shows("past the outline", (60.0, 28.0), [240, 240, 240], 3);

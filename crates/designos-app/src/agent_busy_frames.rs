@@ -387,6 +387,7 @@ mod tests {
             text_style_overrides: designos_doc::OwnedFieldSet::default(),
             fill_geometry: None,
             stroke_geometry: None,
+            stroke_geometry_for: None,
             component: designos_doc::ComponentLink::default(),
             prototype: designos_doc::PrototypeProps::default(),
             variables: designos_doc::NodeVariables::default(),

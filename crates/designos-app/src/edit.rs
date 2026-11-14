@@ -150,6 +150,7 @@ pub(crate) fn properties_changed(old: &Node, cur: &Node) -> bool {
         text_style_overrides,
         fill_geometry,
         stroke_geometry,
+        stroke_geometry_for,
         component,
         prototype,
         variables,
@@ -197,6 +198,7 @@ pub(crate) fn properties_changed(old: &Node, cur: &Node) -> bool {
         || *kind != cur.kind
         || *fill_geometry != cur.fill_geometry
         || *stroke_geometry != cur.stroke_geometry
+        || *stroke_geometry_for != cur.stroke_geometry_for
 }
 
 /// A transaction: structural commands applied immediately plus an [`Edit`] for

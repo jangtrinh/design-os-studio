@@ -124,6 +124,9 @@ pub struct Node {
     /// already expanded by weight/align; filled with the stroke paints.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke_geometry: Option<Vec<Path>>,
+    /// Size and stroke settings that [`Node::stroke_geometry`] was computed for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stroke_geometry_for: Option<StrokeGeometryStamp>,
     /// Component/instance bookkeeping; empty for ordinary nodes.
     #[serde(default, skip_serializing_if = "ComponentLink::is_empty")]
     pub component: ComponentLink,
@@ -426,6 +429,8 @@ pub enum ParkedOverrideValue {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         stroke_geometry: Option<Vec<Path>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        stroke_geometry_for: Option<StrokeGeometryStamp>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         explicit_width: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         explicit_height: Option<String>,
@@ -596,6 +601,7 @@ impl Node {
             text_style_overrides: OwnedFieldSet::default(),
             fill_geometry: None,
             stroke_geometry: None,
+            stroke_geometry_for: None,
             component: ComponentLink::default(),
             prototype: PrototypeProps::default(),
             variables: NodeVariables::default(),
@@ -673,6 +679,85 @@ impl Node {
     /// for picking. Allocation-free.
     pub fn children_front_to_back(&self) -> impl Iterator<Item = &NodeId> + '_ {
         front_to_back(&self.children, self.paints_children_reversed())
+    }
+
+    /// Records the current layer `size` and `stroke` fields as the stamp for
+    /// [`Node::stroke_geometry`], or clears [`Node::stroke_geometry_for`] when
+    /// no non-empty stroke outline is stored.
+    pub fn stamp_stroke_geometry(&mut self) {
+        if self.stroke_geometry.as_ref().is_some_and(|g| !g.is_empty()) {
+            self.stroke_geometry_for = Some(StrokeGeometryStamp::of_node(self));
+        } else {
+            self.stroke_geometry_for = None;
+        }
+    }
+
+    /// Returns the stored stroke outline only while it is non-empty and its
+    /// stamp matches the layer's current `size` and `stroke` fields.
+    pub fn live_stroke_outline(&self) -> Option<&[Path]> {
+        let paths = self.stroke_geometry.as_deref().filter(|g| !g.is_empty())?;
+        let stamp = self.stroke_geometry_for.as_ref()?;
+        stamp.matches_node(self).then_some(paths)
+    }
+}
+
+/// Float tolerance used when comparing [`StrokeGeometryStamp`] against a layer's
+/// current `size` and `stroke` fields (matches `apply_constrained_geometry`).
+pub const STROKE_GEOMETRY_STAMP_TOL: f32 = 1e-4;
+
+#[inline]
+fn f32_stamp_eq(a: f32, b: f32) -> bool {
+    a.to_bits() == b.to_bits() || (a - b).abs() <= STROKE_GEOMETRY_STAMP_TOL
+}
+
+/// Stamp of the layer size and stroke fields a stored [`Node::stroke_geometry`] was computed for.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StrokeGeometryStamp {
+    pub size: Vec2,
+    pub weight: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side_weights: Option<[f32; 4]>,
+    pub align: StrokeAlign,
+    pub cap: StrokeCap,
+    pub join: StrokeJoin,
+    pub miter_limit: f32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dashes: Vec<f32>,
+}
+
+impl StrokeGeometryStamp {
+    pub fn of_size_and_stroke(size: Vec2, stroke: &Stroke) -> Self {
+        Self {
+            size,
+            weight: stroke.weight,
+            side_weights: stroke.side_weights,
+            align: stroke.align,
+            cap: stroke.cap,
+            join: stroke.join,
+            miter_limit: stroke.miter_limit,
+            dashes: stroke.dashes.clone(),
+        }
+    }
+
+    pub fn of_node(node: &Node) -> Self {
+        Self::of_size_and_stroke(node.size, &node.stroke)
+    }
+
+    pub fn matches_node(&self, node: &Node) -> bool {
+        f32_stamp_eq(self.size.x, node.size.x)
+            && f32_stamp_eq(self.size.y, node.size.y)
+            && f32_stamp_eq(self.weight, node.stroke.weight)
+            && match (self.side_weights, node.stroke.side_weights) {
+                (None, None) => true,
+                (Some(a), Some(b)) => (0..4).all(|i| f32_stamp_eq(a[i], b[i])),
+                _ => false,
+            }
+            && self.align == node.stroke.align
+            && self.cap == node.stroke.cap
+            && self.join == node.stroke.join
+            && f32_stamp_eq(self.miter_limit, node.stroke.miter_limit)
+            && self.dashes.len() == node.stroke.dashes.len()
+            && self.dashes.iter().zip(&node.stroke.dashes).all(|(&a, &b)| f32_stamp_eq(a, b))
     }
 }
 

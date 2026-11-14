@@ -977,6 +977,7 @@ pub fn apply_bound_key_to_node(node: &mut Node, key: &str, value: &VariableValue
                 node.corner_radii = [clamped; 4];
                 node.fill_geometry = None;
                 node.stroke_geometry = None;
+                node.stroke_geometry_for = None;
             }
         }
         return;

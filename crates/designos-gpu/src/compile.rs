@@ -1071,7 +1071,7 @@ impl Ctx<'_> {
             n.kind,
             NodeKind::Rectangle | NodeKind::Section | NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. }
         ) && n.fill_geometry.is_none()
-            && n.stroke_geometry.is_none()
+            && n.live_stroke_outline().is_none()
             && (n.effects.is_empty() || (zoom_lod && scale < 0.25))
             && (!has_visible_strokes(n) || (zoom_lod && scale < 0.25 && n.stroke.weight * scale < 0.75))
             && n.size.x > 0.0

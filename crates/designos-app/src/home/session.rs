@@ -599,6 +599,9 @@ pub(crate) fn node_fingerprint(node: &designos_doc::Node) -> u64 {
     if let Some(motion) = &node.motion {
         let _ = motion.serialize(HashSerializer(&mut h));
     }
+    if let Some(stamp) = &node.stroke_geometry_for {
+        let _ = stamp.serialize(HashSerializer(&mut h));
+    }
     h.finish()
 }
 

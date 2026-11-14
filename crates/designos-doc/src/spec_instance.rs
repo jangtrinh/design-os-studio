@@ -1370,6 +1370,7 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
                 });
                 node.fill_geometry = None;
                 node.stroke_geometry = None;
+                node.stroke_geometry_for = None;
                 node.component.overrides.insert(OverrideField::Arc);
             }
         }
