@@ -753,6 +753,48 @@ fn union_and_exclude_booleans_match_the_canvas() {
     }
 }
 
+#[test]
+fn empty_boolean_results_stay_vector_and_draw_nothing() {
+    let (mut doc, _page, frame) = frame_doc(160.0, 100.0);
+
+    // 1. Union of an open line (with fill and inside stroke) -> empty boolean result.
+    let u_id = doc.alloc_id();
+    let mut u = Node::new(u_id, NodeKind::BooleanOp(BooleanOp::Union));
+    u.size = Vec2::new(100.0, 60.0);
+    u.fills = vec![solid(200, 30, 30)];
+    u.stroke = Stroke { paints: vec![solid(20, 20, 20)], weight: 4.0, align: StrokeAlign::Inside, ..Default::default() };
+    let u = doc.insert(frame, u).unwrap();
+    let line_id = doc.alloc_id();
+    let mut line = Node::new(line_id, NodeKind::Line);
+    line.transform = Affine::translate(20.0, 30.0);
+    line.size = Vec2::new(100.0, 0.0);
+    doc.insert(u, line).unwrap();
+
+    // 2. Intersect with a 100% ring (with fill and outside stroke) -> empty boolean result.
+    let i_id = doc.alloc_id();
+    let mut inter = Node::new(i_id, NodeKind::BooleanOp(BooleanOp::Intersect));
+    inter.size = Vec2::new(100.0, 60.0);
+    inter.fills = vec![solid(30, 60, 200)];
+    inter.stroke = Stroke { paints: vec![solid(20, 20, 20)], weight: 4.0, align: StrokeAlign::Outside, ..Default::default() };
+    let inter = doc.insert(frame, inter).unwrap();
+    rect(&mut doc, inter, Rect::new(20.0, 20.0, 100.0, 60.0), solid(10, 10, 10));
+    let ring_id = doc.alloc_id();
+    let mut ring = Node::new(ring_id, NodeKind::Ellipse(ArcData { start: 0.0, end: std::f32::consts::TAU, inner_radius: 1.0 }));
+    ring.transform = Affine::translate(20.0, 20.0);
+    ring.size = Vec2::new(100.0, 60.0);
+    ring.fills = vec![solid(10, 10, 10)];
+    doc.insert(inter, ring).unwrap();
+
+    let out = export(&doc, frame);
+    assert_eq!(out.kind, PageKind::Vector, "empty boolean results must be written as vector content, never flattened");
+    out.assert_canvas_shows("empty boolean draws nothing", (60.0, 50.0), [255, 255, 255], 0);
+    out.assert_agree_at("empty boolean", &[(20.0, 20.0), (60.0, 50.0), (110.0, 70.0)], 0);
+
+    let svg = designos_export::export_svg(&doc, frame, &Default::default());
+    assert!(!svg.contains("<mask"), "empty boolean results must not emit SVG masks:\n{svg}");
+    assert!(!svg.contains("#c81e1e") && !svg.contains("#1e3cc8"), "empty boolean results must draw nothing in SVG:\n{svg}");
+}
+
 // ---------------------------------------------------------------------------------------------
 // Text
 

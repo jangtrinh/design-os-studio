@@ -58,7 +58,8 @@ fn entry(cx: &mut ExportCtx<'_>, e: &PendingDerivedEntry) -> Option<V> {
 /// The `derivedSymbolData` entries of the instance `inst_id` (of the main component `main`) as the file stated them, or
 /// `None` to write none: the instance has children (its page is loaded), the loader holds none, or the main it is an
 /// instance of (or one inside it) is not the main, with the content, the data was computed for, or the instance was
-/// resized since the file was opened.
+/// resized since the file was opened. If the instance itself moved, only its stale self entry is omitted; derived data
+/// for descendants remains useful and is retained.
 pub(super) fn pending_derived_symbol_data(cx: &mut ExportCtx<'_>, inst_id: NodeId, main: NodeId) -> Option<Vec<V>> {
     if !cx.doc.get(inst_id)?.children.is_empty() {
         return None;
@@ -69,13 +70,31 @@ pub(super) fn pending_derived_symbol_data(cx: &mut ExportCtx<'_>, inst_id: NodeI
     if super::kept_overrides::size_edited(cx.doc, inst_id) {
         return None;
     }
+    let transform_moved = cx
+        .doc
+        .pending_instance_self_digests(inst_id)
+        .is_some_and(|opened| cx.doc.get(inst_id).is_some_and(|node| crate::instance_self_digest::transform_moved(node, &opened)));
     let held = cx.doc.pending_instance_derived(inst_id)?;
     // The fingerprint names the main it was taken from, so an instance pointed at another main does not match.
     let mains = crate::component_fingerprint::instance_mains(cx.doc, inst_id, main, &held.swap_mains);
     if cx.fingerprints.of_mains(cx.doc, &mains) != held.fingerprint {
         return None;
     }
-    let entries: Vec<V> = held.entries.iter().filter_map(|e| entry(cx, e)).collect();
+    let main_guid = cx.node_guids.get(&main).copied();
+    let entries: Vec<V> = held
+        .entries
+        .iter()
+        .filter_map(|e| {
+            let self_entry = transform_moved && main_guid.is_some_and(|g| e.path.len() == 1 && guid_of(&e.path[0]) == Some(g));
+            if self_entry {
+                let mut without_transform = e.clone();
+                without_transform.transform = None;
+                entry(cx, &without_transform)
+            } else {
+                entry(cx, e)
+            }
+        })
+        .collect();
     (!entries.is_empty()).then_some(entries)
 }
 
@@ -143,5 +162,41 @@ mod tests {
         let child_id = doc.alloc_id();
         doc.insert(inst, Node::rectangle(child_id, Rect::new(0.0, 0.0, 4.0, 4.0))).unwrap();
         assert!(write(&doc, main, inst).is_none());
+    }
+
+    #[test]
+    fn a_move_of_an_unopened_instance_drops_stale_derived_transform() {
+        let (mut doc, main, inst) = document_with_pending_instance();
+        let opened = std::collections::BTreeMap::from([(OverrideField::Transform, crate::instance_self_digest::transform_digest(doc.get(inst).unwrap()))]);
+        // The file's derived record includes the instance itself. A direct move does not set
+        // OverrideField::Transform, but the recorded transform must not be replayed on reopen.
+        let mut held = doc.pending_instance_derived(inst).expect("derived data");
+        held.entries.insert(0, PendingDerivedEntry { path: vec!["1:10".into()], transform: Some([1.0, 0.0, 0.0, 1.0, 10.0, 20.0]), ..Default::default() });
+        #[derive(Debug)]
+        struct Moved(PendingDerived, std::collections::BTreeMap<OverrideField, u64>);
+        impl PageHydrator for Moved {
+            fn hydrate_page(&mut self, _: &mut Document, _: NodeId) -> bool {
+                false
+            }
+            fn hydrate_all(&mut self, _: &mut Document) -> bool {
+                false
+            }
+            fn is_hydrated(&self, _: NodeId) -> bool {
+                false
+            }
+            fn pending_instance_derived(&self, _: NodeId) -> Option<PendingDerived> {
+                Some(self.0.clone())
+            }
+            fn pending_instance_self_digests(&self, _: NodeId) -> Option<std::collections::BTreeMap<OverrideField, u64>> {
+                Some(self.1.clone())
+            }
+        }
+        doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(Moved(held, opened))));
+        doc.get_mut(inst).unwrap().transform.tx += 100.0;
+        let entries = write(&doc, main, inst).expect("descendant derived data remains");
+        let self_entry =
+            entries.iter().find(|e| e.get("guidPath").and_then(|p| p.get("guids")).and_then(V::as_array).is_some_and(|g| g.len() == 1)).expect("self entry");
+        assert!(self_entry.get("transform").is_none(), "stale self transform must not be exported");
+        assert!(entries.iter().any(|e| e.get("size").is_some()), "descendant derived data is retained");
     }
 }

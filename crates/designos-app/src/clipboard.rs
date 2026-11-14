@@ -450,7 +450,11 @@ pub fn capture(doc: &Document, ids: &[NodeId]) -> Option<Clip> {
 }
 
 pub fn to_json(clip: &Clip) -> Option<String> {
-    designos_doc::finite_json::to_string_finite(clip).ok().map(|(s, _)| s)
+    let mut clip = clip.clone();
+    for n in &mut clip.nodes {
+        n.component.overrides = n.component.override_fields();
+    }
+    designos_doc::finite_json::to_string_finite(&clip).ok().map(|(s, _)| s)
 }
 
 pub fn from_json(s: &str) -> Option<Clip> {
@@ -1332,5 +1336,109 @@ pub(crate) mod tests {
 
         let pasted_panel = by_name(&app, "Panel");
         assert!(pasted_panel.component.prop_default_variables.is_empty(), "Figma paste must clear prop_default_variables for both local and key: variable ids");
+    }
+
+    #[test]
+    fn copying_and_pasting_an_unopened_instance_through_clipboard_json_preserves_its_own_entry_on_save() {
+        use designos_fig::kiwi::KiwiValue as V;
+        use designos_fig::testkit::{color, en, figma_like_schema, fl, guid, matrix, msg, node, vec2};
+
+        let solid_paint = |r: f32, g: f32, b: f32| -> V {
+            msg(vec![("type", en("SOLID")), ("color", color(r, g, b, 1.0)), ("opacity", fl(1.0)), ("visible", V::Bool(true)), ("blendMode", en("NORMAL"))])
+        };
+        let nc = |id: (u32, u32), parent: (u32, u32), pos: &str, ty: &str, name: &str, size: (f32, f32), mut extra: Vec<(&str, V)>| -> V {
+            let mut fields = vec![
+                ("visible", V::Bool(true)),
+                ("opacity", fl(1.0)),
+                ("phase", en("CREATED")),
+                ("size", vec2(size.0, size.1)),
+                ("transform", matrix(0.0, 0.0)),
+                ("blendMode", en("PASS_THROUGH")),
+            ];
+            fields.append(&mut extra);
+            node(id, parent, pos, ty, name, fields)
+        };
+        let mut changes = vec![
+            nc((0, 0), (0, 0), "", "DOCUMENT", "Document", (0.0, 0.0), vec![]),
+            nc((0, 1), (0, 0), "!", "CANVAS", "Cover", (0.0, 0.0), vec![]),
+            nc((0, 2), (0, 0), "\"", "CANVAS", "Page 2", (0.0, 0.0), vec![]),
+            nc((0, 3), (0, 0), "#", "CANVAS", "404 pages", (0.0, 0.0), vec![]),
+            nc((1, 10), (0, 1), "!", "SYMBOL", "Buttons/Button", (120.0, 48.0), vec![("fillPaints", V::Array(vec![solid_paint(0.9, 0.9, 0.9)]))]),
+            nc(
+                (1, 11),
+                (1, 10),
+                "!",
+                "TEXT",
+                "Label",
+                (80.0, 20.0),
+                vec![("textData", msg(vec![("characters", V::String("Button CTA".into()))])), ("fontSize", fl(14.0))],
+            ),
+            nc(
+                (1, 21),
+                (0, 3),
+                "!",
+                "INSTANCE",
+                "Hero button",
+                (130.0, 48.0),
+                vec![
+                    ("fillPaints", V::Array(vec![solid_paint(0.1, 0.2, 0.3)])),
+                    (
+                        "symbolData",
+                        msg(vec![
+                            ("symbolID", guid(1, 10)),
+                            (
+                                "symbolOverrides",
+                                V::Array(vec![msg(vec![
+                                    ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 10)]))])),
+                                    ("size", vec2(130.0, 48.0)),
+                                    ("fillPaints", V::Array(vec![solid_paint(0.1, 0.2, 0.3)])),
+                                ])]),
+                            ),
+                        ]),
+                    ),
+                ],
+            ),
+        ];
+        for i in 0..25_000u32 {
+            changes.push(nc((9, i + 1), (0, 1), "!", "ROUNDED_RECTANGLE", "F", (4.0, 4.0), vec![]));
+        }
+        let schema = figma_like_schema();
+        let root = schema.find("Message").expect("Message in the embedded schema");
+        let body = schema.encode_message(root, &msg(vec![("nodeChanges", V::Array(changes))])).expect("encode");
+        let fig = designos_fig::container::write_container(&schema.encode(), &body, Compression::Zstd, 106);
+
+        let mut app = App::new(designos_fig::import_fig(&fig).expect("import"));
+        let unopened_page = app.doc.pages.iter().copied().find(|&p| app.doc.get(p).is_some_and(|n| n.name == "404 pages")).expect("404 pages");
+        let copy_page = app.duplicate_page(unopened_page).expect("duplicate unopened page");
+        let copied_inst = app.doc.get(copy_page).expect("copy page").children[0];
+        assert!(app.doc.get(copied_inst).expect("copied inst").children.is_empty(), "copied instance is unexpanded");
+
+        // Native node JSON stays free of transient flags.
+        let mcp_json = serde_json::to_value(app.doc.get(copied_inst).expect("copied inst")).expect("node json");
+        assert!(mcp_json["component"]["overrides"].is_null(), "node JSON outside clipboard stays clean: {mcp_json}");
+
+        app.selection = vec![copied_inst];
+        let clip_json = app.copy_selection().expect("clipboard json");
+        app.clip = None;
+        app.paste_from_system(Some(&clip_json));
+
+        let page_kids = &app.doc.get(copy_page).expect("copy page").children;
+        assert_eq!(page_kids.len(), 2, "copied instance and pasted instance on duplicated page");
+
+        let saved = designos_fig::export_fig(&app.doc).expect("export .fig");
+        let saved_changes = designos_fig::decode_fig_to_json(&saved).expect("decode")["message"]["nodeChanges"].as_array().cloned().unwrap_or_default();
+        let orig_canvas_guid = saved_changes.iter().find(|nc| nc["type"] == "CANVAS" && nc["name"] == "404 pages").expect("original canvas")["guid"].clone();
+        let copy_canvas_guid = saved_changes.iter().find(|nc| nc["type"] == "CANVAS" && nc["name"] == "404 pages copy").expect("copied canvas")["guid"].clone();
+
+        let source_nc = saved_changes.iter().find(|nc| nc["parentIndex"]["guid"] == orig_canvas_guid && nc["type"] == "INSTANCE").expect("source instance");
+        let source_own_entry = source_nc["symbolData"]["symbolOverrides"][0].clone();
+
+        let copy_page_instances: Vec<&serde_json::Value> =
+            saved_changes.iter().filter(|nc| nc["parentIndex"]["guid"] == copy_canvas_guid && nc["type"] == "INSTANCE").collect();
+        assert_eq!(copy_page_instances.len(), 2, "both instances on the duplicated page are written");
+        for inst_nc in copy_page_instances {
+            let own_entry = inst_nc["symbolData"]["symbolOverrides"].get(0).cloned();
+            assert_eq!(own_entry, Some(source_own_entry.clone()), "pasted unopened instance own entry equals source own entry");
+        }
     }
 }

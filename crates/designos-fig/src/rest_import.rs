@@ -2139,11 +2139,16 @@ impl<'a> Ctx<'a> {
         }
         let holds_derived = self.overrides.get(&inst).is_some_and(|o| !o.fast_derived.is_empty());
         let Some(node) = self.doc.get_mut(inst) else { return BTreeMap::new() };
-        node.component.overrides.extend(flagged);
+        for field in flagged {
+            node.component.add_fig_own_entry_flag(field);
+        }
         let mut digests = crate::instance_self_digest::digests(node);
         // The derived data of the instance was computed for the size it has now, flagged or not.
         if holds_derived {
             digests.entry(OverrideField::Size).or_insert_with(|| crate::instance_self_digest::size_digest(node));
+            // A derived self entry can also restate the instance transform. Capture it even when
+            // the own entry did not flag Transform, so a direct move cannot be undone on reopen.
+            digests.entry(OverrideField::Transform).or_insert_with(|| crate::instance_self_digest::transform_digest(node));
         }
         digests
     }
@@ -2918,9 +2923,17 @@ impl<'a> Ctx<'a> {
     }
 
     fn resize_override_node(&mut self, id: NodeId, sz: Vec2, has_fill_geo: bool, has_stroke_geo: bool, skip_geo: bool, explicitly_sized: &mut HashSet<NodeId>) {
+        let keeps_outline = |n: &Node| match n.kind {
+            NodeKind::Vector { .. } | NodeKind::BooleanOp(_) => true,
+            NodeKind::Line => {
+                let dashed = !n.stroke.dashes.is_empty() && n.stroke.dashes.iter().all(|d| *d >= 0.0) && n.stroke.dashes.iter().sum::<f32>() > 0.0;
+                !dashed && n.size.x > 1e-3 && !n.stroke.cap.is_arrow() && !n.fig_metadata.contains_key("strokeCap")
+            }
+            _ => false,
+        };
         explicitly_sized.insert(id);
-        let Some((old_size, old_transform, is_vec_or_bool, is_container)) =
-            self.doc.get(id).map(|n| (n.size, n.transform, matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)), n.kind.is_container()))
+        let Some((old_size, old_transform, preserves_outline, is_container)) =
+            self.doc.get(id).map(|n| (n.size, n.transform, keeps_outline(n), n.kind.is_container()))
         else {
             return;
         };
@@ -2932,7 +2945,7 @@ impl<'a> Ctx<'a> {
             return;
         }
         if let Some(n) = self.doc.get_mut(id) {
-            if !is_vec_or_bool {
+            if !preserves_outline {
                 if !has_fill_geo || skip_geo {
                     n.fill_geometry = None;
                 }
@@ -2948,7 +2961,7 @@ impl<'a> Ctx<'a> {
                     continue;
                 }
                 if let Some(km) = self.doc.get_mut(c) {
-                    if self.large_file && !matches!(km.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
+                    if self.large_file && !keeps_outline(km) {
                         km.fill_geometry = None;
                         km.stroke_geometry = None;
                     }
@@ -3947,6 +3960,18 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             if let Some(derived) = cleared_derived.remove(&inst) {
                 if let Some(ov) = cx.overrides.get_mut(&inst) {
                     ov.fast_derived = derived;
+                }
+            }
+        }
+        // The flags captured from an unopened `.fig` own entry are only a
+        // guard for the pre-hydration sync pass. Once the instance has its
+        // subtree and overrides materialized, its persistent override set is
+        // authoritative again; keeping the transient set would leak stale
+        // runtime state into later copies and reset operations.
+        for &inst in &insts {
+            if !cx.unexpanded_instances.contains(&inst) {
+                if let Some(node) = cx.doc.get_mut(inst) {
+                    node.component.clear_fig_own_entry_flags();
                 }
             }
         }

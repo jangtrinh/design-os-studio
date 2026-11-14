@@ -318,6 +318,11 @@ pub struct ComponentLink {
     /// Properties changed on this instance node; preserved when syncing.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub overrides: BTreeSet<OverrideField>,
+    /// Override fields read from a deferred `.fig` own entry. These flags are
+    /// runtime-only: the `.fig` loader needs them while the page is unopened,
+    /// but native `.designos` and MCP serialization must never expose them.
+    #[serde(skip)]
+    pub fig_own_entry_flags: BTreeSet<OverrideField>,
     /// Property definitions (Component / ComponentSet only).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub props: Vec<ComponentPropDef>,
@@ -478,6 +483,42 @@ fn is_false_pair(pair: &[bool; 2]) -> bool {
 }
 
 impl ComponentLink {
+    /// Adds an override observed in a deferred `.fig` own entry. The marker is
+    /// deliberately kept out of the serialized component link.
+    pub fn add_fig_own_entry_flag(&mut self, field: OverrideField) {
+        self.fig_own_entry_flags.insert(field);
+    }
+
+    /// Drops deferred `.fig` markers after the page has been materialized.
+    pub fn clear_fig_own_entry_flags(&mut self) {
+        self.fig_own_entry_flags.clear();
+    }
+
+    /// Whether this node should be treated as overriding `field` during the
+    /// lifetime of a deferred `.fig` load.
+    pub fn has_override(&self, field: &OverrideField) -> bool {
+        self.overrides.contains(field) || self.fig_own_entry_flags.contains(field)
+    }
+
+    /// Whether this link has any persistent or deferred `.fig` override.
+    pub fn has_any_override(&self) -> bool {
+        !self.overrides.is_empty() || !self.fig_own_entry_flags.is_empty()
+    }
+
+    /// Returns persistent and deferred flags as one runtime view for sync and `.fig` export.
+    pub fn override_fields(&self) -> BTreeSet<OverrideField> {
+        let mut fields = self.overrides.clone();
+        fields.extend(self.fig_own_entry_flags.iter().copied());
+        fields
+    }
+
+    /// Clears a flag regardless of whether it came from the native document or a deferred `.fig` entry.
+    pub fn remove_override(&mut self, field: &OverrideField) -> bool {
+        let a = self.overrides.remove(field);
+        let b = self.fig_own_entry_flags.remove(field);
+        a || b
+    }
+
     pub fn is_empty(&self) -> bool {
         self.source.is_none()
             && self.overrides.is_empty()

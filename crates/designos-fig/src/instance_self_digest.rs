@@ -32,6 +32,9 @@ pub(crate) const SELF_FIELDS: [OverrideField; 12] = [
 
 /// A digest of what `node` holds for `field`, covering every value a save writes for that field.
 fn digest(node: &Node, field: OverrideField) -> u64 {
+    if field == OverrideField::Size {
+        return ((node.size.x.to_bits() as u64) << 32) | (node.size.y.to_bits() as u64);
+    }
     let mut h = DefaultHasher::new();
     let bound = |prefix: &str| -> Vec<(&String, &String)> { node.variables.bindings.iter().filter(|(k, _)| k.starts_with(prefix)).collect() };
     let text = match field {
@@ -41,7 +44,6 @@ fn digest(node: &Node, field: OverrideField) -> u64 {
         OverrideField::LockAspect => format!("{:?}", node.lock_aspect),
         OverrideField::Opacity => format!("{:?}", node.opacity),
         OverrideField::Blend => format!("{:?}", node.blend),
-        OverrideField::Size => format!("{:?}", node.size),
         OverrideField::Transform => format!("{:?}", node.transform),
         // The style link goes with the paints it supplies: linking to another style, or detaching, can leave the paints
         // themselves as they were.
@@ -55,9 +57,19 @@ fn digest(node: &Node, field: OverrideField) -> u64 {
     h.finish()
 }
 
+/// The `(width, height)` packed in `opened` for `OverrideField::Size`.
+pub(crate) fn opened_size(opened: &BTreeMap<OverrideField, u64>) -> Option<(f32, f32)> {
+    let bits = *opened.get(&OverrideField::Size)?;
+    Some((f32::from_bits((bits >> 32) as u32), f32::from_bits(bits as u32)))
+}
+
 /// The digest of `node`'s size, which is taken whether or not the instance overrides it.
 pub(crate) fn size_digest(node: &Node) -> u64 {
     digest(node, OverrideField::Size)
+}
+
+pub(crate) fn transform_digest(node: &Node) -> u64 {
+    digest(node, OverrideField::Transform)
 }
 
 /// Whether `node` has another size than it had when the file was opened, whether or not the instance overrides its
@@ -66,9 +78,16 @@ pub(crate) fn size_moved(node: &Node, opened: &BTreeMap<OverrideField, u64>) -> 
     opened.get(&OverrideField::Size).is_some_and(|d| *d != size_digest(node))
 }
 
+/// Whether an unopened instance moved since the file was opened. A derived self entry can
+/// restate the recorded transform during reopen, so it is stale after a move even when no
+/// `OverrideField::Transform` flag was set by the caller.
+pub(crate) fn transform_moved(node: &Node, opened: &BTreeMap<OverrideField, u64>) -> bool {
+    opened.get(&OverrideField::Transform).is_some_and(|d| *d != digest(node, OverrideField::Transform))
+}
+
 /// The digest of each field of `node` that the instance overrides and a save can restate.
 pub(crate) fn digests(node: &Node) -> BTreeMap<OverrideField, u64> {
-    SELF_FIELDS.iter().copied().filter(|f| node.component.overrides.contains(f)).map(|f| (f, digest(node, f))).collect()
+    SELF_FIELDS.iter().copied().filter(|f| node.component.has_override(f)).map(|f| (f, digest(node, f))).collect()
 }
 
 /// The fields of `node` that differ from `opened`, the digests taken when the file was opened: a field overridden now
