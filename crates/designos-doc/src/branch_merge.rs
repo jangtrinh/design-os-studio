@@ -1157,6 +1157,7 @@ fn copy_node_group(dst: &mut Node, src: &Node, group: Group) {
         Group::Vector => {
             dst.fill_geometry = src.fill_geometry.clone();
             dst.stroke_geometry = src.stroke_geometry.clone();
+            dst.stroke_geometry_for = src.stroke_geometry_for.clone();
             if let (NodeKind::Vector { paths: dp, network: dn }, NodeKind::Vector { paths: sp, network: sn }) = (&mut dst.kind, &src.kind) {
                 *dp = sp.clone();
                 *dn = sn.clone();

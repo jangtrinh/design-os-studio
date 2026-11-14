@@ -183,6 +183,7 @@ fn stroke_geometry_is_filled_with_stroke_paints() {
     n.stroke.weight = 4.0;
     // a thick bar through the middle, nowhere near the node outline
     n.stroke_geometry = Some(vec![rect_path(0.0, 18.0, 40.0, 6.0)]);
+    n.stamp_stroke_geometry();
     let pm = t.render(60, 60);
     assert_eq!(px(&pm, 30, 30), [0, 0, 255, 255], "bar filled with stroke paint");
     assert_eq!(px(&pm, 30, 11), WHITE, "outline not stroked");
@@ -201,6 +202,7 @@ fn stroke_geometry_honours_even_odd_fill_rule() {
     ring.cmds.extend(rect_path(10.0, 10.0, 20.0, 20.0).cmds);
     ring.fill_rule = FillRule::EvenOdd;
     n.stroke_geometry = Some(vec![ring]);
+    n.stamp_stroke_geometry();
     let pm = t.render(40, 40);
     assert_eq!(px(&pm, 5, 20), [0, 0, 255, 255]);
     assert_eq!(px(&pm, 20, 20), WHITE, "hole");
@@ -218,9 +220,98 @@ fn outside_stroke_with_imported_outer_disc_keeps_fill_in_centre() {
     n.stroke.align = StrokeAlign::Outside;
     // Imported stroke_geometry covering the full outer disc (r = 5.5, local -1.5..9.5)
     n.stroke_geometry = Some(vec![rect_path(-1.5, -1.5, 11.0, 11.0)]);
+    n.stamp_stroke_geometry();
     let pm = t.render(20, 20);
     // Centre at (10, 10) must keep its red fill
     assert_eq!(px(&pm, 10, 10), [255, 0, 0, 255], "interior fill must not be covered by outside stroke_geometry");
     // Outside ring at (5, 10) (1 px left of the ellipse's x=6 edge) must be painted with the white stroke
     assert_eq!(px(&pm, 5, 10), [255, 255, 255, 255], "outside ring must be stroked");
+}
+
+#[test]
+fn stale_stroke_outline_draws_live_stroke_for_weight_size_dashes_and_cap() {
+    let make_rect_doc = |mutate: fn(&mut Node), keep_outline: bool| {
+        let mut t = T::new();
+        let r = t.rect(None, Rect::new(10.0, 10.0, 40.0, 40.0), RED);
+        let n = t.node(r);
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(BLUE)];
+        n.stroke.weight = 2.0;
+        n.stroke.align = StrokeAlign::Center;
+        if keep_outline {
+            // Stored outline is a horizontal bar across the centre, distinct from any perimeter stroke.
+            n.stroke_geometry = Some(vec![rect_path(0.0, 17.0, 40.0, 6.0)]);
+            n.stamp_stroke_geometry();
+        }
+        mutate(n);
+        t.render(70, 70).take()
+    };
+
+    // 1. Direct weight edit
+    let with_stale_weight = make_rect_doc(|n| n.stroke.weight = 6.0, true);
+    let live_weight = make_rect_doc(|n| n.stroke.weight = 6.0, false);
+    assert_eq!(with_stale_weight, live_weight, "direct stroke.weight edit must draw live stroke instead of stale outline");
+
+    // 2. Direct size edit
+    let with_stale_size = make_rect_doc(|n| n.size = Vec2::new(50.0, 40.0), true);
+    let live_size = make_rect_doc(|n| n.size = Vec2::new(50.0, 40.0), false);
+    assert_eq!(with_stale_size, live_size, "direct size edit must draw live stroke instead of stale outline");
+
+    // 3. Direct dashes edit
+    let with_stale_dashes = make_rect_doc(|n| n.stroke.dashes = vec![4.0, 4.0], true);
+    let live_dashes = make_rect_doc(|n| n.stroke.dashes = vec![4.0, 4.0], false);
+    assert_eq!(with_stale_dashes, live_dashes, "direct stroke.dashes edit must draw live stroke instead of stale outline");
+
+    // 4. Direct cap edit on an open vector path
+    let make_open_doc = |keep_outline: bool| {
+        let mut t = T::new();
+        let v = t.add(None, |id| {
+            let mut n = Node::new(
+                id,
+                NodeKind::Vector {
+                    paths: vec![Path {
+                        cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 20.0)), PathCmd::LineTo(Vec2::new(40.0, 20.0))],
+                        fill_rule: FillRule::NonZero,
+                    }],
+                    network: None,
+                },
+            );
+            n.transform = Affine::translate(10.0, 10.0);
+            n.size = Vec2::new(40.0, 40.0);
+            n.stroke.paints = vec![Paint::solid(BLUE)];
+            n.stroke.weight = 6.0;
+            n.stroke.cap = StrokeCap::None;
+            if keep_outline {
+                n.stroke_geometry = Some(vec![rect_path(15.0, 0.0, 10.0, 40.0)]);
+                n.stamp_stroke_geometry();
+            }
+            n.stroke.cap = StrokeCap::Square;
+            n
+        });
+        let _ = v;
+        t.render(70, 70).take()
+    };
+    assert_eq!(make_open_doc(true), make_open_doc(false), "direct stroke.cap edit must draw live stroke instead of stale outline");
+}
+
+#[test]
+fn unchanged_layer_with_stored_stroke_outline_and_loaded_unstamped_doc_render_stored_outline() {
+    let mut t = T::new();
+    let r = t.rect(None, Rect::new(10.0, 10.0, 40.0, 40.0), RED);
+    let n = t.node(r);
+    n.fills.clear();
+    n.stroke.paints = vec![Paint::solid(BLUE)];
+    n.stroke.weight = 4.0;
+    n.stroke_geometry = Some(vec![rect_path(0.0, 18.0, 40.0, 6.0)]);
+    n.stamp_stroke_geometry();
+    let expected = t.render(60, 60);
+    assert_eq!(px(&expected, 30, 30), [0, 0, 255, 255], "unchanged stamped outline must draw the stored outline");
+    assert_eq!(px(&expected, 30, 11), WHITE, "unchanged stamped outline must not draw live perimeter stroke");
+
+    // Clear the stamp and round-trip through JSON to simulate a document saved without stamps.
+    t.node(r).stroke_geometry_for = None;
+    let json = t.doc.to_json().unwrap();
+    t.doc = Document::from_json(&json).unwrap();
+    let from_unstamped = t.render(60, 60);
+    assert_eq!(from_unstamped.data(), expected.data(), "document loaded without stamps must stamp and draw the stored outline identically");
 }

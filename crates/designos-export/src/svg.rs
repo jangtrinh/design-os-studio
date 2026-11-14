@@ -588,7 +588,7 @@ impl Svg<'_> {
             return;
         }
         // Imported outlines are filled with the stroke paints.
-        if let Some(sg) = n.stroke_geometry.as_deref().filter(|g| !g.is_empty()) {
+        if let Some(sg) = n.live_stroke_outline() {
             let g = Geo {
                 kind: GeoKind::Path,
                 paths: sg.iter().map(|p| (p.cmds.clone(), p.fill_rule)).collect(),
@@ -1587,5 +1587,29 @@ mod tests {
             "{HEAD} width=\"18\" height=\"18\" viewBox=\"-4 0 18 18\" fill=\"none\">\n  <defs>\n    <filter id=\"shadow0\" x=\"-4\" y=\"0\" width=\"18\" height=\"18\" filterUnits=\"userSpaceOnUse\" color-interpolation-filters=\"sRGB\">\n      <feColorMatrix in=\"SourceAlpha\" type=\"matrix\" values=\"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0\" result=\"hardAlpha\"/>\n      <feOffset in=\"hardAlpha\" dx=\"0\" dy=\"4\" result=\"offset0\"/>\n      <feGaussianBlur in=\"offset0\" stdDeviation=\"2\" result=\"blur0\"/>\n      <feComposite in=\"blur0\" in2=\"hardAlpha\" operator=\"out\" result=\"knockout0\"/>\n      <feColorMatrix in=\"knockout0\" type=\"matrix\" values=\"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.251 0\" result=\"shadow0\"/>\n      <feMerge result=\"withShadows\">\n        <feMergeNode in=\"shadow0\"/>\n        <feMergeNode in=\"SourceGraphic\"/>\n      </feMerge>\n      <feOffset in=\"hardAlpha\" dx=\"1\" dy=\"1\" result=\"innerOffset1\"/>\n      <feGaussianBlur in=\"innerOffset1\" stdDeviation=\"1\" result=\"innerBlur1\"/>\n      <feComposite in=\"hardAlpha\" in2=\"innerBlur1\" operator=\"arithmetic\" k2=\"1\" k3=\"-1\" result=\"innerCut1\"/>\n      <feColorMatrix in=\"innerCut1\" type=\"matrix\" values=\"0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0\" result=\"innerShadow1\"/>\n      <feBlend mode=\"normal\" in=\"innerShadow1\" in2=\"withShadows\" result=\"withInner1\"/>\n    </filter>\n  </defs>\n  <g data-name=\"Rectangle\">\n    <g filter=\"url(#shadow0)\">\n      <rect width=\"10\" height=\"10\" fill=\"#D9D9D9\"/>\n    </g>\n  </g>\n</svg>\n"
         );
         assert_eq!(s, expected);
+    }
+
+    #[test]
+    fn svg_export_with_stale_stroke_outline_writes_live_stroke() {
+        let (mut d, id) = doc1(|d, page| {
+            let i = d.alloc_id();
+            let mut n = Node::rectangle(i, Rect::new(0.0, 0.0, 40.0, 20.0));
+            n.fills.clear();
+            n.stroke.paints = vec![Paint::solid(Color::rgb(0xFF, 0x00, 0x00))];
+            n.stroke.weight = 2.0;
+            n.stroke.align = StrokeAlign::Center;
+            n.stroke_geometry = Some(vec![Path {
+                cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 8.0)), PathCmd::LineTo(Vec2::new(40.0, 8.0)), PathCmd::LineTo(Vec2::new(40.0, 12.0)), PathCmd::Close],
+                fill_rule: FillRule::NonZero,
+            }]);
+            n.stamp_stroke_geometry();
+            d.insert(page, n).unwrap();
+        });
+        // Direct mutation makes the stored outline stale.
+        d.get_mut(id).unwrap().stroke.weight = 6.0;
+        let s = svg(&d, id);
+        assert!(s.contains("stroke=\"#FF0000\""), "stale outline must fall back to live stroke in SVG: {s}");
+        assert!(s.contains("stroke-width=\"6\""), "stale outline must emit updated live stroke-width in SVG: {s}");
+        assert!(!s.contains("M0 8"), "stale outline path must not be emitted in SVG: {s}");
     }
 }

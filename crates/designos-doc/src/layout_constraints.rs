@@ -254,6 +254,11 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
     node.transform = new_transform;
     node.size = new_size;
     if !size_changed {
+        if let Some(stamp) = &mut node.stroke_geometry_for {
+            if (stamp.size.x - old_size.x).abs() <= crate::STROKE_GEOMETRY_STAMP_TOL && (stamp.size.y - old_size.y).abs() <= crate::STROKE_GEOMETRY_STAMP_TOL {
+                stamp.size = new_size;
+            }
+        }
         return;
     }
     let kx = if old_size.x.abs() > 1e-6 { new_size.x / old_size.x } else { 1.0 };
@@ -281,8 +286,14 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
             }
             if drop_bake {
                 node.stroke_geometry = None;
+                node.stroke_geometry_for = None;
             } else if let Some(sg) = &mut node.stroke_geometry {
                 scale_paths(sg, kx, ky);
+                if let Some(stamp) = &mut node.stroke_geometry_for {
+                    stamp.size = new_size;
+                } else {
+                    node.stamp_stroke_geometry();
+                }
             }
         }
         NodeKind::BooleanOp(_) => {
@@ -291,6 +302,11 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
             }
             if let Some(sg) = &mut node.stroke_geometry {
                 scale_paths(sg, kx, ky);
+                if let Some(stamp) = &mut node.stroke_geometry_for {
+                    stamp.size = new_size;
+                } else {
+                    node.stamp_stroke_geometry();
+                }
             }
         }
         NodeKind::Line => {
@@ -313,15 +329,22 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
                 }
                 if let Some(sg) = &mut node.stroke_geometry {
                     stretch(sg);
+                    if let Some(stamp) = &mut node.stroke_geometry_for {
+                        stamp.size = new_size;
+                    } else {
+                        node.stamp_stroke_geometry();
+                    }
                 }
             } else {
                 node.fill_geometry = None;
                 node.stroke_geometry = None;
+                node.stroke_geometry_for = None;
             }
         }
         _ => {
             node.fill_geometry = None;
             node.stroke_geometry = None;
+            node.stroke_geometry_for = None;
         }
     }
 }
@@ -464,6 +487,7 @@ pub fn apply_resize_to_fit_one(doc: &mut Document, id: NodeId, mut touch: impl F
             if (n.size.x - new_size.x).abs() > 1e-5 || (n.size.y - new_size.y).abs() > 1e-5 {
                 n.fill_geometry = None;
                 n.stroke_geometry = None;
+                n.stroke_geometry_for = None;
             }
             n.transform = n.transform * Affine::translate(bb.x, bb.y);
             n.size = new_size;

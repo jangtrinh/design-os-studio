@@ -437,7 +437,7 @@ pub fn node_shape(doc: &Document, n: &Node, tol: f32) -> Option<Shape> {
     ) {
         shape.is_rect = true;
     }
-    if let Some(sg) = n.stroke_geometry.as_deref().map(vector_paths).filter(|s| !s.paths.is_empty()) {
+    if let Some(sg) = n.live_stroke_outline().map(vector_paths).filter(|s| !s.paths.is_empty()) {
         shape.stroke_paths = Some(sg.paths);
     } else if has_fill_geometry {
         stroke_network_not_fill_outline(n, &mut shape);

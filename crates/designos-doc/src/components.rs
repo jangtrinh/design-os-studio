@@ -1451,6 +1451,7 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
             to.size = from.size;
             to.fill_geometry = from.fill_geometry.clone();
             to.stroke_geometry = from.stroke_geometry.clone();
+            to.stroke_geometry_for = from.stroke_geometry_for.clone();
         }
         OverrideField::Transform => to.transform = from.transform,
         OverrideField::Fills => {
@@ -1550,6 +1551,7 @@ pub fn drop_baked_outline_of_parametric_shape(n: &mut Node) {
     ) {
         n.fill_geometry = None;
         n.stroke_geometry = None;
+        n.stroke_geometry_for = None;
     }
 }
 
@@ -1698,6 +1700,7 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
         if outline_is_stale {
             n.fill_geometry = None;
             n.stroke_geometry = None;
+            n.stroke_geometry_for = None;
         }
     }
     match (&r.kind, &n.kind) {
@@ -1709,17 +1712,22 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
     }
     if ov.contains(&OverrideField::Size) && n.size != r.size && !matches!(n.kind, NodeKind::Text(_)) && n.kind.frame_props().is_none() {
         let target_size = n.size;
-        let (own_fill, own_stroke) = (n.fill_geometry.take(), n.stroke_geometry.take());
+        let (own_fill, own_stroke, own_stroke_for) = (n.fill_geometry.take(), n.stroke_geometry.take(), n.stroke_geometry_for.take());
         // A vector without a bake of its own is resized as the main's vector is: the kernel sees the
         // main's bake, because that is what the paths just copied from the main were drawn with.
         if own_stroke.is_none() && matches!(n.kind, NodeKind::Vector { .. }) {
             n.stroke_geometry = r.stroke_geometry.clone();
+            n.stroke_geometry_for = r.stroke_geometry_for.clone();
         }
         n.size = r.size;
         crate::layout_constraints::apply_constrained_geometry(n, n.transform, target_size);
         n.fill_geometry = own_fill;
         if own_stroke.is_some() {
             n.stroke_geometry = own_stroke;
+            n.stroke_geometry_for = own_stroke_for;
+            if n.stroke_geometry_for.is_none() {
+                n.stamp_stroke_geometry();
+            }
         }
     }
 }
@@ -1862,6 +1870,7 @@ fn extract_parked_override(path: &[NestedStep], from: &Node, orig_id: Option<Nod
             size: from.size,
             fill_geometry: from.fill_geometry.clone(),
             stroke_geometry: from.stroke_geometry.clone(),
+            stroke_geometry_for: from.stroke_geometry_for.clone(),
             explicit_width: from.plugin_data.get("pen:explicit_width").cloned(),
             explicit_height: from.plugin_data.get("pen:explicit_height").cloned(),
         },
@@ -1933,17 +1942,22 @@ fn apply_parked_override_to_node(po: &ParkedOverride, to: &mut Node) {
         ParkedOverrideValue::Locked(v) => to.locked = *v,
         ParkedOverrideValue::Opacity(v) => to.opacity = *v,
         ParkedOverrideValue::Blend(v) => to.blend = *v,
-        ParkedOverrideValue::Size { size, fill_geometry, stroke_geometry, explicit_width, explicit_height } => {
+        ParkedOverrideValue::Size { size, fill_geometry, stroke_geometry, stroke_geometry_for, explicit_width, explicit_height } => {
             if !matches!(to.kind, NodeKind::Text(_)) && to.kind.frame_props().is_none() {
                 crate::layout_constraints::apply_constrained_geometry(to, to.transform, *size);
             } else {
                 to.size = *size;
                 to.fill_geometry = fill_geometry.clone();
                 to.stroke_geometry = stroke_geometry.clone();
+                to.stroke_geometry_for = stroke_geometry_for.clone();
+                if to.stroke_geometry.is_some() && to.stroke_geometry_for.is_none() {
+                    to.stamp_stroke_geometry();
+                }
             }
             if !matches!(to.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) && fill_geometry.is_none() && stroke_geometry.is_none() {
                 to.fill_geometry = None;
                 to.stroke_geometry = None;
+                to.stroke_geometry_for = None;
             }
             if let Some(v) = explicit_width {
                 to.plugin_data.insert("pen:explicit_width".into(), v.clone());
@@ -2177,6 +2191,7 @@ fn slot_child_reference_for_inst(d: &Document, inst: NodeId, child_id: NodeId, r
     if kinds_differ && fields.contains(&OverrideField::Size) && !matches!(eff_rn.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
         eff_rn.fill_geometry = None;
         eff_rn.stroke_geometry = None;
+        eff_rn.stroke_geometry_for = None;
     }
     Some(eff_rn)
 }
@@ -2539,6 +2554,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         if kinds_differ && fields.contains(&OverrideField::Size) && !matches!(nn.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
             nn.fill_geometry = None;
             nn.stroke_geometry = None;
+            nn.stroke_geometry_for = None;
         }
         c.update(nn);
     }
@@ -7750,6 +7766,7 @@ mod tests {
         own.corner_radii = [24.0; 4];
         own.fill_geometry = Some(box_outline(24.0));
         own.stroke_geometry = Some(box_outline(24.0));
+        own.stamp_stroke_geometry();
         own.component.overrides.insert(OverrideField::CornerRadii);
         apply(&mut d, Command::Update { node: Box::new(own) });
 
@@ -7789,6 +7806,7 @@ mod tests {
         own.size = Vec2::new(60.0, 60.0);
         own.fill_geometry = Some(box_outline(60.0));
         own.stroke_geometry = Some(box_outline(60.0));
+        own.stamp_stroke_geometry();
         own.component.overrides.insert(OverrideField::CornerRadii);
         own.component.overrides.insert(OverrideField::Size);
         apply(&mut d, Command::Update { node: Box::new(own) });
@@ -7829,6 +7847,7 @@ mod tests {
         own.size = Vec2::new(60.0, 60.0);
         own.fill_geometry = Some(box_outline(60.0));
         own.stroke_geometry = Some(box_outline(60.0));
+        own.stamp_stroke_geometry();
         own.component.overrides.insert(OverrideField::Size);
         apply(&mut d, Command::Update { node: Box::new(own) });
 
@@ -9762,6 +9781,7 @@ mod tests {
             let gid = d.get(comp).unwrap().children[0];
             let mut g = d.get(gid).unwrap().clone();
             g.stroke_geometry = Some(box_outline(16.0));
+            g.stamp_stroke_geometry();
             apply(&mut d, Command::Update { node: Box::new(g) });
         }
         let (btn, _) = tool_with_icon_slot(&mut d, page, a, b);

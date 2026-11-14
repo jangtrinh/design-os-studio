@@ -1691,6 +1691,7 @@ impl<'a> Ctx<'a> {
             }
         }
         crate::board::finish_node(&mut n);
+        n.stamp_stroke_geometry();
         (n, my_layout)
     }
 
@@ -2511,6 +2512,7 @@ impl<'a> Ctx<'a> {
             for g in n.fill_geometry.iter_mut().chain(n.stroke_geometry.iter_mut()).flatten() {
                 scale_path(g, s);
             }
+            n.stamp_stroke_geometry();
             match &mut n.kind {
                 NodeKind::Text(t) => {
                     t.style.font_size *= s;
@@ -2696,6 +2698,7 @@ impl<'a> Ctx<'a> {
             dn.corner_smoothing = target_node.corner_smoothing;
             dn.fill_geometry = target_node.fill_geometry;
             dn.stroke_geometry = target_node.stroke_geometry;
+            dn.stroke_geometry_for = target_node.stroke_geometry_for;
             dn.style_refs = target_node.style_refs;
             dn.variables.bindings = target_node.variables.bindings;
             dn.component.variant_props = target_node.component.variant_props;
@@ -2978,6 +2981,7 @@ impl<'a> Ctx<'a> {
                 }
                 if !has_stroke_geo || skip_geo {
                     n.stroke_geometry = None;
+                    n.stroke_geometry_for = None;
                 }
             }
             designos_doc::apply_constrained_geometry(n, old_transform, sz);
@@ -2991,6 +2995,7 @@ impl<'a> Ctx<'a> {
                     if self.large_file && !keeps_outline(km) {
                         km.fill_geometry = None;
                         km.stroke_geometry = None;
+                        km.stroke_geometry_for = None;
                     }
                     designos_doc::apply_constrained_geometry(km, new_transform, new_size);
                 }
@@ -3113,6 +3118,7 @@ impl<'a> Ctx<'a> {
                 }
             }
             n.stroke_geometry = Some(g);
+            n.stamp_stroke_geometry();
         }
     }
 
@@ -3319,8 +3325,10 @@ impl<'a> Ctx<'a> {
                     }
                 }
                 n.stroke_geometry = Some(g);
+                n.stamp_stroke_geometry();
             } else {
                 n.stroke_geometry = None;
+                n.stroke_geometry_for = None;
             }
         }
         if derived_only {
@@ -3392,6 +3400,7 @@ impl<'a> Ctx<'a> {
             n.stroke.weight = w;
             if !has("strokeGeometry") {
                 n.stroke_geometry = None;
+                n.stroke_geometry_for = None;
             }
         }
         if let Some(iw) = set.get("individualStrokeWeights") {
@@ -3424,6 +3433,7 @@ impl<'a> Ctx<'a> {
             }
             if n.stroke.side_weights != prev && !has("strokeGeometry") {
                 n.stroke_geometry = None;
+                n.stroke_geometry_for = None;
             }
         }
         if let Some(a) = fstr(set, "strokeAlign") {
@@ -3437,6 +3447,7 @@ impl<'a> Ctx<'a> {
             n.stroke.cap = crate::vecnet::cap_from(c).unwrap_or(StrokeCap::None);
             if !has("strokeGeometry") {
                 n.stroke_geometry = None;
+                n.stroke_geometry_for = None;
             }
         }
         if let Some(j) = fstr(set, "strokeJoin") {
@@ -3447,6 +3458,7 @@ impl<'a> Ctx<'a> {
             };
             if !has("strokeGeometry") {
                 n.stroke_geometry = None;
+                n.stroke_geometry_for = None;
             }
         }
         if let Some(m) = fnum(set, "strokeMiterLimit") {
@@ -3461,7 +3473,11 @@ impl<'a> Ctx<'a> {
             n.stroke.dashes = farr(set, "strokeDashes").iter().filter_map(num).collect();
             if !has("strokeGeometry") {
                 n.stroke_geometry = None;
+                n.stroke_geometry_for = None;
             }
+        }
+        if has("strokeGeometry") && !skip_geo {
+            n.stamp_stroke_geometry();
         }
         if let (NodeKind::Ellipse(arc), Some(a)) = (&mut n.kind, set.get("arcData").filter(|_| keep("arcData"))) {
             // an overridden ring or pie: only the keys the override carries replace the main component's arc
@@ -3473,6 +3489,7 @@ impl<'a> Ctx<'a> {
             }
             if !has("strokeGeometry") {
                 n.stroke_geometry = None;
+                n.stroke_geometry_for = None;
             }
         }
         if let Some(r) = set.get("rectangleCornerRadii").and_then(Value::as_array).filter(|a| a.len() == 4) {
