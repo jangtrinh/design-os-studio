@@ -33,6 +33,11 @@ impl App {
         matches!(self.doc.kind, DocumentKind::Design | DocumentKind::Board)
     }
 
+    /// Whether clicking a connector dot or pressing Cmd/Ctrl+Enter quick-creates a connected copy.
+    pub fn wb_quick_create_enabled(&self) -> bool {
+        self.wb_connectors_enabled()
+    }
+
     /// Whether connectors keep the whiteboard rules: only whiteboard items are targets and the
     /// pointer reaches them inside groups and sections, a drop on a section's empty area leaves a
     /// free end, and every connector is a child of the page. Design files follow the layer rules.
@@ -108,6 +113,7 @@ mod tests {
             assert_eq!(app.board_key_map(), wb_expected, "{kind:?}: board_key_map");
             assert_eq!(app.wb_contextual_bar_enabled(), wb_expected, "{kind:?}: wb_contextual_bar_enabled");
             assert_eq!(app.wb_connectors_enabled(), matches!(kind, DocumentKind::Board | DocumentKind::Design), "{kind:?}: wb_connectors_enabled");
+            assert_eq!(app.wb_quick_create_enabled(), matches!(kind, DocumentKind::Board | DocumentKind::Design), "{kind:?}: wb_quick_create_enabled");
             assert_eq!(app.wb_board_targeting(), wb_expected, "{kind:?}: wb_board_targeting");
             assert_eq!(app.tool_offered(crate::canvas::tools::Tool::Connector), kind != DocumentKind::Deck, "{kind:?}: tool_offered(Connector)");
             assert!(app.tool_offered(crate::canvas::tools::Tool::Line), "{kind:?}: tool_offered(Line)");

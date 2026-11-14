@@ -1047,6 +1047,7 @@ pub const BOARD_SHAPE_W: f32 = 160.0;
 pub const BOARD_SHAPE_H: f32 = 120.0;
 pub const BOARD_STAMP_SIZE: f32 = 64.0;
 pub const BOARD_STICKY_GAP: f32 = 24.0;
+pub const BOARD_QUICK_CREATE_GAP: f32 = 80.0;
 pub const BOARD_MARKER_WIDTH: f32 = 6.0;
 pub const BOARD_HIGHLIGHTER_WIDTH: f32 = 24.0;
 pub const BOARD_HIGHLIGHTER_ALPHA: f32 = 0.4;

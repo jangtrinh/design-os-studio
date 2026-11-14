@@ -11,6 +11,7 @@ use designos_doc::*;
 
 thread_local! {
     static DETACH_TOAST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static QUICK_CREATE_SOURCE: std::cell::Cell<Option<NodeId>> = const { std::cell::Cell::new(None) };
 }
 
 pub fn notify_detached() {
@@ -31,11 +32,37 @@ pub struct ConnectDrag {
     pub from: Option<NodeId>,
     /// Where the drag started (page space).
     pub origin: Vec2,
+    /// Source node and dot side when started on a quick-create dot.
+    pub quick_create: Option<(NodeId, Magnet)>,
 }
 
 /// Whiteboard items: the layers a connector reaches in a board file.
-fn is_whiteboard_item(kind: &NodeKind) -> bool {
+pub(crate) fn is_whiteboard_item(kind: &NodeKind) -> bool {
     matches!(kind, NodeKind::Sticky(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. } | NodeKind::Text(_))
+}
+
+/// Whether `id` is a direct child of an auto-layout frame (auto-layout children take their places
+/// from the stack, so quick-create dots are hidden on them).
+pub fn is_auto_layout_child(doc: &Document, id: NodeId) -> bool {
+    doc.get(id).and_then(|n| n.parent).and_then(|p| doc.get(p)).and_then(|p| p.kind.frame_props()).is_some_and(|f| f.auto_layout.is_some())
+}
+
+/// Whether quick-creating a connected copy from `id` is allowed.
+pub fn quick_create_allowed(app: &App, id: NodeId) -> bool {
+    app.wb_quick_create_enabled() && candidate(app, id) && !is_auto_layout_child(&app.doc, id)
+}
+
+/// Whether the magnet dots on `id` act as quick-create '+' handles.
+pub fn quick_create_dot_enabled(app: &App, id: NodeId) -> bool {
+    quick_create_allowed(app, id) && (!app.wb_board_targeting() || app.selection.as_slice() == [id] || QUICK_CREATE_SOURCE.with(|c| c.get()) == Some(id))
+}
+
+/// Whether the magnet dot on `side` of `id` at `pos` (page space) is currently hot.
+pub fn hot_dot_at(app: &App, id: NodeId, _side: Magnet, pos: Vec2) -> bool {
+    if !quick_create_dot_enabled(app, id) {
+        return false;
+    }
+    app.canvas.pointer_page.is_some_and(|q| dist(q, pos) * app.view.zoom <= theme::BOARD_MAGNET_HIT)
 }
 
 /// Whether a connector end may attach to `id`: a visible, unlocked whiteboard item in a board
@@ -56,7 +83,7 @@ fn candidate(app: &App, id: NodeId) -> bool {
 /// whiteboard item, a design file on the hovered or selected target of the Connector tool and, with
 /// the Move tool, on whiteboard items and the single selected layer.
 fn dot_allowed(app: &App, id: NodeId) -> bool {
-    if !candidate(app, id) {
+    if !candidate(app, id) || is_auto_layout_child(&app.doc, id) {
         return false;
     }
     if app.wb_board_targeting() {
@@ -82,7 +109,7 @@ pub fn dot_positions(app: &App, id: NodeId) -> Vec<(Magnet, Vec2)> {
 
 /// The dot of the hovered node under screen point `pos`, if any.
 pub fn dot_hit(app: &App, rect: egui::Rect, pos: egui::Pos2) -> Option<(NodeId, Magnet)> {
-    let id = app.board.dots.filter(|n| dot_allowed(app, *n))?;
+    let id = app.board.dots.filter(|&n| dot_allowed(app, n) || (QUICK_CREATE_SOURCE.with(|c| c.get()) == Some(n) && quick_create_allowed(app, n)))?;
     dot_positions(app, id).into_iter().find(|(_, p)| (app.view.to_screen(rect.min, *p) - pos).length() <= theme::BOARD_MAGNET_HIT).map(|(m, _)| (id, m))
 }
 
@@ -95,6 +122,7 @@ pub fn update_hover(app: &mut App, page: Option<Vec2>) {
         || (!board && app.canvas.vedit.is_some())
         || !matches!(app.tool, crate::canvas::tools::Tool::Move | crate::canvas::tools::Tool::Connector)
     {
+        QUICK_CREATE_SOURCE.with(|c| c.set(None));
         app.board.dots = None;
         return;
     }
@@ -102,12 +130,22 @@ pub fn update_hover(app: &mut App, page: Option<Vec2>) {
         return;
     }
     if !matches!(app.canvas.inter, Interaction::None) {
+        QUICK_CREATE_SOURCE.with(|c| c.set(None));
         app.board.dots = None;
         return;
     }
+    if let Some(src) = QUICK_CREATE_SOURCE.with(|c| c.get()) {
+        if let Some(p) = page.or(app.canvas.pointer_page).filter(|_| quick_create_allowed(app, src)) {
+            if dot_positions(app, src).into_iter().any(|(_, dp)| dist(dp, p) * app.view.zoom <= theme::BOARD_MAGNET_HIT) {
+                app.board.dots = Some(src);
+                return;
+            }
+        }
+        QUICK_CREATE_SOURCE.with(|c| c.set(None));
+    }
     let single_sel = (!board && app.tool == crate::canvas::tools::Tool::Move)
         .then(|| match app.selection.as_slice() {
-            &[s] if candidate(app, s) => Some(s),
+            &[s] if dot_allowed(app, s) => Some(s),
             _ => None,
         })
         .flatten();
@@ -162,7 +200,7 @@ pub fn press_target(app: &App, page: Vec2, mods: egui::Modifiers) -> Option<(Nod
 
 /// The container a connector joining `a` and `b` lives in: the page in a board file, the nearest
 /// common frame, section or page in a design file.
-fn home_for(app: &App, a: Option<NodeId>, b: Option<NodeId>) -> NodeId {
+pub(crate) fn home_for(app: &App, a: Option<NodeId>, b: Option<NodeId>) -> NodeId {
     if app.wb_board_targeting() {
         app.page
     } else {
@@ -172,7 +210,7 @@ fn home_for(app: &App, a: Option<NodeId>, b: Option<NodeId>) -> NodeId {
 
 /// A connector in a design file is positioned absolutely, so an auto-layout parent ignores it. A
 /// board connector is stored as it always was.
-fn keep_out_of_flow(board: bool, n: &mut Node) {
+pub(crate) fn keep_out_of_flow(board: bool, n: &mut Node) {
     if !board {
         n.layout_child.absolute = true;
     }
@@ -181,7 +219,7 @@ fn keep_out_of_flow(board: bool, n: &mut Node) {
 /// Ink of a new connector homed in `home`: the colour picked in the board toolbar in a board file;
 /// in a design file the dark ink, or the light one where the dark ink would fall below 3:1 against
 /// the surface behind the connector (see [`designos_doc::connector_ink_on`]).
-fn default_connector_ink(app: &App, home: NodeId) -> Color {
+pub(crate) fn default_connector_ink(app: &App, home: NodeId) -> Color {
     if app.wb_board_targeting() {
         app.board.ink
     } else {
@@ -209,13 +247,23 @@ pub fn start(app: &mut App, from: Option<(NodeId, Magnet)>, page: Vec2) {
         return;
     }
     place(app, &mut tx, id);
-    app.canvas.inter = Interaction::Connect(ConnectDrag { tx, id, moved: false, from: from.map(|f| f.0), origin: page });
+    app.canvas.inter = Interaction::Connect(ConnectDrag { tx, id, moved: false, from: from.map(|f| f.0), origin: page, quick_create: None });
     app.board.dots = from.map(|f| f.0);
     app.changed();
 }
 
+/// Starts dragging a connector from a magnet dot on `node`; a plain click without dragging
+/// quick-creates a connected copy when allowed.
+pub fn start_from_dot(app: &mut App, node: NodeId, magnet: Magnet, page: Vec2) {
+    let qc = quick_create_dot_enabled(app, node).then_some((node, magnet));
+    start(app, Some((node, magnet)), page);
+    if let Interaction::Connect(c) = &mut app.canvas.inter {
+        c.quick_create = qc;
+    }
+}
+
 /// Writes the connector's derived geometry (box and resolved end points) through `tx`.
-fn place(app: &mut App, tx: &mut Tx, id: NodeId) {
+pub(crate) fn place(app: &mut App, tx: &mut Tx, id: NodeId) {
     if let Some(g) = connector_geometry(&app.doc, id) {
         if let Some(n) = tx.ed.node(&mut app.doc, id) {
             g.apply(n);
@@ -273,15 +321,29 @@ pub fn release(app: &mut App, c: ConnectDrag) {
     app.board.target = None;
     if !c.moved {
         c.tx.cancel(&mut app.doc);
+        if let Some((node, side)) = c.quick_create {
+            if crate::board::create::quick_create(app, node, side).is_some() {
+                QUICK_CREATE_SOURCE.with(|cell| cell.set(Some(node)));
+                app.board.dots = Some(node);
+                return;
+            }
+        }
         app.changed();
         return;
     }
+    QUICK_CREATE_SOURCE.with(|cell| cell.set(None));
     let id = c.id;
     app.run_tx(c.tx);
     app.selection = vec![id];
     if app.tool == crate::canvas::tools::Tool::Connector && !app.keep_tool {
         app.tool = crate::canvas::tools::Tool::Move;
     }
+}
+
+/// Quick-creates a connected copy to the right of the single selected layer (`Cmd/Ctrl+Enter`).
+pub fn quick_create_selected(app: &mut App) -> Option<NodeId> {
+    let &[id] = app.selection.as_slice() else { return None };
+    crate::board::create::quick_create(app, id, Magnet::Right)
 }
 
 // ----------------------------------------------------------------- re-routing
