@@ -1803,9 +1803,11 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp, end: Option<Pos2>) {
             return;
         }
         Interaction::ShapeControl(s) => {
-            if s.moved {
-                app.run_tx(s.tx);
+            // A click, or a move below the drag threshold, changed nothing: no undo step and no canvas change.
+            if !s.moved {
+                return;
             }
+            app.run_tx(s.tx);
         }
         Interaction::Draw(mut d) => {
             // `on_drag` does not run on the frame of the release, and the release can share its frame with the press

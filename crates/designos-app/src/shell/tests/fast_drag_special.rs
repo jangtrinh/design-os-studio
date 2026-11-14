@@ -324,16 +324,43 @@ fn clicking_a_shape_control_handle_does_not_edit_or_add_undo() {
 /// A press on a handle that moves less than the drag threshold is still a click: nothing changes, no undo step, the document
 /// is not marked changed. A move past the threshold is a drag and commits as one undo step.
 fn handle_press_with_move(make: fn() -> Gesture, by: Vec2) -> (Gesture, Vec<f32>, usize) {
+    let (g, before, depth, _) = handle_press_with_move_and_rev(make, by);
+    (g, before, depth)
+}
+
+/// Also returns the tile revision before the press: a click that changed nothing must not bump it, or a large page recompiles.
+fn handle_press_with_move_and_rev(make: fn() -> Gesture, by: Vec2) -> (Gesture, Vec<f32>, usize, u64) {
     let mut g = make();
     assert!(!g.sim.app().has_unsaved_edits(), "{}: the scene starts clean", g.name);
+    g.sim.mv(g.from);
+    g.sim.frame(vec![]);
     let before = g.values();
     let depth = g.sim.app().hist.undo_depth();
-    g.sim.mv(g.from);
+    let rev = g.sim.app().canvas.tiles.rev();
     g.sim.button(true);
     g.sim.mv(g.from + by);
     g.sim.button(false);
     g.sim.frame(vec![]);
-    (g, before, depth)
+    (g, before, depth, rev)
+}
+
+fn a_press_that_changed_nothing_leaves_the_canvas_clean(make: fn() -> Gesture, by: Vec2) {
+    let (mut g, _, _, rev) = handle_press_with_move_and_rev(make, by);
+    g.sim.frame(vec![]);
+    assert!(!g.sim.app().canvas.dirty, "{}: the canvas is not marked dirty", g.name);
+    assert_eq!(g.sim.app().canvas.tiles.rev(), rev, "{}: the tile revision is unchanged", g.name);
+}
+
+#[test]
+fn a_corner_radius_click_or_jitter_leaves_the_tile_revision_alone() {
+    a_press_that_changed_nothing_leaves_the_canvas_clean(corner_radius, Vec2::ZERO);
+    a_press_that_changed_nothing_leaves_the_canvas_clean(corner_radius, Vec2::new(1.0, 0.0));
+}
+
+#[test]
+fn a_shape_control_click_or_jitter_leaves_the_tile_revision_alone() {
+    a_press_that_changed_nothing_leaves_the_canvas_clean(shape_control, Vec2::ZERO);
+    a_press_that_changed_nothing_leaves_the_canvas_clean(shape_control, Vec2::new(1.0, 0.0));
 }
 
 fn jitter_below_the_threshold_changes_nothing(make: fn() -> Gesture) {
