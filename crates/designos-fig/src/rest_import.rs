@@ -2082,6 +2082,24 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
+        let mut page_nodes: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
+        for &page in pending_by_page.keys() {
+            let mut nodes = Vec::new();
+            self.doc.walk(page, |n, _| {
+                if self.override_keys.contains_key(&n.id)
+                    || self.col_anchor_guids.contains_key(&n.id)
+                    || self.row_anchor_guids.contains_key(&n.id)
+                    || self.grid_col_track_ids.contains_key(&n.id)
+                    || self.grid_row_track_ids.contains_key(&n.id)
+                    || self.no_auto_layout.contains(&n.id)
+                {
+                    nodes.push(n.id);
+                }
+            });
+            if !nodes.is_empty() {
+                page_nodes.insert(page, nodes);
+            }
+        }
         let hydrator = std::sync::Arc::new(std::sync::Mutex::new(DeferredFigHydrator {
             pending_by_page,
             hydrated_pages,
@@ -2110,7 +2128,7 @@ impl<'a> Ctx<'a> {
             swap_mains_of,
             self_digests,
             staged_copies: HashMap::new(),
-            page_nodes: HashMap::new(),
+            page_nodes,
             self_weak: std::sync::Weak::new(),
             live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
@@ -3825,7 +3843,7 @@ struct RemovedDeferredPage {
 }
 
 struct RemovedDeferredPageGuard {
-    data: std::sync::Mutex<Option<RemovedDeferredPage>>,
+    data: RemovedDeferredPage,
     inst_count: usize,
     live_stash_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     live_stash_records: std::sync::Arc<std::sync::atomic::AtomicUsize>,
@@ -4159,28 +4177,26 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
     fn insert_page(&mut self, doc: &Document, page: NodeId, stash: Option<designos_doc::DeferredPageStash>) {
         if let Some(stash) = stash {
             if let Some(guard) = stash.0.downcast_ref::<RemovedDeferredPageGuard>() {
-                let removed = guard.data.lock().ok().and_then(|mut slot| slot.take());
-                if let Some(removed) = removed {
-                    self.targets.extend(removed.targets);
-                    self.done.extend(removed.done);
-                    self.overrides.extend(removed.overrides);
-                    self.override_keys.extend(removed.override_keys);
-                    self.col_anchor_guids.extend(removed.col_anchor_guids);
-                    self.row_anchor_guids.extend(removed.row_anchor_guids);
-                    self.grid_col_track_ids.extend(removed.grid_col_track_ids);
-                    self.grid_row_track_ids.extend(removed.grid_row_track_ids);
-                    self.no_auto_layout.extend(removed.no_auto_layout);
-                    self.scales.extend(removed.scales);
-                    self.unexpanded_instances.extend(removed.unexpanded_instances);
-                    self.instance_fingerprints.extend(removed.instance_fingerprints);
-                    self.swap_mains_of.extend(removed.swap_mains_of);
-                    self.self_digests.extend(removed.self_digests);
-                    self.pending_by_page.insert(page, removed.insts);
-                    if !removed.nodes.is_empty() {
-                        self.page_nodes.insert(page, removed.nodes);
-                    }
-                    self.hydrated_pages.remove(&page);
+                let removed = guard.data.clone();
+                self.targets.extend(removed.targets);
+                self.done.extend(removed.done);
+                self.overrides.extend(removed.overrides);
+                self.override_keys.extend(removed.override_keys);
+                self.col_anchor_guids.extend(removed.col_anchor_guids);
+                self.row_anchor_guids.extend(removed.row_anchor_guids);
+                self.grid_col_track_ids.extend(removed.grid_col_track_ids);
+                self.grid_row_track_ids.extend(removed.grid_row_track_ids);
+                self.no_auto_layout.extend(removed.no_auto_layout);
+                self.scales.extend(removed.scales);
+                self.unexpanded_instances.extend(removed.unexpanded_instances);
+                self.instance_fingerprints.extend(removed.instance_fingerprints);
+                self.swap_mains_of.extend(removed.swap_mains_of);
+                self.self_digests.extend(removed.self_digests);
+                self.pending_by_page.insert(page, removed.insts);
+                if !removed.nodes.is_empty() {
+                    self.page_nodes.insert(page, removed.nodes);
                 }
+                self.hydrated_pages.remove(&page);
             }
             return;
         }
@@ -4367,7 +4383,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         self.live_stash_count.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         self.live_stash_records.fetch_add(inst_count, std::sync::atomic::Ordering::AcqRel);
         Some(designos_doc::DeferredPageStash(std::sync::Arc::new(RemovedDeferredPageGuard {
-            data: std::sync::Mutex::new(Some(removed)),
+            data: removed,
             inst_count,
             live_stash_count: self.live_stash_count.clone(),
             live_stash_records: self.live_stash_records.clone(),

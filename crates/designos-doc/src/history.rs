@@ -137,18 +137,19 @@ impl Command {
                 let old = std::mem::replace(cur, *node);
                 Command::Update { node: Box::new(Node { children: Vec::new(), ..old }) }
             }
-            Command::InsertPage { index, mut nodes } => {
+            Command::InsertPage { index, nodes } => {
                 let root = nodes.first().ok_or(DocError::NotFound(NodeId(0)))?;
                 if !matches!(root.kind, NodeKind::Page { .. }) {
                     return Err(DocError::NotAContainer(root.id));
                 }
                 validate_insert_nodes(doc, &nodes)?;
                 let root = root.id;
-                let stash = nodes.first_mut().and_then(|n| n.component.deferred_page_stash.take());
+                let stash = nodes.first().and_then(|n| n.component.deferred_page_stash.clone());
                 for mut n in nodes {
                     if n.id == root {
                         n.parent = None;
                     }
+                    n.component.deferred_page_stash = None;
                     doc.nodes.insert(n.id, n);
                 }
                 let index = index.min(doc.pages.len());
@@ -341,7 +342,7 @@ impl Command {
 
 fn transfer_same_page_stash(inverses: &mut [Command], next: &mut Command) {
     let Command::InsertPage { nodes, .. } = next else { return };
-    let Some(dst) = nodes.first_mut().filter(|n| n.component.deferred_page_stash.is_none()) else { return };
+    let Some(dst) = nodes.first_mut() else { return };
     let page_id = dst.id;
     for inv in inverses.iter_mut().rev() {
         if let Command::InsertPage { nodes: inv_nodes, .. } = inv {

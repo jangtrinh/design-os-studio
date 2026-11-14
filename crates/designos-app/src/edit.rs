@@ -224,10 +224,10 @@ impl Tx {
         if let Command::InsertPage { nodes, .. } = &mut c {
             if let Some(dst) = nodes.first_mut().filter(|n| n.component.deferred_page_stash.is_none()) {
                 let page_id = dst.id;
-                for inv in self.inverses.iter_mut().rev() {
+                for inv in self.inverses.iter().rev() {
                     if let Command::InsertPage { nodes: inv_nodes, .. } = inv {
-                        if let Some(src) = inv_nodes.first_mut().filter(|n| n.id == page_id && n.component.deferred_page_stash.is_some()) {
-                            dst.component.deferred_page_stash = src.component.deferred_page_stash.take();
+                        if let Some(src) = inv_nodes.first().filter(|n| n.id == page_id && n.component.deferred_page_stash.is_some()) {
+                            dst.component.deferred_page_stash = src.component.deferred_page_stash.clone();
                             break;
                         }
                     }
@@ -408,8 +408,8 @@ impl Tx {
                 (unapplied, self.cmds.get_mut(self.inverses.len()))
             {
                 if let (Some(src), Some(dst)) = (unapplied_nodes.first_mut(), cmd_nodes.first_mut()) {
-                    if dst.component.deferred_page_stash.is_none() {
-                        dst.component.deferred_page_stash = src.component.deferred_page_stash.take();
+                    if let Some(stash) = src.component.deferred_page_stash.take() {
+                        dst.component.deferred_page_stash = Some(stash);
                     }
                 }
             }

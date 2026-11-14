@@ -353,6 +353,11 @@ fn duplicating_an_unopened_page_keeps_instance_child_overrides_on_save_and_reope
 #[test]
 fn duplicating_an_unopened_page_opening_the_copy_and_saving_keeps_child_overrides() {
     let fig = deferred_fixture();
+    let mut baseline_opened_doc = import_fig(&fig).expect("import baseline");
+    let baseline_page = page_named(&baseline_opened_doc, "404 pages");
+    assert!(baseline_opened_doc.ensure_page_hydrated(baseline_page));
+    let baseline_opened = export_fig(&baseline_opened_doc).expect("save baseline with opened page");
+
     let mut live = import_fig(&fig).expect("import");
     let page = page_named(&live, "404 pages");
     assert!(!page_hydrated(&live, page));
@@ -369,8 +374,25 @@ fn duplicating_an_unopened_page_opening_the_copy_and_saving_keeps_child_override
     assert_eq!(label_of(&live, copy_inst), "Go back");
 
     let saved = export_fig(&live).expect("save");
+    let (orig_canvas, orig_layer_entries) = page_subtree_entries(&baseline_opened, "404 pages");
+    let (copy_canvas, mut copy_layer_entries) = page_subtree_entries(&saved, "404 pages copy");
+    assert_eq!(copy_layer_entries.len(), orig_layer_entries.len(), "opened copy page has the same saved entries as the opened original");
+
+    let mut guid_map: Vec<(Value, Value)> = vec![(copy_canvas["guid"].clone(), orig_canvas["guid"].clone())];
+    for (copy_e, orig_e) in copy_layer_entries.iter().zip(orig_layer_entries.iter()) {
+        guid_map.push((copy_e["guid"].clone(), orig_e["guid"].clone()));
+        if let (Some(ck), Some(ok)) = (copy_e.get("componentKey"), orig_e.get("componentKey")) {
+            guid_map.push((ck.clone(), ok.clone()));
+        }
+    }
+    for copy_e in &mut copy_layer_entries {
+        remap_guids_in_value(copy_e, &guid_map);
+    }
+    assert_eq!(copy_layer_entries, orig_layer_entries, "every saved entry on the opened duplicated page matches the opened original whole with ids mapped");
+
     let copy_inst_entry = page_subtree_entries(&saved, "404 pages copy").1.into_iter().find(|e| e["type"] == "INSTANCE").expect("copy instance");
     let copy_entries = saved_entries(&saved, guid_pair_of(&copy_inst_entry["guid"]));
+    assert_eq!(copy_entries, saved_entries(&baseline_opened, INSTANCE), "opened copy instance symbolOverrides match opened original whole");
     assert_eq!(entry_at(&copy_entries, LABEL)["textData"]["characters"], json!("Go back"));
     assert_eq!(entry_at(&copy_entries, ICON)["strokePaints"][0]["colorVar"]["value"]["alias"]["guid"], guid(STROKE_VAR.0, STROKE_VAR.1));
 
@@ -562,4 +584,110 @@ fn hydrating_the_last_real_page_after_an_undone_duplicate_releases_shared_hydrat
     history.exec(&mut live, Command::InsertPage { index: idx, nodes: vec![new_page] }).expect("edit drops redo stack");
     assert_eq!(live.deferred_page_record_count(), 0);
     assert_eq!(live.deferred_shared_map_entries(), 0, "shared hydrator maps must be released once no pending page or live history entry remains");
+}
+
+#[test]
+fn reordering_an_unopened_page_preserves_instance_child_overrides_on_save() {
+    let fig = deferred_fixture();
+    let baseline = export_fig(&import_fig(&fig).expect("import baseline")).expect("baseline save");
+    let (_, baseline_entries) = page_subtree_entries(&baseline, "404 pages");
+
+    let mut live = import_fig(&fig).expect("import");
+    let page = page_named(&live, "404 pages");
+    assert!(!page_hydrated(&live, page));
+
+    let mut nodes = Vec::new();
+    live.walk(page, |n, _| nodes.push(n.clone()));
+    let mut history = designos_doc::History::default();
+    history.exec(&mut live, Command::Batch(vec![Command::RemovePage { id: page }, Command::InsertPage { index: 0, nodes }])).expect("reorder page");
+    assert_eq!(live.pages[0], page);
+    assert!(!page_hydrated(&live, page));
+
+    let saved = export_fig(&live).expect("save after reorder");
+    let (_, moved_entries) = page_subtree_entries(&saved, "404 pages");
+    assert_eq!(moved_entries, baseline_entries, "reordered unopened page saved entries must equal a save without the move");
+}
+
+#[test]
+fn reordering_an_unopened_page_then_undo_and_redo_preserves_instance_child_overrides_on_save() {
+    let fig = deferred_fixture();
+    let baseline = export_fig(&import_fig(&fig).expect("import baseline")).expect("baseline save");
+
+    let mut live = import_fig(&fig).expect("import");
+    let page = page_named(&live, "404 pages");
+    let mut nodes = Vec::new();
+    live.walk(page, |n, _| nodes.push(n.clone()));
+    let mut history = designos_doc::History::default();
+    history.exec(&mut live, Command::Batch(vec![Command::RemovePage { id: page }, Command::InsertPage { index: 0, nodes }])).expect("reorder page");
+    let saved_moved = export_fig(&live).expect("save after move");
+
+    assert!(history.undo(&mut live).expect("undo move"));
+    let saved_undone = export_fig(&live).expect("save after undo");
+    assert_eq!(node_changes(&saved_undone), node_changes(&baseline), "reorder then undo then save must equal a save without the move");
+
+    assert!(history.redo(&mut live).expect("redo move"));
+    let saved_redone = export_fig(&live).expect("save after redo");
+    assert_eq!(node_changes(&saved_redone), node_changes(&saved_moved), "reorder then undo then redo then save must equal the save after reorder");
+}
+
+#[test]
+fn deleting_an_unopened_page_then_undoing_preserves_instance_child_overrides_on_save() {
+    let fig = deferred_fixture();
+    let baseline = export_fig(&import_fig(&fig).expect("import baseline")).expect("baseline save");
+
+    let mut live = import_fig(&fig).expect("import");
+    let page = page_named(&live, "404 pages");
+    let mut history = designos_doc::History::default();
+    history.exec(&mut live, Command::RemovePage { id: page }).expect("delete unopened page");
+    let stored_undo_cmd = history.peek_undo().cloned().expect("stored undo command");
+
+    assert!(history.undo(&mut live).expect("undo delete"));
+    let saved_after_undo = export_fig(&live).expect("save after undo of delete");
+    assert_eq!(node_changes(&saved_after_undo), node_changes(&baseline), "delete then undo then save must equal a save without the delete");
+
+    Command::RemovePage { id: page }.apply(&mut live).expect("remove page again");
+    stored_undo_cmd.apply(&mut live).expect("reapply stored InsertPage command");
+    let saved_after_reapply = export_fig(&live).expect("save after reapplying stored InsertPage");
+    assert_eq!(node_changes(&saved_after_reapply), node_changes(&baseline), "applying an InsertPage must not consume the payload stored on a history command");
+}
+
+#[test]
+fn duplicating_an_unopened_page_then_reordering_the_copy_preserves_child_overrides_on_save() {
+    let fig = deferred_fixture();
+    let mut live = import_fig(&fig).expect("import");
+    let page = page_named(&live, "404 pages");
+    let mut copy_nodes = duplicate_subtree(&mut live, page);
+    copy_nodes[0].name = "404 pages copy".into();
+    let copy_page = copy_nodes[0].id;
+
+    let mut history = designos_doc::History::default();
+    let idx = live.pages.len();
+    history.exec(&mut live, Command::InsertPage { index: idx, nodes: copy_nodes }).expect("duplicate page");
+    assert!(!page_hydrated(&live, copy_page));
+
+    let mut move_nodes = Vec::new();
+    live.walk(copy_page, |n, _| move_nodes.push(n.clone()));
+    history
+        .exec(&mut live, Command::Batch(vec![Command::RemovePage { id: copy_page }, Command::InsertPage { index: 1, nodes: move_nodes }]))
+        .expect("reorder duplicated page");
+    assert_eq!(live.pages[1], copy_page);
+    assert!(!page_hydrated(&live, copy_page));
+
+    let saved = export_fig(&live).expect("save after duplicate and reorder");
+    let (orig_canvas, orig_entries) = page_subtree_entries(&saved, "404 pages");
+    let (copy_canvas, mut copy_entries) = page_subtree_entries(&saved, "404 pages copy");
+    assert_eq!(copy_entries.len(), orig_entries.len());
+
+    let mut guid_map: Vec<(serde_json::Value, serde_json::Value)> = vec![(copy_canvas["guid"].clone(), orig_canvas["guid"].clone())];
+    for (ce, oe) in copy_entries.iter().zip(orig_entries.iter()) {
+        guid_map.push((ce["guid"].clone(), oe["guid"].clone()));
+        if let (Some(ck), Some(ok)) = (ce.get("componentKey"), oe.get("componentKey")) {
+            guid_map.push((ck.clone(), ok.clone()));
+        }
+    }
+    for ce in &mut copy_entries {
+        remap_guids_in_value(ce, &guid_map);
+    }
+    assert_eq!(copy_entries, orig_entries, "duplicated then reordered unopened page must keep its child override records whole");
+    assert_reopened_copy_matches_original(&saved);
 }
