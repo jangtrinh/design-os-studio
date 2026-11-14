@@ -135,6 +135,21 @@ fn a_save_without_edits_writes_the_entries_the_file_stated() {
 }
 
 #[test]
+fn deferred_own_entry_flags_are_not_serialized_as_native_component_overrides() {
+    let live = import_fig(&fixture_with_own_entry()).expect("import");
+    let button = variant_button(&live);
+    let node_json = serde_json::to_value(live.get(button).expect("instance")).expect("node JSON");
+    assert!(node_json["component"]["overrides"].is_null(), "transient .fig flags must not reach MCP/node JSON: {node_json}");
+
+    let mut loaded = live;
+    loaded.hydrate_all_pages();
+    let hydrated_button = variant_button(&loaded);
+    assert!(loaded.get(hydrated_button).expect("hydrated instance").component.overrides.contains(&OverrideField::Size));
+    let native = loaded.to_json().expect("native JSON after hydration");
+    assert!(!native.contains("fig_own_entry_flags"), "transient .fig flags must not reach .designos JSON");
+}
+
+#[test]
 fn an_instance_the_file_states_no_own_entry_for_gets_one_from_the_edit() {
     let fig = deferred_fixture();
     let mut live = import_fig(&fig).expect("import");
