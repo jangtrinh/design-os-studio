@@ -9,7 +9,7 @@ mod common;
 use common::deferred_fig::*;
 use common::fig_fixture::*;
 use designos_doc::*;
-use designos_fig::{export_fig, import_fig};
+use designos_fig::{export_fig, import_fig, import_fig_with_budget};
 use serde_json::{json, Value};
 
 #[test]
@@ -690,4 +690,481 @@ fn duplicating_an_unopened_page_then_reordering_the_copy_preserves_child_overrid
     }
     assert_eq!(copy_entries, orig_entries, "duplicated then reordered unopened page must keep its child override records whole");
     assert_reopened_copy_matches_original(&saved);
+}
+
+fn variant_main(doc: &Document) -> NodeId {
+    doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Type=Simple 03, Breakpoint=Desktop").expect("variant").id
+}
+
+#[derive(Debug, PartialEq)]
+struct SubtreeEntry {
+    depth: usize,
+    kind: &'static str,
+    name: String,
+    text: Option<String>,
+    size: (i32, i32),
+    stroke_weight_milli: i32,
+}
+
+fn node_kind_tag(kind: &NodeKind) -> &'static str {
+    match kind {
+        NodeKind::Page { .. } => "Page",
+        NodeKind::Frame(_) => "Frame",
+        NodeKind::Group => "Group",
+        NodeKind::Section => "Section",
+        NodeKind::Rectangle => "Rectangle",
+        NodeKind::Ellipse(_) => "Ellipse",
+        NodeKind::Line => "Line",
+        NodeKind::Polygon { .. } => "Polygon",
+        NodeKind::Star { .. } => "Star",
+        NodeKind::Vector { .. } => "Vector",
+        NodeKind::Text(_) => "Text",
+        NodeKind::BooleanOp(_) => "BooleanOp",
+        NodeKind::Component(_) => "Component",
+        NodeKind::ComponentSet(_) => "ComponentSet",
+        NodeKind::Instance { .. } => "Instance",
+        NodeKind::Sticky(_) => "Sticky",
+        NodeKind::ShapeWithText(_) => "ShapeWithText",
+        NodeKind::Connector(_) => "Connector",
+        NodeKind::Stamp { .. } => "Stamp",
+        NodeKind::Table(_) => "Table",
+        NodeKind::TableCell(_) => "TableCell",
+        NodeKind::Unknown { .. } => "Unknown",
+    }
+}
+
+fn subtree_snapshot(doc: &Document, root: NodeId) -> Vec<SubtreeEntry> {
+    let mut out = Vec::new();
+    doc.walk(root, |n, depth| {
+        let text = match &n.kind {
+            NodeKind::Text(tp) => Some(tp.content.clone()),
+            _ => None,
+        };
+        out.push(SubtreeEntry {
+            depth,
+            kind: node_kind_tag(&n.kind),
+            name: n.name.clone(),
+            text,
+            size: ((n.size.x * 1000.0).round() as i32, (n.size.y * 1000.0).round() as i32),
+            stroke_weight_milli: (n.stroke.weight * 1000.0).round() as i32,
+        });
+    });
+    out
+}
+
+const STATED_SIZE: (f32, f32) = (130.0, 48.0);
+
+fn fixture_with_own_entry() -> Vec<u8> {
+    let mut overrides = text_and_stroke_overrides();
+    overrides.as_array_mut().expect("entries").push(json!({
+        "guidPath": {"guids": [guid(BUTTON.0, BUTTON.1)]},
+        "size": {"x": STATED_SIZE.0, "y": STATED_SIZE.1},
+        "fillPaints": [solid(&rgba(0.1, 0.2, 0.3), None)]
+    }));
+    let derived = json!([
+        {"guidPath": {"guids": [guid(BUTTON.0, BUTTON.1)]}, "size": {"x": STATED_SIZE.0, "y": STATED_SIZE.1}},
+        {"guidPath": {"guids": [guid(LABEL.0, LABEL.1)]}, "size": {"x": 90.0, "y": 20.0}}
+    ]);
+    let own = json!({
+        "size": {"x": STATED_SIZE.0, "y": STATED_SIZE.1},
+        "fillPaints": [solid(&rgba(0.1, 0.2, 0.3), None)],
+        "derivedSymbolData": derived
+    });
+    fixture_with(own, overrides, Vec::new(), Vec::new())
+}
+
+fn instance_node_change(saved: &[u8], id: (u64, u64)) -> Value {
+    let want = guid(id.0, id.1);
+    node_changes(saved).into_iter().find(|nc| nc["guid"] == want).unwrap_or_else(|| panic!("no node {id:?} in saved file"))
+}
+
+fn reopened_new_instance_label(saved: &[u8]) -> String {
+    let doc = import_fig(saved).expect("reopen");
+    let cover = page_named(&doc, "Cover");
+    let new_inst = doc
+        .get(cover)
+        .expect("cover")
+        .children
+        .iter()
+        .copied()
+        .find(|&id| doc.get(id).is_some_and(|n| matches!(n.kind, NodeKind::Instance { .. })))
+        .expect("new instance on Cover");
+    let nested_copy = doc.get(new_inst).expect("new instance").children[0];
+    label_of(&doc, nested_copy)
+}
+
+#[test]
+fn new_instance_of_main_holding_deferred_page_instance_copies_nested_children_at_once() {
+    let fig = fixture_with_own_entry();
+    let mut opened = import_fig(&fig).expect("import opened reference");
+    let opened_page_404 = page_named(&opened, "404 pages");
+    assert!(opened.ensure_page_hydrated(opened_page_404));
+    let opened_main_nested = variant_button(&opened);
+
+    let mut live = import_fig(&fig).expect("import");
+    let cover = page_named(&live, "Cover");
+    let page_404 = page_named(&live, "404 pages");
+    let variant = variant_main(&live);
+    assert!(!page_hydrated(&live, page_404));
+
+    let cmd = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let new_inst = match &cmd {
+        Command::Insert { nodes, .. } => nodes[0].id,
+        _ => panic!("expected Insert"),
+    };
+    cmd.apply(&mut live).expect("create instance");
+
+    assert!(!page_hydrated(&live, page_404), "creating an instance must not mark the deferred page open");
+    let main_nested = variant_button(&live);
+    assert!(live.get(main_nested).expect("main nested").children.is_empty(), "deferred instance inside the main stays empty");
+    let nested_copy = live.get(new_inst).expect("new instance").children[0];
+    assert_eq!(child_names(&live, nested_copy), vec!["Text", "Icon"], "nested instance copy has its children at once");
+    assert_eq!(child_names(&live, nested_copy), child_names(&opened, opened_main_nested), "same child count and names as main's nested instance");
+    assert_eq!(label_of(&live, nested_copy), "Go back", "nested instance copy carries the overridden text");
+    assert_eq!(label_of(&live, nested_copy), label_of(&opened, opened_main_nested), "same text as main's nested instance");
+    assert_eq!(subtree_snapshot(&live, nested_copy), subtree_snapshot(&opened, opened_main_nested), "same subtree sizes and strokes as main's nested instance");
+}
+
+#[test]
+fn opening_deferred_page_and_syncing_leaves_new_instance_equal_to_post_open_instance() {
+    let mut live = import_fig(&fixture_with_own_entry()).expect("import");
+    let cover = page_named(&live, "Cover");
+    let page_404 = page_named(&live, "404 pages");
+    let variant = variant_main(&live);
+
+    let cmd_before = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let inst_before = match &cmd_before {
+        Command::Insert { nodes, .. } => nodes[0].id,
+        _ => panic!("expected Insert"),
+    };
+    cmd_before.apply(&mut live).expect("create instance before open");
+    let snap_before_open = subtree_snapshot(&live, inst_before);
+    assert_eq!(snap_before_open.len(), 4, "outer instance, nested instance, text, and icon are present at once");
+
+    assert!(live.ensure_page_hydrated(page_404));
+    assert_eq!(subtree_snapshot(&live, inst_before), snap_before_open, "opening the deferred page alone leaves the new instance unchanged");
+    sync_instances(&mut live, variant).apply(&mut live).expect("sync variant");
+    let snap_after_open = subtree_snapshot(&live, inst_before);
+
+    let cmd_after = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let inst_after = match &cmd_after {
+        Command::Insert { nodes, .. } => nodes[0].id,
+        _ => panic!("expected Insert"),
+    };
+    cmd_after.apply(&mut live).expect("create instance after open");
+    let snap_post_open = subtree_snapshot(&live, inst_after);
+
+    assert_eq!(snap_before_open, snap_after_open, "opening the deferred page and syncing does not duplicate or alter the subtree");
+    assert_eq!(snap_after_open, snap_post_open, "new instance matches an instance created after opening the deferred page");
+}
+
+#[test]
+fn undo_and_redo_of_new_instance_removes_and_restores_nested_subtree() {
+    let mut live = import_fig(&fixture_with_own_entry()).expect("import");
+    let cover = page_named(&live, "Cover");
+    let variant = variant_main(&live);
+    let main_nested = variant_button(&live);
+    let cover_children_before = live.get(cover).expect("cover").children.len();
+    let main_nested_before = live.get(main_nested).expect("main nested").clone();
+    let variant_before = live.get(variant).expect("variant").clone();
+    let records_before = live.deferred_page_record_count();
+    let shared_before = live.deferred_shared_map_entries();
+    let overrides_before = live.pending_instance_overrides(main_nested);
+    let derived_before = live.pending_instance_derived(main_nested).expect("derived before");
+
+    let mut history = History::default();
+    let cmd = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let (new_inst, created_ids): (NodeId, Vec<NodeId>) = match &cmd {
+        Command::Insert { nodes, .. } => (nodes[0].id, nodes.iter().map(|n| n.id).collect()),
+        _ => panic!("expected Insert"),
+    };
+    history.exec(&mut live, cmd).expect("exec create instance");
+
+    let snap_created = subtree_snapshot(&live, new_inst);
+    assert_eq!(snap_created.len(), 4);
+
+    assert!(history.undo(&mut live).expect("undo"), "undo succeeds");
+    assert_eq!(live.get(cover).expect("cover").children.len(), cover_children_before);
+    for &id in &created_ids {
+        assert!(live.get(id).is_none(), "undo removes created node {id:?}");
+    }
+    assert!(live.get(main_nested).expect("main nested").children.is_empty(), "main's nested instance is empty after undo");
+    assert_eq!(live.get(main_nested).expect("main nested"), &main_nested_before, "main's nested instance node is byte-for-byte unchanged");
+    assert_eq!(live.get(variant).expect("variant"), &variant_before, "main component node is byte-for-byte unchanged");
+    assert_eq!(live.deferred_page_record_count(), records_before, "importer record count is unchanged");
+    assert_eq!(live.deferred_shared_map_entries(), shared_before, "importer shared map entries are unchanged");
+    assert_eq!(live.pending_instance_overrides(main_nested), overrides_before, "pending overrides are unchanged");
+    let derived_after = live.pending_instance_derived(main_nested).expect("derived after undo");
+    assert_eq!(derived_after.fingerprint, derived_before.fingerprint, "pending derived fingerprint is unchanged");
+    assert_eq!(derived_after.entries.len(), derived_before.entries.len(), "pending derived entries are unchanged");
+
+    assert!(history.redo(&mut live).expect("redo"), "redo succeeds");
+    assert_eq!(subtree_snapshot(&live, new_inst), snap_created, "redo restores the full nested subtree");
+}
+
+#[test]
+fn saving_after_creating_instance_of_main_with_deferred_nested_instance_keeps_saved_entries() {
+    let fig = fixture_with_own_entry();
+    let baseline = export_fig(&import_fig(&fig).expect("import baseline")).expect("baseline save");
+    let baseline_entries = saved_entries(&baseline, INSTANCE);
+    let baseline_derived = saved_derived(&baseline, INSTANCE);
+    let baseline_inst_nc = instance_node_change(&baseline, INSTANCE);
+    assert!(!baseline_derived.is_empty(), "fixture has derivedSymbolData");
+
+    let mut live = import_fig(&fig).expect("import");
+    let cover = page_named(&live, "Cover");
+    let page_404 = page_named(&live, "404 pages");
+    let variant = variant_main(&live);
+
+    let cmd = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let new_inst = match &cmd {
+        Command::Insert { nodes, .. } => nodes[0].id,
+        _ => panic!("expected Insert"),
+    };
+    cmd.apply(&mut live).expect("create instance");
+
+    let nested_copy = live.get(new_inst).expect("new instance").children[0];
+    assert_eq!(label_of(&live, nested_copy), "Go back");
+
+    let saved = export_fig(&live).expect("export");
+    assert!(!page_hydrated(&live, page_404), "deferred page remains unopened after save");
+    assert_eq!(children_written_under(&saved, INSTANCE), 0, "unopened page instance writes no child node changes");
+    assert_eq!(saved_entries(&saved, INSTANCE), baseline_entries, "saved entries of the main's nested instance match baseline");
+    assert_eq!(saved_derived(&saved, INSTANCE), baseline_derived, "derivedSymbolData of the main's nested instance matches baseline");
+    assert_eq!(instance_node_change(&saved, INSTANCE), baseline_inst_nc, "whole INSTANCE NodeChange matches baseline");
+    assert_eq!(reopened_new_instance_label(&saved), "Go back", "reopened file has the overridden text on the new instance");
+    assert_eq!(reopened_label(&saved), "Go back", "reopened file keeps the overridden text on the deferred instance");
+}
+
+#[test]
+fn editing_main_creating_instance_and_undoing_main_edit_keeps_deferred_instance_saved_entries() {
+    let fig = fixture_with_own_entry();
+    let baseline = export_fig(&import_fig(&fig).expect("import baseline")).expect("baseline save");
+    let baseline_inst_nc = instance_node_change(&baseline, INSTANCE);
+    let baseline_derived = saved_derived(&baseline, INSTANCE);
+    assert!(!baseline_derived.is_empty());
+
+    let mut live = import_fig(&fig).expect("import");
+    let cover = page_named(&live, "Cover");
+    let variant = variant_main(&live);
+    let button = button_main(&live);
+    let label = live.get(button).expect("button").children[0];
+
+    let mut edited_label = live.get(label).expect("label").clone();
+    edited_label.size.x += 15.0;
+    let edit_inv = Command::Update { node: Box::new(edited_label) }.apply(&mut live).expect("edit button label");
+    let sync_inv = sync_instances(&mut live, button).apply(&mut live).expect("sync button after edit");
+
+    let create_cmd = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    create_cmd.apply(&mut live).expect("create instance while button is edited");
+
+    sync_inv.apply(&mut live).expect("undo sync");
+    edit_inv.apply(&mut live).expect("undo button edit");
+
+    let saved = export_fig(&live).expect("save after undoing button edit");
+    assert_eq!(saved_entries(&saved, INSTANCE), saved_entries(&baseline, INSTANCE), "saved symbolOverrides equal save without the create");
+    assert_eq!(saved_derived(&saved, INSTANCE), baseline_derived, "saved derivedSymbolData equals save without the create");
+    assert_eq!(instance_node_change(&saved, INSTANCE), baseline_inst_nc, "whole deferred instance NodeChange equals save without the create");
+    assert_eq!(
+        page_subtree_entries(&saved, "404 pages"),
+        page_subtree_entries(&baseline, "404 pages"),
+        "saved 404 pages subtree equals save without the create"
+    );
+}
+
+#[test]
+fn editing_other_main_creating_unrelated_instance_and_undoing_keeps_derived_symbol_data() {
+    let mut overrides = text_and_stroke_overrides();
+    overrides.as_array_mut().expect("entries").push(json!({
+        "guidPath": {"guids": [guid(BUTTON.0, BUTTON.1)]},
+        "size": {"x": STATED_SIZE.0, "y": STATED_SIZE.1},
+        "fillPaints": [solid(&rgba(0.1, 0.2, 0.3), None)]
+    }));
+    let derived = json!([
+        {"guidPath": {"guids": [guid(BUTTON.0, BUTTON.1)]}, "size": {"x": STATED_SIZE.0, "y": STATED_SIZE.1}},
+        {"guidPath": {"guids": [guid(LABEL.0, LABEL.1)]}, "size": {"x": 90.0, "y": 20.0}}
+    ]);
+    let own = json!({
+        "size": {"x": STATED_SIZE.0, "y": STATED_SIZE.1},
+        "fillPaints": [solid(&rgba(0.1, 0.2, 0.3), None)],
+        "derivedSymbolData": derived
+    });
+    let extra = vec![
+        fig_node((1, 30), (0, 3), "SYMBOL", "OtherLeaf", json!({"size": {"x": 40.0, "y": 20.0}})),
+        fig_node((1, 31), (1, 30), "TEXT", "LeafText", json!({"fontSize": 12.0, "textData": {"characters": "Tag"}})),
+        fig_node((1, 40), (0, 3), "SYMBOL", "OtherHolder", json!({"size": {"x": 120.0, "y": 40.0}})),
+        fig_node((1, 41), (1, 40), "INSTANCE", "OtherLeaf", json!({"symbolData": {"symbolID": guid(1, 30)}})),
+    ];
+    let fig = fixture_with(own, overrides, extra, Vec::new());
+    let baseline = export_fig(&import_fig(&fig).expect("import baseline")).expect("baseline save");
+    let baseline_derived = saved_derived(&baseline, INSTANCE);
+    assert!(!baseline_derived.is_empty());
+
+    let mut live = import_fig(&fig).expect("import");
+    let cover = page_named(&live, "Cover");
+    let button = button_main(&live);
+    let label = live.get(button).expect("button").children[0];
+    let other_holder = live.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "OtherHolder").expect("OtherHolder").id;
+
+    let mut edited_label = live.get(label).expect("label").clone();
+    edited_label.size.x += 20.0;
+    let edit_inv = Command::Update { node: Box::new(edited_label) }.apply(&mut live).expect("edit button label");
+
+    let create_cmd = create_instance(&mut live, other_holder, cover, Vec2::ZERO);
+    create_cmd.apply(&mut live).expect("create unrelated instance");
+
+    edit_inv.apply(&mut live).expect("undo button edit");
+
+    let saved = export_fig(&live).expect("save");
+    assert_eq!(saved_derived(&saved, INSTANCE), baseline_derived, "derivedSymbolData on the untouched main's deferred instance is still written");
+}
+
+#[test]
+fn creating_instance_editing_main_then_opening_deferred_page_matches_fresh_open() {
+    let fig = fixture_with_own_entry();
+
+    let mut fresh = import_fig(&fig).expect("import fresh");
+    let fresh_page_404 = page_named(&fresh, "404 pages");
+    let fresh_button = button_main(&fresh);
+    let fresh_label = fresh.get(fresh_button).expect("button").children[0];
+    let fresh_icon = fresh.get(fresh_button).expect("button").children[1];
+    fresh.get_mut(fresh_label).expect("label").size.x += 25.0;
+    for _ in 0..4 {
+        fresh.alloc_id();
+    }
+    let extra_nodes = duplicate_subtree(&mut fresh, fresh_icon);
+    let extra_id = extra_nodes[0].id;
+    Command::Insert { parent: fresh_button, index: 2, nodes: extra_nodes }.apply(&mut fresh).expect("insert extra child");
+    fresh.get_mut(extra_id).expect("extra").name = "Badge".into();
+    sync_instances(&mut fresh, fresh_button).apply(&mut fresh).expect("sync fresh button");
+    assert!(fresh.ensure_page_hydrated(fresh_page_404));
+    let fresh_inst = variant_button(&fresh);
+    let fresh_saved = export_fig(&fresh).expect("save fresh");
+
+    let mut live = import_fig(&fig).expect("import live");
+    let cover = page_named(&live, "Cover");
+    let page_404 = page_named(&live, "404 pages");
+    let variant = variant_main(&live);
+    let button = button_main(&live);
+
+    let mut history = History::default();
+    let create_cmd = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    history.exec(&mut live, create_cmd).expect("create instance before editing button");
+    assert!(history.undo(&mut live).expect("undo create so page set matches fresh open"));
+
+    let label = live.get(button).expect("button").children[0];
+    let icon = live.get(button).expect("button").children[1];
+    live.get_mut(label).expect("label").size.x += 25.0;
+    let extra_nodes = duplicate_subtree(&mut live, icon);
+    let extra_id = extra_nodes[0].id;
+    Command::Insert { parent: button, index: 2, nodes: extra_nodes }.apply(&mut live).expect("insert extra child");
+    live.get_mut(extra_id).expect("extra").name = "Badge".into();
+    sync_instances(&mut live, button).apply(&mut live).expect("sync live button");
+
+    assert!(live.ensure_page_hydrated(page_404));
+    let live_inst = variant_button(&live);
+    assert_eq!(child_names(&live, live_inst), vec!["Text", "Icon", "Badge"], "deferred instance shows B's current children");
+    assert_eq!(label_of(&live, live_inst), "Go back", "kept text override applied once");
+    assert_eq!(subtree_snapshot(&live, live_inst), subtree_snapshot(&fresh, fresh_inst), "deferred instance matches fresh open");
+
+    let live_saved = export_fig(&live).expect("save live");
+    assert_eq!(node_changes(&live_saved), node_changes(&fresh_saved), "save after opening equals a save from a fresh open");
+}
+
+#[test]
+fn new_instance_of_main_with_unoverridden_deferred_nested_instance_keeps_children_on_sync() {
+    let fig = fixture(json!([]), Vec::new(), Vec::new());
+    let mut live = import_fig(&fig).expect("import");
+    let cover = page_named(&live, "Cover");
+    let page_404 = page_named(&live, "404 pages");
+    let variant = variant_main(&live);
+    let button = button_main(&live);
+    let main_nested = variant_button(&live);
+    assert!(!page_hydrated(&live, page_404));
+    assert!(live.pending_instance_overrides(main_nested).is_none(), "fixture has empty symbolOverrides");
+    assert!(live.pending_instance_derived(main_nested).is_none(), "fixture has no derivedSymbolData");
+
+    let cmd = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let new_inst = match &cmd {
+        Command::Insert { nodes, .. } => nodes[0].id,
+        _ => panic!("expected Insert"),
+    };
+    cmd.apply(&mut live).expect("create instance");
+
+    let nested_copy = live.get(new_inst).expect("new instance").children[0];
+    assert_eq!(child_names(&live, nested_copy), vec!["Text", "Icon"], "nested instance copy has its children at once");
+    assert_eq!(label_of(&live, nested_copy), "Button CTA");
+
+    live.get_mut(variant).expect("variant").size.x += 40.0;
+    sync_instances(&mut live, variant).apply(&mut live).expect("sync variant after edit");
+    assert!(live.get(main_nested).expect("main nested").children.is_empty(), "deferred nested instance on unopened page is still empty");
+    assert_eq!(child_names(&live, nested_copy), vec!["Text", "Icon"], "syncing the holder component keeps the nested instance's children");
+
+    let label = live.get(button).expect("button").children[0];
+    let icon = live.get(button).expect("button").children[1];
+    if let NodeKind::Text(tp) = &mut live.get_mut(label).expect("label").kind {
+        tp.content = "Updated CTA".into();
+        tp.runs.clear();
+    }
+    live.get_mut(icon).expect("icon").stroke.weight = 2.5;
+    sync_instances(&mut live, variant).apply(&mut live).expect("sync variant while nested deferred instance is still empty");
+    assert!(live.get(main_nested).expect("main nested").children.is_empty(), "deferred nested instance on unopened page is still empty");
+    assert_eq!(child_names(&live, nested_copy), vec!["Text", "Icon"], "nested instance copy keeps label and icon when variant syncs from scratch");
+    assert_eq!(label_of(&live, nested_copy), "Updated CTA", "nested instance copy shows the edited label text from scratch");
+    sync_instances(&mut live, button).apply(&mut live).expect("sync nested button main after edit");
+
+    assert_eq!(child_names(&live, nested_copy), vec!["Text", "Icon"], "nested instance copy keeps label and icon after button sync");
+    assert_eq!(label_of(&live, nested_copy), "Updated CTA", "nested instance copy shows the edited label text");
+    let icon_copy = live.get(nested_copy).expect("nested copy").children[1];
+    assert!((live.get(icon_copy).expect("icon copy").stroke.weight - 2.5).abs() < 1e-4, "nested instance copy shows the edited icon stroke");
+
+    assert!(live.ensure_page_hydrated(page_404));
+    sync_instances(&mut live, variant).apply(&mut live).expect("sync variant after opening deferred page");
+    let snap_before = subtree_snapshot(&live, new_inst);
+
+    let cmd_after = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let inst_after = match &cmd_after {
+        Command::Insert { nodes, .. } => nodes[0].id,
+        _ => panic!("expected Insert"),
+    };
+    cmd_after.apply(&mut live).expect("create instance after open");
+    let snap_after = subtree_snapshot(&live, inst_after);
+    assert_eq!(snap_before, snap_after, "opening the deferred page later leaves the instance equal to one created after opening");
+}
+
+#[test]
+fn new_instance_when_scratch_expansion_hits_clone_budget_stays_empty_and_counts_miss() {
+    let extra = vec![fig_node((1, 60), (0, 2), "INSTANCE", "Buttons/Button", json!({"symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1)}}))];
+    let fig = fixture_with(json!({}), text_and_stroke_overrides(), extra, Vec::new());
+    let (mut live, rep) = import_fig_with_budget(&fig, 4).expect("import with budget");
+    assert_eq!(rep.instances_left_unexpanded, 0);
+    assert_eq!(live.hydration_unexpanded_instances(), 0);
+    assert!(live.hydration_error().is_none());
+
+    let cover = page_named(&live, "Cover");
+    let page_2 = page_named(&live, "Page 2");
+    let page_404 = page_named(&live, "404 pages");
+    let variant = variant_main(&live);
+    let button = button_main(&live);
+    let icon = live.get(button).expect("button").children[1];
+    let extra_nodes = duplicate_subtree(&mut live, icon);
+    Command::Insert { parent: button, index: 2, nodes: extra_nodes }.apply(&mut live).expect("add third child to button");
+    assert!(live.ensure_page_hydrated(page_2), "hydrating Page 2 uses 3 of the 4 clone budget slots");
+    assert!(!page_hydrated(&live, page_404));
+    assert_eq!(live.hydration_unexpanded_instances(), 0);
+    assert!(live.hydration_error().is_none());
+
+    let cmd = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let new_inst = match &cmd {
+        Command::Insert { nodes, .. } => nodes[0].id,
+        _ => panic!("expected Insert"),
+    };
+    cmd.apply(&mut live).expect("create instance when budget stops mid-expansion");
+    let nested_copy = live.get(new_inst).expect("new instance").children[0];
+    assert!(
+        live.get(nested_copy).expect("nested copy").children.is_empty(),
+        "nested instance must stay empty as on main rather than publishing a partial expansion"
+    );
+    assert_eq!(live.hydration_unexpanded_instances(), 1, "clone budget miss during scratch expansion must be counted");
+    assert!(live.hydration_error().is_none(), "scratch clone budget stop must not set last_error");
 }
