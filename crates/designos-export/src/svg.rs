@@ -915,6 +915,9 @@ impl Svg<'_> {
             return node_geo(&Node { kind: NodeKind::Rectangle, fill_geometry: Some(fg.to_vec()), ..n.clone() });
         }
         let doc = self.doc;
+        if outline_of(doc, n, OUTLINE_TOLERANCE).is_none_or(|sh| sh.paths.is_empty()) {
+            return None;
+        }
         match op {
             BooleanOp::Union | BooleanOp::Exclude => {
                 let mut cmds = Vec::new();
