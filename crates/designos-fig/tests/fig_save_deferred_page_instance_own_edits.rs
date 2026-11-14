@@ -160,6 +160,131 @@ fn a_resize_of_a_width_bound_unopened_instance_drops_the_stale_width_binding() {
 }
 
 #[test]
+fn editing_one_axis_border_side_or_corner_keeps_sibling_bindings_on_unopened_instance() {
+    let float_alias = |id: (u64, u64)| json!({"dataType": "ALIAS", "resolvedDataType": "FLOAT", "value": {"alias": {"guid": guid(id.0, id.1)}}});
+    let float_var = |id: (u64, u64), name: &str, key: &str, val: f64| {
+        fig_node(
+            id,
+            (1, 2),
+            "VARIABLE",
+            name,
+            json!({
+                "key": key,
+                "variableSetID": {"guid": guid(1, 2)},
+                "variableResolvedType": "FLOAT",
+                "variableDataValues": {"entries": [{"modeID": guid(1, 100), "variableData": {"dataType": "FLOAT", "value": {"floatValue": val}}}]}
+            }),
+        )
+    };
+    let token_a = (2, 2);
+    let token_b = (2, 3);
+    let vars = vec![float_var(token_a, "token-a", "TOKEN_A", 130.0), float_var(token_b, "token-b", "TOKEN_B", 48.0)];
+
+    // 1. Size: width bound to token A, height bound to token B; change only width.
+    let size_entries = json!([
+        {"variableField": "WIDTH", "variableData": float_alias(token_a)},
+        {"variableField": "HEIGHT", "variableData": float_alias(token_b)}
+    ]);
+    let mut overrides = text_and_stroke_overrides();
+    overrides.as_array_mut().expect("entries").push(json!({
+        "guidPath": {"guids": [guid(BUTTON.0, BUTTON.1)]},
+        "size": {"x": 130.0, "y": 48.0},
+        "variableConsumptionMap": {"entries": size_entries},
+        "parameterConsumptionMap": {"entries": size_entries}
+    }));
+    let fig = fixture_with(json!({"size": {"x": 130.0, "y": 48.0}}), overrides, vars.clone(), Vec::new());
+    let mut live = import_fig(&fig).expect("import");
+    let button = variant_button(&live);
+    live.get_mut(button).expect("instance").size.x = 200.0;
+
+    let saved = export_fig(&live).expect("export");
+    let expected_height_map = json!({"entries": [{"variableField": "HEIGHT", "variableData": float_alias(token_b)}]});
+    assert_eq!(own_entry(&saved)["variableConsumptionMap"], expected_height_map, "height binding stays while width binding is dropped");
+    assert_eq!(own_entry(&saved)["parameterConsumptionMap"], expected_height_map, "height parameter binding stays while width binding is dropped");
+    let back = reopened(&saved);
+    let reopened_button = back.get(variant_button(&back)).expect("instance");
+    assert_eq!((reopened_button.size.x, reopened_button.size.y), (200.0, 48.0));
+    assert_eq!(reopened_button.variables.bindings.get("width"), None);
+    assert_eq!(reopened_button.variables.bindings.get("height").map(String::as_str), Some("VariableID:2:3"));
+
+    // 2. Stroke border weights: top and uniform bound to token A, bottom bound to token B; change only top border weight.
+    let stroke_entries = json!([
+        {"variableField": "STROKE_WEIGHT", "variableData": float_alias(token_a)},
+        {"variableField": "BORDER_TOP_WEIGHT", "variableData": float_alias(token_a)},
+        {"variableField": "BORDER_BOTTOM_WEIGHT", "variableData": float_alias(token_b)}
+    ]);
+    let stroke_props = json!({
+        "strokePaints": [solid(&rgba(0.1, 0.2, 0.3), None)],
+        "strokeWeight": 1.0,
+        "borderStrokeWeightsIndependent": true,
+        "borderTopWeight": 2.0,
+        "borderRightWeight": 1.0,
+        "borderBottomWeight": 4.0,
+        "borderLeftWeight": 1.0
+    });
+    let mut own_stroke = stroke_props.clone();
+    own_stroke["guidPath"] = json!({"guids": [guid(BUTTON.0, BUTTON.1)]});
+    own_stroke["variableConsumptionMap"] = json!({"entries": stroke_entries});
+    own_stroke["parameterConsumptionMap"] = json!({"entries": stroke_entries});
+    let mut overrides_stroke = text_and_stroke_overrides();
+    overrides_stroke.as_array_mut().expect("entries").push(own_stroke);
+    let fig_stroke = fixture_with(stroke_props, overrides_stroke, vars.clone(), Vec::new());
+    let mut live_stroke = import_fig(&fig_stroke).expect("import");
+    let button_stroke = variant_button(&live_stroke);
+    live_stroke.get_mut(button_stroke).expect("instance").stroke.side_weights = Some([6.0, 1.0, 4.0, 1.0]);
+
+    let saved_stroke = export_fig(&live_stroke).expect("export");
+    let expected_stroke_map = json!({"entries": [
+        {"variableField": "STROKE_WEIGHT", "variableData": float_alias(token_a)},
+        {"variableField": "BORDER_BOTTOM_WEIGHT", "variableData": float_alias(token_b)}
+    ]});
+    assert_eq!(own_entry(&saved_stroke)["variableConsumptionMap"], expected_stroke_map, "untouched stroke weight and bottom border bindings stay");
+    assert_eq!(own_entry(&saved_stroke)["parameterConsumptionMap"], expected_stroke_map);
+    let back_stroke = reopened(&saved_stroke);
+    let reopened_stroke = back_stroke.get(variant_button(&back_stroke)).expect("instance");
+    assert_eq!(reopened_stroke.stroke.side_weights, Some([6.0, 1.0, 4.0, 1.0]));
+    assert_eq!(reopened_stroke.variables.bindings.get("strokeTopWeight"), None);
+    assert_eq!(reopened_stroke.variables.bindings.get("strokeBottomWeight").map(String::as_str), Some("VariableID:2:3"));
+    assert_eq!(reopened_stroke.variables.bindings.get("strokeWeight").map(String::as_str), Some("VariableID:2:2"));
+
+    // 3. Corner radii: top-left bound to token A, bottom-right bound to token B; change only top-left corner.
+    let corner_entries = json!([
+        {"variableField": "RECTANGLE_TOP_LEFT_CORNER_RADIUS", "variableData": float_alias(token_a)},
+        {"variableField": "RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS", "variableData": float_alias(token_b)}
+    ]);
+    let corner_props = json!({
+        "cornerRadius": 8.0,
+        "rectangleCornerRadiiIndependent": true,
+        "rectangleTopLeftCornerRadius": 8.0,
+        "rectangleTopRightCornerRadius": 4.0,
+        "rectangleBottomRightCornerRadius": 12.0,
+        "rectangleBottomLeftCornerRadius": 4.0
+    });
+    let mut own_corner = corner_props.clone();
+    own_corner["guidPath"] = json!({"guids": [guid(BUTTON.0, BUTTON.1)]});
+    own_corner["variableConsumptionMap"] = json!({"entries": corner_entries});
+    own_corner["parameterConsumptionMap"] = json!({"entries": corner_entries});
+    let mut overrides_corner = text_and_stroke_overrides();
+    overrides_corner.as_array_mut().expect("entries").push(own_corner);
+    let fig_corner = fixture_with(corner_props, overrides_corner, vars, Vec::new());
+    let mut live_corner = import_fig(&fig_corner).expect("import");
+    let button_corner = variant_button(&live_corner);
+    live_corner.get_mut(button_corner).expect("instance").corner_radii[0] = 16.0;
+
+    let saved_corner = export_fig(&live_corner).expect("export");
+    let expected_corner_map = json!({"entries": [
+        {"variableField": "RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS", "variableData": float_alias(token_b)}
+    ]});
+    assert_eq!(own_entry(&saved_corner)["variableConsumptionMap"], expected_corner_map, "untouched bottom-right corner binding stays");
+    assert_eq!(own_entry(&saved_corner)["parameterConsumptionMap"], expected_corner_map);
+    let back_corner = reopened(&saved_corner);
+    let reopened_corner = back_corner.get(variant_button(&back_corner)).expect("instance");
+    assert_eq!(reopened_corner.corner_radii, [16.0, 4.0, 12.0, 4.0]);
+    assert_eq!(reopened_corner.variables.bindings.get("topLeftRadius"), None);
+    assert_eq!(reopened_corner.variables.bindings.get("bottomRightRadius").map(String::as_str), Some("VariableID:2:3"));
+}
+
+#[test]
 fn a_fill_change_of_the_unopened_instance_survives_a_save() {
     let fig = fixture_with_own_entry();
     let mut live = import_fig(&fig).expect("import");

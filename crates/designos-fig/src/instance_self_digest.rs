@@ -32,6 +32,9 @@ pub(crate) const SELF_FIELDS: [OverrideField; 12] = [
 
 /// A digest of what `node` holds for `field`, covering every value a save writes for that field.
 fn digest(node: &Node, field: OverrideField) -> u64 {
+    if field == OverrideField::Size {
+        return ((node.size.x.to_bits() as u64) << 32) | (node.size.y.to_bits() as u64);
+    }
     let mut h = DefaultHasher::new();
     let bound = |prefix: &str| -> Vec<(&String, &String)> { node.variables.bindings.iter().filter(|(k, _)| k.starts_with(prefix)).collect() };
     let text = match field {
@@ -41,7 +44,6 @@ fn digest(node: &Node, field: OverrideField) -> u64 {
         OverrideField::LockAspect => format!("{:?}", node.lock_aspect),
         OverrideField::Opacity => format!("{:?}", node.opacity),
         OverrideField::Blend => format!("{:?}", node.blend),
-        OverrideField::Size => format!("{:?}", node.size),
         OverrideField::Transform => format!("{:?}", node.transform),
         // The style link goes with the paints it supplies: linking to another style, or detaching, can leave the paints
         // themselves as they were.
@@ -53,6 +55,12 @@ fn digest(node: &Node, field: OverrideField) -> u64 {
     };
     text.hash(&mut h);
     h.finish()
+}
+
+/// The `(width, height)` packed in `opened` for `OverrideField::Size`.
+pub(crate) fn opened_size(opened: &BTreeMap<OverrideField, u64>) -> Option<(f32, f32)> {
+    let bits = *opened.get(&OverrideField::Size)?;
+    Some((f32::from_bits((bits >> 32) as u32), f32::from_bits(bits as u32)))
 }
 
 /// The digest of `node`'s size, which is taken whether or not the instance overrides it.
