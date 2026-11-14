@@ -1950,9 +1950,6 @@ fn apply_parked_override_to_node(po: &ParkedOverride, to: &mut Node) {
                 to.fill_geometry = fill_geometry.clone();
                 to.stroke_geometry = stroke_geometry.clone();
                 to.stroke_geometry_for = stroke_geometry_for.clone();
-                if to.stroke_geometry.is_some() && to.stroke_geometry_for.is_none() {
-                    to.stamp_stroke_geometry();
-                }
             }
             if !matches!(to.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) && fill_geometry.is_none() && stroke_geometry.is_none() {
                 to.fill_geometry = None;
@@ -2674,6 +2671,9 @@ fn restore_parked_overrides(
                 }
             }
             if changed {
+                if nn.stroke_geometry.is_some() && nn.stroke_geometry_for.is_none() {
+                    nn.stamp_stroke_geometry();
+                }
                 c.update(nn);
             }
         }
