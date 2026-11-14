@@ -56,10 +56,7 @@ pub fn combine(a: &Summary, b: &Summary) -> Summary {
 pub fn nodes_summary(app: &App, sel: &[NodeId]) -> Option<Summary> {
     sel.iter()
         .take(64)
-        .filter_map(|id| match app.doc.get(*id).map(|n| &n.kind) {
-            Some(NodeKind::Text(t)) => Some(richtext::summary(t, 0..t.content.len())),
-            _ => None,
-        })
+        .filter_map(|id| app.doc.get(*id).and_then(|n| n.kind.any_text().map(|t| richtext::summary(t, 0..t.content.len()))))
         .reduce(|a, b| combine(&a, &b))
 }
 
@@ -87,9 +84,12 @@ fn set_style_preserving_link(app: &mut App, sel: &[NodeId], f: impl Fn(&mut Text
     }
     ts::requesting_new_faces(app, sel, |app| {
         app.edit_nodes(sel, |n| {
-            if let NodeKind::Text(t) = &mut n.kind {
+            let is_text = matches!(n.kind, NodeKind::Text(_));
+            if let Some(t) = n.kind.any_text_mut() {
                 richtext::apply_all(t, &f);
-                n.size = layout::fit_text(t, n.size);
+                if is_text {
+                    n.size = layout::fit_text(t, n.size);
+                }
             }
         });
     });
@@ -1183,5 +1183,20 @@ mod tests {
         assert_eq!(n.style_refs.get("text").map(String::as_str), Some("Body"));
         let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
         assert!(matches!(t.style.fills.first().map(|p| &p.kind), Some(PaintKind::Solid(c)) if *c == Color::rgb(0, 0, 255)));
+    }
+
+    #[test]
+    fn fill_edit_updates_sticky_text_in_a_mixed_selection() {
+        let (mut app, text_id) = linked_text_app();
+        let page = app.doc.get(text_id).and_then(|n| n.parent).expect("text page");
+        let sticky_id = app.doc.alloc_id();
+        app.doc.insert(page, Node::new(sticky_id, NodeKind::Sticky(StickyProps::default()))).unwrap();
+
+        set_style_preserving_link(&mut app, &[sticky_id, text_id], |s| set_solid(s, Color::rgb(0, 0, 255), None));
+
+        let text = app.doc.get(text_id).expect("text layer");
+        assert_eq!(text.style_refs.get("text").map(String::as_str), Some("Body"));
+        let NodeKind::Sticky(sticky) = &app.doc.get(sticky_id).expect("sticky layer").kind else { panic!("sticky layer") };
+        assert!(matches!(sticky.text.style.fills.first().map(|p| &p.kind), Some(PaintKind::Solid(c)) if *c == Color::rgb(0, 0, 255)));
     }
 }
