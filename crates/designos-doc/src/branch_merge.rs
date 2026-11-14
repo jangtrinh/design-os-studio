@@ -2881,4 +2881,37 @@ mod tests {
             .expect_err("merge closing an alias cycle through an extended collection override must be refused");
         assert!(err_ext.to_string().to_ascii_lowercase().contains("cycle"), "error should mention cycle: {err_ext}");
     }
+
+    #[test]
+    fn branch_diff_and_merge_include_stroke_geometry_stamp() {
+        use crate::{FillRule, Path, PathCmd};
+
+        let (mut base, page) = new_doc_with_page();
+        let id = base.alloc_id();
+        let mut rect = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 20.0));
+        rect.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        rect.stroke.weight = 4.0;
+        rect.stroke_geometry = Some(vec![Path {
+            cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(40.0, 0.0)), PathCmd::LineTo(Vec2::new(40.0, 20.0)), PathCmd::Close],
+            fill_rule: FillRule::NonZero,
+        }]);
+        base.insert(page, rect).unwrap();
+        // Make the base stamp stale (weight 1.0 while stroke.weight is 4.0).
+        base.get_mut(id).unwrap().stroke_geometry_for.as_mut().unwrap().weight = 1.0;
+        assert!(base.get(id).unwrap().live_stroke_outline().is_none());
+
+        let main = base.clone();
+        let mut branch = base.clone();
+        // Branch differs ONLY in the stamp (re-stamped to match weight 4.0).
+        branch.get_mut(id).unwrap().stamp_stroke_geometry();
+        assert!(branch.get(id).unwrap().live_stroke_outline().is_some());
+
+        let diff = crate::diff3(&base, &main, &branch);
+        let groups = diff.theirs.nodes.get(&id).and_then(|c| c.groups()).expect("stamp-only difference must be detected by branch diff");
+        assert!(groups.contains(&Group::Vector), "stamp-only difference must mark Group::Vector changed: {groups:?}");
+
+        let (merged, _) = merge_branch(&base, &main, &branch, &Resolution::default()).unwrap();
+        assert_eq!(merged.get(id).unwrap().stroke_geometry_for, branch.get(id).unwrap().stroke_geometry_for, "merge must carry updated stroke_geometry_for");
+        assert!(merged.get(id).unwrap().live_stroke_outline().is_some(), "merged node must have a live stroke outline");
+    }
 }
