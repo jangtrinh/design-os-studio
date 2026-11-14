@@ -167,14 +167,14 @@ fn a_refused_spec_swap_says_what_the_editor_says() {
     place(&mut e, dot, chip);
     let before = e.doc.to_json().unwrap();
     let spec = json!({"kind": "instance", "component": "Chip", "overrides": [{"path": "Dot", "swap": "Card"}]});
-    // the nested Dot swapped to Card inside Row: Row would hold Card, which holds Row
+    // the nested Dot swapped to Card inside Row's Layer: Row -> Layer -> Chip -> Dot -> Card -> Row
     let err = e.call("designos_apply_spec", json!({"parent_id": layer_of(&e.doc, row).0, "spec": spec})).unwrap_err();
     assert_eq!(err.code, ErrorCode::InstanceCycle, "{err}");
-    assert_eq!(err.message, "Can't swap: Row would contain itself (Row \u{2192} Card \u{2192} \u{2026} \u{2192} Row)");
+    assert_eq!(err.message, "Can't swap: Row would contain itself (Row \u{2192} Layer \u{2192} \u{2026} \u{2192} Row)");
     let err = e.call("designos_apply_batch", json!({"ops": [{"op": "apply_spec", "parent_id": layer_of(&e.doc, row).0, "spec": spec}]})).unwrap_err();
     assert_eq!(
         err.cause.as_ref().map(|c| c.message.as_str()),
-        Some("Can't swap: Row would contain itself (Row \u{2192} Card \u{2192} \u{2026} \u{2192} Row)"),
+        Some("Can't swap: Row would contain itself (Row \u{2192} Layer \u{2192} \u{2026} \u{2192} Row)"),
         "{err}"
     );
     assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
@@ -208,6 +208,14 @@ fn a_five_hop_swap_loop_with_a_layer_named_layer_keeps_its_name_and_names_the_ta
     let err = e.call("designos_apply_spec", json!({"parent_id": row.0, "spec": spec})).unwrap_err();
     assert_eq!(err.code, ErrorCode::InstanceCycle, "{err}");
     assert_eq!(err.message, "Can't swap: Row would contain itself (Row \u{2192} Layer \u{2192} Dot \u{2192} Card \u{2192} Row)");
+    assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
+
+    // 3. 5-hop spec swap with an unnamed spec instance directly inside Row:
+    // Row -> Chip -> Dot -> Card -> Row.
+    let spec_unnamed = json!({"kind": "instance", "component": "Chip", "overrides": [{"path": "Dot", "swap": "Card"}]});
+    let err = e.call("designos_apply_spec", json!({"parent_id": row.0, "spec": spec_unnamed})).unwrap_err();
+    assert_eq!(err.code, ErrorCode::InstanceCycle, "{err}");
+    assert_eq!(err.message, "Can't swap: Row would contain itself (Row \u{2192} Chip \u{2192} Dot \u{2192} Card \u{2192} Row)");
     assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
 }
 
