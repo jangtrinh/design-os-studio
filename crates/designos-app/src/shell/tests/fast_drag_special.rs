@@ -321,6 +321,56 @@ fn clicking_a_shape_control_handle_does_not_edit_or_add_undo() {
     assert_eq!(g.sim.app().hist.undo_depth(), depth, "a click must not add an undo step");
 }
 
+/// A press on a handle that moves less than the drag threshold is still a click: nothing changes, no undo step, the document
+/// is not marked changed. A move past the threshold is a drag and commits as one undo step.
+fn handle_press_with_move(make: fn() -> Gesture, by: Vec2) -> (Gesture, Vec<f32>, usize) {
+    let mut g = make();
+    assert!(!g.sim.app().has_unsaved_edits(), "{}: the scene starts clean", g.name);
+    let before = g.values();
+    let depth = g.sim.app().hist.undo_depth();
+    g.sim.mv(g.from);
+    g.sim.button(true);
+    g.sim.mv(g.from + by);
+    g.sim.button(false);
+    g.sim.frame(vec![]);
+    (g, before, depth)
+}
+
+fn jitter_below_the_threshold_changes_nothing(make: fn() -> Gesture) {
+    let (g, before, depth) = handle_press_with_move(make, Vec2::new(1.0, 0.0));
+    assert!(same(&g.values(), &before), "{}: a 1 px jitter must leave the values unchanged: {:?} -> {:?}", g.name, before, g.values());
+    assert_eq!(g.sim.app().hist.undo_depth(), depth, "{}: a 1 px jitter must not add an undo step", g.name);
+    assert!(!g.sim.app().has_unsaved_edits(), "{}: a 1 px jitter must not mark the document changed", g.name);
+}
+
+fn move_past_the_threshold_is_one_drag(make: fn() -> Gesture) {
+    let name = make().name;
+    let (g, before, depth) = handle_press_with_move(make, Vec2::new(24.0, 24.0));
+    assert!(!same(&g.values(), &before), "{name}: a real drag changes the values");
+    assert_eq!(g.sim.app().hist.undo_depth(), depth + 1, "{name}: a real drag is one undo step");
+    assert!(g.sim.app().has_unsaved_edits(), "{name}: a real drag marks the document changed");
+}
+
+#[test]
+fn a_corner_radius_handle_ignores_a_jitter_below_the_drag_threshold() {
+    jitter_below_the_threshold_changes_nothing(corner_radius);
+}
+
+#[test]
+fn a_shape_control_handle_ignores_a_jitter_below_the_drag_threshold() {
+    jitter_below_the_threshold_changes_nothing(shape_control);
+}
+
+#[test]
+fn a_corner_radius_handle_moved_past_the_drag_threshold_is_one_undo_step() {
+    move_past_the_threshold_is_one_drag(corner_radius);
+}
+
+#[test]
+fn a_shape_control_handle_moved_past_the_drag_threshold_is_one_undo_step() {
+    move_past_the_threshold_is_one_drag(shape_control);
+}
+
 fn commits_where_released(make: fn() -> Gesture) {
     let (before, want) = reference(make);
     let mut g = make();
