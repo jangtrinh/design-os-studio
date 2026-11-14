@@ -649,10 +649,11 @@ fn hash_node_props(node: &Node) -> u64 {
         let _ = node.style_refs.serialize(HashSerializer(&mut h));
         node.text_style_overrides.hash(&mut h);
     }
-    if node.fill_geometry.is_some() || node.stroke_geometry.is_some() {
+    if node.fill_geometry.is_some() || node.stroke_geometry.is_some() || node.stroke_geometry_for.is_some() {
         5u8.hash(&mut h);
         let _ = node.fill_geometry.serialize(HashSerializer(&mut h));
         let _ = node.stroke_geometry.serialize(HashSerializer(&mut h));
+        let _ = node.stroke_geometry_for.serialize(HashSerializer(&mut h));
     }
     if !node.component.is_empty() {
         6u8.hash(&mut h);
@@ -786,7 +787,7 @@ fn eq_text_style_without_content(a: Option<&TextProps>, b: Option<&TextProps>) -
 }
 
 fn eq_vector_group(a: &Node, b: &Node) -> bool {
-    if a.fill_geometry != b.fill_geometry || a.stroke_geometry != b.stroke_geometry {
+    if a.fill_geometry != b.fill_geometry || a.stroke_geometry != b.stroke_geometry || a.stroke_geometry_for != b.stroke_geometry_for {
         return false;
     }
     match (&a.kind, &b.kind) {

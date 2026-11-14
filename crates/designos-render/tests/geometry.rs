@@ -315,3 +315,99 @@ fn unchanged_layer_with_stored_stroke_outline_and_loaded_unstamped_doc_render_st
     let from_unstamped = t.render(60, 60);
     assert_eq!(from_unstamped.data(), expected.data(), "document loaded without stamps must stamp and draw the stored outline identically");
 }
+
+#[test]
+fn parked_size_outline_loaded_without_stamp_restores_and_renders_child_outline() {
+    fn strip_stamp_keys(v: &mut serde_json::Value) {
+        match v {
+            serde_json::Value::Object(map) => {
+                map.remove("stroke_geometry_for");
+                for child in map.values_mut() {
+                    strip_stamp_keys(child);
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                for item in arr {
+                    strip_stamp_keys(item);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let apply_cmd = |doc: &mut Document, cmd: Command| {
+        cmd.apply(doc).unwrap();
+    };
+    let mut t = T::new();
+
+    // Variant State=A (with Frame child "Badge" whose stroke weight is 4, while instance default stroke weight is 1).
+    let a = t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+        n.name = "State=A".into();
+        n.fills.clear();
+        n
+    });
+    let _badge_main = t.add(Some(a), |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 20.0, 20.0));
+        n.name = "Badge".into();
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(BLUE)];
+        n.stroke.weight = 4.0;
+        n
+    });
+    let cmd = create_component(&mut t.doc, a);
+    apply_cmd(&mut t.doc, cmd);
+
+    // Variant State=B (without "Badge" child).
+    let b = t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(100.0, 0.0, 40.0, 40.0));
+        n.name = "State=B".into();
+        n.fills.clear();
+        n
+    });
+    let cmd = create_component(&mut t.doc, b);
+    apply_cmd(&mut t.doc, cmd);
+
+    let cmd = combine_as_variants(&mut t.doc, &[a, b]);
+    apply_cmd(&mut t.doc, cmd);
+
+    // Create instance at (0, 0); hide the component set so only the instance renders in (0..40, 0..40).
+    let set_id = t.doc.get(a).unwrap().parent.unwrap();
+    t.node(set_id).visible = false;
+    let cmd = create_instance(&mut t.doc, a, t.page, Vec2::new(0.0, 0.0));
+    apply_cmd(&mut t.doc, cmd);
+    let inst = *t.doc.get(t.page).unwrap().children.last().unwrap();
+    assert_eq!(t.doc.get(inst).unwrap().stroke.weight, 1.0);
+
+    let badge_inst = t.doc.get(inst).unwrap().children[0];
+    {
+        let n = t.node(badge_inst);
+        assert_eq!(n.stroke.weight, 4.0);
+        n.size = Vec2::new(40.0, 40.0);
+        n.stroke_geometry = Some(vec![rect_path(0.0, 17.0, 40.0, 6.0)]);
+        n.stamp_stroke_geometry();
+        n.component.overrides.insert(OverrideField::Size);
+    }
+    let expected = t.render(40, 40);
+    assert_eq!(px(&expected, 20, 20), [0, 0, 255, 255], "child outline bar must be drawn before variant switch");
+    assert_eq!(px(&expected, 20, 2), WHITE, "live perimeter stroke must not be drawn when child outline is valid");
+
+    // Switch to State=B so the child's Size + stroke_geometry override is parked on the instance.
+    let cmd = set_instance_prop(&mut t.doc, inst, "State", Some(PropValue::Variant("B".into())));
+    apply_cmd(&mut t.doc, cmd);
+    assert_eq!(t.doc.get(inst).unwrap().component.parked_overrides.len(), 1);
+
+    // Strip all stamps in JSON to simulate a document saved without stamps.
+    let mut val: serde_json::Value = serde_json::from_str(&t.doc.to_json().unwrap()).unwrap();
+    strip_stamp_keys(&mut val);
+    let json = serde_json::to_string(&val).unwrap();
+    assert!(!json.contains("\"stroke_geometry_for\""));
+    t.doc = Document::from_json(&json).unwrap();
+
+    // Restore the parked override by switching back to State=A.
+    let cmd = set_instance_prop(&mut t.doc, inst, "State", Some(PropValue::Variant("A".into())));
+    apply_cmd(&mut t.doc, cmd);
+
+    let after_restore = t.render(40, 40);
+    assert_eq!(after_restore.data(), expected.data(), "restored parked size outline on frame child must render pixel-equal to origin/main");
+}

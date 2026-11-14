@@ -1876,19 +1876,13 @@ impl Document {
         (doc, report)
     }
 
-    /// Stamps any stored [`Node::stroke_geometry`] (and parked size overrides) loaded from a
-    /// document saved before `stroke_geometry_for` existed.
+    /// Stamps any stored [`Node::stroke_geometry`] loaded from a document saved before
+    /// `stroke_geometry_for` existed. Parked `Size` overrides keep `stroke_geometry_for: None`
+    /// so they are stamped from the destination child's own stroke when restored.
     fn stamp_loaded_stroke_outlines(&mut self) {
         for node in self.nodes.values_mut() {
             if node.stroke_geometry.is_some() && node.stroke_geometry_for.is_none() {
                 node.stamp_stroke_geometry();
-            }
-            for po in &mut node.component.parked_overrides {
-                if let ParkedOverrideValue::Size { size, stroke_geometry: Some(sg), stroke_geometry_for: stamp @ None, .. } = &mut po.value {
-                    if !sg.is_empty() {
-                        *stamp = Some(StrokeGeometryStamp::of_size_and_stroke(*size, &node.stroke));
-                    }
-                }
             }
         }
     }
