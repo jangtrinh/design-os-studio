@@ -1,0 +1,70 @@
+# cargo test -p designos-app --bin designos --no-fail-fast, scratch trees of the full repo at 8dfaee93, 2026-10-28 (macOS, debug build, CARGO_TARGET_DIR in scratch)
+# tree A    = theme.rs with token-contract.md (a) applied + the rule-3 apply() lines (extreme_bg_color = BG, hovered = BG_SECONDARY_HOVER, resting stroke BORDER_STRONG, Shadow::NONE)
+# tree A+B  = tree A + contract (c) values + the 5.2 rename (CONTROL_TOOL -> CONTROL_XS, CONTROL_ROW -> CONTROL_MD); the old theme tests are left as they are
+
+## tree A
+terminal::tests::theme_has_info_success_warning_in_token_parity ... FAILED
+result: FAILED. 3493 passed; 1 failed; 12 ignored; 0 measured; 0 filtered out; finished in 442.84s
+
+## tree A+B
+test result: FAILED. 3444 passed; 50 failed; 12 ignored; 0 measured; 0 filtered out; finished in 716.00s
+agent_open_flow::tests::resume_notice_copy_fits_the_narrowest_menus_without_eliding
+agent_open_flow::tests::resume_notice_does_not_outlive_the_menu_that_showed_it
+agent_picker::tests::a_long_other_cli_error_keeps_8px_from_the_buttons_and_stays_in_the_card
+agent_picker::tests::the_other_cli_caption_keeps_8px_from_the_buttons_and_is_not_cut
+agent_start_failure::tests::panel_paints_cause_output_and_one_working_fix_button
+panels::export::tests::format_labels_fit_their_dropdown
+panels::layers::tests::hidden_layers_grey_the_type_label_with_the_name
+panels::layers::tests::only_rows_inside_the_viewport_paint_a_type_label
+panels::layers::tests::type_label_is_clipped_to_the_text_column
+panels::layers::tests::type_label_never_overlaps_the_name_or_the_layer_icon_at_any_depth
+panels::layers::tests::type_label_stays_on_wide_rows_and_gives_way_to_the_name_on_narrow_ones
+result: FAILED. 3444 passed; 50 failed; 12 ignored; 0 measured; 0 filtered out; finished in 716.00s
+shell::tests::agent_turn_card_scroll::ac05_three_row_card_has_no_scrollbar_and_preserves_base_layout
+shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one
+shell::tests::agents_tab_strip::an_exited_tab_title_stays_readable_whether_the_tab_is_active_or_not
+shell::tests::canvas_label_rename::frame_label_r2_four_labels_match_figma_at_zoom_068_and_full_names_at_zoom_2
+shell::tests::dev::dev_mode_component_playground_toggles_props_without_mutating_doc_and_updates_codegen_live
+shell::tests::dev::language_dropdown_switches_the_code_and_copy_reports
+shell::tests::dragging_a_page_row_reorders_it
+shell::tests::layer_drag_fast::a_click_without_movement_only_selects
+shell::tests::layer_drag_fast::a_drag_under_way_drops_where_the_button_came_up_when_the_pointer_moves_on_to_another_row
+shell::tests::layer_drag_fast::a_drag_under_way_drops_where_the_button_came_up_when_the_pointer_moves_on_to_the_canvas
+shell::tests::layer_drag_fast::a_fast_drag_on_a_scrolled_list_moves_the_row_under_the_press_to_the_row_under_the_release
+shell::tests::layer_drag_fast::a_fast_drag_onto_the_middle_of_a_frame_row_reparents_into_it
+shell::tests::layer_drag_fast::a_fast_drag_selects_the_row_it_drags
+shell::tests::layer_drag_fast::a_fast_multi_selection_drag_moves_the_same_layers_as_a_slow_one
+shell::tests::layer_drag_fast::a_jitter_inside_a_click_in_one_frame_only_selects
+shell::tests::layer_drag_fast::a_long_drag_released_before_a_scroll_in_the_same_frame_lands_on_the_indicator_the_user_saw
+shell::tests::layer_drag_fast::a_long_drag_released_in_a_frame_that_also_scrolls_lands_on_the_indicator_the_user_saw
+shell::tests::layer_drag_fast::a_long_drag_released_one_frame_after_a_mouse_wheel_notch_lands_on_the_indicator_the_user_saw
+shell::tests::layer_drag_fast::a_long_drag_released_without_a_scroll_lands_on_the_indicator
+shell::tests::layer_drag_fast::a_one_frame_drag_whose_pointer_moves_on_after_the_release_drops_at_the_release
+shell::tests::layer_drag_fast::a_press_and_release_in_one_frame_without_movement_only_selects
+shell::tests::layer_drag_fast::a_press_in_its_own_frame_then_move_and_release_in_the_next_reorder
+shell::tests::layer_drag_fast::a_press_the_list_never_saw_released_is_forgotten_once_the_button_is_up
+shell::tests::layer_drag_fast::a_slow_drag_across_several_frames_still_reorders
+shell::tests::layer_drag_fast::a_slow_drag_on_a_scrolled_list_moves_the_row_under_the_press_to_the_row_under_the_release
+shell::tests::layer_drag_fast::press_and_move_in_one_frame_then_the_release_reorder
+shell::tests::layer_drag_fast::press_move_and_release_in_one_frame_reorder
+shell::tests::layer_drag_fast::the_press_row_is_the_one_dragged_when_the_pointer_moved_on_within_the_frame
+shell::tests::layer_drag_fast::the_release_frame_carrying_the_last_move_reorders
+shell::tests::layers_drag_reparents_into_frame
+shell::tests::layers_panel_click_and_visibility_toggle
+shell::tests::lint::design_os_gates_audit_all_studio_screens_zero_overflow_zero_purple_and_valid_contrast
+shell::tests::lint::nothing_overflows_and_icons_are_centered
+shell::tests::menus::hovering_opens_a_submenu_and_clicking_a_leaf_runs_it
+shell::tests::page_context_menu_duplicates_and_deletes
+terminal::tests::theme_has_info_success_warning_in_token_parity
+theme::tests::only_three_ui_weights_exist
+theme::tests::type_roles_keep_their_order_and_the_canvas_size_is_the_only_one_below_the_chrome_floor
+widgets::tests::field_text_baseline_is_16px_below_the_top
+
+## rerun in isolation (tree A+B): cargo test ... -- agents_tab_strip canvas_label_rename agent_turn_card_scroll effect_grid_styles
+test result: FAILED. 44 passed; 3 failed — ac05_three_row_card..., an_exited_tab_title_stays_readable..., frame_label_r2_four_labels_match_figma...; an_exited_tab_has_its_own_status_dot... and the 4 effect_grid_styles tests pass
+
+## canvas frame label experiments (tree A+B, 2026-10-28; cargo test ... -- canvas_label_rename, 17 tests)
+baseline A+B (label in font_body, 12 px, weight 400): 16 passed, 1 failed (frame_label_r2_four_labels_match_figma...)
+(a) label in an 11 px Proportional font (weight 400): 12 passed, 5 failed
+(b) label in an extra weight-450 instance (new FontFamily::Name): 13 passed, 4 failed (frame_label_measures_with_app_egui_context_fonts panics in epaint fonts.rs:1031: the named family is missing from that test context; f1, f3, f5 assert on elision points)
+=> not a verified fix; B spec 10.1 lists it as an open decision

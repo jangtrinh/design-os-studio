@@ -1,0 +1,37 @@
+{
+ "\u2756 FOUNDATIONS": {
+  "components": 2197,
+  "component_sets": 15,
+  "pages": 7
+ },
+ "\u2756 BASE COMPONENTS": {
+  "components": 3,
+  "component_sets": 62,
+  "pages": 16
+ },
+ "\u2756 SHARED ASSETS": {
+  "components": 4,
+  "component_sets": 25,
+  "pages": 7
+ },
+ "\u2756 APPLICATION EXAMPLES": {
+  "components": 16,
+  "component_sets": 0,
+  "pages": 3
+ },
+ "\u2756 APPLICATION COMPONENTS": {
+  "components": 7,
+  "component_sets": 110,
+  "pages": 29
+ },
+ "\u2756 MARKETING WEBSITE COMPONENTS": {
+  "components": 5,
+  "component_sets": 48,
+  "pages": 16
+ },
+ "\u2756 UTILITY": {
+  "components": 3,
+  "component_sets": 8,
+  "pages": 1
+ }
+}
