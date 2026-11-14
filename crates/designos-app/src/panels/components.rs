@@ -327,13 +327,15 @@ fn render_instance_prop_rows(
         if record_bare && key != bare_key {
             widgets::record(ui, &bare_key, ctl);
         }
-        // Boolean, text and variant properties of the instance itself take a variable: a pill in place of the
-        // control while bound, else the control with the same bind button the other fields have.
-        let bind_kind = if nested_scope.is_none() { bindable_prop_kind(&def.kind) } else { None };
+        // Boolean, text and variant properties take a variable, on a nested instance as on the instance itself: a pill in
+        // place of the control while bound, else the control with the same bind button the other fields have. A nested row
+        // names its widgets by its own key, as several rows bind the same property name.
+        let bind_kind = bindable_prop_kind(&def.kind);
         let bind_key = prop_binding_key(&def.name);
         let bind_keys = [bind_key.as_str()];
         let sel = [target_inst];
-        if bind_kind.is_some() && var_bind::pill_field(app, ui, ctl, &sel, &bind_keys) {
+        let bind_scope = nested_scope.map(|_| key.as_str());
+        if bind_kind.is_some() && var_bind::pill_field_in(app, ui, ctl, &sel, &bind_keys, bind_scope) {
             row_end(pane);
             continue;
         }
@@ -384,7 +386,7 @@ fn render_instance_prop_rows(
             _ => {}
         }
         if let Some(kind) = bind_kind {
-            var_bind::hover_button(app, ui, ctl_full, &sel, &bind_keys, kind);
+            var_bind::hover_button_in(app, ui, ctl_full, &sel, &bind_keys, kind, bind_scope);
         }
         row_end(pane);
     }

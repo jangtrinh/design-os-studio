@@ -859,6 +859,13 @@ fn open_style_picker(app: &mut App, style_key: &str, prop: &str, kind: VariableK
 /// Draws the bound-variable pill in place of a field when `keys[0]` is bound
 /// on the first selected node. Returns whether it did.
 pub fn pill_field(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str]) -> bool {
+    pill_field_in(app, ui, rect, sel, keys, None)
+}
+
+/// [`pill_field`] for a row that shares its binding key with other rows of the panel, like the rows of the nested instances an
+/// outer instance exposes. `scope` is the row's own unique key: it names the pill's widget id and its recorded name, so two rows
+/// that bind the same property name stay two widgets.
+pub fn pill_field_in(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], scope: Option<&str>) -> bool {
     let Some(first) = sel.first() else { return false };
     let k0 = keys[0];
     // Only the node's own binding draws a detachable pill here; a binding that comes from a linked style is shown elsewhere.
@@ -882,7 +889,7 @@ pub fn pill_field(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: 
         Some(VariableValue::Color(c)) => Some(to_c32(c)),
         _ => None,
     };
-    let r = draw_pill(ui, rect, || format!("bound:{k0}"), ("bound", k0), &label, swatch);
+    let r = draw_pill(ui, rect, || format!("bound:{}", scope.unwrap_or(k0)), ("bound", k0, scope), &label, swatch);
     if let Some(prop) = k0.strip_prefix(PROP_BINDING_PREFIX) {
         if let Some(problem) = prop_binding_problem(&app.doc, *first, prop) {
             r.body.clone().on_hover_text(problem.to_string());
@@ -898,11 +905,21 @@ pub fn pill_field(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: 
 
 /// Small hexagon button that opens the variable picker when a matching variable exists.
 pub fn hover_button(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], kind: VariableKind) {
+    hover_button_in(app, ui, rect, sel, keys, kind, None)
+}
+
+/// [`hover_button`] for a row with its own `scope` key, as in [`pill_field_in`]. A scoped row is open only while the picker
+/// is open for its own nodes, so the other rows that bind the same property name do not light up with it.
+pub fn hover_button_in(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], kind: VariableKind, scope: Option<&str>) {
     let target_kind = node_target_kind(app, sel);
     let k0 = keys[0];
     let has_vars = has_matching_var(app, ui.ctx(), k0, kind, target_kind);
-    let is_open = app.vars.bind_picker.as_ref().is_some_and(|b| b.style_key.is_none() && b.keys.first().map(String::as_str) == Some(k0));
-    if draw_hover_button(ui, rect, || format!("bind:{k0}"), ("bind-btn", k0), has_vars, is_open, true) {
+    let is_open = app
+        .vars
+        .bind_picker
+        .as_ref()
+        .is_some_and(|b| b.style_key.is_none() && b.keys.first().map(String::as_str) == Some(k0) && (scope.is_none() || b.nodes.as_slice() == sel));
+    if draw_hover_button(ui, rect, || format!("bind:{}", scope.unwrap_or(k0)), ("bind-btn", k0, scope), has_vars, is_open, true) {
         open_picker(app, sel, keys, kind, rect);
     }
 }

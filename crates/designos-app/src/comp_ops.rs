@@ -492,6 +492,31 @@ impl App {
         }
     }
 
+    /// The property a binding `key` of `node` names when `node` is an instance nested in another (a copy inside an outer
+    /// instance) and the key is a component property binding. Such a binding is made through [`App::bind_nested_prop_in`].
+    pub(crate) fn nested_prop_binding_name<'k>(&self, node: NodeId, key: &'k str) -> Option<&'k str> {
+        let name = prop_binding_name(key)?;
+        let n = self.doc.get(node).filter(|n| matches!(n.kind, NodeKind::Instance { .. }))?;
+        (!is_top_instance(n)).then_some(name)
+    }
+
+    /// Binds component property `name` of the nested copy `inst` to variable `var`, or with `None` unbinds it, in `tx`: the
+    /// command `designos_update_node` with `prop_vars` plans, so a bind made on the outer instance's panel and one made by an
+    /// agent leave the same nodes. The copy's own binding survives a sync of the main, and unbinding what it inherits holds it
+    /// on the variant it shows. A refusal (a bind that would make a component hold itself) says so in a toast.
+    pub(crate) fn bind_nested_prop_in(&mut self, tx: &mut Tx, inst: NodeId, name: &str, var: Option<&str>) {
+        match bind_prop_variables_explained(&mut self.doc, inst, &[(name, var)]) {
+            Ok((cmd, refusal)) => {
+                if is_noop(&cmd) {
+                    self.explain_refusal(refusal);
+                } else if self.push_cmd(tx, cmd) {
+                    layout::relayout_around(&mut self.doc, &mut tx.ed, inst);
+                }
+            }
+            Err(e) => self.show_toast(e.to_string(), true),
+        }
+    }
+
     /// Sets whether a primary nested instance inside a main component exposes its properties on outer instances.
     pub fn set_expose_nested_instance(&mut self, nested_inst: NodeId, expose: bool) {
         self.comp_edit(|d| set_expose_nested_instance(d, nested_inst, expose));

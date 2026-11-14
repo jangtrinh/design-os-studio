@@ -1278,6 +1278,7 @@ mod comments;
 mod components;
 pub(super) mod components_cycles;
 mod components_main_copies;
+mod components_nested_variant_binds;
 mod connector_rules;
 mod corner_radius;
 mod decks;
