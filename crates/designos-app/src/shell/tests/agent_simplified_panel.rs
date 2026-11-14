@@ -201,6 +201,97 @@ fn composer_toolbar_is_plus_pill_mode_send() {
 }
 
 #[test]
+fn composer_mode_control_shows_focused_tab_mode() {
+    let mut s = session_sim();
+    // The running tab keeps the mode it was started with. Changing the global
+    // value only changes the mode used by future tabs.
+    assert_eq!(s.shell.app.terminal.active_tab().unwrap().permission_mode, crate::agent_permissions::AgentPermissionMode::Ask);
+    s.shell.app.terminal.permission_mode = crate::agent_permissions::AgentPermissionMode::Skip;
+    frames(&mut s, 2);
+    let texts = painted(&s);
+    assert!(texts.iter().any(|text| text == "Ask first"), "focused tab mode is visible: {texts:?}");
+    assert!(!texts.iter().any(|text| text == "Skip permissions"), "new-tab mode must not replace focused tab mode: {texts:?}");
+    finish(s);
+}
+
+/// The New chat state over a running tab starts a NEW tab: its closed control shows the mode that new tab will get (the window
+/// default), not the mode of the tab the state covers.
+#[test]
+fn composer_mode_control_in_new_chat_over_a_tab_shows_the_new_tab_mode() {
+    use crate::agent_permissions::AgentPermissionMode;
+    let mut s = session_sim();
+    s.shell.app.terminal.permission_mode = AgentPermissionMode::Skip;
+    frames(&mut s, 2);
+    let plus = recorded(&s, "agents-new-chat-btn").unwrap();
+    s.click(plus.center());
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.picker_open, "+ opens the New chat state");
+    let texts = painted(&s);
+    assert!(texts.iter().any(|text| text == "Skip permissions"), "New chat shows the mode a new tab gets: {texts:?}");
+    assert!(!texts.iter().any(|text| text == "Ask first"), "the covered tab's mode is not shown in New chat: {texts:?}");
+    s.type_text("new task");
+    s.key(Key::Enter);
+    frames(&mut s, 3);
+    let tabs = &s.shell.app.terminal.tabs;
+    assert_eq!(tabs.len(), 2, "Send started a second tab");
+    assert_eq!(tabs[0].permission_mode, AgentPermissionMode::Ask, "the first tab keeps its mode");
+    assert_eq!(tabs[1].permission_mode, AgentPermissionMode::Skip, "the new tab runs in the mode the control showed");
+    finish(s);
+}
+
+/// The label names the mode the NEXT SEND uses. A tab whose agent has exited takes no send: a send resumes or starts an agent in the
+/// window default, so the control shows the window default, and the tab that then runs is in that mode.
+#[test]
+fn composer_mode_control_after_the_agent_exits_shows_the_mode_the_send_uses() {
+    use crate::agent_permissions::AgentPermissionMode;
+    let mut s = session_sim();
+    assert_eq!(s.shell.app.terminal.tabs[0].permission_mode, AgentPermissionMode::Ask);
+    s.shell.app.terminal.permission_mode = AgentPermissionMode::Skip;
+    // An agent that ran for a while and then exited, not one that failed to start.
+    s.shell.app.terminal.tabs[0].spawned_at = std::time::Instant::now() - std::time::Duration::from_secs(10);
+    let _ = s.shell.app.terminal.tabs[0].child.kill();
+    for _ in 0..200 {
+        frames(&mut s, 1);
+        if !s.shell.app.terminal.tabs[0].is_alive() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    frames(&mut s, 3);
+    assert!(!s.shell.app.terminal.tabs[0].is_alive(), "the agent has exited");
+    let texts = painted(&s);
+    let shows_skip = texts.iter().any(|text| text == "Skip permissions");
+    let shows_ask = texts.iter().any(|text| text == "Ask first");
+    s.shell.app.terminal.set_composer_draft("carry on");
+    let outcome = s.shell.app.terminal.send_from_composer_box("carry on", None);
+    assert_eq!(outcome, crate::agent_composer::SendOutcome::Queued, "the send starts an agent and queues the message");
+    frames(&mut s, 5);
+    let terminal = &mut s.shell.app.terminal;
+    let idx = terminal.active_tab.min(terminal.tabs.len() - 1);
+    let sent_mode = terminal.tabs[idx].permission_mode;
+    assert_eq!(sent_mode, AgentPermissionMode::Skip, "the send resumed or started the agent in the window default");
+    assert!(shows_skip && !shows_ask, "the label agrees with the mode the send used ({sent_mode:?}): {texts:?}");
+    finish(s);
+}
+
+/// A shell tab takes no agent send (it is refused), so the control shows the window default, the mode an agent opened from there gets.
+#[test]
+fn composer_mode_control_over_a_shell_tab_shows_the_window_default() {
+    use crate::agent_permissions::AgentPermissionMode;
+    let mut s = session_sim();
+    s.shell.app.terminal.spawn_tab(AgentCliPreset::Shell, None).expect("a shell tab starts");
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.active_tab().unwrap().is_shell_process(), "the shell tab is focused");
+    s.shell.app.terminal.tabs[1].permission_mode = AgentPermissionMode::Ask;
+    s.shell.app.terminal.permission_mode = AgentPermissionMode::Skip;
+    frames(&mut s, 3);
+    let texts = painted(&s);
+    assert!(texts.iter().any(|text| text == "Skip permissions"), "the control shows the window default: {texts:?}");
+    assert!(!texts.iter().any(|text| text == "Ask first"), "not the shell tab's stored mode: {texts:?}");
+    finish(s);
+}
+
+#[test]
 fn context_row_is_gone() {
     let mut s = session_sim();
     let page = s.shell.app.page;
