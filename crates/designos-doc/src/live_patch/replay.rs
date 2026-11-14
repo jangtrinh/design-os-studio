@@ -145,14 +145,8 @@ pub fn replay_live_patch(
         state.base = patch.base;
     }
     let is_spec_undo = patch.ops.iter().any(|o| matches!(o, LiveOp::Remove { .. }));
-    for (op_idx, op) in patch.ops.iter().enumerate() {
-        if let LiveOp::Update { id: agent_id, .. } = op {
-            let (id, _) = resolve_id(&state.remap, &state.replaced, doc, *agent_id);
-            if doc.get(id).is_some_and(|n| matches!(n.kind, NodeKind::Table(_))) {
-                touched_tables.insert(id);
-            }
-        }
-        if let Some(cmd) = resolve(doc, &patch.ops[op_idx + 1..], op, is_spec_undo, state, &mut report) {
+    for op in &patch.ops {
+        if let Some(cmd) = resolve(doc, op, is_spec_undo, state, &mut report) {
             crate::table::touched_tables(doc, &cmd, &mut touched_tables);
             if let Err(e) = exec(doc, cmd) {
                 *state = saved;
@@ -223,14 +217,7 @@ pub fn replay_live_patch_checked(doc: &mut Document, patch: &LivePatch, state: &
     outcome
 }
 
-fn resolve(
-    doc: &mut Document,
-    following_ops: &[LiveOp],
-    op: &LiveOp,
-    is_spec_undo: bool,
-    state: &mut LivePatchState,
-    report: &mut LivePatchReport,
-) -> Option<Command> {
+fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut LivePatchState, report: &mut LivePatchReport) -> Option<Command> {
     match op {
         LiveOp::Insert { parent: agent_parent, at, nodes } => {
             let (parent, redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_parent);
@@ -266,7 +253,7 @@ fn resolve(
                     return None;
                 }
             };
-            merge_table_replay_geometry(doc, cur, &mut merged, following_ops, state);
+            merge_table_replay_geometry(cur, &mut merged);
             let skipped_links = filter_missing_token_links_on_update(doc, cur, &mut merged, report);
             if merged == *cur {
                 if skipped_links == 0 {
@@ -902,98 +889,25 @@ fn merge_fields(cur: &Node, set: &Map<String, Value>, unset: &[String]) -> Resul
     Ok(merged)
 }
 
-/// Keep the editor's existing track sizes when a table patch was built from an older agent
-/// snapshot, except for tracks the agent resized on purpose in a non-structural table edit.
-/// A final relayout recomputes table and cell geometry from the merged tracks.
-fn merge_table_replay_geometry(doc: &Document, current: &Node, merged: &mut Node, following_ops: &[LiveOp], state: &LivePatchState) {
+/// Keep the editor's existing track sizes when a structural table patch was built from an older
+/// agent snapshot. The patch still contributes new row/column IDs and merge membership; a final
+/// relayout below recomputes table and cell geometry from the merged tracks.
+fn merge_table_replay_geometry(current: &Node, merged: &mut Node) {
     let (NodeKind::Table(current_props), NodeKind::Table(merged_props)) = (&current.kind, &mut merged.kind) else { return };
     let same_ids = |a: &[crate::TableTrack], b: &[crate::TableTrack]| a.iter().map(|t| t.id).eq(b.iter().map(|t| t.id));
     let structural =
         !same_ids(&current_props.rows, &merged_props.rows) || !same_ids(&current_props.cols, &merged_props.cols) || current_props.merges != merged_props.merges;
-    if structural {
-        for track in &mut merged_props.rows {
-            if let Some(old) = current_props.rows.iter().find(|t| t.id == track.id) {
-                track.size = old.size;
-            }
-        }
-        for track in &mut merged_props.cols {
-            if let Some(old) = current_props.cols.iter().find(|t| t.id == track.id) {
-                track.size = old.size;
-            }
-        }
+    if !structural {
         return;
-    }
-
-    let mut size_changed_cells = BTreeSet::new();
-    let mut transform_changed_cells = BTreeSet::new();
-    for op in following_ops {
-        if let LiveOp::Update { id: agent_id, set, .. } = op {
-            let (id, _) = resolve_id(&state.remap, &state.replaced, doc, *agent_id);
-            if id == current.id {
-                break;
-            }
-            if doc.get(id).is_some_and(|n| n.parent == Some(current.id) && matches!(n.kind, NodeKind::TableCell(_))) {
-                if set.contains_key("size") {
-                    size_changed_cells.insert(id);
-                }
-                if set.contains_key("transform") {
-                    transform_changed_cells.insert(id);
-                }
-            }
-        }
-    }
-    if size_changed_cells.is_empty() {
-        return;
-    }
-
-    let col_all_sized = |col_id: crate::TrackId| -> bool {
-        let mut any = false;
-        for &cid in &current.children {
-            if let Some(Node { kind: NodeKind::TableCell(cell), .. }) = doc.get(cid) {
-                if cell.col == col_id {
-                    any = true;
-                    if !size_changed_cells.contains(&cid) {
-                        return false;
-                    }
-                }
-            }
-        }
-        any
-    };
-    let row_all_sized = |row_id: crate::TrackId| -> bool {
-        let mut any = false;
-        for &cid in &current.children {
-            if let Some(Node { kind: NodeKind::TableCell(cell), .. }) = doc.get(cid) {
-                if cell.row == row_id {
-                    any = true;
-                    if !size_changed_cells.contains(&cid) {
-                        return false;
-                    }
-                }
-            }
-        }
-        any
-    };
-
-    let all_cols_sized = current_props.cols.iter().all(|t| col_all_sized(t.id));
-    let all_rows_sized = current_props.rows.iter().all(|t| row_all_sized(t.id));
-    let single_row_pure_row_resize = current_props.rows.len() == 1 && current_props.cols.len() > 1 && all_cols_sized && transform_changed_cells.is_empty();
-    let single_col_pure_col_resize = current_props.cols.len() == 1 && current_props.rows.len() > 1 && all_rows_sized && transform_changed_cells.is_empty();
-
-    for track in &mut merged_props.cols {
-        let agent_resized = col_all_sized(track.id) && !single_row_pure_row_resize;
-        if !agent_resized {
-            if let Some(old) = current_props.cols.iter().find(|t| t.id == track.id) {
-                track.size = old.size;
-            }
-        }
     }
     for track in &mut merged_props.rows {
-        let agent_resized = row_all_sized(track.id) && !single_col_pure_col_resize;
-        if !agent_resized {
-            if let Some(old) = current_props.rows.iter().find(|t| t.id == track.id) {
-                track.size = old.size;
-            }
+        if let Some(old) = current_props.rows.iter().find(|t| t.id == track.id) {
+            track.size = old.size;
+        }
+    }
+    for track in &mut merged_props.cols {
+        if let Some(old) = current_props.cols.iter().find(|t| t.id == track.id) {
+            track.size = old.size;
         }
     }
 }
