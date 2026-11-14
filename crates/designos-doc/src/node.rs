@@ -322,7 +322,7 @@ pub struct ComponentLink {
     /// runtime-only: the `.fig` loader needs them while the page is unopened,
     /// but native `.designos` and MCP serialization must never expose them.
     #[serde(skip)]
-    pub(crate) fig_own_entry_flags: BTreeSet<OverrideField>,
+    pub fig_own_entry_flags: BTreeSet<OverrideField>,
     /// Property definitions (Component / ComponentSet only).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub props: Vec<ComponentPropDef>,
