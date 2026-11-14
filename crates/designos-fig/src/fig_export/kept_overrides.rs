@@ -201,11 +201,13 @@ fn stale_consumption_fields(
             let old = own_float(own_entries, key).or_else(|| own_float(own_entries, "cornerRadius")).or_else(|| main_node.map(|m| m.corner_radii[idx]));
             if old.is_none_or(|r| (cur - r).abs() > 1e-5) {
                 stale.insert(name);
+                if idx == 0 {
+                    stale.insert("CORNER_RADIUS");
+                }
                 any_corner_changed = true;
             }
         }
         if any_corner_changed {
-            stale.insert("CORNER_RADIUS");
             stale.insert("RECTANGLE_CORNER_RADII");
         }
     }

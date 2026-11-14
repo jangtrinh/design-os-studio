@@ -285,6 +285,89 @@ fn editing_one_axis_border_side_or_corner_keeps_sibling_bindings_on_unopened_ins
 }
 
 #[test]
+fn editing_a_non_zero_corner_keeps_the_uniform_corner_radius_binding_on_unopened_instance() {
+    let token_a = (2, 2);
+    let token_b = (2, 3);
+    let float_var = |id: (u64, u64), name: &str, key: &str, val: f64| {
+        fig_node(
+            id,
+            (1, 2),
+            "VARIABLE",
+            name,
+            json!({
+                "key": key,
+                "variableSetID": {"guid": guid(1, 2)},
+                "variableResolvedType": "FLOAT",
+                "variableDataValues": {"entries": [{
+                    "modeID": guid(1, 100),
+                    "variableData": {"dataType": "FLOAT", "resolvedDataType": "FLOAT", "value": {"floatValue": val}}
+                }]}
+            }),
+        )
+    };
+    let float_alias = |id: (u64, u64)| {
+        json!({
+            "dataType": "ALIAS",
+            "resolvedDataType": "FLOAT",
+            "value": {"alias": {"guid": guid(id.0, id.1)}}
+        })
+    };
+    let vars = vec![float_var(token_a, "token-a", "TOKEN_A", 8.0), float_var(token_b, "token-b", "TOKEN_B", 12.0)];
+
+    let corner_entries = json!([
+        {"variableField": "CORNER_RADIUS", "variableData": float_alias(token_a)},
+        {"variableField": "RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS", "variableData": float_alias(token_b)}
+    ]);
+    let corner_props = json!({
+        "cornerRadius": 8.0,
+        "rectangleCornerRadiiIndependent": true,
+        "rectangleTopLeftCornerRadius": 8.0,
+        "rectangleTopRightCornerRadius": 8.0,
+        "rectangleBottomRightCornerRadius": 12.0,
+        "rectangleBottomLeftCornerRadius": 8.0
+    });
+    let mut own_corner = corner_props.clone();
+    own_corner["guidPath"] = json!({"guids": [guid(BUTTON.0, BUTTON.1)]});
+    own_corner["variableConsumptionMap"] = json!({"entries": corner_entries});
+    own_corner["parameterConsumptionMap"] = json!({"entries": corner_entries});
+    let mut overrides_corner = text_and_stroke_overrides();
+    overrides_corner.as_array_mut().expect("entries").push(own_corner);
+    let fig_corner = fixture_with(corner_props, overrides_corner, vars, Vec::new());
+
+    let mut live_corner = import_fig(&fig_corner).expect("import");
+    let button_corner = variant_button(&live_corner);
+    live_corner.get_mut(button_corner).expect("instance").corner_radii[2] = 20.0;
+
+    let saved_corner = export_fig(&live_corner).expect("export");
+    let expected_corner_map = json!({"entries": [
+        {"variableField": "CORNER_RADIUS", "variableData": float_alias(token_a)}
+    ]});
+    assert_eq!(
+        own_entry(&saved_corner)["variableConsumptionMap"],
+        expected_corner_map,
+        "CORNER_RADIUS stays bound to token A when corner_radii[0] is unchanged and only corner_radii[2] is edited"
+    );
+    assert_eq!(own_entry(&saved_corner)["parameterConsumptionMap"], expected_corner_map);
+
+    let back_corner = reopened(&saved_corner);
+    let reopened_corner = back_corner.get(variant_button(&back_corner)).expect("instance");
+    assert_eq!(reopened_corner.corner_radii, [8.0, 8.0, 20.0, 8.0]);
+    assert_eq!(reopened_corner.variables.bindings.get("topLeftRadius").map(String::as_str), Some("VariableID:2:2"));
+    assert!(!reopened_corner.variables.bindings.values().any(|v| v == "VariableID:2:3"), "bottom-right token B binding is gone");
+
+    // A full CornerRadii reset still clears every corner binding, including CORNER_RADIUS.
+    let mut live_reset = import_fig(&fig_corner).expect("import");
+    let button_reset = variant_button(&live_reset);
+    assert!(live_reset.get_mut(button_reset).expect("instance").component.remove_override(&OverrideField::CornerRadii));
+    let saved_reset = export_fig(&live_reset).expect("export");
+    assert_eq!(
+        saved_entries(&saved_reset, INSTANCE),
+        text_and_stroke_overrides().as_array().expect("entries").as_slice(),
+        "resetting CornerRadii clears all corner fields and bindings from the own entry"
+    );
+}
+
+#[test]
 fn a_fill_change_of_the_unopened_instance_survives_a_save() {
     let fig = fixture_with_own_entry();
     let mut live = import_fig(&fig).expect("import");
