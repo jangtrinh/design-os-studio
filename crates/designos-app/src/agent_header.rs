@@ -87,6 +87,7 @@ pub fn paint(state: &mut TerminalState, ui: &mut Ui, rect: Rect) -> Rect {
         state.picker_open = false;
         state.runtime_dropdown_open = false;
         state.sessions_popover_open = false;
+        state.mention_popup.dismiss();
         state.picker.on_close();
         state.refresh_tab_usage(idx);
     } else if plus_resp.clicked() {

@@ -58,6 +58,15 @@ impl MentionPopupState {
         self.search_job = None;
     }
 
+    /// Closes the popup the way `Esc` does: the token that was open stays closed until the user edits it, so a composer that still
+    /// holds the same `@` does not open it again on the next pass.
+    pub fn dismiss(&mut self) {
+        if self.open {
+            self.dismissed_token = Some((self.at_byte, self.query.clone()));
+            self.close();
+        }
+    }
+
     /// Synchronizes the popup state with `input_line` in composer mode (`cursor_byte` defaults to `input_line.len()`).
     pub fn sync_from_composer_text(&mut self, input_line: &str, cursor_byte: usize, doc: &Document, current_page: NodeId) {
         match detect_at_query(input_line, cursor_byte) {
@@ -236,6 +245,17 @@ impl MentionPopupState {
             anchor_rect.left().clamp(panel_rect.left() + theme::SPACE_FACT, (panel_rect.right() - popup_w - theme::SPACE_FACT).max(panel_rect.left()));
         let popup_y = (anchor_rect.top() - theme::SPACE_FACT - popup_h).max(panel_rect.top() + theme::SPACE_FACT);
         let popup_rect = Rect::from_min_size(Pos2::new(popup_x, popup_y), Vec2::new(popup_w, popup_h));
+
+        // A press outside the popup and the composer it is anchored to closes it, as it closes the attach and mode menus. A press in
+        // the composer moves the caret, and the text under the caret decides whether the popup stays.
+        if ui.input(|i| i.pointer.any_pressed()) {
+            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                if !popup_rect.contains(pos) && !anchor_rect.contains(pos) {
+                    self.dismiss();
+                    return MentionPopupOutcome::Dismissed;
+                }
+            }
+        }
 
         let p = ui.painter().clone();
         widgets::kit::popover_surface(&p, popup_rect);

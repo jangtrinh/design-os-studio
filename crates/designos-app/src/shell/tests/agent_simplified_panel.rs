@@ -649,6 +649,92 @@ fn the_terminal_takes_clicks_and_scroll_when_no_menu_is_open() {
     frames(&mut s, 1);
     let scrolled = s.shell.app.terminal.tabs[0].parser.lock().unwrap().screen().scrollback();
     assert!(scrolled > 0, "the wheel scrolls the terminal scrollback, got {scrolled}");
+
+    // A stale `open` flag with nothing painted must not make a terminal unclickable: a shell tab paints no popup.
+    s.shell.app.terminal.spawn_tab(AgentCliPreset::Shell, None).expect("a shell tab starts");
+    frames(&mut s, 3);
+    s.shell.app.terminal.mention_popup.open = true;
+    drag_in_viewport(&mut s);
+    assert!(s.shell.app.terminal.active_tab().unwrap().selection.is_some(), "a drag still selects with a stale mention flag and nothing painted");
+    finish(s);
+}
+
+/// A drag inside the viewport, away from any overlay.
+fn drag_in_viewport(s: &mut Sim) {
+    let vp = recorded(s, "agents-terminal-viewport").expect("the panel recorded its viewport");
+    s.drag(egui::pos2(vp.left() + 40.0, vp.top() + 40.0), egui::pos2(vp.left() + 160.0, vp.top() + 60.0));
+    frames(s, 1);
+}
+
+/// Types `@` in the composer of the tab on screen and waits for the popup.
+fn open_mention_popup(s: &mut Sim) {
+    let input = recorded(s, "agents-composer-input").unwrap();
+    s.click(input.center());
+    frames(s, 2);
+    s.type_text("@");
+    frames(s, 4);
+    assert!(s.shell.app.terminal.mention_popup.is_open(), "typing @ opens the popup");
+}
+
+/// The popup is state of the whole panel. A tab with no live composer paints none, so it must neither keep the flag nor leave the
+/// terminal under it hover-only.
+#[test]
+fn an_open_mention_popup_leaves_a_shell_tab_clickable_and_is_closed_when_the_agent_tab_returns() {
+    let mut s = session_sim();
+    open_mention_popup(&mut s);
+    s.shell.app.terminal.spawn_tab(AgentCliPreset::Shell, None).expect("a shell tab starts");
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.active_tab().unwrap().is_shell_process(), "the shell tab is on screen");
+    assert!(!s.shell.app.terminal.mention_popup.is_open(), "a composer that is not live closes the popup");
+    s.shell.app.terminal.viewport_focused = false;
+    let vp = recorded(&s, "agents-terminal-viewport").unwrap();
+    s.click(egui::pos2(vp.left() + 40.0, vp.top() + 40.0));
+    assert!(s.shell.app.terminal.viewport_focused, "a click focuses the shell terminal");
+    drag_in_viewport(&mut s);
+    assert!(s.shell.app.terminal.active_tab().unwrap().selection.is_some(), "a drag selects in the shell terminal");
+    s.shell.app.terminal.active_tab = 0;
+    frames(&mut s, 3);
+    assert!(!s.shell.app.terminal.mention_popup.is_open(), "back on the agent tab the popup stays closed");
+    finish(s);
+}
+
+/// A press on a blank terminal cell dismisses the popup, as it dismisses the attach and mode menus, and the terminal takes that
+/// press or the next one.
+#[test]
+fn a_press_on_a_blank_terminal_cell_closes_the_mention_popup_and_the_terminal_takes_it() {
+    let mut s = session_sim();
+    open_mention_popup(&mut s);
+    let row = recorded(&s, "agent-mention-popup").expect("the popup rect");
+    let vp = recorded(&s, "agents-terminal-viewport").unwrap();
+    let blank = egui::pos2(vp.center().x, (vp.top() + 20.0).min(row.top() - 10.0).max(vp.top() + 4.0));
+    assert!(!row.contains(blank), "the press is outside the popup");
+    s.shell.app.terminal.viewport_focused = false;
+    s.click(blank);
+    frames(&mut s, 2);
+    assert!(!s.shell.app.terminal.mention_popup.is_open(), "the press closed the popup");
+    assert!(s.shell.app.terminal.viewport_focused, "the press focused the terminal");
+    let before = s.shell.app.terminal.active_tab().unwrap().selection;
+    drag_in_viewport(&mut s);
+    assert!(s.shell.app.terminal.active_tab().unwrap().selection.is_some(), "the next drag selects (was {before:?})");
+    finish(s);
+}
+
+/// A tab switch made on the strip closes the popup, even when the tab it lands on carries the same `@` token.
+#[test]
+fn switching_agent_tabs_closes_the_mention_popup() {
+    let mut s = session_sim();
+    s.shell.app.terminal.set_composer_draft("@");
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.mention_popup.is_open());
+    s.shell.app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("a second agent tab");
+    s.shell.app.terminal.set_composer_draft("@");
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.mention_popup.is_open());
+    let last = recorded(&s, "agents-left-tab-select").expect("the last tab's rect");
+    s.click(egui::pos2(last.left() - 20.0, last.center().y));
+    frames(&mut s, 3);
+    assert_eq!(s.shell.app.terminal.active_tab, 0, "the click switched to the first tab");
+    assert!(!s.shell.app.terminal.mention_popup.is_open(), "the switch closed the popup");
     finish(s);
 }
 

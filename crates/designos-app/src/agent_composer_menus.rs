@@ -122,13 +122,15 @@ const OVERLAYS_MAX: usize = 3;
 #[derive(Clone, Copy)]
 struct Overlays {
     pass: u64,
+    /// One more than the last pass in which any overlay was noted, `0` for never.
+    seen: u64,
     len: usize,
     rects: [Rect; OVERLAYS_MAX],
 }
 
 impl Default for Overlays {
     fn default() -> Self {
-        Self { pass: 0, len: 0, rects: [Rect::NOTHING; OVERLAYS_MAX] }
+        Self { pass: 0, seen: 0, len: 0, rects: [Rect::NOTHING; OVERLAYS_MAX] }
     }
 }
 
@@ -147,7 +149,16 @@ pub(crate) fn note_overlay(ctx: &egui::Context, rect: Rect) {
             slot.rects[slot.len] = rect;
             slot.len += 1;
         }
+        slot.seen = pass + 1;
     });
+}
+
+/// True when a composer overlay was painted in this pass or the one before it. The previous pass is there because egui hit-tests a
+/// press against the widgets of the pass before: the viewport must already be hover-only in the pass that first sees the pointer on
+/// a row. It reads what was painted, not a flag, so an open flag left behind by a tab that paints no composer holds nothing.
+pub(crate) fn overlay_painted_recently(ctx: &egui::Context) -> bool {
+    let now = ctx.cumulative_pass_nr();
+    ctx.data(|d| d.get_temp::<Overlays>(Id::new(OVERLAYS_SLOT))).is_some_and(|o| o.seen != 0 && now < o.seen + 1)
 }
 
 /// True when `pos` is over an overlay the composer painted in this pass.

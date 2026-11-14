@@ -6950,9 +6950,10 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
     let pointer_yielded = pointer_over_composer_overlay(ui.ctx(), ui.input(|i| i.pointer.latest_pos()));
     // egui hit-tests a press against the widgets of the previous pass, and eframe often delivers the move onto a row and the press
     // in one pass, so the sense chosen from the pointer position would come one pass late. The viewport is therefore hover-only
-    // for as long as any of these overlays is open. An outside press still closes the overlay (the composer ran first) and still
-    // focuses the terminal (the press check above reads the raw press, not this widget).
-    let overlay_open = state.attach_menu_open || state.mode_menu_open || state.mention_popup.is_open();
+    // while an overlay was painted in this pass or the one before. That reads what was painted, never an open flag: a flag left
+    // set on a tab with no live composer must not make the terminal unclickable. An outside press still closes the overlay (the
+    // composer ran first) and still focuses the terminal (the press check above reads the raw press, not this widget).
+    let overlay_open = crate::agent_composer_menus::overlay_painted_recently(ui.ctx());
     let vp_sense = if overlay_open || pointer_yielded { Sense::hover() } else { Sense::click_and_drag() };
     let vp_resp = ui.interact(viewport_rect, Id::new((surface_id, "term-vt100-viewport")), vp_sense);
     if vp_resp.clicked() || vp_resp.drag_started() {
