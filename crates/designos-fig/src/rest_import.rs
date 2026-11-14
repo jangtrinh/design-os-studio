@@ -2139,11 +2139,16 @@ impl<'a> Ctx<'a> {
         }
         let holds_derived = self.overrides.get(&inst).is_some_and(|o| !o.fast_derived.is_empty());
         let Some(node) = self.doc.get_mut(inst) else { return BTreeMap::new() };
-        node.component.overrides.extend(flagged);
+        for field in flagged {
+            node.component.add_fig_own_entry_flag(field);
+        }
         let mut digests = crate::instance_self_digest::digests(node);
         // The derived data of the instance was computed for the size it has now, flagged or not.
         if holds_derived {
             digests.entry(OverrideField::Size).or_insert_with(|| crate::instance_self_digest::size_digest(node));
+            // A derived self entry can also restate the instance transform. Capture it even when
+            // the own entry did not flag Transform, so a direct move cannot be undone on reopen.
+            digests.entry(OverrideField::Transform).or_insert_with(|| crate::instance_self_digest::transform_digest(node));
         }
         digests
     }
@@ -3947,6 +3952,18 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             if let Some(derived) = cleared_derived.remove(&inst) {
                 if let Some(ov) = cx.overrides.get_mut(&inst) {
                     ov.fast_derived = derived;
+                }
+            }
+        }
+        // The flags captured from an unopened `.fig` own entry are only a
+        // guard for the pre-hydration sync pass. Once the instance has its
+        // subtree and overrides materialized, its persistent override set is
+        // authoritative again; keeping the transient set would leak stale
+        // runtime state into later copies and reset operations.
+        for &inst in &insts {
+            if !cx.unexpanded_instances.contains(&inst) {
+                if let Some(node) = cx.doc.get_mut(inst) {
+                    node.component.clear_fig_own_entry_flags();
                 }
             }
         }

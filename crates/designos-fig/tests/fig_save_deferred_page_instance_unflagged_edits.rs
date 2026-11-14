@@ -98,7 +98,7 @@ fn derived_data_stays_while_the_unflagged_instance_keeps_its_size() {
 fn a_fill_change_wins_over_the_fill_style_the_file_linked() {
     let fig = fixture_with_own_entry(&["styleIdForFill"]);
     let at_open = import_fig(&fig).expect("import");
-    assert!(at_open.get(variant_button(&at_open)).expect("instance").component.overrides.contains(&OverrideField::Fills));
+    assert!(at_open.get(variant_button(&at_open)).expect("instance").component.has_override(&OverrideField::Fills));
     let mut live = import_fig(&fig).expect("import");
     let button = variant_button(&live);
     {
