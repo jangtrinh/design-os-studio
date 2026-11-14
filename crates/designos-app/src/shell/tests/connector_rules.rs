@@ -327,7 +327,7 @@ fn board_dot_press_with_alt_still_starts_a_connector() {
 }
 
 /// Contrast between the line a connector draws and the card fill next to it, read from the CPU render.
-fn rendered_line_contrast(s: &Sim, c: NodeId) -> f64 {
+fn rendered_line_colors(s: &Sim, c: NodeId) -> (Color, Color) {
     let doc = &s.app().doc;
     // the route is in the connector's parent space; the render is in page space
     let local = designos_doc::connector_route(doc, c).expect("route").midpoint();
@@ -341,7 +341,20 @@ fn rendered_line_contrast(s: &Sim, c: NodeId) -> f64 {
         Color::rgb(px.red(), px.green(), px.blue())
     };
     let fill = at(mid.x, mid.y + 12.0);
-    (-3..=3).map(|dy| designos_doc::lint::rules::contrast::contrast_ratio(at(mid.x, mid.y + dy as f32), fill)).fold(1.0, f64::max)
+    let line = (-3..=3)
+        .map(|dy| at(mid.x, mid.y + dy as f32))
+        .max_by(|a, b| {
+            designos_doc::lint::rules::contrast::contrast_ratio(*a, fill)
+                .partial_cmp(&designos_doc::lint::rules::contrast::contrast_ratio(*b, fill))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .expect("line samples");
+    (line, fill)
+}
+
+fn rendered_line_contrast(s: &Sim, c: NodeId) -> f64 {
+    let (line, fill) = rendered_line_colors(s, c);
+    designos_doc::lint::rules::contrast::contrast_ratio(line, fill)
 }
 
 #[test]
@@ -366,6 +379,103 @@ fn default_ink_stays_visible_in_a_card_faded_by_its_layer_opacity() {
     let ratio = rendered_line_contrast(&s, c);
     assert!(ratio >= 3.0, "the rendered line reaches 3:1 against the card pixel next to it, got {ratio:.2}:1");
     assert_eq!(ink_of(&s, c), crate::board::color_of(crate::theme::BOARD_INK[0]), "the card's white fill is the surface, whatever its layer opacity");
+}
+
+fn set_connector_surface(s: &mut Sim, wrapper: NodeId, paint: Paint) {
+    s.shell.app.doc.get_mut(wrapper).expect("wrapper").fills = vec![paint];
+    s.shell.app.changed();
+    s.frame(vec![]);
+}
+
+#[test]
+fn default_ink_has_rendered_contrast_on_an_opaque_gradient() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let screen = add(
+        &mut s,
+        page,
+        |id| {
+            let mut n = Node::frame(id, DRect::new(80.0, 80.0, 640.0, 360.0));
+            n.fills = vec![Paint::solid(Color::WHITE)];
+            n
+        },
+        "Light screen",
+    );
+    let wrapper = add(&mut s, screen, |id| Node::frame(id, DRect::new(0.0, 0.0, 640.0, 360.0)), "Gradient surface");
+    let gradient = Paint {
+        kind: PaintKind::LinearGradient {
+            handles: [DV::new(0.0, 0.5), DV::new(1.0, 0.5), DV::new(0.0, 1.0)],
+            stops: vec![designos_doc::GradientStop { pos: 0.0, color: Color::BLACK }, designos_doc::GradientStop { pos: 1.0, color: Color::BLACK }],
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    };
+    set_connector_surface(&mut s, wrapper, gradient);
+    let a = rectangle(&mut s, wrapper, "Gradient A", 40.0, 100.0);
+    let b = rectangle(&mut s, wrapper, "Gradient B", 420.0, 100.0);
+    let c = connect_deep(&mut s, a, b);
+    assert_eq!(ink_of(&s, c), Color::WHITE, "a dark gradient must select the light connector ink");
+    let ratio = rendered_line_contrast(&s, c);
+    assert!(ratio >= 3.0, "gradient connector pixels must reach 3:1, got {ratio:.2}:1");
+}
+
+#[test]
+fn default_ink_has_rendered_contrast_on_a_dark_image_fill() {
+    use image::ImageEncoder;
+
+    let mut s = design_sim();
+    let page = s.app().page;
+    let screen = add(
+        &mut s,
+        page,
+        |id| {
+            let mut n = Node::frame(id, DRect::new(80.0, 80.0, 640.0, 360.0));
+            n.fills = vec![Paint::solid(Color::WHITE)];
+            n
+        },
+        "Light screen",
+    );
+    let wrapper = add(&mut s, screen, |id| Node::frame(id, DRect::new(0.0, 0.0, 640.0, 360.0)), "Image surface");
+    let mut bytes = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut bytes).write_image(&[0, 0, 0, 255], 1, 1, image::ExtendedColorType::Rgba8).expect("encode image fixture");
+    s.shell.app.doc.images.insert("dark-surface".into(), bytes);
+    set_connector_surface(
+        &mut s,
+        wrapper,
+        Paint {
+            kind: PaintKind::Image { image_ref: "dark-surface".into(), scale_mode: designos_doc::ImageScaleMode::Fill, params: Default::default() },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        },
+    );
+    let a = rectangle(&mut s, wrapper, "Image A", 40.0, 100.0);
+    let b = rectangle(&mut s, wrapper, "Image B", 420.0, 100.0);
+    let c = connect_deep(&mut s, a, b);
+    assert_eq!(ink_of(&s, c), Color::WHITE, "a dark image must select the light connector ink");
+    let ratio = rendered_line_contrast(&s, c);
+    assert!(ratio >= 3.0, "image connector pixels must reach 3:1, got {ratio:.2}:1");
+}
+
+#[test]
+fn default_ink_has_rendered_contrast_through_a_translucent_fill() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let wrapper = add(&mut s, page, |id| Node::frame(id, DRect::new(80.0, 80.0, 640.0, 360.0)), "Translucent surface");
+    let mut white = Paint::solid(Color::WHITE);
+    white.opacity = 0.45;
+    set_connector_surface(&mut s, wrapper, white);
+    let a = rectangle(&mut s, wrapper, "Translucent A", 40.0, 100.0);
+    let b = rectangle(&mut s, wrapper, "Translucent B", 420.0, 100.0);
+    let c = connect_deep(&mut s, a, b);
+    assert_eq!(ink_of(&s, c), crate::board::color_of(crate::theme::BOARD_INK[0]), "the blended surface must select the dark connector ink");
+    let (line, fill) = rendered_line_colors(&s, c);
+    let ratio = designos_doc::lint::rules::contrast::contrast_ratio(line, fill);
+    let chosen = designos_doc::lint::rules::contrast::contrast_ratio(ink_of(&s, c), fill);
+    let alternate = designos_doc::lint::rules::contrast::contrast_ratio(Color::WHITE, fill);
+    assert!(ratio >= 2.4, "translucent connector pixels must retain the available contrast, got {ratio:.2}:1");
+    assert!(chosen >= alternate, "translucent surface must choose the better available ink ({chosen:.2} vs {alternate:.2})");
 }
 
 #[test]
