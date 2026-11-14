@@ -264,6 +264,7 @@ fn composer_mode_control_after_the_agent_exits_shows_the_mode_the_send_uses() {
     let shows_ask = texts.iter().any(|text| text == "Ask first");
     s.shell.app.terminal.set_composer_draft("carry on");
     let outcome = s.shell.app.terminal.send_from_composer_box("carry on", None);
+    assert_eq!(outcome, crate::agent_composer::SendOutcome::Queued, "the send starts an agent and queues the message");
     frames(&mut s, 5);
     let terminal = &mut s.shell.app.terminal;
     let idx = terminal.active_tab.min(terminal.tabs.len() - 1);
