@@ -185,6 +185,73 @@ pub fn color32(c: Color) -> egui::Color32 {
     egui::Color32::from_rgb(b(c.r), b(c.g), b(c.b))
 }
 
+/// One connector style property changed from the floating bar or the Inspector.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ConnectorStyleChange {
+    Line(designos_doc::ConnectorLine),
+    StartCap(designos_doc::ConnectorCap),
+    EndCap(designos_doc::ConnectorCap),
+    Weight(f32),
+}
+
+/// Applies `change` to every connector in `ids` and re-derives its routed geometry in one undo step.
+pub fn apply_connector_style(app: &mut App, ids: &[NodeId], change: ConnectorStyleChange) {
+    let apply_one = |n: &mut designos_doc::Node| match change {
+        ConnectorStyleChange::Line(line) => {
+            if let designos_doc::NodeKind::Connector(c) = &mut n.kind {
+                c.line = line;
+            }
+        }
+        ConnectorStyleChange::StartCap(cap) => {
+            if let designos_doc::NodeKind::Connector(c) = &mut n.kind {
+                c.start_cap = cap;
+            }
+        }
+        ConnectorStyleChange::EndCap(cap) => {
+            if let designos_doc::NodeKind::Connector(c) = &mut n.kind {
+                c.end_cap = cap;
+            }
+        }
+        ConnectorStyleChange::Weight(w) => {
+            let w = w.max(0.0);
+            n.stroke.weight = w;
+            if n.stroke.side_weights.is_some() {
+                n.stroke.side_weights = Some([w; 4]);
+            }
+        }
+    };
+    if let (Some(sess), [only]) = (app.canvas.text.as_mut(), ids) {
+        if sess.id == *only {
+            let App { doc, canvas, .. } = app;
+            if let Some(sess) = canvas.text.as_mut() {
+                if let Some(n) = sess.tx.ed.node(doc, *only) {
+                    apply_one(n);
+                }
+                if let Some(g) = designos_doc::connector_geometry(doc, *only) {
+                    if let Some(n) = sess.tx.ed.node(doc, *only) {
+                        g.apply(n);
+                    }
+                }
+                crate::layout::relayout_up(doc, &mut sess.tx.ed, *only);
+            }
+            app.changed();
+            return;
+        }
+    }
+    let mut tx = crate::edit::Tx::new();
+    for &id in ids {
+        if let Some(n) = tx.ed.node(&mut app.doc, id) {
+            apply_one(n);
+        }
+        if let Some(g) = designos_doc::connector_geometry(&app.doc, id) {
+            if let Some(n) = tx.ed.node(&mut app.doc, id) {
+                g.apply(n);
+            }
+        }
+    }
+    app.run_tx(tx);
+}
+
 impl App {
     /// The open file is a board.
     pub fn is_board(&self) -> bool {

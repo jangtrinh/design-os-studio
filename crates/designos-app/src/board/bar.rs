@@ -202,36 +202,67 @@ pub fn place(canvas: ERect, sel: ERect, width: f32) -> ERect {
     ERect::from_min_size(Pos2::new(x, y), EV::new(width, h))
 }
 
+#[cfg(test)]
+fn clear_test_rects(ui: &Ui) {
+    ui.ctx().data_mut(|d| {
+        for key in ["board-bar", "board-line-Elbowed", "board-line-Straight", "board-line-Curved", "board-cap-start", "board-cap-end"] {
+            d.remove::<ERect>(egui::Id::new(("test-rect", key.to_string())));
+        }
+    });
+}
+
+fn common_connector<T: PartialEq>(doc: &Document, ids: &[NodeId], f: impl Fn(&designos_doc::ConnectorProps) -> T) -> Option<T> {
+    let mut it = ids.iter().filter_map(|id| match doc.get(*id).map(|n| &n.kind) {
+        Some(NodeKind::Connector(c)) => Some(f(c)),
+        _ => None,
+    });
+    let first = it.next()?;
+    it.all(|v| v == first).then_some(first)
+}
+
 /// Paints the bar for the current selection and applies clicks.
 pub fn show(app: &mut App, ui: &mut Ui, canvas: ERect) {
-    if !app.wb_contextual_bar_enabled() || app.selection.is_empty() || app.canvas.vedit.is_some() {
+    let ids = app.top_selection();
+    let all_connectors =
+        app.wb_connectors_enabled() && !ids.is_empty() && ids.iter().all(|id| matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::Connector(_))));
+    if (!app.wb_contextual_bar_enabled() && !all_connectors) || ids.is_empty() || app.canvas.vedit.is_some() {
         app.board.bar_menu = None;
+        #[cfg(test)]
+        clear_test_rects(ui);
         return;
     }
     // while dragging, drawing or resizing the bar stays out of the way
     if !matches!(app.canvas.inter, Interaction::None) || app.canvas.pen.is_some() || app.history.viewing.is_some() {
+        #[cfg(test)]
+        clear_test_rects(ui);
         return;
     }
-    let ids = app.top_selection();
     let caps = caps_of(&app.doc, &ids);
     if !(caps.fill || caps.ink || caps.shape || caps.line || caps.text || caps.author) {
+        #[cfg(test)]
+        clear_test_rects(ui);
         return;
     }
-    let Some(sel) = app.selection_bounds() else { return };
+    let Some(sel) = app.selection_bounds() else {
+        #[cfg(test)]
+        clear_test_rects(ui);
+        return;
+    };
     let (a, b) = (app.view.to_screen(canvas.min, v2(sel.x, sel.y)), app.view.to_screen(canvas.min, v2(sel.x + sel.w, sel.y + sel.h)));
     let sel_screen = ERect::from_two_pos(a, b);
     if !sel_screen.intersects(canvas) {
+        #[cfg(test)]
+        clear_test_rects(ui);
         return;
     }
 
     let colors = if caps.fill || caps.ink { palette(caps) } else { vec![] };
     let first = app.doc.get(ids[0]).cloned();
-    let cur_color = first.as_ref().and_then(current_color);
+    let cur_color = first.as_ref().and_then(current_color).filter(|c| ids.iter().filter_map(|id| app.doc.get(*id)).all(|n| current_color(n) == Some(*c)));
     let cur_text = first.as_ref().and_then(|n| n.kind.any_text().cloned());
-    let (cur_line, cur_caps) = match first.as_ref().map(|n| &n.kind) {
-        Some(NodeKind::Connector(c)) => (Some(c.line), Some((c.start_cap, c.end_cap))),
-        _ => (None, None),
-    };
+    let cur_line = common_connector(&app.doc, &ids, |c| c.line);
+    let cur_start_cap = common_connector(&app.doc, &ids, |c| c.start_cap);
+    let cur_end_cap = common_connector(&app.doc, &ids, |c| c.end_cap);
     let cur_shape = match first.as_ref().map(|n| &n.kind) {
         Some(NodeKind::ShapeWithText(s)) => Some(s.shape),
         _ => None,
@@ -349,11 +380,7 @@ pub fn show(app: &mut App, ui: &mut Ui, canvas: ERect) {
             widgets::paint_icon_in(&p, r, icon, 16.0, if sel { theme::ICON_SELECTED } else { theme::ICON });
             widgets::record(ui, &format!("board-line-{line:?}"), r);
             if resp.on_hover_text(tip).clicked() {
-                edit(app, &ids, |n| {
-                    if let NodeKind::Connector(c) = &mut n.kind {
-                        c.line = line;
-                    }
-                });
+                super::apply_connector_style(app, &ids, super::ConnectorStyleChange::Line(line));
             }
             x += BTN;
         }
@@ -363,7 +390,7 @@ pub fn show(app: &mut App, ui: &mut Ui, canvas: ERect) {
             let resp = ui.interact(r, ui.id().with(("board-cap-btn", tip)), Sense::click());
             let open = app.board.bar_menu.map(|m| m.0) == Some(menu);
             widgets::button_bg(&p, r, &resp, open, theme::cr(theme::RADIUS_CONTROL));
-            let cap = cur_caps.map(|c| if flip { c.0 } else { c.1 }).unwrap_or_default();
+            let cap = (if flip { cur_start_cap } else { cur_end_cap }).unwrap_or_default();
             cap_glyph(&p, r.shrink(2.0), cap, flip, theme::ICON);
             widgets::record(ui, &format!("board-cap-{}", if flip { "start" } else { "end" }), r);
             if resp.on_hover_text(tip).clicked() {
@@ -485,13 +512,7 @@ fn popup(app: &mut App, ui: &mut Ui, ids: &[NodeId]) {
             }
             BarMenu::StartCap | BarMenu::EndCap => {
                 let start = menu == BarMenu::StartCap;
-                let cur = ids.first().and_then(|i| app.doc.get(*i)).and_then(|n| {
-                    if let NodeKind::Connector(c) = &n.kind {
-                        Some(if start { c.start_cap } else { c.end_cap })
-                    } else {
-                        None
-                    }
-                });
+                let cur = common_connector(&app.doc, ids, |c| if start { c.start_cap } else { c.end_cap });
                 for (i, cap) in ConnectorCap::ALL.iter().enumerate() {
                     let cell = ERect::from_min_size(inner.min + EV::new(i as f32 * 36.0, 0.0), EV::splat(36.0));
                     let resp = ui.interact(cell, ui.id().with(("board-bar-cap", i)), Sense::click());
@@ -503,6 +524,7 @@ fn popup(app: &mut App, ui: &mut Ui, ids: &[NodeId]) {
                     }
                     cap_glyph(&p, r, *cap, start, theme::ICON);
                     widgets::record(ui, &format!("board-bar-cap-{cap:?}"), cell);
+                    widgets::record(ui, &format!("board-cap-{}-{cap:?}", if start { "start" } else { "end" }), cell);
                     if resp.clicked() {
                         picked = Some(Pick::Cap(start, *cap));
                     }
@@ -529,15 +551,7 @@ fn popup(app: &mut App, ui: &mut Ui, ids: &[NodeId]) {
             app.board.bar_menu = None;
         }
         Some(Pick::Cap(start, cap)) => {
-            edit(app, ids, |n| {
-                if let NodeKind::Connector(c) = &mut n.kind {
-                    if start {
-                        c.start_cap = cap;
-                    } else {
-                        c.end_cap = cap;
-                    }
-                }
-            });
+            super::apply_connector_style(app, ids, if start { super::ConnectorStyleChange::StartCap(cap) } else { super::ConnectorStyleChange::EndCap(cap) });
             app.board.bar_menu = None;
         }
         None => {

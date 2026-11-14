@@ -561,3 +561,461 @@ fn x_over_the_align_row_leaves_a_pen_path_in_progress_alone() {
     assert!(s.app().canvas.pen.is_some(), "the pen path is still in progress");
     assert_eq!(s.app().doc.nodes.len(), nodes_before, "no layer was made from the pen path");
 }
+
+fn try_rect_of(s: &Sim, name: &str) -> Option<Rect> {
+    s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string()))))
+}
+
+fn collect_texts_in(shapes: &[egui::epaint::ClippedShape], rect: Rect, out: &mut Vec<String>) {
+    for cs in shapes {
+        match &cs.shape {
+            egui::epaint::Shape::Text(t) => {
+                if rect.contains(t.pos) || rect.intersects(t.visual_bounding_rect()) {
+                    out.push(t.galley.text().to_string());
+                }
+            }
+            egui::epaint::Shape::Vec(nested) => {
+                let wrapped: Vec<egui::epaint::ClippedShape> =
+                    nested.iter().cloned().map(|shape| egui::epaint::ClippedShape { clip_rect: cs.clip_rect, shape }).collect();
+                collect_texts_in(&wrapped, rect, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn texts_in(s: &Sim, rect: Rect) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_texts_in(&s.shapes, rect, &mut out);
+    out
+}
+
+fn design_connector_pair(s: &mut Sim) -> (NodeId, NodeId, NodeId) {
+    let page = s.app().page;
+    let a = rectangle(s, page, "A", 120.0, 180.0);
+    let b = rectangle(s, page, "B", 440.0, 320.0);
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(center(s, a), center(s, b));
+    let c = connectors(s)[0];
+    s.shell.app.select_only(c);
+    s.shell.app.changed();
+    s.frame(vec![]);
+    s.frame(vec![]);
+    (a, b, c)
+}
+
+#[test]
+fn bar_shows_for_a_connector_selection_in_a_design_file() {
+    let mut s = design_sim();
+    let (_a, _b, c) = design_connector_pair(&mut s);
+    assert_eq!(s.app().selection, vec![c]);
+    let bar = try_rect_of(&s, "board-bar").expect("floating bar appears for a selected connector in a design file");
+    let canvas = s.app().ui.regions.canvas.expect("canvas region populated");
+    let right = s.app().ui.regions.right_panel.expect("inspector region populated");
+    assert!(canvas.contains_rect(bar), "floating bar stays inside the canvas region: bar={bar:?} canvas={canvas:?}");
+    assert!(bar.right() <= right.left(), "floating bar stays clear of the Inspector: bar={bar:?} right={right:?}");
+    for key in ["board-line-Elbowed", "board-line-Straight", "board-line-Curved", "board-cap-start", "board-cap-end", "board-swatch-0"] {
+        assert!(try_rect_of(&s, key).is_some(), "floating bar control {key} is present");
+    }
+}
+
+#[test]
+fn bar_stays_hidden_for_a_rectangle_in_a_design_file() {
+    let mut s = design_sim();
+    let (a, _b, c) = design_connector_pair(&mut s);
+    assert!(try_rect_of(&s, "board-bar").is_some(), "floating bar appears when only the connector is selected");
+
+    s.shell.app.select_only(a);
+    s.shell.app.changed();
+    s.frame(vec![]);
+    assert!(try_rect_of(&s, "board-bar").is_none(), "floating bar is hidden when a rectangle is selected in a design file");
+
+    s.shell.app.selection = vec![a, c];
+    s.shell.app.changed();
+    s.frame(vec![]);
+    assert!(try_rect_of(&s, "board-bar").is_none(), "floating bar is hidden when selection mixes a rectangle and a connector");
+}
+
+#[test]
+fn bar_changes_line_style_caps_and_ink_in_one_undo_step_each() {
+    use designos_doc::{ConnectorCap, ConnectorLine};
+    let mut s = design_sim();
+    let (_a, _b, c) = design_connector_pair(&mut s);
+    let d0 = s.app().hist.undo_depth();
+
+    let curved_btn = s.rect_of("board-line-Curved");
+    s.click(curved_btn.center());
+    let props = match &s.app().doc.get(c).unwrap().kind {
+        NodeKind::Connector(p) => p.clone(),
+        other => panic!("expected connector, got {other:?}"),
+    };
+    assert_eq!(props.line, ConnectorLine::Curved);
+    assert_eq!(s.app().hist.undo_depth(), d0 + 1, "changing line style from the bar is one undo step");
+
+    let start_btn = s.rect_of("board-cap-start");
+    s.click(start_btn.center());
+    let start_circle = s.rect_of("board-cap-start-Circle");
+    s.click(start_circle.center());
+    let props = match &s.app().doc.get(c).unwrap().kind {
+        NodeKind::Connector(p) => p.clone(),
+        other => panic!("expected connector, got {other:?}"),
+    };
+    assert_eq!(props.start_cap, ConnectorCap::Circle);
+    assert_eq!(s.app().hist.undo_depth(), d0 + 2, "changing start cap from the bar is one undo step");
+
+    let end_btn = s.rect_of("board-cap-end");
+    s.click(end_btn.center());
+    let end_diamond = s.rect_of("board-cap-end-Diamond");
+    s.click(end_diamond.center());
+    let props = match &s.app().doc.get(c).unwrap().kind {
+        NodeKind::Connector(p) => p.clone(),
+        other => panic!("expected connector, got {other:?}"),
+    };
+    assert_eq!(props.end_cap, ConnectorCap::Diamond);
+    assert_eq!(s.app().hist.undo_depth(), d0 + 3, "changing end cap from the bar is one undo step");
+
+    let swatch_btn = s.rect_of("board-swatch-2");
+    s.click(swatch_btn.center());
+    let stroke_rgb = crate::board::create::solid_rgb(&s.app().doc.get(c).unwrap().stroke.paints[0]).unwrap();
+    assert_eq!(stroke_rgb, crate::theme::BOARD_INK[2]);
+    assert_eq!(s.app().hist.undo_depth(), d0 + 4, "changing ink from the bar is one undo step");
+
+    s.shell.app.undo();
+    let stroke_rgb = crate::board::create::solid_rgb(&s.app().doc.get(c).unwrap().stroke.paints[0]).unwrap();
+    assert_eq!(stroke_rgb, crate::theme::BOARD_INK_ON_DARK);
+    s.shell.app.undo();
+    let NodeKind::Connector(p) = &s.app().doc.get(c).unwrap().kind else { unreachable!() };
+    assert_eq!(p.end_cap, ConnectorCap::Arrow);
+    s.shell.app.undo();
+    let NodeKind::Connector(p) = &s.app().doc.get(c).unwrap().kind else { unreachable!() };
+    assert_eq!(p.start_cap, ConnectorCap::None);
+    s.shell.app.undo();
+    let NodeKind::Connector(p) = &s.app().doc.get(c).unwrap().kind else { unreachable!() };
+    assert_eq!(p.line, ConnectorLine::Elbowed);
+}
+
+#[test]
+fn inspector_shows_connector_style_in_the_stroke_section() {
+    let mut s = design_sim();
+    let (_a, _b, _c) = design_connector_pair(&mut s);
+
+    let weight_r = s.field_rect("stroke-w");
+    let line_r = try_rect_of(&s, "connector-line").expect("connector line dropdown in Stroke section");
+    let start_r = try_rect_of(&s, "connector-start-cap").expect("connector start cap dropdown in Stroke section");
+    let end_r = try_rect_of(&s, "connector-end-cap").expect("connector end cap dropdown in Stroke section");
+
+    assert!(try_rect_of(&s, "stroke-align").is_none(), "stroke align is hidden for connectors because connector lowering ignores it");
+    assert!(line_r.top() >= weight_r.bottom(), "line style comes after stroke weight: weight={weight_r:?} line={line_r:?}");
+    assert!(start_r.top() >= line_r.bottom(), "cap pickers come after line style: line={line_r:?} start={start_r:?}");
+    assert!(
+        (start_r.top() - end_r.top()).abs() < 1.0 && end_r.left() > start_r.right(),
+        "start and end cap pickers share the row in order: start={start_r:?} end={end_r:?}"
+    );
+
+    assert!(texts_in(&s, line_r).iter().any(|t| t == "Elbowed"));
+    assert!(texts_in(&s, start_r).iter().any(|t| t == "None"));
+    assert!(texts_in(&s, end_r).iter().any(|t| t == "Arrow"));
+}
+
+#[test]
+fn inspector_and_bar_write_the_same_connector_style() {
+    use designos_doc::{ConnectorCap, ConnectorLine};
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a1 = rectangle(&mut s, page, "A1", 100.0, 120.0);
+    let b1 = rectangle(&mut s, page, "B1", 420.0, 260.0);
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(center(&s, a1), center(&s, b1));
+    let c_bar = connectors(&s)[0];
+
+    let a2 = rectangle(&mut s, page, "A2", 100.0, 120.0);
+    let b2 = rectangle(&mut s, page, "B2", 420.0, 260.0);
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(center(&s, a2), center(&s, b2));
+    let c_insp = *connectors(&s).iter().find(|&&id| id != c_bar).unwrap();
+
+    // Style c_bar through the floating bar: Straight, Start=Triangle, End=Diamond
+    s.shell.app.select_only(c_bar);
+    s.shell.app.changed();
+    s.frame(vec![]);
+    let d_bar_0 = s.app().hist.undo_depth();
+    let straight_btn = s.rect_of("board-line-Straight");
+    s.click(straight_btn.center());
+    let start_btn = s.rect_of("board-cap-start");
+    s.click(start_btn.center());
+    let start_tri = s.rect_of("board-cap-start-Triangle");
+    s.click(start_tri.center());
+    let end_btn = s.rect_of("board-cap-end");
+    s.click(end_btn.center());
+    let end_dia = s.rect_of("board-cap-end-Diamond");
+    s.click(end_dia.center());
+    assert_eq!(s.app().hist.undo_depth(), d_bar_0 + 3);
+    s.key(Key::Enter);
+    s.cmd_key(Key::A);
+    s.type_text("OK");
+    s.key(Key::Escape);
+    assert_eq!(s.app().hist.undo_depth(), d_bar_0 + 5);
+
+    // Style c_insp through the Inspector Stroke section: Straight (idx 1), Start=Triangle (idx 2), End=Diamond (idx 4)
+    s.shell.app.select_only(c_insp);
+    s.shell.app.changed();
+    s.frame(vec![]);
+    let d_insp_0 = s.app().hist.undo_depth();
+    let line_dd = s.rect_of("connector-line");
+    s.click(line_dd.center());
+    let row_straight = s.rect_of("menu-row-0-1");
+    s.click(row_straight.center());
+
+    let start_dd = s.rect_of("connector-start-cap");
+    s.click(start_dd.center());
+    let row_tri = s.rect_of("menu-row-0-2");
+    s.click(row_tri.center());
+
+    s.key(Key::Enter);
+    s.cmd_key(Key::A);
+    s.type_text("OK");
+    s.frame(vec![]);
+    let end_dd = s.rect_of("connector-end-cap");
+    s.click(end_dd.center());
+    let row_dia = s.rect_of("menu-row-0-4");
+    s.click(row_dia.center());
+    s.key(Key::Escape);
+    assert_eq!(s.app().hist.undo_depth(), d_insp_0 + 4);
+
+    let n_bar = s.app().doc.get(c_bar).unwrap();
+    let n_insp = s.app().doc.get(c_insp).unwrap();
+    let NodeKind::Connector(p_bar) = &n_bar.kind else { unreachable!() };
+    let NodeKind::Connector(p_insp) = &n_insp.kind else { unreachable!() };
+    assert_eq!(p_insp.line, ConnectorLine::Straight);
+    assert_eq!(p_insp.start_cap, ConnectorCap::Triangle);
+    assert_eq!(p_insp.end_cap, ConnectorCap::Diamond);
+    assert_eq!((p_insp.line, p_insp.start_cap, p_insp.end_cap), (p_bar.line, p_bar.start_cap, p_bar.end_cap));
+    assert_eq!(n_insp.transform, n_bar.transform, "both setters sync connector transform identically");
+    assert_eq!(n_insp.size, n_bar.size, "both setters sync connector size identically");
+}
+
+#[test]
+fn mixed_connector_selection_shows_mixed_and_changes_all_in_one_step() {
+    use designos_doc::{ConnectorCap, ConnectorLine};
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a1 = rectangle(&mut s, page, "A1", 100.0, 120.0);
+    let b1 = rectangle(&mut s, page, "B1", 400.0, 120.0);
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(center(&s, a1), center(&s, b1));
+    let c1 = connectors(&s)[0];
+
+    let a2 = rectangle(&mut s, page, "A2", 100.0, 300.0);
+    let b2 = rectangle(&mut s, page, "B2", 400.0, 420.0);
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(center(&s, a2), center(&s, b2));
+    let c2 = *connectors(&s).iter().find(|&&id| id != c1).unwrap();
+
+    // Give c2 different line and caps from c1
+    s.shell.app.edit_nodes(&[c2], |n| {
+        if let NodeKind::Connector(p) = &mut n.kind {
+            p.line = ConnectorLine::Curved;
+            p.start_cap = ConnectorCap::Circle;
+            p.end_cap = ConnectorCap::Triangle;
+        }
+    });
+    designos_doc::sync_connector(&mut s.shell.app.doc, c2);
+
+    s.shell.app.selection = vec![c1, c2];
+    s.shell.app.changed();
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    let line_r = s.rect_of("connector-line");
+    let start_r = s.rect_of("connector-start-cap");
+    let end_r = s.rect_of("connector-end-cap");
+    assert!(texts_in(&s, line_r).iter().any(|t| t == "Mixed"), "mixed line styles show Mixed");
+    assert!(texts_in(&s, start_r).iter().any(|t| t == "Mixed"), "mixed start caps show Mixed");
+    assert!(texts_in(&s, end_r).iter().any(|t| t == "Mixed"), "mixed end caps show Mixed");
+
+    let d0 = s.app().hist.undo_depth();
+    s.click(line_r.center());
+    let row_straight = s.rect_of("menu-row-0-1");
+    s.click(row_straight.center());
+    assert_eq!(s.app().hist.undo_depth(), d0 + 1, "changing mixed line style applies to all in one undo step");
+    for id in [c1, c2] {
+        let NodeKind::Connector(p) = &s.app().doc.get(id).unwrap().kind else { unreachable!() };
+        assert_eq!(p.line, ConnectorLine::Straight);
+    }
+
+    let end_r = s.rect_of("connector-end-cap");
+    s.click(end_r.center());
+    let row_diamond = s.rect_of("menu-row-0-4");
+    s.click(row_diamond.center());
+    assert_eq!(s.app().hist.undo_depth(), d0 + 2, "changing mixed end cap applies to all in one undo step");
+    for id in [c1, c2] {
+        let NodeKind::Connector(p) = &s.app().doc.get(id).unwrap().kind else { unreachable!() };
+        assert_eq!(p.end_cap, ConnectorCap::Diamond);
+    }
+
+    s.shell.app.undo();
+    let NodeKind::Connector(p1) = &s.app().doc.get(c1).unwrap().kind else { unreachable!() };
+    let NodeKind::Connector(p2) = &s.app().doc.get(c2).unwrap().kind else { unreachable!() };
+    assert_eq!((p1.end_cap, p2.end_cap), (ConnectorCap::Arrow, ConnectorCap::Triangle));
+
+    s.shell.app.undo();
+    let NodeKind::Connector(p1) = &s.app().doc.get(c1).unwrap().kind else { unreachable!() };
+    let NodeKind::Connector(p2) = &s.app().doc.get(c2).unwrap().kind else { unreachable!() };
+    assert_eq!((p1.line, p2.line), (ConnectorLine::Elbowed, ConnectorLine::Curved));
+}
+
+#[test]
+fn changing_line_style_reroutes_the_connector() {
+    use designos_doc::ConnectorLine;
+    let mut s = design_sim();
+    let page = s.app().page;
+    // Vertically aligned left anchor on A and a left-facing end at (100, 330):
+    // Elbowed steps left to x = 76 (transform.tx = 76 - pad, w = 24 + 2*pad),
+    // Straight stays at x = 100 (transform.tx = 100 - pad, w = 2*pad),
+    // Curved arches further left (transform.tx < 76 - pad, w > 60).
+    let a = add(&mut s, page, |id| Node::rectangle(id, DRect::new(100.0, 100.0, 80.0, 60.0)), "A");
+
+    let cid = s.shell.app.doc.alloc_id();
+    let props = designos_doc::ConnectorProps {
+        start: designos_doc::ConnectorEnd::attached(a, designos_doc::Magnet::Left),
+        end: designos_doc::ConnectorEnd { node: None, magnet: designos_doc::Magnet::Left, point: DV::new(100.0, 330.0) },
+        line: ConnectorLine::Elbowed,
+        ..Default::default()
+    };
+    let c = s.shell.app.doc.insert(page, Node::connector(cid, props)).unwrap();
+    designos_doc::sync_connector(&mut s.shell.app.doc, c);
+    s.shell.app.select_only(c);
+    s.shell.app.changed();
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    let elbow_route = designos_doc::connector_route(&s.app().doc, c).unwrap();
+    assert!(elbow_route.curve.is_none() && elbow_route.pts.len() >= 4, "elbow route steps out from the left side: {elbow_route:?}");
+    let elbow_size = s.app().doc.get(c).unwrap().size;
+
+    // Switch to Straight via the Inspector dropdown: must re-route without shifting the free end and shrink stored node width
+    let line_dd = s.rect_of("connector-line");
+    s.click(line_dd.center());
+    let row_straight = s.rect_of("menu-row-0-1");
+    s.click(row_straight.center());
+
+    let straight_route = designos_doc::connector_route(&s.app().doc, c).unwrap();
+    assert_eq!(straight_route.pts.len(), 2, "straight route has two endpoints");
+    assert_eq!(straight_route.end(), DV::new(100.0, 330.0), "changing line style does not shift the endpoint");
+    let expected_straight_geom = designos_doc::connector_geometry(&s.app().doc, c).unwrap();
+    let n_after_straight = s.app().doc.get(c).unwrap();
+    assert_eq!(n_after_straight.transform, expected_straight_geom.transform, "stored transform updated by sync_connector on line change");
+    assert_eq!(n_after_straight.size, expected_straight_geom.size, "stored size updated by sync_connector on line change");
+    assert!(n_after_straight.size.x < elbow_size.x, "straight extent is narrower horizontally than the left-looped elbow extent");
+
+    // Switch to Curved via the floating bar: must re-route to a cubic curve and widen stored node geometry
+    let curved_btn = s.rect_of("board-line-Curved");
+    s.click(curved_btn.center());
+    let curved_route = designos_doc::connector_route(&s.app().doc, c).unwrap();
+    assert!(curved_route.curve.is_some(), "curved route carries cubic control points");
+    assert_eq!(curved_route.end(), DV::new(100.0, 330.0), "changing line style to Curved does not shift the endpoint");
+    let expected_curved_geom = designos_doc::connector_geometry(&s.app().doc, c).unwrap();
+    let n_after_curved = s.app().doc.get(c).unwrap();
+    assert_eq!(n_after_curved.transform, expected_curved_geom.transform);
+    assert_eq!(n_after_curved.size, expected_curved_geom.size);
+    assert!(n_after_curved.size.x > elbow_size.x, "curved extent arches wider than the elbow stub");
+}
+
+#[test]
+fn enter_opens_the_label_editor_on_a_connector_in_a_design_file() {
+    let mut s = design_sim();
+    let (_a, _b, c) = design_connector_pair(&mut s);
+    s.key(Key::Enter);
+    assert_eq!(s.app().canvas.text.as_ref().map(|t| t.id), Some(c), "Enter opens the text editor on the selected connector");
+    s.cmd_key(Key::A);
+    s.type_text("Approved");
+    s.key(Key::Escape);
+    assert!(s.app().canvas.text.is_none(), "Escape commits and closes the connector label editor");
+    let NodeKind::Connector(p) = &s.app().doc.get(c).unwrap().kind else { unreachable!() };
+    assert_eq!(p.label.as_ref().map(|l| l.content.as_str()), Some("Approved"));
+}
+
+#[test]
+fn clicking_a_connector_label_selects_the_connector() {
+    let mut s = design_sim();
+    let (_a, _b, c) = design_connector_pair(&mut s);
+    s.key(Key::Enter);
+    s.cmd_key(Key::A);
+    s.type_text("Approved");
+    s.key(Key::Escape);
+
+    s.shell.app.selection.clear();
+    s.shell.app.changed();
+    s.frame(vec![]);
+    assert!(s.app().selection.is_empty());
+
+    let n = s.app().doc.get(c).unwrap();
+    let tf = designos_render::board::text_frame(&s.app().doc, n).expect("connector has a rendered label frame");
+    let label_world = s.app().doc.world_transform(c).apply(DV::new(tf.rect.x + tf.rect.w / 2.0, tf.rect.y + tf.rect.h / 2.0));
+    s.click(s.screen(label_world.x, label_world.y));
+    assert_eq!(s.app().selection, vec![c], "clicking the connector label chip selects the connector");
+}
+
+#[test]
+fn connector_label_is_inside_its_export_bounds() {
+    use designos_doc::{board_text, sync_connector, ConnectorEnd, ConnectorProps, Document, Magnet, TextAlignH, TextAlignV};
+    use designos_export::{export_svg, render_bounds, render_export, SvgOptions};
+
+    let mut doc = Document::new("connector export bounds");
+    let page = doc.add_page("Page 1");
+    let frame = doc.alloc_id();
+    doc.insert(page, Node::frame(frame, DRect::new(40.0, 40.0, 500.0, 420.0))).unwrap();
+    let top_box = doc.alloc_id();
+    doc.insert(frame, Node::rectangle(top_box, DRect::new(180.0, 20.0, 80.0, 60.0))).unwrap();
+    let bottom_box = doc.alloc_id();
+    doc.insert(frame, Node::rectangle(bottom_box, DRect::new(180.0, 280.0, 80.0, 60.0))).unwrap();
+
+    // Vertical connector with a wide multi-line label that extends well past the vertical stroke
+    let cid = doc.alloc_id();
+    let mut label = board_text(14.0, TextAlignH::Center, TextAlignV::Center);
+    label.content = "MMMMMM\nWWWWWW".into();
+    let props = ConnectorProps {
+        start: ConnectorEnd::attached(top_box, Magnet::Bottom),
+        end: ConnectorEnd::attached(bottom_box, Magnet::Top),
+        label: Some(label),
+        ..Default::default()
+    };
+    let c = doc.insert(frame, Node::connector(cid, props)).unwrap();
+    assert!(sync_connector(&mut doc, c));
+
+    let conn_node = doc.get(c).unwrap();
+    let local_extent = DRect::new(0.0, 0.0, conn_node.size.x, conn_node.size.y);
+    let export_rect = render_bounds(&doc, c);
+    let lowered = designos_render::board::lower(&doc, conn_node).expect("connector lowers");
+    for child_id in &lowered.children {
+        let child = designos_render::board::get(&doc, *child_id).expect("synthetic child exists");
+        let child_rect = DRect::new(child.transform.tx, child.transform.ty, child.size.x, child.size.y);
+        assert!(
+            local_extent.x <= child_rect.x
+                && local_extent.y <= child_rect.y
+                && local_extent.x + local_extent.w >= child_rect.x + child_rect.w
+                && local_extent.y + local_extent.h >= child_rect.y + child_rect.h,
+            "connector_extent local box {local_extent:?} must contain lowered child {child_rect:?}"
+        );
+        assert!(
+            export_rect.x <= child_rect.x
+                && export_rect.y <= child_rect.y
+                && export_rect.x + export_rect.w >= child_rect.x + child_rect.w
+                && export_rect.y + export_rect.h >= child_rect.y + child_rect.h,
+            "export render_bounds {export_rect:?} must contain lowered child {child_rect:?}"
+        );
+    }
+
+    let svg_conn = export_svg(&doc, c, &SvgOptions { outline_text: false });
+    assert!(svg_conn.contains("MMMMMM") && svg_conn.contains("WWWWWW"), "connector SVG includes label text: {svg_conn}");
+    assert!(svg_conn.contains("fill=\"#FFFFFF\""), "connector SVG includes label chip background: {svg_conn}");
+
+    let svg_frame = export_svg(&doc, frame, &SvgOptions { outline_text: false });
+    assert!(svg_frame.contains("MMMMMM") && svg_frame.contains("WWWWWW"), "frame SVG includes connector label text: {svg_frame}");
+    assert!(svg_frame.contains("fill=\"#FFFFFF\""), "frame SVG includes connector label chip background: {svg_frame}");
+
+    let pm_conn = render_export(&doc, c, 1.0).expect("connector PNG renders");
+    assert!(pm_conn.width() as f32 >= local_extent.w && pm_conn.height() as f32 >= local_extent.h);
+    let pm_frame = render_export(&doc, frame, 1.0).expect("frame PNG renders");
+    assert!(pm_frame.width() >= 500 && pm_frame.height() >= 420);
+}

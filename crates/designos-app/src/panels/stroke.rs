@@ -32,6 +32,31 @@ pub(crate) const ENDPOINT_CAPS: [(&str, StrokeCap); 8] = [
     ("Square", StrokeCap::Square),
 ];
 
+const CONNECTOR_LINES: [(&str, ConnectorLine); 3] =
+    [("Elbowed", ConnectorLine::Elbowed), ("Straight", ConnectorLine::Straight), ("Curved", ConnectorLine::Curved)];
+
+const CONNECTOR_CAPS: [(&str, ConnectorCap); 5] = [
+    ("None", ConnectorCap::None),
+    ("Arrow", ConnectorCap::Arrow),
+    ("Triangle", ConnectorCap::Triangle),
+    ("Circle", ConnectorCap::Circle),
+    ("Diamond", ConnectorCap::Diamond),
+];
+
+fn connector_line_label(line: Option<ConnectorLine>) -> &'static str {
+    match line {
+        Some(l) => CONNECTOR_LINES.iter().find(|&&(_, v)| v == l).map(|&(name, _)| name).unwrap_or("Elbowed"),
+        None => "Mixed",
+    }
+}
+
+fn connector_cap_label(cap: Option<ConnectorCap>) -> &'static str {
+    match cap {
+        Some(c) => CONNECTOR_CAPS.iter().find(|&&(_, v)| v == c).map(|&(name, _)| name).unwrap_or("None"),
+        None => "Mixed",
+    }
+}
+
 fn common<T: PartialEq>(app: &App, sel: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
     let mut it = sel.iter().take(128).filter_map(|id| app.doc.get(*id)).map(f);
     let first = it.next()?;
@@ -164,6 +189,75 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     if n0.stroke.paints.is_empty() {
         return;
     }
+    let all_connectors = !sel.is_empty() && sel.iter().take(128).all(|id| matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::Connector(_))));
+    if all_connectors {
+        #[cfg(test)]
+        ui.ctx().data_mut(|d| {
+            for k in ["stroke-align", "stroke-settings", "stroke-sides", "stroke-start-point", "stroke-end-point", "stroke-swap-points"] {
+                d.remove::<Rect>(Id::new(("test-rect", k)));
+            }
+        });
+
+        sub_label(ui, pane, theme::FIELD_COL_X[0], "Weight");
+        pane.y += SUB_LABEL_ADVANCE;
+        let w_r = pane.col(0, 0.0);
+        let sw_val = common(app, sel, |n| n.stroke.weight);
+        if let Some(w) =
+            var_bind::numeric(app, ui, w_r, sel, &["strokeWeight"], |ui, r| field::num_field(ui, r, "stroke-w", Prefix::Icon(Icon::StrokeWeight), sw_val, ""))
+        {
+            crate::board::apply_connector_style(app, sel, crate::board::ConnectorStyleChange::Weight(w));
+        }
+        row_end(pane);
+
+        let line_opts = CONNECTOR_LINES.map(|(name, _)| name.to_string());
+        let cur_line = common(app, sel, |n| match &n.kind {
+            NodeKind::Connector(c) => Some(c.line),
+            _ => None,
+        })
+        .flatten();
+        sub_label(ui, pane, theme::SECTION_CONTENT_X, "Line style");
+        pane.y += SUB_LABEL_ADVANCE;
+        let line_r = pane.full(0.0);
+        widgets::record(ui, "connector-line", line_r);
+        if let Some(i) = dropdown(ui, line_r, "connector-line", connector_line_label(cur_line), &line_opts) {
+            crate::board::apply_connector_style(app, sel, crate::board::ConnectorStyleChange::Line(CONNECTOR_LINES[i].1));
+        }
+        row_end(pane);
+
+        let cap_opts = CONNECTOR_CAPS.map(|(name, _)| name.to_string());
+        let start_cap = common(app, sel, |n| match &n.kind {
+            NodeKind::Connector(c) => Some(c.start_cap),
+            _ => None,
+        })
+        .flatten();
+        let end_cap = common(app, sel, |n| match &n.kind {
+            NodeKind::Connector(c) => Some(c.end_cap),
+            _ => None,
+        })
+        .flatten();
+        sub_label(ui, pane, theme::FIELD_COL_X[0], "Start cap");
+        sub_label(ui, pane, theme::FIELD_COL_X[1], "End cap");
+        pane.y += SUB_LABEL_ADVANCE;
+        let start_r = pane.col(0, 0.0);
+        let end_r = pane.col(1, 0.0);
+        widgets::record(ui, "connector-start-cap", start_r);
+        if let Some(i) = dropdown(ui, start_r, "connector-start-cap", connector_cap_label(start_cap), &cap_opts) {
+            crate::board::apply_connector_style(app, sel, crate::board::ConnectorStyleChange::StartCap(CONNECTOR_CAPS[i].1));
+        }
+        widgets::record(ui, "connector-end-cap", end_r);
+        if let Some(i) = dropdown(ui, end_r, "connector-end-cap", connector_cap_label(end_cap), &cap_opts) {
+            crate::board::apply_connector_style(app, sel, crate::board::ConnectorStyleChange::EndCap(CONNECTOR_CAPS[i].1));
+        }
+        row_end(pane);
+        pane.y += 14.0;
+        return;
+    }
+    #[cfg(test)]
+    ui.ctx().data_mut(|d| {
+        for k in ["connector-line", "connector-start-cap", "connector-end-cap"] {
+            d.remove::<Rect>(Id::new(("test-rect", k)));
+        }
+    });
     // Labels, then the controls row.
     sub_label(ui, pane, POSITION_X, "Position");
     sub_label(ui, pane, WEIGHT_X, "Weight");
@@ -174,7 +268,9 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
         StrokeAlign::Center => 1,
         StrokeAlign::Outside => 2,
     };
-    if let Some(i) = dropdown(ui, pane.rect(POSITION_X, 0.0, POSITION_W, theme::FIELD_HEIGHT), "stroke-align", &aligns[cur], &aligns) {
+    let align_r = pane.rect(POSITION_X, 0.0, POSITION_W, theme::FIELD_HEIGHT);
+    widgets::record(ui, "stroke-align", align_r);
+    if let Some(i) = dropdown(ui, align_r, "stroke-align", &aligns[cur], &aligns) {
         let a = [StrokeAlign::Inside, StrokeAlign::Center, StrokeAlign::Outside][i];
         app.edit_nodes(sel, |n| n.stroke.align = a);
     }

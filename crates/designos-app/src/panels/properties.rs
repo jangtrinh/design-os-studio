@@ -605,6 +605,11 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     picker_popup(app, ui, region);
     super::effects::popover_ui(app, ui, region);
     super::style_edit::popover_ui(app, ui, region);
+    if !app.board_chrome() {
+        if let Some(canvas_rect) = app.ui.regions.canvas {
+            crate::board::bar::show(app, ui, canvas_rect);
+        }
+    }
 }
 
 // ---------------------------------------------------------------- no selection
@@ -1043,6 +1048,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     let is_text = matches!(n0.kind, NodeKind::Text(_));
     let is_frame = n0.kind.frame_props().is_some();
     let is_line = matches!(n0.kind, NodeKind::Line);
+    let all_connectors = !sel.is_empty() && sel.iter().take(128).all(|id| matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::Connector(_))));
     let parent_al = n0.parent.and_then(|p| app.doc.get(p)).and_then(|p| p.kind.frame_props()).map(|f| f.auto_layout.is_some()).unwrap_or(false);
     let parent_frame = n0.parent.and_then(|p| app.doc.get(p)).map(|p| p.kind.frame_props().is_some()).unwrap_or(false);
 
@@ -1507,7 +1513,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         section_sep(ui, pane, false);
         title(ui, pane, "Fill", None, false);
         super::typography::fill_section(app, ui, pane, sel);
-    } else if !is_line {
+    } else if !is_line && !all_connectors {
         section_sep(ui, pane, false);
         if paint_title(app, ui, pane, sel, "Fill", false, n0.fills.is_empty()) {
             let paint = Paint::solid(Color::from_hex(&format!("{:06X}", theme::DEFAULT_SHAPE_FILL)).unwrap_or(Color::WHITE));
@@ -1518,6 +1524,8 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
             // 16px under the last row (8 of it came with the row).
             pane.y += 8.0;
         }
+    } else {
+        remove_test_rect(ui.ctx(), "section-add-Fill");
     }
 
     // ---- Stroke (a cell's stroke is never drawn: the lines belong to the table)
