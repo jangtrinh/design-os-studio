@@ -103,7 +103,7 @@ fn rasterize_svg(svg: &str) -> sk::Pixmap {
         let defs = block_between(svg, "<defs>", "</defs>");
         let mut lines = defs.lines().map(str::trim);
         while let Some(line) = lines.next() {
-            if let Some(id) = line.strip_prefix("<clipPath ").and_then(| _| attr(line, "id")) {
+            if let Some(id) = line.strip_prefix("<clipPath ").and_then(|_| attr(line, "id")) {
                 let mut m = sk::Mask::new(w, h).unwrap();
                 for inner in lines.by_ref() {
                     if inner == "</clipPath>" {
@@ -282,4 +282,3 @@ fn a_half_ring_exports_the_same_markup_as_main() {
     );
     assert_eq!(ellipse_svg(0.5, StrokeAlign::Center), expected_center);
 }
-
