@@ -65,6 +65,7 @@ fn design_doc_with_connector(label: Option<&str>) -> (Document, NodeId, NodeId, 
         start_cap: ConnectorCap::Circle,
         end_cap: ConnectorCap::Triangle,
         label: label.map(text_props),
+        ..Default::default()
     };
     let mut cn = Node::connector(c, props);
     cn.name = "Flow Arrow".into();
@@ -127,6 +128,7 @@ fn fig_design_export_keeps_label_as_group() {
             start_cap: ConnectorCap::None,
             end_cap: ConnectorCap::Arrow,
             label: Some(text_props("")),
+            ..Default::default()
         },
     );
     empty_cn.name = "Empty Label Flow".into();
@@ -257,6 +259,52 @@ fn rest_open_connector_ends_take_the_node_stroke_cap() {
             assert_eq!(vector["strokeCap"], expected_node_cap, "REST node-level cap, {ctx}");
         }
     }
+}
+
+#[test]
+fn rest_connector_unknown_keys_roundtrip_and_null_opacity_defaults() {
+    let payload = serde_json::json!({"name":"x","editorType":"figjam","document":{"id":"0:0","name":"Document","type":"DOCUMENT","children":[{"id":"0:1","name":"Page","type":"CANVAS","children":[{"id":"1:1","name":"Connector","type":"CONNECTOR","opacity":null,"size":{"x":100.0,"y":100.0},"relativeTransform":[[1,0,0],[0,1,0]],"connectorStart":{"position":{"x":0,"y":0}},"connectorEnd":{"position":{"x":100,"y":100}},"futureKey":{"n":1}}]}]}});
+    let doc = import_rest_json(&payload.to_string()).unwrap();
+    let conn = find(&doc, "Connector");
+    assert_eq!(conn.opacity, 1.0);
+    let out = export_rest_json(&doc);
+    let node = &out["document"]["children"][0]["children"][0];
+    assert_eq!(node["futureKey"], serde_json::json!({"n":1}));
+}
+
+#[test]
+fn rest_board_and_node_unknown_keys_roundtrip() {
+    let payload = serde_json::json!({
+        "name": "x",
+        "editorType": "figjam",
+        "document": {"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": [{
+            "id": "0:1", "name": "Page", "type": "CANVAS", "children": [
+                {"id": "1:1", "name": "Stamp", "type": "STAMP", "stampType": "heart", "futureStampKey": {"n": 2}},
+                {"id": "1:2", "name": "Section", "type": "SECTION", "futureSectionKey": true},
+                {"id": "1:3", "name": "Rectangle", "type": "RECTANGLE", "opacity": null, "futureNodeKey": [1, 2, 3]}
+            ]
+        }]}
+    });
+    let doc = import_rest_json(&payload.to_string()).unwrap();
+    assert_eq!(find(&doc, "Rectangle").opacity, 1.0);
+    let out = export_rest_json(&doc);
+    let children = out["document"]["children"][0]["children"].as_array().unwrap();
+    assert_eq!(children[0]["futureStampKey"], serde_json::json!({"n": 2}));
+    assert_eq!(children[1]["futureSectionKey"], true);
+    assert_eq!(children[2]["futureNodeKey"], serde_json::json!([1, 2, 3]));
+}
+
+#[test]
+fn rest_carried_connector_unknown_keys_roundtrip() {
+    let (doc, _, _, _) = design_doc_with_connector(None);
+    let mut payload = export_rest_json(&doc);
+    let node = payload["document"]["children"][0]["children"].as_array_mut().unwrap().iter_mut().find(|n| n["name"] == "Flow Arrow").unwrap();
+    assert_eq!(node["type"], "VECTOR");
+    node["futureCarrierKey"] = serde_json::json!({"n": 3});
+    let imported = import_rest_json(&payload.to_string()).unwrap();
+    let out = export_rest_json(&imported);
+    let out_node = out["document"]["children"][0]["children"].as_array().unwrap().iter().find(|n| n["name"] == "Flow Arrow").unwrap();
+    assert_eq!(out_node["futureCarrierKey"], serde_json::json!({"n": 3}));
 }
 
 #[test]
@@ -530,6 +578,7 @@ fn fig_design_export_vector_cap_geometry_delta() {
         start_cap: ConnectorCap::None,
         end_cap: ConnectorCap::Triangle,
         label: None,
+        ..Default::default()
     };
     let mut cn = Node::connector(cid, props);
     cn.name = "Straight Cap".into();
@@ -622,6 +671,7 @@ fn fig_board_export_still_writes_connector_node() {
             start_cap: ConnectorCap::None,
             end_cap: ConnectorCap::Arrow,
             label: Some(text_props("board link")),
+            ..Default::default()
         },
     );
     cn.name = "Board Connector".into();

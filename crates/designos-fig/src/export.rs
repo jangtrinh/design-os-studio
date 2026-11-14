@@ -477,6 +477,7 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
     if node.locked {
         m.insert("locked".into(), true.into());
     }
+    m.extend(node.extra.clone());
     let lowered_conn = match (&node.kind, doc.kind) {
         (NodeKind::Connector(cp), k) if k != DocumentKind::Board => {
             let carrier = crate::board::StudioConnectorCarrier::from_node(
