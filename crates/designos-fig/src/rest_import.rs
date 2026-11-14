@@ -3534,9 +3534,12 @@ impl<'a> Ctx<'a> {
                     al.counter_sizing = sizing(s);
                 }
                 if let Some(w) = fstr(set, "layoutWrap") {
+                    let was_wrap = al.wrap;
                     al.wrap = w == "WRAP";
-                    al.counter_spacing_auto = al.direction != LayoutDirection::Grid && al.wrap && set.get("counterAxisSpacing").is_none();
-                    if al.counter_spacing_auto {
+                    if !al.wrap || al.direction == LayoutDirection::Grid {
+                        al.counter_spacing_auto = false;
+                    } else if !was_wrap && set.get("counterAxisSpacing").is_none() {
+                        al.counter_spacing_auto = true;
                         al.counter_spacing = al.item_spacing;
                     }
                 }

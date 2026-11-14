@@ -345,3 +345,24 @@ fn rest_export_preserves_auto_counter_gap_and_explicit_zero() {
     assert_eq!(roundtrip.counter_spacing, 0.0);
     assert!(!roundtrip.counter_spacing_auto);
 }
+
+#[test]
+fn counter_spacing_auto_false_is_omitted_in_native_json_and_fig_export_writes_stack_counter_spacing() {
+    let default_doc = doc_with(stack(LayoutAlign::Start, 1), TextWrap::Auto);
+    let native_json = default_doc.to_json().expect("native JSON");
+    assert!(
+        !native_json.contains("counter_spacing_auto"),
+        "counter_spacing_auto=false must be skipped in native serialization so documents without it stay byte-identical"
+    );
+    let roundtripped = Document::from_json(&native_json).expect("from_json");
+    assert_eq!(roundtripped.to_json().expect("re-serialize"), native_json);
+
+    let auto = rest_auto_layout(json!({"layoutWrap": "WRAP"}));
+    assert!(auto.counter_spacing_auto);
+    let bytes = export_fig(&doc_with(auto, TextWrap::Auto)).expect("export fig");
+    assert_eq!(
+        wire_node(&bytes, "Stack")["stackCounterSpacing"].as_f64(),
+        Some(32.0),
+        "fig export always writes stackCounterSpacing explicitly so no-edit .fig saves match main"
+    );
+}
