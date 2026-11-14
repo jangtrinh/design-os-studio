@@ -1,0 +1,68 @@
+{
+  "format": "2",
+  "title": "design:os studio v0.7 Effects & Export",
+  "language": "en",
+  "date": "2026-10-25",
+  "tests_root": "tests",
+  "glossary": {
+    "document": "decisions/glossary.md"
+  },
+  "artifacts": [
+    {
+      "id": "intake",
+      "folder": "intake",
+      "name": "Intake",
+      "status": "Draft for G1",
+      "owner_role": "PM"
+    },
+    {
+      "id": "contract",
+      "folder": "contract",
+      "name": "Feature contract",
+      "status": "Draft for G2",
+      "owner_role": "PM"
+    },
+    {
+      "id": "decisions",
+      "folder": "decisions",
+      "name": "Decision log",
+      "status": "Current to D3",
+      "owner_role": "PM"
+    },
+    {
+      "id": "prd",
+      "name": "PRD",
+      "status": "Written",
+      "folder": "prd",
+      "owner_role": "PM"
+    },
+    {
+      "id": "us",
+      "name": "Delivery slices as stories",
+      "status": "Written",
+      "folder": "us",
+      "owner_role": "PM"
+    },
+    {
+      "id": "delivery",
+      "name": "Patch slices v0.7.0-v0.7.4",
+      "status": "Written (v0.7.0-v0.7.3)",
+      "folder": "delivery",
+      "owner_role": "PM"
+    },
+    {
+      "id": "tests",
+      "folder": "tests",
+      "name": "Test cases",
+      "status": "Written",
+      "owner_role": "QA"
+    },
+    {
+      "id": "evidence",
+      "folder": "evidence",
+      "name": "Mockups per story",
+      "status": "Written",
+      "owner_role": "PM"
+    }
+  ]
+}
