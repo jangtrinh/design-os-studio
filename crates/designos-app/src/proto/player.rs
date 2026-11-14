@@ -920,6 +920,9 @@ impl Player {
         }
         let vars: Vec<String> = self.doc.variable_collections.get(collection).map(|c| c.variables.clone()).unwrap_or_default();
         self.refresh_bound(&vars);
+        // Prototype mode changes bypass History, so explicitly resync component properties whose
+        // bindings are stored under `componentProperties/...` as well as ordinary node fields.
+        designos_doc::resync_bound_properties(&mut self.doc);
     }
 
     /// Re-resolves the layers bound to `vars` (and to variables aliasing them), re-fits auto-sized
@@ -2145,6 +2148,56 @@ mod tests {
         q.pointer_up(Some(f.btn_b), false);
         assert_eq!(q.errors.len(), 1);
         assert!(q.errors[0].contains("unknown mode"));
+    }
+
+    #[test]
+    fn set_variable_mode_resyncs_bound_variant_properties() {
+        let (mut doc, screen, inst, small, large) = variant_fixture();
+        doc.variable_collections.insert(
+            "theme".into(),
+            VariableCollection {
+                id: "theme".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "light".into(),
+                variables: vec!["size".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        doc.variables.insert(
+            "size".into(),
+            Variable {
+                id: "size".into(),
+                name: "size".into(),
+                collection: "theme".into(),
+                kind: VariableKind::String,
+                values: [("light".into(), VariableValue::String("0".into())), ("dark".into(), VariableValue::String("1".into()))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        doc.get_mut(inst).unwrap().variables.bindings.insert(prop_binding_key("State"), "size".into());
+        let btn = doc.alloc_id();
+        let button = doc.insert(screen, Node::rectangle(btn, Rect::new(20.0, 700.0, 100.0, 40.0))).unwrap();
+        doc.get_mut(button).unwrap().prototype.reactions.push(Reaction {
+            trigger: Trigger::OnClick,
+            actions: vec![Action::SetVariableMode { collection: "theme".into(), mode: "dark".into() }],
+            transition: None,
+        });
+        let mut p = Player::new(&doc, screen);
+        assert_eq!(p.doc.get(inst).and_then(instance_component), Some(small));
+        let rev = p.frame_rev(screen);
+        p.pointer_up(Some(button), false);
+        assert_eq!(p.doc.get(inst).and_then(instance_component), Some(large));
+        assert!(p.frame_rev(screen) > rev, "mode switch invalidates the rendered frame");
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
     }
 
     #[test]
