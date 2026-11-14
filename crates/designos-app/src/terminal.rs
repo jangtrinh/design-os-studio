@@ -3448,15 +3448,17 @@ impl TerminalState {
         if let Some(tab) = self.active_tab_mut() {
             tab.composer.premark = Some(prompt.chars().take(64).collect());
         }
-        let tab_refusal = self.active_tab().and_then(TerminalTab::mode_refusal).map(str::to_string);
         match self.send_system_prompt(prompt, file_path) {
             crate::agent_composer::SendOutcome::Written | crate::agent_composer::SendOutcome::Queued | crate::agent_composer::SendOutcome::Unconfirmed => {
                 self.active_runtime = preset;
                 Ok(())
             }
-            crate::agent_composer::SendOutcome::Refused(reason) => {
-                Err(tab_refusal.or_else(|| self.last_start_refusal.map(str::to_string)).unwrap_or_else(|| reason.message().to_string()))
-            }
+            // The sentence the composer's caption shows for this refusal: the tab's mode refusal or start failure, else the generic one.
+            // A refusal left by an earlier start (`last_start_refusal`) says nothing about this send, so it is never read here.
+            crate::agent_composer::SendOutcome::Refused(reason) => Err(self
+                .active_tab()
+                .and_then(|tab| tab.mode_refusal().map(str::to_string).or_else(|| tab.start_failure.as_ref().map(|failure| failure.headline())))
+                .unwrap_or_else(|| reason.message().to_string())),
         }
     }
 

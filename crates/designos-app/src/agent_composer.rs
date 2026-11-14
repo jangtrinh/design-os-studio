@@ -2028,9 +2028,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Closing a background tab that held waiting text tells the person, in the composer of the tab that stays, where it went.
+    /// Closing a background tab that held waiting text puts it in New chat and leaves the tab that stays with its own notice.
     #[test]
-    fn closing_a_background_tab_with_waiting_text_signals_it_in_the_composer_that_stays() {
+    fn closing_a_background_tab_with_waiting_text_keeps_the_notice_of_the_tab_that_stays() {
         let dir = temp_composer_dir("close-tab-signal");
         let mut st = TerminalState::new_for_session("doc-close-signal", "Close Signal", Some(&dir));
         let _first = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
@@ -2047,6 +2047,82 @@ mod tests {
         assert_eq!(st.unattached_composer.draft, "Keep this queued", "the text waits in New chat");
         assert_eq!(st.active_composer().notice.as_deref(), Some("2 messages waiting to send"));
         assert_eq!(st.status_msg.as_deref(), Some("Queued message restored in New chat"));
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two background tabs closed one after the other: their waiting text joins New chat in closing order, and the tab that stays
+    /// keeps its notice and its send receipt.
+    #[test]
+    fn closing_two_background_tabs_in_turn_collects_both_messages_and_spares_the_tab_that_stays() {
+        let dir = temp_composer_dir("close-two-tabs");
+        let mut st = TerminalState::new_for_session("doc-close-two", "Close Two", Some(&dir));
+        let _a = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _b = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _c = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        assert_eq!(st.tabs.len(), 3);
+        st.active_tab = 2;
+        st.tabs[0].composer.pending_send.push_back(QueuedSend::new("from the first tab", false));
+        st.tabs[1].composer.pending_send.push_back(QueuedSend::new("from the second tab", false));
+        st.tabs[2].composer.notice = Some("Starting Claude Code… your message will be sent".into());
+        st.tabs[2].composer.last_outcome = Some(SendOutcome::Queued);
+
+        st.close_tab(0);
+        st.close_tab(0);
+
+        assert_eq!(st.tabs.len(), 1);
+        assert_eq!(st.unattached_composer.draft, "from the first tab\n\nfrom the second tab");
+        assert_eq!(st.unattached_composer.notice.as_deref(), Some("Queued message restored in New chat"));
+        assert_eq!(st.active_composer().notice.as_deref(), Some("Starting Claude Code… your message will be sent"));
+        assert_eq!(st.active_composer().last_outcome, Some(SendOutcome::Queued));
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Closing the active tab hands the screen to another tab, which keeps its own notice and receipt.
+    #[test]
+    fn closing_the_active_tab_with_waiting_text_leaves_the_next_tab_its_notice() {
+        let dir = temp_composer_dir("close-active-tab");
+        let mut st = TerminalState::new_for_session("doc-close-active", "Close Active", Some(&dir));
+        let _a = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _b = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.active_tab = 1;
+        st.tabs[0].composer.notice = Some("2 messages waiting to send".into());
+        st.tabs[0].composer.last_outcome = Some(SendOutcome::Queued);
+        st.tabs[1].composer.pending_send.push_back(QueuedSend::new("from the tab being closed", false));
+
+        st.close_tab(1);
+
+        assert_eq!(st.tabs.len(), 1);
+        assert_eq!(st.active_tab, 0);
+        assert_eq!(st.unattached_composer.draft, "from the tab being closed");
+        assert_eq!(st.active_composer().notice.as_deref(), Some("2 messages waiting to send"));
+        assert_eq!(st.active_composer().last_outcome, Some(SendOutcome::Queued));
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A New chat that already holds a draft keeps it and gets the recovered text after it. The restore notice replaces whatever
+    /// notice New chat had, because it is the news.
+    #[test]
+    fn closing_a_tab_appends_to_a_new_chat_draft_and_replaces_its_notice() {
+        let dir = temp_composer_dir("close-tab-appends");
+        let mut st = TerminalState::new_for_session("doc-close-appends", "Close Appends", Some(&dir));
+        let _a = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _b = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.active_tab = 1;
+        st.unattached_composer.draft = "typed in New chat".into();
+        st.unattached_composer.notice = Some("an older New chat notice".into());
+        st.tabs[0].composer.pending_send.push_back(QueuedSend::new("Keep this queued", false));
+
+        st.close_tab(0);
+
+        assert_eq!(st.unattached_composer.draft, "typed in New chat\n\nKeep this queued");
+        assert_eq!(st.unattached_composer.notice.as_deref(), Some("Queued message restored in New chat"));
+        assert!(st.unattached_composer.pending_send.is_empty());
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
@@ -2460,6 +2536,24 @@ mod tests {
         assert_eq!(st.tabs.len(), 1, "a ready agent tab of the same CLI is reused");
         let received = wait_for_file_containing(&mut st, &recv, "Image task 8");
         assert!(received.contains("Image task 8: Isolate subject."), "second prompt reaches the same CLI: {received:?}");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A refusal an earlier start left behind says nothing about this send: the image job gets this send's own sentence.
+    #[test]
+    fn a_refused_system_image_prompt_reports_its_own_reason_not_an_earlier_start_refusal() {
+        let dir = temp_composer_dir("system-refusal-stale");
+        let mut st = TerminalState::new_for_session("doc-system-stale", "System Stale", Some(&dir));
+        let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.last_start_refusal = Some("Switch to Ask first to use Codex.");
+        st.tabs[0].composer.not_ready_gate = true;
+
+        let result = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 12: Remove background.", None);
+
+        assert_eq!(result, Err(RefuseReason::NotReady.message().to_string()));
+        assert_eq!(st.tabs.len(), 1, "the ready tab is reused, not replaced");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
