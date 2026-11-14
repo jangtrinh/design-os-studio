@@ -3510,6 +3510,13 @@ impl TerminalState {
         match self.send_system_prompt_to(idx, prompt, file_path, poll_first) {
             crate::agent_composer::SendOutcome::Written | crate::agent_composer::SendOutcome::Queued | crate::agent_composer::SendOutcome::Unconfirmed => {
                 self.active_runtime = preset;
+                if let Some(tab) = self.tabs.get_mut(idx) {
+                    if let Ok(mut st) = tab.agent_status.lock() {
+                        if matches!(*st, AgentTabStatus::Done) {
+                            *st = AgentTabStatus::Idle;
+                        }
+                    }
+                }
                 Ok(())
             }
             crate::agent_composer::SendOutcome::Refused(reason) => {
