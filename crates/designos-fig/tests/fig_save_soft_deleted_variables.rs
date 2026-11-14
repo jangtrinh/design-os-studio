@@ -292,8 +292,138 @@ fn a_variable_hidden_from_publishing_stays_hidden_through_a_fig_round_trip() {
     );
     let saved_changes = node_changes(&saved);
     let set = saved_changes.iter().find(|entry| entry["type"] == "VARIABLE_SET").expect("the collection is written");
-    assert_eq!(set.get("isPublishable"), Some(&json!(true)), "a visible collection writes its publish switch explicitly");
+    assert_eq!(set.get("isPublishable"), None, "a collection whose input omitted isPublishable saves with no such key");
     let mut after = hidden(&import_fig(&saved).unwrap());
     after.sort();
     assert_eq!(after, expected, "the switch survives a save and reopen");
+}
+
+#[test]
+fn fig_save_writes_publish_switch_only_when_present_or_edited() {
+    const HIDDEN_MARKER: &str = "org.designos.hiddenFromPublishing";
+    let (omitted_set, omitted_mode) = ((1, 5), (1, 6));
+    let (visible_set, visible_mode) = ((1, 7), (1, 8));
+    let (hidden_set, hidden_mode) = ((1, 9), (1, 10));
+    let grey = rgba(0.5, 0.5, 0.5);
+    let mut nodes = document_and_page();
+    nodes.extend([
+        variable_set(omitted_set, "OmittedSet", omitted_mode, json!({})),
+        variable_set(visible_set, "VisibleSet", visible_mode, json!({"isPublishable": true})),
+        variable_set(hidden_set, "HiddenSet", hidden_mode, json!({"isPublishable": false})),
+        color_var((1, 20), omitted_set, omitted_mode, "Omitted/Color", &white(), json!({})),
+        color_var((1, 21), visible_set, visible_mode, "Visible/Color", &white(), json!({"isPublishable": true})),
+        color_var((1, 22), hidden_set, hidden_mode, "Hidden/Color", &grey, json!({"isPublishable": false})),
+    ]);
+
+    let doc = import_fig_node_changes(&Value::Array(nodes), "PublishSwitchNoEdit").unwrap();
+    let expected_assets = vec![
+        ("col:VariableCollectionId:1:5".to_string(), LibraryAssetKind::VariableCollection, "OmittedSet".to_string()),
+        ("col:VariableCollectionId:1:7".to_string(), LibraryAssetKind::VariableCollection, "VisibleSet".to_string()),
+        ("var:VariableID:1:20".to_string(), LibraryAssetKind::Variable, "Omitted/Color".to_string()),
+        ("var:VariableID:1:21".to_string(), LibraryAssetKind::Variable, "Visible/Color".to_string()),
+    ];
+    assert_eq!(publishable_assets(&doc), expected_assets, "hidden collection and its variables stay out of publishable_assets");
+
+    let reopened_native = Document::from_json(&doc.to_json().unwrap()).unwrap();
+    assert_eq!(publishable_assets(&reopened_native), expected_assets, "native .designos round-trip preserves collection publish state");
+
+    let saved = export_fig(&doc).unwrap();
+    let changes = node_changes(&saved);
+    let sets: Vec<Value> = changes.iter().filter(|c| c["type"] == "VARIABLE_SET").cloned().collect();
+    let vars: Vec<Value> = changes.iter().filter(|c| c["type"] == "VARIABLE").cloned().collect();
+    assert_eq!(
+        sets,
+        vec![
+            json!({
+                "guid": {"sessionID": 1, "localID": 5},
+                "key": "set-1-5",
+                "name": "OmittedSet",
+                "parentIndex": {"guid": {"sessionID": 0, "localID": 999999}, "position": "!000000"},
+                "phase": "CREATED",
+                "type": "VARIABLE_SET",
+                "variableSetModes": [{"id": {"sessionID": 1, "localID": 6}, "name": "Light", "sortPosition": "!000000"}]
+            }),
+            json!({
+                "guid": {"sessionID": 1, "localID": 7},
+                "isPublishable": true,
+                "key": "set-1-7",
+                "name": "VisibleSet",
+                "parentIndex": {"guid": {"sessionID": 0, "localID": 999999}, "position": "!000001"},
+                "phase": "CREATED",
+                "type": "VARIABLE_SET",
+                "variableSetModes": [{"id": {"sessionID": 1, "localID": 8}, "name": "Light", "sortPosition": "!000000"}]
+            }),
+            json!({
+                "guid": {"sessionID": 1, "localID": 9},
+                "isPublishable": false,
+                "key": "set-1-9",
+                "name": "HiddenSet",
+                "parentIndex": {"guid": {"sessionID": 0, "localID": 999999}, "position": "!000002"},
+                "phase": "CREATED",
+                "type": "VARIABLE_SET",
+                "variableSetModes": [{"id": {"sessionID": 1, "localID": 10}, "name": "Light", "sortPosition": "!000000"}]
+            }),
+        ],
+        "whole saved VARIABLE_SET entries keep omitted/true/false isPublishable state"
+    );
+    assert_eq!(
+        vars,
+        vec![
+            json!({
+                "description": "",
+                "guid": {"sessionID": 1, "localID": 20},
+                "key": "key-1-20",
+                "name": "Omitted/Color",
+                "parentIndex": {"guid": {"sessionID": 0, "localID": 999999}, "position": "!000003"},
+                "phase": "CREATED",
+                "sortPosition": "!000000",
+                "type": "VARIABLE",
+                "variableDataValues": {"entries": [{"modeID": {"sessionID": 1, "localID": 6}, "variableData": {"dataType": "COLOR", "value": {"colorValue": {"r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0}}}}]},
+                "variableResolvedType": "COLOR",
+                "variableSetID": {"guid": {"sessionID": 1, "localID": 5}}
+            }),
+            json!({
+                "description": "",
+                "guid": {"sessionID": 1, "localID": 21},
+                "isPublishable": true,
+                "key": "key-1-21",
+                "name": "Visible/Color",
+                "parentIndex": {"guid": {"sessionID": 0, "localID": 999999}, "position": "!000004"},
+                "phase": "CREATED",
+                "sortPosition": "!000001",
+                "type": "VARIABLE",
+                "variableDataValues": {"entries": [{"modeID": {"sessionID": 1, "localID": 8}, "variableData": {"dataType": "COLOR", "value": {"colorValue": {"r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0}}}}]},
+                "variableResolvedType": "COLOR",
+                "variableSetID": {"guid": {"sessionID": 1, "localID": 7}}
+            }),
+            json!({
+                "description": "",
+                "guid": {"sessionID": 1, "localID": 22},
+                "isPublishable": false,
+                "key": "key-1-22",
+                "name": "Hidden/Color",
+                "parentIndex": {"guid": {"sessionID": 0, "localID": 999999}, "position": "!000005"},
+                "phase": "CREATED",
+                "sortPosition": "!000002",
+                "type": "VARIABLE",
+                "variableDataValues": {"entries": [{"modeID": {"sessionID": 1, "localID": 10}, "variableData": {"dataType": "COLOR", "value": {"colorValue": {"r": 0.5, "g": 0.5, "b": 0.5, "a": 1.0}}}}]},
+                "variableResolvedType": "COLOR",
+                "variableSetID": {"guid": {"sessionID": 1, "localID": 9}}
+            }),
+        ],
+        "whole saved VARIABLE entries keep omitted/true/false isPublishable state"
+    );
+
+    // When the user edits the publish state of an untouched collection or variable, save writes the key.
+    let mut edited = import_fig(&saved).unwrap();
+    edited.variable_collections.get_mut("VariableCollectionId:1:5").unwrap().extensions.insert(HIDDEN_MARKER.into(), Value::Bool(true));
+    edited.variables.get_mut("VariableID:1:20").unwrap().hidden_from_publishing = true;
+    edited.variables.get_mut("VariableID:1:22").unwrap().hidden_from_publishing = false;
+    let edited_changes = node_changes(&export_fig(&edited).unwrap());
+    let edited_set = edited_changes.iter().find(|c| c["type"] == "VARIABLE_SET" && c["name"] == "OmittedSet").unwrap();
+    let edited_omitted_var = edited_changes.iter().find(|c| c["type"] == "VARIABLE" && c["name"] == "Omitted/Color").unwrap();
+    let edited_unhidden_var = edited_changes.iter().find(|c| c["type"] == "VARIABLE" && c["name"] == "Hidden/Color").unwrap();
+    assert_eq!(edited_set.get("isPublishable"), Some(&json!(false)));
+    assert_eq!(edited_omitted_var.get("isPublishable"), Some(&json!(false)));
+    assert_eq!(edited_unhidden_var.get("isPublishable"), Some(&json!(true)));
 }

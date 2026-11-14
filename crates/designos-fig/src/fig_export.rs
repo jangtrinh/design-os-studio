@@ -232,7 +232,9 @@ pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
 /// collection `extensions` / `mode_extensions` that `.fig` `VARIABLE_SET` / `VARIABLE` nodes do not carry (`E1-9` §4, §10).
 pub fn export_fig_with_report(doc: &Document) -> Result<(Vec<u8>, Vec<crate::variables_dtcg::SkippedVariable>), FigError> {
     let bytes = export_fig(doc)?;
-    let omitted = crate::variables_dtcg::collect_omitted_extensions(doc);
+    let mut omitted = crate::variables_dtcg::collect_omitted_extensions(doc);
+    let publish_marker = format!("'{}'", designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY);
+    omitted.retain(|s| !s.reason.contains(&publish_marker));
     Ok((bytes, omitted))
 }
 
@@ -1050,10 +1052,12 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         if let Some(lib) = &c.source_library_key {
             fields.push(("sourceLibraryKey", V::String(lib.clone())));
         }
-        // Figma writes the collection's publish switch explicitly, including the
-        // default `true` value. Keeping it explicit preserves the source file's
-        // contract on a save/reopen round trip.
-        fields.push(("isPublishable", V::Bool(!c.is_hidden_from_publishing())));
+        // Write the collection's publish switch when the opened file had it or when the user changed the state.
+        if c.is_hidden_from_publishing() {
+            fields.push(("isPublishable", V::Bool(false)));
+        } else if c.extensions.get(designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY).and_then(serde_json::Value::as_bool) == Some(false) {
+            fields.push(("isPublishable", V::Bool(true)));
+        }
         if c.is_extendable() {
             fields.push(("isCollectionExtendable", V::Bool(true)));
         }
@@ -1149,9 +1153,12 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         if let Some(k) = &v.key {
             fields.push(("key", V::String(k.clone())));
         }
-        // Figma writes the variable's publish switch explicitly, including the
-        // default `true` value.
-        fields.push(("isPublishable", V::Bool(!v.hidden_from_publishing)));
+        // Write the variable's publish switch when the opened file had it or when the user changed the state.
+        if v.hidden_from_publishing {
+            fields.push(("isPublishable", V::Bool(false)));
+        } else if v.extensions.contains_key(designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY) {
+            fields.push(("isPublishable", V::Bool(true)));
+        }
         // A deleted variable the file still uses stays in the file as deleted; it must not come back as a live one.
         if v.is_soft_deleted() {
             fields.push(("isSoftDeleted", V::Bool(true)));

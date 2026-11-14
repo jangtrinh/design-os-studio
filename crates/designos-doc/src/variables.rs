@@ -68,11 +68,7 @@ impl VariableCollection {
     }
 
     pub fn set_hidden_from_publishing(&mut self, hidden: bool) {
-        if hidden {
-            self.extensions.insert(HIDDEN_FROM_PUBLISHING_EXTENSION_KEY.into(), serde_json::Value::Bool(true));
-        } else {
-            self.extensions.remove(HIDDEN_FROM_PUBLISHING_EXTENSION_KEY);
-        }
+        self.extensions.insert(HIDDEN_FROM_PUBLISHING_EXTENSION_KEY.into(), serde_json::Value::Bool(hidden));
     }
 }
 
