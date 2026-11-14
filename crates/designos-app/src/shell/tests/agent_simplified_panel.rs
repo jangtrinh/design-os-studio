@@ -214,6 +214,31 @@ fn composer_mode_control_shows_focused_tab_mode() {
     finish(s);
 }
 
+/// The New chat state over a running tab starts a NEW tab: its closed control shows the mode that new tab will get (the window
+/// default), not the mode of the tab the state covers.
+#[test]
+fn composer_mode_control_in_new_chat_over_a_tab_shows_the_new_tab_mode() {
+    use crate::agent_permissions::AgentPermissionMode;
+    let mut s = session_sim();
+    s.shell.app.terminal.permission_mode = AgentPermissionMode::Skip;
+    frames(&mut s, 2);
+    let plus = recorded(&s, "agents-new-chat-btn").unwrap();
+    s.click(plus.center());
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.picker_open, "+ opens the New chat state");
+    let texts = painted(&s);
+    assert!(texts.iter().any(|text| text == "Skip permissions"), "New chat shows the mode a new tab gets: {texts:?}");
+    assert!(!texts.iter().any(|text| text == "Ask first"), "the covered tab's mode is not shown in New chat: {texts:?}");
+    s.type_text("new task");
+    s.key(Key::Enter);
+    frames(&mut s, 3);
+    let tabs = &s.shell.app.terminal.tabs;
+    assert_eq!(tabs.len(), 2, "Send started a second tab");
+    assert_eq!(tabs[0].permission_mode, AgentPermissionMode::Ask, "the first tab keeps its mode");
+    assert_eq!(tabs[1].permission_mode, AgentPermissionMode::Skip, "the new tab runs in the mode the control showed");
+    finish(s);
+}
+
 #[test]
 fn context_row_is_gone() {
     let mut s = session_sim();

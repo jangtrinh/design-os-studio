@@ -73,9 +73,10 @@ pub fn toolbar(ui: &mut Ui, state: &mut TerminalState, composer: Rect, pill: &st
     if send_resp.clicked() && send_on {
         out.send = true;
     }
-    // The closed control describes the focused tab; the popup still edits the
+    // The closed control names the mode of what a send starts or continues: with a tab focused, that tab's own mode; in the New
+    // chat state (no tab, or the state over a tab) a send starts a new tab, so the window default. The popup always edits the
     // window default used by future tabs.
-    let display_mode = state.active_tab().map(|tab| tab.permission_mode).unwrap_or(state.permission_mode);
+    let display_mode = if state.in_new_chat() { state.permission_mode } else { state.active_tab().map_or(state.permission_mode, |tab| tab.permission_mode) };
     let mode_icon = wants_icon_mode(&p, composer.width(), display_mode);
     let mode_w = if mode_icon { theme::CONTROL_XS } else { mode_width(&p, display_mode) };
     let mode = Rect::from_min_size(Pos2::new(send.left() - theme::SPACE_ROW - mode_w, y), Vec2::new(mode_w, theme::CONTROL_XS));
