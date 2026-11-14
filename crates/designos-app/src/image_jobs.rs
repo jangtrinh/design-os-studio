@@ -2221,6 +2221,8 @@ mod tests {
         // Keep the full 5-minute timeout so the test proves the watcher stops on `done` without waiting for timeout.
         app.image_jobs.job_timeout = Duration::from_secs(300);
         app.image_jobs.agent_script = None;
+        // The job goes through the terminal, so it needs a CLI that starts; a machine without `claude` must not decide this test.
+        put_stub_cli_on_path(&mut app, tmp.path(), "claude");
 
         let job1 = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job 1 starts");
         let job2 = app.start_image_job(orig_id, 0, ImageOp::IsolateSubject).expect("job 2 queues");
