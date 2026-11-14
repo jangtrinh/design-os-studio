@@ -527,9 +527,7 @@ impl App {
             self.toast_queue.retain(|t| !is_plain(t));
         }
         if self.toast_queue.len() >= TOAST_QUEUE_CAP {
-            if let Some(i) =
-                self.toast_queue.iter().position(is_plain).or_else(|| self.toast_queue.iter().position(|t| t.error && !t.has_action()))
-            {
+            if let Some(i) = self.toast_queue.iter().position(is_plain).or_else(|| self.toast_queue.iter().position(|t| t.error && !t.has_action())) {
                 self.toast_queue.remove(i);
             }
         }

@@ -454,4 +454,3 @@ fn a_late_failure_for_another_file_respects_the_queue_cap() {
     assert_eq!(s.app().toast_queue.len(), crate::app::TOAST_QUEUE_CAP, "front insertion respects TOAST_QUEUE_CAP");
     assert_eq!(s.app().toast_queue[0].text, "Couldn't open /tmp/designos-toast-other", "the reveal failure is at the front");
 }
-
