@@ -319,3 +319,25 @@ fn the_tab_close_button_has_a_name_and_shows_keyboard_focus() {
     assert!(ring(&s), "keyboard focus on the close button draws the focus ring around it");
     finish(s, dir);
 }
+
+/// The close button of a background tab that still holds waiting text: the click moves the text into New chat, which is not on
+/// screen while the other tab stays, so the window tells the person once with an info toast.
+#[test]
+fn closing_a_background_tab_with_waiting_text_raises_the_new_chat_toast_in_the_window() {
+    let (mut s, dir) = strip_sim("close-toast");
+    s.shell.app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("a second stub claude starts");
+    frames(&mut s, 3);
+    assert_eq!((s.shell.app.terminal.tabs.len(), s.shell.app.terminal.active_tab), (2, 1));
+    s.shell.app.terminal.tabs[0].composer.pending_send.push_back(crate::agent_composer::QueuedSend::new("Keep this queued", false));
+    let close_id = egui::Id::new(("agents-left-tab-close", s.shell.app.terminal.tabs[0].id));
+    let close = s.ctx.read_response(close_id).expect("the strip laid the close button out").rect;
+    assert!(s.app().toast.is_none(), "no toast before the click");
+
+    s.click(close.center());
+
+    assert_eq!(s.shell.app.terminal.tabs.len(), 1, "the click closed the background tab");
+    assert_eq!(s.shell.app.terminal.unattached_composer.draft, "Keep this queued");
+    let toast = s.app().toast.as_ref().expect("the person is told where the text went");
+    assert_eq!((toast.text.as_str(), toast.error), ("Queued message restored in New chat", false));
+    finish(s, dir);
+}

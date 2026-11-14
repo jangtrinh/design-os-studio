@@ -428,6 +428,13 @@ impl App {
         self.raise_toast(text, error);
     }
 
+    /// Raises the toasts the Agents terminal has due: an info toast when a tab close moved waiting text into New chat that is not on screen.
+    pub fn show_terminal_toasts(&mut self) {
+        if let Some(text) = self.terminal.take_restore_toast() {
+            self.queue_toast(text, false);
+        }
+    }
+
     /// Raises a toast like [`App::show_toast`] and returns it where it landed, on screen or in the queue.
     pub(crate) fn raise_toast(&mut self, text: impl Into<String>, error: bool) -> &mut Toast {
         let mut text = text.into();
@@ -473,6 +480,38 @@ impl App {
         // A different error does not replace an error the user has seen and that still has time left.
         let live_error = next.error && self.toast.as_ref().is_some_and(|t| t.error && t.armed && self.now < t.until);
         if live_action || live_error || !self.toast_queue.is_empty() {
+            return self.enqueue_toast(next);
+        }
+        self.toast.insert(next)
+    }
+
+    /// Queues `text` behind any live toast already on screen instead of replacing a plain toast (such as a job's
+    /// completion notice when the next queued job is refused in the same poll).
+    pub(crate) fn queue_toast(&mut self, text: impl Into<String>, error: bool) -> &mut Toast {
+        let next = Toast {
+            text: text.into(),
+            until: self.now + theme::TOAST_SECONDS,
+            error,
+            status: false,
+            reveal: None,
+            enter_path: false,
+            duration: theme::TOAST_SECONDS,
+            armed: false,
+        };
+        if next.error {
+            self.error_toast_seq += 1;
+            self.last_error_toast = next.text.clone();
+            let shown = self.toast.as_ref().is_some_and(|t| t.error && t.text == next.text);
+            let queued = self.toast_queue.iter().position(|t| t.error && t.text == next.text);
+            if shown {
+                return self.toast.as_mut().unwrap_or_else(|| unreachable!("checked just above"));
+            }
+            if let Some(i) = queued {
+                return &mut self.toast_queue[i];
+            }
+        }
+        let live = |t: &Toast| !t.armed || self.now < t.until;
+        if self.toast.as_ref().is_some_and(live) || !self.toast_queue.is_empty() {
             return self.enqueue_toast(next);
         }
         self.toast.insert(next)
