@@ -297,6 +297,9 @@ mod fidelity {
             return None;
         }
         let shape = outline_of(doc, n, FLATTEN_TOLERANCE)?;
+        if shape.paths.is_empty() {
+            return None;
+        }
         if clips && shape.paths.len() != 1 {
             return Some("a clipping frame made of several paths");
         }

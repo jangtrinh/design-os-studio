@@ -657,14 +657,26 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
     );
     match key {
         "width" => {
-            n.size.x = x.max(0.0);
+            let mut new_size = n.size;
+            new_size.x = x.max(0.0);
+            if matches!(n.kind, NodeKind::Line) {
+                crate::apply_constrained_geometry(n, n.transform, new_size);
+            } else {
+                n.size = new_size;
+            }
             if is_rect_like {
                 n.fill_geometry = None;
                 n.stroke_geometry = None;
             }
         }
         "height" => {
-            n.size.y = x.max(0.0);
+            let mut new_size = n.size;
+            new_size.y = x.max(0.0);
+            if matches!(n.kind, NodeKind::Line) {
+                crate::apply_constrained_geometry(n, n.transform, new_size);
+            } else {
+                n.size = new_size;
+            }
             if is_rect_like {
                 n.fill_geometry = None;
                 n.stroke_geometry = None;
@@ -1673,5 +1685,81 @@ mod tests {
 
         d.get_mut(fid).unwrap().variables.bindings.insert("easingData".into(), "good-ease".into());
         assert_eq!(easing_binding_problem(&d, fid, "easingData"), None);
+    }
+
+    #[test]
+    fn width_binding_scales_an_imported_line_outline() {
+        let mut n = Node::new(NodeId(1), NodeKind::Line);
+        n.size = Vec2::new(100.0, 0.0);
+        n.stroke.weight = 10.0;
+        n.stroke_geometry = Some(vec![Path {
+            cmds: vec![
+                PathCmd::MoveTo(Vec2::new(-5.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(105.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(105.0, 0.0)),
+                PathCmd::LineTo(Vec2::new(-5.0, 0.0)),
+                PathCmd::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+        }]);
+        let mut expected = n.clone();
+        let tf = expected.transform;
+        crate::apply_constrained_geometry(&mut expected, tf, Vec2::new(200.0, 0.0));
+
+        set_bound_property(&mut n, "width", &VariableValue::Number(200.0));
+
+        assert_eq!(
+            n.stroke_geometry,
+            Some(vec![Path {
+                cmds: vec![
+                    PathCmd::MoveTo(Vec2::new(-5.0, -10.0)),
+                    PathCmd::LineTo(Vec2::new(205.0, -10.0)),
+                    PathCmd::LineTo(Vec2::new(205.0, 0.0)),
+                    PathCmd::LineTo(Vec2::new(-5.0, 0.0)),
+                    PathCmd::Close,
+                ],
+                fill_rule: FillRule::NonZero,
+            }])
+        );
+        assert_eq!(n, expected);
+    }
+
+    #[test]
+    fn height_binding_clears_a_dashed_line_band_and_keeps_a_solid_line_band_unchanged() {
+        let band = vec![Path {
+            cmds: vec![
+                PathCmd::MoveTo(Vec2::new(-5.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(105.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(105.0, 0.0)),
+                PathCmd::LineTo(Vec2::new(-5.0, 0.0)),
+                PathCmd::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+        }];
+
+        let mut solid = Node::new(NodeId(1), NodeKind::Line);
+        solid.size = Vec2::new(100.0, 0.0);
+        solid.stroke.weight = 10.0;
+        solid.stroke_geometry = Some(band.clone());
+        let mut expected_solid = solid.clone();
+        let tf_solid = expected_solid.transform;
+        crate::apply_constrained_geometry(&mut expected_solid, tf_solid, Vec2::new(100.0, 10.0));
+
+        set_bound_property(&mut solid, "height", &VariableValue::Number(10.0));
+        assert_eq!(solid.stroke_geometry.as_ref(), Some(&band));
+        assert_eq!(solid, expected_solid);
+
+        let mut dashed = Node::new(NodeId(2), NodeKind::Line);
+        dashed.size = Vec2::new(100.0, 0.0);
+        dashed.stroke.weight = 10.0;
+        dashed.stroke.dashes = vec![4.0, 2.0];
+        dashed.stroke_geometry = Some(band);
+        let mut expected_dashed = dashed.clone();
+        let tf_dashed = expected_dashed.transform;
+        crate::apply_constrained_geometry(&mut expected_dashed, tf_dashed, Vec2::new(100.0, 10.0));
+
+        set_bound_property(&mut dashed, "height", &VariableValue::Number(10.0));
+        assert!(dashed.stroke_geometry.is_none());
+        assert_eq!(dashed, expected_dashed);
     }
 }
