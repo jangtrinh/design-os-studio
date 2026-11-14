@@ -228,7 +228,8 @@ pub fn node_geo(n: &Node) -> Option<Geo> {
         NodeKind::Ellipse(arc) => {
             let full = (arc.end - arc.start).abs() >= TAU - 1e-4 && arc.inner_radius <= 0.0;
             let kind = if full { GeoKind::Ellipse { w, h } } else { GeoKind::Path };
-            Some(single(ellipse_cmds(w, h, arc)?, kind, true, true, false))
+            let fillable = arc.inner_radius < 0.999;
+            Some(single(ellipse_cmds(w, h, arc)?, kind, true, fillable, false))
         }
         NodeKind::Line => {
             let cmds = vec![PathCmd::MoveTo(v(0.0, 0.0)), PathCmd::LineTo(v(w, 0.0))];
