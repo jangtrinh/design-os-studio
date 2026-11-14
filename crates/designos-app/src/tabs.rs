@@ -191,6 +191,10 @@ impl TabsState {
         self.session_id_for_tab(tab_id)
     }
 
+    pub(crate) fn current_or_next_tab_id(&self) -> u64 {
+        self.entries.get(self.active_idx).map_or(self.next_id, |t| t.id)
+    }
+
     fn alloc_id(&mut self) -> u64 {
         self.ensure_instance_id();
         let id = self.next_id;
@@ -282,8 +286,11 @@ impl TabsState {
             tab.doc = Self::take_live_doc(app);
             tab.hist = std::mem::take(&mut app.hist);
             app.terminal.bind_session(&sid);
+            crate::image_jobs::resume_held_jobs_in_bridge_poll(&mut app.terminal);
+            app.flush_pending_image_job_toasts();
             tab.terminal = Self::park_terminal(app);
             tab.image_jobs = app.image_jobs.take_for_park();
+            tab.image_jobs.set_document_tab_id(id);
             tab.dirty = app.autosave.dot.flag();
             tab.disk = app.autosave.disk_state();
             self.entries.push(tab);
@@ -296,6 +303,8 @@ impl TabsState {
                 let active_id = self.entries[self.active_idx].id;
                 let sid = self.session_id_for_tab(active_id);
                 app.terminal.bind_session(&sid);
+                crate::image_jobs::resume_held_jobs_in_bridge_poll(&mut app.terminal);
+                app.flush_pending_image_job_toasts();
                 if !app.doc.nodes.is_empty() {
                     self.entries[self.active_idx].page = app.page;
                     self.entries[self.active_idx].selection = app.selection.clone();
@@ -306,6 +315,7 @@ impl TabsState {
                 self.entries[self.active_idx].hist = std::mem::take(&mut app.hist);
                 self.entries[self.active_idx].terminal = Self::park_terminal(app);
                 self.entries[self.active_idx].image_jobs = app.image_jobs.take_for_park();
+                self.entries[self.active_idx].image_jobs.set_document_tab_id(active_id);
                 self.hist_in_app = false;
             }
             return;
@@ -320,11 +330,14 @@ impl TabsState {
             let active_id = self.entries[self.active_idx].id;
             let sid = self.session_id_for_tab(active_id);
             app.terminal.bind_session(&sid);
+            crate::image_jobs::resume_held_jobs_in_bridge_poll(&mut app.terminal);
+            app.flush_pending_image_job_toasts();
             self.entries[self.active_idx].load_next_id = app.load_next_id;
             self.entries[self.active_idx].doc = Self::take_live_doc(app);
             self.entries[self.active_idx].hist = std::mem::take(&mut app.hist);
             self.entries[self.active_idx].terminal = Self::park_terminal(app);
             self.entries[self.active_idx].image_jobs = app.image_jobs.take_for_park();
+            self.entries[self.active_idx].image_jobs.set_document_tab_id(active_id);
             self.entries[self.active_idx].dirty = app.autosave.dot.flag();
             self.entries[self.active_idx].disk = app.autosave.disk_state();
             self.hist_in_app = false;

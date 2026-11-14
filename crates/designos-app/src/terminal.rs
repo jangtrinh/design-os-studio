@@ -757,6 +757,26 @@ pub struct TerminalTab {
     pub pending_resize: Option<((u16, u16), f64)>,
     /// Scrollback offset to restore across an `ESC[3J` full-history reprint when the user was scrolled into history (`#1171`).
     pub restore_scrollback: Arc<std::sync::atomic::AtomicUsize>,
+    /// Image job held on this tab after a temporary refusal until the tab can accept input again.
+    pub held_image_job: Option<HeldImageJob>,
+    /// Shared queue state for the document that owns `held_image_job`.
+    pub(crate) held_image_job_shared: Option<Arc<Mutex<crate::image_jobs::SharedImageQueueState>>>,
+}
+
+/// An image job waiting on the agent tab that temporarily refused it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeldImageJob {
+    pub document_tab_id: u64,
+    pub job_id: String,
+    pub told_reason: String,
+}
+
+/// Why an image job prompt could not be handed to an agent tab right now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImagePromptRefusal {
+    pub message: String,
+    pub temporary: bool,
+    pub tab_idx: Option<usize>,
 }
 
 /// Quiet window after which a PTY-heuristic tab (`Codex`) decays an explicit `Working(_)` into `Done` (`#1194`).
@@ -1069,6 +1089,8 @@ impl TerminalTab {
             resize_count: 0,
             pending_resize: None,
             restore_scrollback,
+            held_image_job: None,
+            held_image_job_shared: None,
         })
     }
 
@@ -1572,6 +1594,10 @@ pub struct TerminalState {
     restore_toast_due: bool,
     /// Last computed `(rows, cols)` of the VT100 viewport (`#1171`).
     pub viewport_size: (u16, u16),
+    /// True while `send_system_prompt_to` is polling the bridge before writing a system prompt.
+    pub(crate) in_system_prompt_poll: bool,
+    /// Toasts raised by held image-job transitions during bridge polling or tab close.
+    pub(crate) pending_image_job_toasts: Vec<(String, bool)>,
 }
 
 /// Removes a scratch session folder but keeps `close-result.json`: an agent's close of this very tab writes its answer there, and
@@ -1862,6 +1888,8 @@ impl TerminalState {
             last_start_refusal: None,
             restore_toast_due: false,
             viewport_size: (28, 100),
+            in_system_prompt_poll: false,
+            pending_image_job_toasts: Vec::new(),
         }
     }
 
@@ -3434,38 +3462,72 @@ impl TerminalState {
         let _ = self.send_to_agent(prompt, file_path);
     }
 
+    /// Picks a live tab started as `preset` for an image job, preferring a non-working tab.
+    pub fn find_tab_for_image_job(&mut self, preset: AgentCliPreset) -> Option<usize> {
+        let is_reusable = |t: &mut TerminalTab| t.spawn_preset == preset && t.start_failure.is_none() && !t.exited_notice_shown && t.accepts_agent_input();
+        let is_busy = |t: &TerminalTab| t.agent_status.lock().ok().is_some_and(|st| matches!(*st, AgentTabStatus::Working(_)));
+        let active = self.active_tab;
+        if let Some(t) = self.tabs.get_mut(active) {
+            if is_reusable(t) && !is_busy(t) {
+                return Some(active);
+            }
+        }
+        if let Some(idx) = self.tabs.iter_mut().position(|t| is_reusable(t) && !is_busy(t)) {
+            return Some(idx);
+        }
+        if let Some(t) = self.tabs.get_mut(active) {
+            if is_reusable(t) {
+                return Some(active);
+            }
+        }
+        self.tabs.iter_mut().position(is_reusable)
+    }
+
+    /// Hands a system-generated image task prompt to `tabs[idx]` without reading or writing `active_tab`.
+    pub fn hand_image_prompt_to_tab(&mut self, idx: usize, prompt: &str, file_path: Option<&Path>, poll_first: bool) -> Result<(), ImagePromptRefusal> {
+        let Some(preset) = self.tabs.get(idx).map(|t| t.spawn_preset) else {
+            let msg = crate::agent_composer::RefuseReason::NoAgent.message().to_string();
+            self.status_msg = Some(msg.clone());
+            return Err(ImagePromptRefusal { message: msg, temporary: false, tab_idx: None });
+        };
+        if let Some(tab) = self.tabs.get_mut(idx) {
+            tab.composer.premark = Some(prompt.chars().take(64).collect());
+        }
+        match self.send_system_prompt_to(idx, prompt, file_path, poll_first) {
+            crate::agent_composer::SendOutcome::Written | crate::agent_composer::SendOutcome::Queued | crate::agent_composer::SendOutcome::Unconfirmed => {
+                self.active_runtime = preset;
+                Ok(())
+            }
+            crate::agent_composer::SendOutcome::Refused(reason) => {
+                let temporary = matches!(reason, crate::agent_composer::RefuseReason::Permission | crate::agent_composer::RefuseReason::NotReady);
+                let message = self
+                    .tabs
+                    .get(idx)
+                    .and_then(|tab| tab.mode_refusal().map(str::to_string).or_else(|| tab.start_failure.as_ref().map(|failure| failure.headline())))
+                    .unwrap_or_else(|| reason.message().to_string());
+                Err(ImagePromptRefusal { message, temporary, tab_idx: Some(idx) })
+            }
+        }
+    }
+
+    /// Picks a live tab started as `preset` (or spawns a new tab running `preset`) and hands `prompt` to that tab
+    /// without changing `active_tab` when reusing an existing tab.
+    pub fn submit_system_image_prompt_detailed(&mut self, preset: AgentCliPreset, prompt: &str, file_path: Option<&Path>) -> Result<usize, ImagePromptRefusal> {
+        let idx = match self.find_tab_for_image_job(preset) {
+            Some(idx) => idx,
+            None => self.spawn_tab(preset, file_path).map_err(|message| ImagePromptRefusal { message, temporary: false, tab_idx: None })?,
+        };
+        self.hand_image_prompt_to_tab(idx, prompt, file_path, true)?;
+        Ok(idx)
+    }
+
     /// Submits a system-generated image task prompt to the target agent runtime (`#667`).
     ///
     /// Picks a live tab that was started as `preset`; otherwise starts a new tab running that agent CLI. An
     /// existing tab is never relabelled, so a user's Shell or another CLI keeps its identity and never receives
     /// the prompt. The prompt is queued while a fresh tab is still starting.
     pub fn submit_system_image_prompt(&mut self, preset: AgentCliPreset, prompt: &str, file_path: Option<&Path>) -> Result<(), String> {
-        let reusable =
-            self.tabs.iter_mut().position(|t| t.spawn_preset == preset && t.start_failure.is_none() && !t.exited_notice_shown && t.accepts_agent_input());
-        match reusable {
-            Some(idx) => {
-                self.active_tab = idx;
-            }
-            None => {
-                let idx = self.spawn_tab(preset, file_path)?;
-                self.active_tab = idx;
-            }
-        }
-        if let Some(tab) = self.active_tab_mut() {
-            tab.composer.premark = Some(prompt.chars().take(64).collect());
-        }
-        match self.send_system_prompt(prompt, file_path) {
-            crate::agent_composer::SendOutcome::Written | crate::agent_composer::SendOutcome::Queued | crate::agent_composer::SendOutcome::Unconfirmed => {
-                self.active_runtime = preset;
-                Ok(())
-            }
-            // The sentence the composer's caption shows for this refusal: the tab's mode refusal or start failure, else the generic one.
-            // A refusal left by an earlier start (`last_start_refusal`) says nothing about this send, so it is never read here.
-            crate::agent_composer::SendOutcome::Refused(reason) => Err(self
-                .active_tab()
-                .and_then(|tab| tab.mode_refusal().map(str::to_string).or_else(|| tab.start_failure.as_ref().map(|failure| failure.headline())))
-                .unwrap_or_else(|| reason.message().to_string())),
-        }
+        self.submit_system_image_prompt_detailed(preset, prompt, file_path).map(|_| ()).map_err(|r| r.message)
     }
 
     /// Records `preset` as the last chosen agent CLI in this file's `sessions.json` (`#652` §3 rule 4).
@@ -3881,6 +3943,9 @@ impl TerminalState {
     pub fn close_tab(&mut self, idx: usize) {
         if idx < self.tabs.len() {
             let mut removed = self.tabs.remove(idx);
+            if let Some(held) = removed.held_image_job.take() {
+                crate::image_jobs::fail_held_job_on_tab_close(self, held, removed.held_image_job_shared.take());
+            }
             // A tab can own prompts waiting for a busy CLI. Preserve user prompts
             // in the unattached composer before dropping the tab so closing it
             // cannot silently lose queued work.
@@ -4411,6 +4476,9 @@ impl TerminalState {
         };
         self.notification_latch.update(self.approval_notifier.as_ref(), Some(self.window_focused), cli_label, &self.doc_name, request_key.as_deref());
         self.poll_pending_online_retries(None);
+        if !self.in_system_prompt_poll {
+            crate::image_jobs::resume_held_jobs_in_bridge_poll(self);
+        }
 
         actions
     }

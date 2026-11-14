@@ -483,6 +483,10 @@ fn status_comes_from_output(tab: &TerminalTab) -> bool {
 
 /// True when nothing may be pasted into `tab` now because its agent waits on the user: its status says so, for any CLI, or a Gemini
 /// dialog is on its screen, whatever its status says. A pasted prompt could answer the question.
+pub(crate) fn tab_waits_on_the_user(tab: &TerminalTab) -> bool {
+    waits_on_the_user(tab)
+}
+
 fn waits_on_the_user(tab: &TerminalTab) -> bool {
     status_waits(tab) || tab.gemini_dialog_open()
 }
@@ -776,7 +780,98 @@ impl TerminalState {
     /// references, never starts a session by itself, and never returns an undelivered prompt to the draft.
     /// A tab that is still starting queues the prompt until it is ready.
     pub fn send_system_prompt(&mut self, text: &str, file_path: Option<&Path>) -> SendOutcome {
-        self.send_to_agent_from(text, file_path, SendSource::System)
+        let idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
+        self.send_system_prompt_to(idx, text, file_path, true)
+    }
+
+    /// Sends a system-generated prompt (image jobs) directly into `tabs[idx]` without reading or writing `active_tab`.
+    /// When `poll_first` is true, the live agent bridge is polled first with the person's active tab unchanged.
+    pub fn send_system_prompt_to(&mut self, idx: usize, text: &str, _file_path: Option<&Path>, poll_first: bool) -> SendOutcome {
+        if poll_first {
+            let prev = self.in_system_prompt_poll;
+            self.in_system_prompt_poll = true;
+            let early_actions = self.poll_live_agent_bridge();
+            self.in_system_prompt_poll = prev;
+            self.deferred_bridge_actions.extend(early_actions);
+        }
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            if let Some(tab) = self.tabs.get_mut(idx) {
+                tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Empty));
+            }
+            return SendOutcome::Refused(RefuseReason::Empty);
+        }
+        if text.chars().count() > MAX_COMPOSER_CHARS {
+            let msg = RefuseReason::TooLong.message().to_string();
+            if let Some(tab) = self.tabs.get_mut(idx) {
+                tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::TooLong));
+                tab.composer.notice = Some(msg.clone());
+            }
+            self.status_msg = Some(msg);
+            return SendOutcome::Refused(RefuseReason::TooLong);
+        }
+        let payload = trimmed.to_string();
+        let outcome = if let Some(tab) = self.tabs.get_mut(idx) {
+            if let Some(reason) = tab.mode_refusal() {
+                tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::ModeUnavailable));
+                tab.composer.notice = Some(reason.to_string());
+                self.status_msg = Some(reason.to_string());
+                SendOutcome::Refused(RefuseReason::ModeUnavailable)
+            } else if let Some(failure) = &tab.start_failure {
+                let headline = failure.headline();
+                tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::StartFailed));
+                tab.composer.notice = Some(headline.clone());
+                self.status_msg = Some(headline);
+                SendOutcome::Refused(RefuseReason::StartFailed)
+            } else if tab.is_shell_process() {
+                let msg = RefuseReason::NoAgent.message().to_string();
+                tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NoAgent));
+                tab.composer.notice = Some(msg.clone());
+                self.status_msg = Some(msg);
+                SendOutcome::Refused(RefuseReason::NoAgent)
+            } else if tab.composer.not_ready_gate {
+                let msg = RefuseReason::NotReady.message().to_string();
+                tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NotReady));
+                tab.composer.notice = Some(msg.clone());
+                self.status_msg = Some(msg);
+                SendOutcome::Refused(RefuseReason::NotReady)
+            } else if waits_on_the_user(tab) {
+                let msg = RefuseReason::Permission.message().to_string();
+                tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
+                tab.composer.notice = Some(msg.clone());
+                self.status_msg = Some(msg);
+                SendOutcome::Refused(RefuseReason::Permission)
+            } else if tab.is_alive() {
+                let must_queue = !tab.composer.pending_send.is_empty() || tab.composer.flush_paused || !is_tab_ready_for_queued_send(tab);
+                if must_queue {
+                    tab.composer.pending_send.push_back(QueuedSend::new(payload, true));
+                    let q_len = tab.composer.pending_send.len();
+                    if q_len >= 2 {
+                        let notice = format!("{q_len} messages waiting to send");
+                        tab.composer.notice = Some(notice.clone());
+                        self.status_msg = Some(notice);
+                    }
+                    tab.composer.last_outcome = Some(SendOutcome::Queued);
+                    SendOutcome::Queued
+                } else {
+                    write_prompt_to_live_tab(tab, &payload, "", &mut self.status_msg, true)
+                }
+            } else {
+                let msg = RefuseReason::NoAgent.message().to_string();
+                self.status_msg = Some(msg);
+                SendOutcome::Refused(RefuseReason::NoAgent)
+            }
+        } else {
+            let msg = RefuseReason::NoAgent.message().to_string();
+            self.status_msg = Some(msg);
+            SendOutcome::Refused(RefuseReason::NoAgent)
+        };
+        if matches!(outcome, SendOutcome::Written | SendOutcome::Queued) {
+            if let Some(tab) = self.tabs.get_mut(idx) {
+                tab.clear_session_failure();
+            }
+        }
+        outcome
     }
 
     /// A prompt that is written or queued starts a new turn, so it dismisses a mid-session failure banner
@@ -4393,6 +4488,31 @@ mod tests {
 
         st.shutdown();
         st_refused.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_system_image_prompt_reaches_its_tab_while_new_chat_is_open_over_it() {
+        let dir = temp_composer_dir("image-prompt-over-new-chat");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
+
+        let mut st = TerminalState::new_for_session("doc-img-new-chat", "Image Over New Chat", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("claude starts");
+        make_tab_ready_for_test(&mut st, 0, true);
+
+        st.picker_open = true;
+        st.unattached_composer.draft = "unsent new chat draft".to_string();
+
+        let sent = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task job-0001: remove background", None);
+        assert_eq!(sent, Ok(()), "an image prompt must reach the ready tab even when New chat is open over it");
+        assert!(st.picker_open, "New chat stays open");
+        assert_eq!(st.unattached_composer.draft, "unsent new chat draft", "New chat draft stays intact");
+        let written = tab_written_string(&st, 0);
+        assert!(written.contains("Image task job-0001"), "the ready tab receives the image prompt: {written:?}");
+
+        st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

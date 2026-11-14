@@ -2345,7 +2345,7 @@ impl Shell {
         self.app.poll_plugins();
         self.app.poll_image_jobs();
         self.app.poll_paste_jobs();
-        if self.app.image_jobs.has_active_jobs() || self.app.tabs.entries.iter().any(|e| e.image_jobs.has_active_jobs()) {
+        if self.app.image_jobs.has_running_watcher() || self.app.tabs.entries.iter().any(|e| e.image_jobs.has_running_watcher()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
         self.drive_screenshot(&ctx);

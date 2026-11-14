@@ -33,6 +33,15 @@ impl TabsState {
         let users_doc = Self::take_live_doc(app);
         let users_watermark = app.load_next_id;
         let shown = &mut self.entries[at];
+        let mut users_image_jobs = app.image_jobs.take_for_park();
+        users_image_jobs.set_document_tab_id(users_id);
+        for term_tab in &mut app.terminal.tabs {
+            if let Some(held) = &mut term_tab.held_image_job {
+                if users_image_jobs.jobs.iter().any(|j| j.id == held.job_id) {
+                    held.document_tab_id = users_id;
+                }
+            }
+        }
         let users = ProjectTab {
             id: users_id,
             title: shown.title.clone(),
@@ -41,7 +50,7 @@ impl TabsState {
             load_next_id: users_watermark,
             hist: std::mem::take(&mut app.hist),
             terminal: users_terminal,
-            image_jobs: app.image_jobs.take_for_park(),
+            image_jobs: users_image_jobs,
             page: shown.page,
             selection: std::mem::take(&mut shown.selection),
             view: shown.view,

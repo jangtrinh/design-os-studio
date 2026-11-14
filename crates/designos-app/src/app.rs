@@ -457,6 +457,34 @@ impl App {
         })
     }
 
+    /// Raises a toast behind the toast currently on screen when that toast is still live, instead of replacing it.
+    pub fn show_toast_behind_current(&mut self, text: impl Into<String>, error: bool) {
+        let live = self.toast.as_ref().is_some_and(|t| !t.armed || self.now < t.until);
+        if live {
+            let text = text.into();
+            if error {
+                self.error_toast_seq += 1;
+                self.last_error_toast = text.clone();
+                let repeated = self.toast.as_ref().is_some_and(|t| t.error && t.text == text) || self.toast_queue.iter().any(|t| t.error && t.text == text);
+                if repeated {
+                    return;
+                }
+            }
+            self.enqueue_toast(Toast {
+                text,
+                until: self.now + theme::TOAST_SECONDS,
+                error,
+                status: false,
+                reveal: None,
+                enter_path: false,
+                duration: theme::TOAST_SECONDS,
+                armed: false,
+            });
+        } else {
+            self.show_toast(text, error);
+        }
+    }
+
     /// Puts `next` on screen, or in the queue when the toast on screen carries an action that has not run out, when
     /// `next` is an error and an error is still on screen, or when other toasts already wait. A toast with an action
     /// is never replaced (the user may be about to press it), an error on screen is never replaced by another error,
