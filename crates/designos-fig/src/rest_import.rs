@@ -4301,17 +4301,34 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             deferred_pending: None,
         };
         let res = cx.expand_nested(component, &scratch_targets, &mut scratch_done);
-        if res.is_ok() {
+        if res.is_ok() && !cx.budget_exhausted && cx.unexpanded_instances.is_empty() {
             cx.mark_custom_instance_slots();
         }
         self.ids = cx.ids;
         self.path_cache = cx.path_cache;
         self.blob_cache = cx.blob_cache;
         if let Err(err) = res {
-            self.last_error = Some(err.to_string());
+            eprintln!("designos-fig: scratch component expansion of {component:?} failed: {err}");
+            return None;
+        }
+        if cx.budget_exhausted || !cx.unexpanded_instances.is_empty() {
+            if cx.unexpanded_instances.is_empty() {
+                self.unexpanded_instances.extend(pending_insts);
+            } else {
+                self.unexpanded_instances.extend(cx.unexpanded_instances);
+            }
+            eprintln!(
+                "designos-fig: clone budget ({}) reached while expanding component {component:?}; {} nested instance(s) left unexpanded",
+                self.clone_budget_total,
+                self.unexpanded_instances.len()
+            );
             return None;
         }
         Some(cx.doc)
+    }
+
+    fn is_pending_instance(&self, instance: NodeId) -> bool {
+        self.targets.contains_key(&instance) && !self.done.contains(&instance)
     }
 
     fn unexpanded_instances(&self) -> usize {

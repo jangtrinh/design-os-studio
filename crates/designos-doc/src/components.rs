@@ -3251,7 +3251,9 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
     if inode.component.has_override(&OverrideField::SlotContent) {
         return;
     }
-    if c.s.get(ref_id).is_some_and(|x| matches!(x.kind, NodeKind::Instance { .. }) && x.children.is_empty()) && holds_record_for(c.s, ref_id) {
+    if c.s.get(ref_id).is_some_and(|x| matches!(x.kind, NodeKind::Instance { .. }) && x.children.is_empty())
+        && (c.s.is_pending_instance(ref_id) || holds_record_for(c.s, ref_id))
+    {
         if let Some(scratch) = enclosing_component(c.s, ref_id).and_then(|comp| c.s.expand_component_scratch(comp)) {
             sync_children_from_scratch(c, &scratch, ref_id, i, holder);
         }
@@ -13822,6 +13824,10 @@ mod tests {
 
             fn is_hydrated(&self, page: NodeId) -> bool {
                 page != self.deferred_page || self.hydrated_page
+            }
+
+            fn is_pending_instance(&self, instance: NodeId) -> bool {
+                instance == self.nested_inst && !self.hydrated_page
             }
 
             fn expand_component_scratch(&mut self, doc: &Document, component: NodeId) -> Option<Document> {
