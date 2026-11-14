@@ -476,7 +476,7 @@ impl History {
     }
     /// Executes `cmd` and records an optional human-readable label on the resulting undo step.
     pub fn exec_labeled(&mut self, doc: &mut Document, cmd: Command, label: Option<String>) -> Result<(), DocError> {
-        let inv = guarded(doc, cmd, false, apply_with_table_relayout).map_err(|refused| refused.0)?;
+        let inv = guarded(doc, cmd, true, apply_with_table_relayout).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Unspecified, label, ..Default::default() });
         Ok(())
     }
@@ -485,14 +485,14 @@ impl History {
     /// [`Self::fold_since`] can fold the contiguous agent tail on stop without folding
     /// intervening user edits.
     pub fn exec_agent(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
-        let inv = guarded(doc, cmd, false, apply_with_table_relayout).map_err(|refused| refused.0)?;
+        let inv = guarded(doc, cmd, true, apply_with_table_relayout).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Agent, ..Default::default() });
         Ok(())
     }
 
     /// Executes an edit explicitly marked as a user edit.
     pub fn exec_user(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
-        let inv = guarded(doc, cmd, false, apply_with_table_relayout).map_err(|refused| refused.0)?;
+        let inv = guarded(doc, cmd, true, apply_with_table_relayout).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::User, ..Default::default() });
         Ok(())
     }
@@ -894,6 +894,42 @@ pub(crate) fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut 
     }
 }
 
+/// Seeds the layout work that belongs to a fresh history step. A plain child edit changes the
+/// inputs its auto-layout parent reads, so the parent must be solved before the step is visible to
+/// callers. Auto-layout frame edits keep their existing recorder-owned solve path; re-solving those
+/// here would change the layout epoch before a caller can mark the step as layout-recorded.
+fn collect_exec_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>) {
+    match cmd {
+        Command::Update { node } => {
+            let Some(cur) = doc.get(node.id) else { return };
+            let node_is_auto_layout = node.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some();
+            if layout_inputs_changed(cur, node) && !node_is_auto_layout {
+                if let Some(parent) = cur.parent {
+                    seeds.push(parent);
+                }
+            }
+        }
+        Command::Insert { parent, .. } => seeds.push(*parent),
+        Command::Remove { id } => {
+            if let Some(parent) = doc.get(*id).and_then(|n| n.parent) {
+                seeds.push(parent);
+            }
+        }
+        Command::Reparent { id, parent, .. } => {
+            if let Some(old_parent) = doc.get(*id).and_then(|n| n.parent) {
+                seeds.push(old_parent);
+            }
+            seeds.push(*parent);
+        }
+        Command::Batch(cmds) => {
+            for c in cmds {
+                collect_exec_relayout_seeds(doc, c, seeds);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Applies `c`, then re-solves every table whose cell text it changed and re-applies the values of component
 /// properties bound to variables that `c` moved (a mode switch, a variable edit, a binding edit), as part of the same
 /// undo step. The row heights follow the text whoever wrote it. Nothing changes without a layout measurer (the stored
@@ -901,6 +937,8 @@ pub(crate) fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut 
 fn apply_with_table_relayout(doc: &mut Document, c: Command) -> Result<Command, DocError> {
     let mut edited = std::collections::BTreeSet::new();
     table::text_edited_tables(doc, &c, &mut edited);
+    let mut layout_seeds = Vec::new();
+    collect_exec_relayout_seeds(doc, &c, &mut layout_seeds);
     let prop_scope = prop_resync_scope(doc, &c);
     let inv = c.apply_atomic(doc)?;
     let mut steps = vec![inv];
@@ -916,6 +954,7 @@ fn apply_with_table_relayout(doc: &mut Document, c: Command) -> Result<Command, 
     }
     let fix: Vec<Command> = edited.iter().flat_map(|&t| table::relayout(doc, t)).collect();
     if !fix.is_empty() {
+        collect_exec_relayout_seeds(doc, &Command::Batch(fix.clone()), &mut layout_seeds);
         match Command::Batch(fix).apply_atomic(doc) {
             Ok(fix_inv) => steps.insert(0, fix_inv),
             Err(e) => {
@@ -924,6 +963,7 @@ fn apply_with_table_relayout(doc: &mut Document, c: Command) -> Result<Command, 
             }
         }
     }
+    doc.relayout_seeds_upward(&layout_seeds);
     Ok(if steps.len() == 1 { steps.remove(0) } else { Command::Batch(steps) })
 }
 
@@ -1196,6 +1236,35 @@ mod tests {
         assert_eq!(d.get(child_b).unwrap().size.x, 80.0);
         assert_eq!(d.get(child_c).unwrap().size.x, 420.0, "redo must re-solve stack so Fill sibling expands back to 420");
         assert_eq!(d.get(child_c).unwrap().transform.tx, 80.0);
+    }
+
+    #[test]
+    fn exec_re_solves_an_auto_layout_parent_when_a_plain_child_changes_size() {
+        let mut d = Document::new("history-auto-layout");
+        let page = d.add_page("P");
+        let parent = auto_frame(&mut d, page, (200.0, 0.0), Sizing::Hug);
+        let first = d.alloc_id();
+        d.insert(parent, Node::rectangle(first, Rect::new(0.0, 0.0, 40.0, 20.0))).unwrap();
+        let second = d.alloc_id();
+        d.insert(parent, Node::rectangle(second, Rect::new(0.0, 20.0, 20.0, 20.0))).unwrap();
+        d.relayout_subtree(parent);
+        assert_eq!(d.get(second).unwrap().transform.ty, 20.0);
+        assert_eq!(d.get(parent).unwrap().size.y, 40.0);
+
+        let mut h = History::default();
+        let mut edited = d.get(first).unwrap().clone();
+        edited.size.y = 80.0;
+        h.exec(&mut d, Command::Update { node: Box::new(edited) }).unwrap();
+
+        assert_eq!(d.get(second).unwrap().transform.ty, 80.0, "History::exec must re-solve the changed auto-layout parent");
+        assert_eq!(d.get(parent).unwrap().size.y, 100.0);
+
+        h.undo(&mut d).unwrap();
+        assert_eq!(d.get(second).unwrap().transform.ty, 20.0);
+        assert_eq!(d.get(parent).unwrap().size.y, 40.0);
+        h.redo(&mut d).unwrap();
+        assert_eq!(d.get(second).unwrap().transform.ty, 80.0);
+        assert_eq!(d.get(parent).unwrap().size.y, 100.0);
     }
 
     fn auto_frame(d: &mut Document, parent: NodeId, size: (f32, f32), sizing: Sizing) -> NodeId {
