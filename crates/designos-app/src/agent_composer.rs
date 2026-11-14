@@ -2128,6 +2128,68 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    fn app_with_terminal(st: TerminalState) -> crate::app::App {
+        let mut app = crate::app::App::new(designos_doc::Document::new("Untitled"));
+        app.terminal = st;
+        app
+    }
+
+    /// New chat is off screen while another tab stays, so the move of the waiting text is told once, as an info toast with the
+    /// notice text. Two tabs closed before the next frame give one toast, and nothing is left due after it.
+    #[test]
+    fn closing_tabs_that_move_text_to_new_chat_raises_one_info_toast_while_another_tab_shows() {
+        let dir = temp_composer_dir("close-toast");
+        let mut st = TerminalState::new_for_session("doc-close-toast", "Close Toast", Some(&dir));
+        let _a = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _b = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _c = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.active_tab = 2;
+        st.tabs[0].composer.pending_send.push_back(QueuedSend::new("from the first tab", false));
+        st.tabs[1].composer.pending_send.push_back(QueuedSend::new("from the second tab", false));
+        let mut app = app_with_terminal(st);
+
+        app.terminal.close_tab(0);
+        app.terminal.close_tab(0);
+        app.show_terminal_toasts();
+
+        let toast = app.toast.as_ref().expect("the person is told where the text went");
+        assert_eq!((toast.text.as_str(), toast.error), ("Queued message restored in New chat", false), "an info toast with the notice text");
+        assert!(app.toast_queue.is_empty());
+        app.toast = None;
+        app.show_terminal_toasts();
+        assert!(app.toast.is_none(), "two closes gave one toast, and nothing stays due");
+
+        app.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// With New chat on screen, its notice is already in front of the person: no toast. Closing the last tab opens New chat too.
+    #[test]
+    fn no_toast_when_new_chat_is_the_composer_on_screen() {
+        let dir = temp_composer_dir("close-no-toast");
+        let mut st = TerminalState::new_for_session("doc-close-no-toast", "Close No Toast", Some(&dir));
+        let _a = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _b = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.picker_open = true;
+        st.tabs[0].composer.pending_send.push_back(QueuedSend::new("from the first tab", false));
+        st.tabs[1].composer.pending_send.push_back(QueuedSend::new("from the second tab", false));
+        let mut app = app_with_terminal(st);
+
+        app.terminal.close_tab(0);
+        app.show_terminal_toasts();
+        assert!(app.toast.is_none(), "New chat was already focused");
+
+        app.terminal.picker_open = false;
+        app.terminal.close_tab(0);
+        assert!(app.terminal.in_new_chat(), "closing the last tab opens New chat");
+        app.show_terminal_toasts();
+        assert!(app.toast.is_none(), "the last tab closed: New chat shows its own notice");
+        assert_eq!(app.terminal.unattached_composer.draft, "from the first tab\n\nfrom the second tab");
+
+        app.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A tab that holds only a system job has nothing of the person's to restore: the draft stays as it was.
     #[test]
     fn closing_a_tab_with_only_a_system_job_waiting_leaves_the_unattached_draft_alone() {

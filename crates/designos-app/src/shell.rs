@@ -2483,6 +2483,7 @@ impl Shell {
         if !bridge_actions.is_empty() {
             execute_terminal_actions_with_ctx(&mut self.app, bridge_actions, Some(&ctx));
         }
+        self.app.show_terminal_toasts();
         // Agent edits that arrived during a drag or text edit land once it has ended.
         crate::live_patch_apply::apply_pending_live_patches(&mut self.app);
         crate::widgets::set_document_profile(self.app.doc.color_profile);

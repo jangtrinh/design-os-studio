@@ -20,6 +20,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+/// What the New chat notice, the status line and the toast say when a closed tab's waiting text moves into New chat.
+pub const QUEUED_RESTORED_IN_NEW_CHAT: &str = "Queued message restored in New chat";
 pub const TERM_BG_VIEWPORT: Color32 = theme::BG;
 pub const TERM_BG_BAR: Color32 = theme::BG_PRIMARY;
 pub const TERM_BG_ELEVATED: Color32 = theme::BG_SECONDARY;
@@ -1565,6 +1567,9 @@ pub struct TerminalState {
     /// The reason the last start was refused because Ask when risky cannot run that CLI, for the prompt that asked for it to read
     /// and keep its text; cleared by the next start that goes ahead.
     pub(crate) last_start_refusal: Option<&'static str>,
+    /// Set when a closed tab's waiting text went to New chat while another tab stays on screen: the app tells the person once
+    /// ([`Self::take_restore_toast`]), since the notice itself sits in the New chat composer that is not showing.
+    restore_toast_due: bool,
     /// Last computed `(rows, cols)` of the VT100 viewport (`#1171`).
     pub viewport_size: (u16, u16),
 }
@@ -1855,6 +1860,7 @@ impl TerminalState {
             write_backoff: crate::agent_session_files::WriteBackoff::default(),
             set_aside_note: None,
             last_start_refusal: None,
+            restore_toast_due: false,
             viewport_size: (28, 100),
         }
     }
@@ -3896,7 +3902,7 @@ impl TerminalState {
                         self.unattached_composer.draft.push_str("\n\n");
                         self.unattached_composer.draft.push_str(&recovered);
                     }
-                    self.unattached_composer.notice = Some("Queued message restored in New chat".into());
+                    self.unattached_composer.notice = Some(QUEUED_RESTORED_IN_NEW_CHAT.into());
                     // The caption line shows a notice only beside a refused outcome, as it does for a draft returned by a failed start.
                     self.unattached_composer.last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NotWritable));
                     restored_text = true;
@@ -3925,12 +3931,22 @@ impl TerminalState {
             // The text waits in New chat, which is not on screen while another tab stays. Keep that tab's own notice intact
             // and surface the recovery in the global status line instead.
             if restored_text {
-                self.status_msg = Some("Queued message restored in New chat".into());
+                self.status_msg = Some(QUEUED_RESTORED_IN_NEW_CHAT.into());
+                // New chat's own caption tells the person when it is on screen; otherwise the app raises a toast.
+                if !self.in_new_chat() {
+                    self.restore_toast_due = true;
+                }
             }
         }
         if self.tabs.is_empty() {
             self.cleanup_ephemeral_session_dir();
         }
+    }
+
+    /// The toast text to raise for text a tab close moved into New chat while another tab stays, once however many tabs closed since
+    /// the last call. `None` when nothing is due.
+    pub fn take_restore_toast(&mut self) -> Option<&'static str> {
+        std::mem::take(&mut self.restore_toast_due).then_some(QUEUED_RESTORED_IN_NEW_CHAT)
     }
 
     /// Returns a mutable reference to the currently active `TerminalTab`.

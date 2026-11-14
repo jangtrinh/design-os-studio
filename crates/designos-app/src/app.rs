@@ -426,6 +426,13 @@ impl App {
         self.raise_toast(text, error);
     }
 
+    /// Raises the toasts the Agents terminal has due: an info toast when a tab close moved waiting text into New chat that is not on screen.
+    pub fn show_terminal_toasts(&mut self) {
+        if let Some(text) = self.terminal.take_restore_toast() {
+            self.show_toast(text, false);
+        }
+    }
+
     /// Raises a toast like [`App::show_toast`] and returns it where it landed, on screen or in the queue.
     pub(crate) fn raise_toast(&mut self, text: impl Into<String>, error: bool) -> &mut Toast {
         let mut text = text.into();
