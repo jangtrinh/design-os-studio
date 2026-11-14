@@ -2923,9 +2923,17 @@ impl<'a> Ctx<'a> {
     }
 
     fn resize_override_node(&mut self, id: NodeId, sz: Vec2, has_fill_geo: bool, has_stroke_geo: bool, skip_geo: bool, explicitly_sized: &mut HashSet<NodeId>) {
+        let keeps_outline = |n: &Node| match n.kind {
+            NodeKind::Vector { .. } | NodeKind::BooleanOp(_) => true,
+            NodeKind::Line => {
+                let dashed = !n.stroke.dashes.is_empty() && n.stroke.dashes.iter().all(|d| *d >= 0.0) && n.stroke.dashes.iter().sum::<f32>() > 0.0;
+                !dashed && n.size.x > 1e-3 && !n.stroke.cap.is_arrow() && !n.fig_metadata.contains_key("strokeCap")
+            }
+            _ => false,
+        };
         explicitly_sized.insert(id);
-        let Some((old_size, old_transform, is_vec_or_bool, is_container)) =
-            self.doc.get(id).map(|n| (n.size, n.transform, matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)), n.kind.is_container()))
+        let Some((old_size, old_transform, preserves_outline, is_container)) =
+            self.doc.get(id).map(|n| (n.size, n.transform, keeps_outline(n), n.kind.is_container()))
         else {
             return;
         };
@@ -2937,7 +2945,7 @@ impl<'a> Ctx<'a> {
             return;
         }
         if let Some(n) = self.doc.get_mut(id) {
-            if !is_vec_or_bool {
+            if !preserves_outline {
                 if !has_fill_geo || skip_geo {
                     n.fill_geometry = None;
                 }
@@ -2953,7 +2961,7 @@ impl<'a> Ctx<'a> {
                     continue;
                 }
                 if let Some(km) = self.doc.get_mut(c) {
-                    if self.large_file && !matches!(km.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
+                    if self.large_file && !keeps_outline(km) {
                         km.fill_geometry = None;
                         km.stroke_geometry = None;
                     }
