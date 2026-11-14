@@ -61,7 +61,7 @@ fn entry(cx: &mut ExportCtx<'_>, e: &PendingDerivedEntry) -> Option<V> {
 /// resized since the file was opened. If the instance itself moved, only its stale self entry is omitted; derived data
 /// for descendants remains useful and is retained.
 pub(super) fn pending_derived_symbol_data(cx: &mut ExportCtx<'_>, inst_id: NodeId, main: NodeId) -> Option<Vec<V>> {
-    if !cx.doc.get(inst_id)?.children.is_empty() && !cx.doc.is_component_hydrated_on_unopened_page(inst_id) {
+    if !cx.doc.get(inst_id)?.children.is_empty() {
         return None;
     }
     // The sizes of what is inside the instance were computed for the size it had; a resized instance has other ones, and
