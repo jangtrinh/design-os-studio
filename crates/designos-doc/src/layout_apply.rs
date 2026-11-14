@@ -3,7 +3,7 @@
 use crate::layout_rotated::{extent, fix_tilted_input, local_size, slot_write};
 use crate::layout_solver::{compute_then_refit_wrapped, hugged_axes, ChildIn, SizeLimits};
 use crate::text_measure::{height_resize_text_height, layout_measurer};
-use crate::{Document, LayoutDirection, Node, NodeId, NodeKind, Vec2};
+use crate::{Affine, Document, LayoutDirection, Node, NodeId, NodeKind, Vec2};
 
 impl Document {
     /// Re-solves auto layout bottom-up from `root`: every container below it first, so hugging
@@ -16,10 +16,11 @@ impl Document {
         self.relayout_bottom_up(root, &mut budget);
     }
 
-    /// Re-solves only the auto-layout frames in `seeds`, each once, deepest first, and then climbs:
-    /// after a frame is solved, its auto-layout parent is solved too only when the frame's own size
-    /// changed (a hugging frame bubbling a new size up). The climb stops at the first frame whose
-    /// size held, or at the first ancestor that is not auto layout. Unlike [`Self::relayout_subtree`]
+    /// Re-solves the layout containers in `seeds`, each once, deepest first, and then climbs:
+    /// after a container is solved, its layout parent is solved too only when the container's own
+    /// transform or size changed (a group fit or hugging frame bubbling a new size up). The climb
+    /// stops at the first container whose geometry held, or at the first ancestor that is not a
+    /// layout container. Unlike [`Self::relayout_subtree`]
     /// this never walks the containers below a seed, so untouched siblings keep the positions they
     /// have. One [`MAX_RELAYOUT_RESOLVES`] budget covers the whole call; a subtree past it is
     /// queued in `pending_relayout` exactly as for [`Self::relayout_subtree`].
@@ -35,7 +36,7 @@ impl Document {
         };
         let mut order: Vec<(usize, NodeId)> = Vec::with_capacity(seeds.len());
         for &id in seeds {
-            if self.is_auto_layout_frame(id) && !order.iter().any(|(_, o)| *o == id) {
+            if self.is_layout_container(id) && !order.iter().any(|(_, o)| *o == id) {
                 order.push((depth(self, id), id));
             }
         }
@@ -46,14 +47,14 @@ impl Document {
         for (_, seed) in order {
             let mut cur = seed;
             loop {
-                let before = self.get(cur).map(|n| n.size);
-                self.solve_auto_layout_node(cur, 0, &mut budget);
-                let moved = match (before, self.get(cur).map(|n| n.size)) {
-                    (Some(b), Some(a)) => (b.x - a.x).abs() > 1e-3 || (b.y - a.y).abs() > 1e-3,
+                let before = self.get(cur).map(|n| (n.transform, n.size));
+                self.solve_layout_container(cur, 0, &mut budget);
+                let moved = match (before, self.get(cur).map(|n| (n.transform, n.size))) {
+                    (Some((bt, bs)), Some((at, as_))) => bt != at || (bs.x - as_.x).abs() > 1e-3 || (bs.y - as_.y).abs() > 1e-3,
                     _ => false,
                 };
                 let parent = self.get(cur).and_then(|n| n.parent);
-                match parent.filter(|p| moved && self.is_auto_layout_frame(*p)) {
+                match parent.filter(|p| moved && self.is_layout_container(*p)) {
                     Some(p) => cur = p,
                     None => break,
                 }
@@ -73,6 +74,10 @@ impl Document {
 
     fn is_auto_layout_frame(&self, id: NodeId) -> bool {
         self.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.auto_layout.is_some())
+    }
+
+    fn is_layout_container(&self, id: NodeId) -> bool {
+        self.is_auto_layout_frame(id) || self.get(id).is_some_and(|n| matches!(n.kind, NodeKind::Group))
     }
 
     /// What a flow frame's solver reads of child `id`: `None` when the child sits outside the flow
@@ -159,7 +164,7 @@ impl Document {
         // A container queued by an earlier pass is solved here like any other, at the size its
         // parent already wrote: skipping it would leave it queued forever, because a repeat pass
         // finds its size unchanged and never takes the top-down path to it again.
-        self.solve_auto_layout_node(root, 0, budget);
+        self.solve_layout_container(root, 0, budget);
     }
 
     fn relayout_top_down(&mut self, root: NodeId, hops: usize, budget: &mut usize) {
@@ -172,10 +177,10 @@ impl Document {
         *budget -= 1;
         #[cfg(test)]
         RESOLVE_CALLS.with(|c| c.set(c.get() + 1));
-        self.solve_auto_layout_node(root, hops, budget);
+        self.solve_layout_container(root, hops, budget);
     }
 
-    fn solve_auto_layout_node(&mut self, root: NodeId, hops: usize, budget: &mut usize) {
+    fn solve_layout_container(&mut self, root: NodeId, hops: usize, budget: &mut usize) {
         #[cfg(test)]
         SOLVE_CALLS.with(|c| c.set(c.get() + 1));
         if !self.pending_relayout.is_empty() {
@@ -183,6 +188,10 @@ impl Document {
         }
         let Some(root_node) = self.get(root) else { return };
         let resolved = crate::resolve_node(self, root_node);
+        if matches!(resolved.kind, NodeKind::Group) {
+            self.fit_group(root);
+            return;
+        }
         let Some(al) = resolved.kind.frame_props().and_then(|f| f.auto_layout.clone()) else {
             return;
         };
@@ -262,6 +271,30 @@ impl Document {
                 self.relayout_top_down(*cid, hops + 1, budget);
             }
         }
+    }
+
+    /// Groups are content-sized containers even though they do not have auto-layout settings.
+    /// Recompute their bounds after a child leaves, preserving every child's page-space geometry.
+    fn fit_group(&mut self, id: NodeId) -> bool {
+        let Some(bounds) = crate::layout_constraints::visible_children_bounds(self, id) else { return false };
+        let Some(group) = self.get(id) else { return false };
+        let changed = (group.size.x - bounds.w).abs() > 1e-3 || (group.size.y - bounds.h).abs() > 1e-3 || bounds.x.abs() > 1e-3 || bounds.y.abs() > 1e-3;
+        if !changed {
+            return false;
+        }
+        let children = group.children.clone();
+        if let Some(group) = self.get_mut(id) {
+            group.transform = group.transform * Affine::translate(bounds.x, bounds.y);
+            group.size = Vec2::new(bounds.w, bounds.h);
+        }
+        for child in children {
+            if let Some(node) = self.get_mut(child) {
+                node.transform.tx -= bounds.x;
+                node.transform.ty -= bounds.y;
+            }
+        }
+        self.note_layout_written_outside_history();
+        true
     }
 
     /// How many times layout was written to this document outside any history step. Runtime only:

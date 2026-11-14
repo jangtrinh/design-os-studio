@@ -128,7 +128,7 @@ fn deleting_a_layer_inside_a_hug_frame_shrinks_it_and_re_solves_the_frame_above(
 }
 
 #[test]
-fn deleting_a_layer_inside_a_group_moves_nothing_outside_it() {
+fn deleting_a_layer_inside_a_group_refits_and_reflows_its_parent() {
     let Holder { mut e, holder, b, tail, .. } = holder_with(NodeKind::Group, Rect::new(0.0, 0.0, 80.0, 20.0));
     e.doc.get_mut(b).unwrap().transform.tx = 40.0;
     let before = geometry(&e.doc);
@@ -136,9 +136,39 @@ fn deleting_a_layer_inside_a_group_moves_nothing_outside_it() {
     e.call("designos_delete_node", json!({ "node_id": b.0 })).unwrap();
 
     let size = e.doc.get(holder).unwrap().size;
-    assert_eq!((size.x, size.y), (80.0, 20.0), "a group keeps the bounds it was stored with; no edit here refits it, so there is no new size to pass up");
-    assert_eq!(moved_outside(&e, &before, holder), Vec::<u64>::new());
-    assert_eq!(ty(&e, tail), 200.0);
+    assert_eq!((size.x, size.y), (40.0, 20.0), "a group refits the child that remains");
+    assert_eq!(moved_outside(&e, &before, holder), vec![tail.0], "only the parent flow sibling follows the smaller group");
+    assert_eq!(ty(&e, tail), 20.0, "the auto-layout parent follows the refitted group");
+}
+
+#[test]
+fn deleting_inside_a_group_refits_through_undo_and_redo() {
+    let Holder { mut e, holder, b, .. } = holder_with(NodeKind::Group, Rect::new(0.0, 0.0, 80.0, 20.0));
+    e.doc.get_mut(b).unwrap().transform.tx = 40.0;
+
+    e.call("designos_delete_node", json!({ "node_id": b.0 })).unwrap();
+    assert_eq!(e.doc.get(holder).unwrap().size.x, 40.0);
+
+    e.call("designos_undo", json!({})).unwrap();
+    assert_eq!(e.doc.get(holder).unwrap().size.x, 80.0, "undo restores the group's stored bounds");
+    assert_eq!(e.doc.get(b).unwrap().transform.tx, 40.0);
+
+    e.call("designos_redo", json!({})).unwrap();
+    assert_eq!(e.doc.get(holder).unwrap().size.x, 40.0, "redo refits the group again");
+    assert!(e.doc.get(b).is_none());
+}
+
+#[test]
+fn batch_deleting_inside_a_group_refits_and_preserves_the_remaining_child() {
+    let Holder { mut e, holder, b, tail, .. } = holder_with(NodeKind::Group, Rect::new(0.0, 0.0, 80.0, 20.0));
+    e.doc.get_mut(b).unwrap().transform.tx = 40.0;
+    let before = geometry(&e.doc);
+
+    e.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": b.0 }] })).unwrap();
+
+    assert_eq!(e.doc.get(holder).unwrap().size.x, 40.0);
+    assert_eq!(moved_outside(&e, &before, holder), vec![tail.0]);
+    assert_eq!(ty(&e, tail), 20.0);
 }
 
 #[test]
