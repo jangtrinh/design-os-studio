@@ -624,16 +624,28 @@ pub trait PageHydrator: Send + Sync + std::fmt::Debug {
     fn stage_duplicated_page(&mut self, _src_page: NodeId, _dst_page: NodeId, _id_map: BTreeMap<NodeId, NodeId>) {}
     /// Activates or restores deferred records for `page` when it is inserted into `doc` (either from a staged
     /// duplicate of an unopened page or from a redo / undo re-insertion of a previously removed page).
-    fn insert_page(&mut self, _doc: &Document, _page: NodeId) {}
-    /// Removes active deferred records for `page` when `page` is removed from the document, stashing them so a
-    /// subsequent re-insertion (undo of remove / redo of insert) restores them.
-    fn remove_page(&mut self, _page: NodeId) {}
+    fn insert_page(&mut self, _doc: &Document, _page: NodeId, _stash: Option<DeferredPageStash>) {}
+    /// Removes active deferred records for `page` when `page` is removed from the document, returning a stash
+    /// owned by the undo/redo command so re-inserting `page` restores them and dropping the command drops them.
+    fn remove_page(&mut self, _page: NodeId) -> Option<DeferredPageStash> {
+        None
+    }
     /// Number of deferred override records dropped during page duplication because their layer was missing in the copy.
     fn dropped_duplicate_records(&self) -> usize {
         0
     }
     /// Drains and returns the count of deferred override records dropped during page duplication.
     fn take_dropped_duplicate_records(&mut self) -> usize {
+        0
+    }
+    /// Total number of pending instance override records currently held by the hydrator
+    /// (across active pending pages and any live undo/redo stashes).
+    fn stored_record_count(&self) -> usize {
+        0
+    }
+    /// Total number of entries held across the shared hydrator maps (`ids`, `overrides`,
+    /// `override_keys`, `path_cache`, `blob_cache`).
+    fn shared_map_entry_count(&self) -> usize {
         0
     }
 }
@@ -920,7 +932,7 @@ impl Document {
     }
 
     /// Stages the `old_id -> new_id` layer mapping produced when duplicating `src_page` into `dst_page`.
-    pub(crate) fn stage_duplicated_page(&mut self, src_page: NodeId, dst_page: NodeId, id_map: BTreeMap<NodeId, NodeId>) {
+    pub fn stage_duplicated_page(&mut self, src_page: NodeId, dst_page: NodeId, id_map: BTreeMap<NodeId, NodeId>) {
         let Some(h) = self.page_hydrator.as_ref() else { return };
         if let Ok(mut guard) = h.lock() {
             if !guard.is_hydrated(src_page) {
@@ -941,6 +953,22 @@ impl Document {
         let Some(h) = self.page_hydrator.as_ref() else { return 0 };
         let Ok(mut guard) = h.lock() else { return 0 };
         guard.take_dropped_duplicate_records()
+    }
+
+    /// Total number of pending instance override records currently held by the hydrator
+    /// (across active pending pages and any live undo/redo stashes).
+    pub fn deferred_page_record_count(&self) -> usize {
+        let Some(h) = self.page_hydrator.as_ref() else { return 0 };
+        let Ok(guard) = h.lock() else { return 0 };
+        guard.stored_record_count()
+    }
+
+    /// Total number of entries held across the shared hydrator maps (`ids`, `overrides`,
+    /// `override_keys`, `path_cache`, `blob_cache`).
+    pub fn deferred_shared_map_entries(&self) -> usize {
+        let Some(h) = self.page_hydrator.as_ref() else { return 0 };
+        let Ok(guard) = h.lock() else { return 0 };
+        guard.shared_map_entry_count()
     }
 
     /// Hands out a fresh id. The counter never wraps: once it is exhausted (a hostile or

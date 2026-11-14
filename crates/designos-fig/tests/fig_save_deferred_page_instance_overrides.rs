@@ -392,6 +392,15 @@ fn undo_and_redo_of_duplicated_unopened_page_removes_and_restores_child_override
     let redo_cmd = undo_cmd.apply(&mut live).expect("undo duplicate page");
     let saved_after_undo = export_fig(&live).expect("save after undo");
     assert_eq!(node_changes(&saved_after_undo), node_changes(&baseline), "save after undo equals a save without the duplicate");
+    let mut reopened_undo = import_fig(&saved_after_undo).expect("reopen after undo");
+    assert!(
+        !reopened_undo.pages.iter().any(|&p| reopened_undo.get(p).is_some_and(|n| n.name == "404 pages copy")),
+        "reopened save after undo has no duplicated page"
+    );
+    let reopened_orig_page = page_named(&reopened_undo, "404 pages");
+    assert!(reopened_undo.ensure_page_hydrated(reopened_orig_page));
+    let reopened_orig_inst = variant_button_on_page(&reopened_undo, reopened_orig_page);
+    assert_eq!(label_of(&reopened_undo, reopened_orig_inst), "Go back");
 
     let _ = redo_cmd.apply(&mut live).expect("redo duplicate page");
     let saved_after_redo = export_fig(&live).expect("save after redo");
@@ -423,26 +432,6 @@ fn original_page_saved_entries_are_unchanged_by_duplicating_the_unopened_page() 
 }
 
 #[test]
-fn duplicating_an_already_opened_page_keeps_layer_overrides_unchanged() {
-    let fig = deferred_fixture();
-    let mut live = import_fig(&fig).expect("import");
-    let page = page_named(&live, "404 pages");
-    assert!(live.ensure_page_hydrated(page));
-
-    let mut copy_nodes = duplicate_subtree(&mut live, page);
-    copy_nodes[0].name = "404 pages copy".into();
-    let copy_page = copy_nodes[0].id;
-    Command::InsertPage { index: live.pages.len(), nodes: copy_nodes }.apply(&mut live).expect("duplicate opened page");
-
-    let copy_inst = variant_button_on_page(&live, copy_page);
-    assert!(live.pending_instance_overrides(copy_inst).is_none(), "already-opened page duplicate does not create deferred records");
-    assert_eq!(label_of(&live, copy_inst), "Go back");
-
-    let saved = export_fig(&live).expect("save");
-    assert_reopened_copy_matches_original(&saved);
-}
-
-#[test]
 fn duplicating_an_unopened_page_counts_a_record_whose_layer_is_missing_in_the_copy() {
     let fig = deferred_fixture();
     let mut live = import_fig(&fig).expect("import");
@@ -462,4 +451,115 @@ fn duplicating_an_unopened_page_counts_a_record_whose_layer_is_missing_in_the_co
     assert_eq!(live.dropped_duplicate_page_records(), 1, "missing instance layer in copy is counted as a dropped duplicate record");
     assert_eq!(live.take_dropped_duplicate_page_records(), 1);
     assert_eq!(live.dropped_duplicate_page_records(), 0);
+}
+
+#[test]
+fn unstaged_page_insert_gets_no_records_and_counts_dropped_override_records() {
+    let fig = deferred_fixture();
+    let mut live = import_fig(&fig).expect("import");
+    let page = page_named(&live, "404 pages");
+    assert!(!page_hydrated(&live, page));
+
+    let mut raw_ids = Vec::new();
+    live.walk(page, |n, _| raw_ids.push(n.id));
+    let mut id_map = std::collections::HashMap::new();
+    for &id in &raw_ids {
+        id_map.insert(id, live.alloc_id());
+    }
+    let mut unstaged_nodes: Vec<designos_doc::Node> = raw_ids
+        .iter()
+        .map(|&id| {
+            let mut n = live.get(id).expect("node").clone();
+            n.id = id_map[&id];
+            n.parent = n.parent.and_then(|p| id_map.get(&p).copied());
+            n.children = n.children.iter().filter_map(|c| id_map.get(c).copied()).collect();
+            n.source_id = None;
+            n
+        })
+        .collect();
+    unstaged_nodes[0].name = "404 pages unstaged".into();
+    let unstaged_page = unstaged_nodes[0].id;
+
+    assert_eq!(live.dropped_duplicate_page_records(), 0);
+    Command::InsertPage { index: live.pages.len(), nodes: unstaged_nodes }.apply(&mut live).expect("insert unstaged page");
+    let unstaged_inst = variant_button_on_page(&live, unstaged_page);
+    assert!(live.pending_instance_overrides(unstaged_inst).is_none(), "unstaged page must not guess or receive override records");
+    assert_eq!(live.dropped_duplicate_page_records(), 1, "unstaged unhydrated instance on inserted page is counted as dropped");
+}
+
+#[test]
+fn undone_duplicate_followed_by_another_edit_drops_the_copied_override_records() {
+    let fig = deferred_fixture();
+    let mut live = import_fig(&fig).expect("import");
+    let page = page_named(&live, "404 pages");
+    let baseline_records = live.deferred_page_record_count();
+    assert_eq!(baseline_records, 1);
+
+    let mut history = designos_doc::History::default();
+    let mut copy_nodes = duplicate_subtree(&mut live, page);
+    copy_nodes[0].name = "404 pages copy".into();
+    let idx = live.pages.len();
+    history.exec(&mut live, Command::InsertPage { index: idx, nodes: copy_nodes }).expect("duplicate page");
+    assert_eq!(live.deferred_page_record_count(), 2);
+
+    assert!(history.undo(&mut live).expect("undo duplicate"));
+    assert_eq!(live.deferred_page_record_count(), 2, "stashed record lives while on redo stack");
+
+    let new_page_id = live.alloc_id();
+    let new_page = designos_doc::Node::new(new_page_id, NodeKind::Page { background: designos_doc::Color::WHITE });
+    let idx = live.pages.len();
+    history.exec(&mut live, Command::InsertPage { index: idx, nodes: vec![new_page] }).expect("other edit clears redo");
+    assert_eq!(live.deferred_page_record_count(), baseline_records, "clearing redo drops the copied override records");
+}
+
+#[test]
+fn ten_duplicate_and_undo_cycles_do_not_grow_stored_override_record_count() {
+    let fig = deferred_fixture();
+    let mut live = import_fig(&fig).expect("import");
+    let page = page_named(&live, "404 pages");
+    let mut history = designos_doc::History::default();
+
+    let mut after_first_cycle = 0;
+    for i in 0..10 {
+        let mut copy_nodes = duplicate_subtree(&mut live, page);
+        copy_nodes[0].name = format!("404 pages copy {i}");
+        let idx = live.pages.len();
+        history.exec(&mut live, Command::InsertPage { index: idx, nodes: copy_nodes }).expect("duplicate page");
+        assert!(history.undo(&mut live).expect("undo duplicate"));
+        if i == 0 {
+            after_first_cycle = live.deferred_page_record_count();
+            assert_eq!(after_first_cycle, 2);
+        } else {
+            assert_eq!(live.deferred_page_record_count(), after_first_cycle, "stored record count must not grow on cycle {i}");
+        }
+    }
+}
+
+#[test]
+fn hydrating_the_last_real_page_after_an_undone_duplicate_releases_shared_hydrator_maps() {
+    let fig = deferred_fixture();
+    let mut live = import_fig(&fig).expect("import");
+    let page = page_named(&live, "404 pages");
+    assert!(live.deferred_shared_map_entries() > 0);
+
+    let mut history = designos_doc::History::default();
+    let mut copy_nodes = duplicate_subtree(&mut live, page);
+    copy_nodes[0].name = "404 pages copy".into();
+    let idx = live.pages.len();
+    history.exec(&mut live, Command::InsertPage { index: idx, nodes: copy_nodes }).expect("duplicate page");
+    assert!(history.undo(&mut live).expect("undo duplicate"));
+
+    // Hydrate the last real pending page while the undone duplicate still sits on the redo stack:
+    // what stays is reported as 1 stashed record.
+    assert!(live.ensure_page_hydrated(page));
+    assert_eq!(live.deferred_page_record_count(), 1, "one stashed record remains while the undone duplicate sits on the redo stack");
+
+    // Once any edit drops the redo stack, no pending page and no live history entry remain,
+    // so all shared hydrator maps are released.
+    let new_page_id = live.alloc_id();
+    let new_page = designos_doc::Node::new(new_page_id, NodeKind::Page { background: designos_doc::Color::WHITE });
+    let idx = live.pages.len();
+    history.exec(&mut live, Command::InsertPage { index: idx, nodes: vec![new_page] }).expect("edit drops redo stack");
+    assert_eq!(live.deferred_page_record_count(), 0);
+    assert_eq!(live.deferred_shared_map_entries(), 0, "shared hydrator maps must be released once no pending page or live history entry remains");
 }

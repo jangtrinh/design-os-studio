@@ -323,6 +323,11 @@ pub struct ComponentLink {
     /// but native `.designos` and MCP serialization must never expose them.
     #[serde(skip)]
     pub fig_own_entry_flags: BTreeSet<OverrideField>,
+    /// Deferred `.fig` page hydration records stashed on a removed page root while the page sits
+    /// inside an undo/redo [`crate::Command::InsertPage`]. Runtime-only (`#[serde(skip)]`); dropping
+    /// the command drops this handle and releases the records.
+    #[serde(skip)]
+    pub deferred_page_stash: Option<DeferredPageStash>,
     /// Property definitions (Component / ComponentSet only).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub props: Vec<ComponentPropDef>,
@@ -481,6 +486,25 @@ pub enum ParkedOverrideValue {
 fn is_false_pair(pair: &[bool; 2]) -> bool {
     *pair == [false, false]
 }
+
+/// Type-erased handle to a removed deferred page's hydration records, carried by the page root
+/// inside [`crate::Command::InsertPage`] while the page sits on the undo/redo stack.
+#[derive(Clone)]
+pub struct DeferredPageStash(pub std::sync::Arc<dyn std::any::Any + Send + Sync>);
+
+impl std::fmt::Debug for DeferredPageStash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DeferredPageStash(..)")
+    }
+}
+
+impl PartialEq for DeferredPageStash {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for DeferredPageStash {}
 
 impl ComponentLink {
     /// Adds an override observed in a deferred `.fig` own entry. The marker is

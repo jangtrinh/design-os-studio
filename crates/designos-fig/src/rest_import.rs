@@ -2082,7 +2082,7 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
-        let hydrator = DeferredFigHydrator {
+        let hydrator = std::sync::Arc::new(std::sync::Mutex::new(DeferredFigHydrator {
             pending_by_page,
             hydrated_pages,
             targets,
@@ -2111,10 +2111,15 @@ impl<'a> Ctx<'a> {
             self_digests,
             staged_copies: HashMap::new(),
             page_nodes: HashMap::new(),
-            removed_pages: HashMap::new(),
+            self_weak: std::sync::Weak::new(),
+            live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             dropped_duplicate_records: 0,
-        };
-        self.doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
+        }));
+        if let Ok(mut guard) = hydrator.lock() {
+            guard.self_weak = std::sync::Arc::downgrade(&hydrator);
+        }
+        self.doc.page_hydrator = Some(hydrator);
     }
 
     /// Flags on the still childless instance `inst` the fields its file record overrides on the instance itself (the
@@ -3799,6 +3804,7 @@ impl<'a> Ctx<'a> {
     }
 }
 
+#[derive(Clone)]
 struct RemovedDeferredPage {
     insts: Vec<NodeId>,
     nodes: Vec<NodeId>,
@@ -3816,6 +3822,27 @@ struct RemovedDeferredPage {
     instance_fingerprints: HashMap<NodeId, u64>,
     swap_mains_of: HashMap<NodeId, Vec<NodeId>>,
     self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>>,
+}
+
+struct RemovedDeferredPageGuard {
+    data: std::sync::Mutex<Option<RemovedDeferredPage>>,
+    inst_count: usize,
+    live_stash_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    live_stash_records: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    hydrator: std::sync::Weak<std::sync::Mutex<DeferredFigHydrator>>,
+}
+
+impl Drop for RemovedDeferredPageGuard {
+    fn drop(&mut self) {
+        self.live_stash_records.fetch_sub(self.inst_count, std::sync::atomic::Ordering::AcqRel);
+        if self.live_stash_count.fetch_sub(1, std::sync::atomic::Ordering::AcqRel) == 1 {
+            if let Some(h) = self.hydrator.upgrade() {
+                if let Ok(mut guard) = h.lock() {
+                    guard.release_shared_if_idle();
+                }
+            }
+        }
+    }
 }
 
 struct DeferredFigHydrator {
@@ -3850,50 +3877,38 @@ struct DeferredFigHydrator {
     swap_mains_of: HashMap<NodeId, Vec<NodeId>>,
     /// Instance -> digest of each field it overrides on itself, as the file was opened.
     self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>>,
-    /// `dst_page -> (src_page, old_id -> new_id)` staged by `duplicate_subtree` before `InsertPage` lands.
+    /// `dst_page -> (src_page, old_id -> new_id)` staged by `duplicate_subtree` / `clone_subtree` before `InsertPage` lands.
     staged_copies: HashMap<NodeId, (NodeId, BTreeMap<NodeId, NodeId>)>,
     /// `page -> nodes` whose per-node hydrator metadata was copied for `page`, so `remove_page` can stash them.
     page_nodes: HashMap<NodeId, Vec<NodeId>>,
-    /// Stashed records of removed deferred pages so Undo / Redo of page duplication or deletion is lossless.
-    removed_pages: HashMap<NodeId, RemovedDeferredPage>,
+    /// Weak handle to this hydrator so a dropped [`RemovedDeferredPageGuard`] can release shared maps if idle.
+    self_weak: std::sync::Weak<std::sync::Mutex<DeferredFigHydrator>>,
+    /// Number of live [`RemovedDeferredPageGuard`] handles held by undo/redo commands.
+    live_stash_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// Total number of pending instance records currently held inside live [`RemovedDeferredPageGuard`] handles.
+    live_stash_records: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     /// Count of override records dropped during page duplication because their layer was missing in the copy.
     dropped_duplicate_records: usize,
 }
 
 impl DeferredFigHydrator {
-    fn infer_duplicated_page(&self, doc: &Document, dst_page: NodeId) -> Option<(NodeId, BTreeMap<NodeId, NodeId>)> {
-        fn preorder(doc: &Document, id: NodeId, out: &mut Vec<NodeId>) {
-            let Some(n) = doc.get(id) else { return };
-            out.push(id);
-            for &c in &n.children {
-                preorder(doc, c, out);
-            }
+    fn release_shared_if_idle(&mut self) {
+        if self.pending_by_page.is_empty() && self.unexpanded_instances.is_empty() && self.live_stash_count.load(std::sync::atomic::Ordering::Acquire) == 0 {
+            self.targets.clear();
+            self.done.clear();
+            self.ids.clear();
+            self.overrides.clear();
+            self.override_keys.clear();
+            self.col_anchor_guids.clear();
+            self.row_anchor_guids.clear();
+            self.grid_col_track_ids.clear();
+            self.grid_row_track_ids.clear();
+            self.no_auto_layout.clear();
+            self.scales.clear();
+            self.path_cache.clear();
+            self.blob_cache.clear();
+            self.expanded_comps.clear();
         }
-        let mut dst_nodes = Vec::new();
-        preorder(doc, dst_page, &mut dst_nodes);
-        let has_unhydrated_inst = dst_nodes.iter().any(|&id| doc.get(id).is_some_and(|n| matches!(n.kind, NodeKind::Instance { .. }) && n.children.is_empty()));
-        if !has_unhydrated_inst {
-            return None;
-        }
-        for (&src_page, src_insts) in &self.pending_by_page {
-            if src_page == dst_page || self.hydrated_pages.contains(&src_page) || src_insts.is_empty() {
-                continue;
-            }
-            let mut src_nodes = Vec::new();
-            preorder(doc, src_page, &mut src_nodes);
-            if src_nodes.len() != dst_nodes.len() {
-                continue;
-            }
-            let matches_tree = src_nodes.iter().zip(dst_nodes.iter()).enumerate().all(|(i, (&s, &d))| {
-                let (Some(sn), Some(dn)) = (doc.get(s), doc.get(d)) else { return false };
-                sn.children.len() == dn.children.len() && std::mem::discriminant(&sn.kind) == std::mem::discriminant(&dn.kind) && (i == 0 || sn.name == dn.name)
-            });
-            if matches_tree {
-                let map = src_nodes.into_iter().zip(dst_nodes).collect();
-                return Some((src_page, map));
-            }
-        }
-        None
     }
 }
 
@@ -3909,7 +3924,6 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             return false;
         }
         self.page_nodes.remove(&page);
-        self.removed_pages.remove(&page);
         let Some(insts) = self.pending_by_page.remove(&page) else {
             return false;
         };
@@ -4054,23 +4068,19 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         self.budget_exhausted = cx.budget_exhausted;
         self.unexpanded_instances.extend(cx.unexpanded_instances);
         *doc = cx.doc;
-        if !self.pending_by_page.is_empty() || !self.unexpanded_instances.is_empty() || !self.removed_pages.is_empty() {
-            self.ids = cx.ids;
-            self.overrides = cx.overrides;
-            self.override_keys = cx.override_keys;
-            self.col_anchor_guids = cx.col_anchor_guids;
-            self.row_anchor_guids = cx.row_anchor_guids;
-            self.grid_col_track_ids = cx.grid_col_track_ids;
-            self.grid_row_track_ids = cx.grid_row_track_ids;
-            self.no_auto_layout = cx.no_auto_layout;
-            self.scales = cx.scales;
-            self.path_cache = cx.path_cache;
-            self.blob_cache = cx.blob_cache;
-            self.expanded_comps = cx.expanded_comps;
-        } else {
-            self.targets.clear();
-            self.done.clear();
-        }
+        self.ids = cx.ids;
+        self.overrides = cx.overrides;
+        self.override_keys = cx.override_keys;
+        self.col_anchor_guids = cx.col_anchor_guids;
+        self.row_anchor_guids = cx.row_anchor_guids;
+        self.grid_col_track_ids = cx.grid_col_track_ids;
+        self.grid_row_track_ids = cx.grid_row_track_ids;
+        self.no_auto_layout = cx.no_auto_layout;
+        self.scales = cx.scales;
+        self.path_cache = cx.path_cache;
+        self.blob_cache = cx.blob_cache;
+        self.expanded_comps = cx.expanded_comps;
+        self.release_shared_if_idle();
         true
     }
 
@@ -4146,37 +4156,53 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         }
     }
 
-    fn insert_page(&mut self, doc: &Document, page: NodeId) {
-        if let Some(removed) = self.removed_pages.remove(&page) {
-            self.targets.extend(removed.targets);
-            self.done.extend(removed.done);
-            self.overrides.extend(removed.overrides);
-            self.override_keys.extend(removed.override_keys);
-            self.col_anchor_guids.extend(removed.col_anchor_guids);
-            self.row_anchor_guids.extend(removed.row_anchor_guids);
-            self.grid_col_track_ids.extend(removed.grid_col_track_ids);
-            self.grid_row_track_ids.extend(removed.grid_row_track_ids);
-            self.no_auto_layout.extend(removed.no_auto_layout);
-            self.scales.extend(removed.scales);
-            self.unexpanded_instances.extend(removed.unexpanded_instances);
-            self.instance_fingerprints.extend(removed.instance_fingerprints);
-            self.swap_mains_of.extend(removed.swap_mains_of);
-            self.self_digests.extend(removed.self_digests);
-            self.pending_by_page.insert(page, removed.insts);
-            if !removed.nodes.is_empty() {
-                self.page_nodes.insert(page, removed.nodes);
+    fn insert_page(&mut self, doc: &Document, page: NodeId, stash: Option<designos_doc::DeferredPageStash>) {
+        if let Some(stash) = stash {
+            if let Some(guard) = stash.0.downcast_ref::<RemovedDeferredPageGuard>() {
+                let removed = guard.data.lock().ok().and_then(|mut slot| slot.take());
+                if let Some(removed) = removed {
+                    self.targets.extend(removed.targets);
+                    self.done.extend(removed.done);
+                    self.overrides.extend(removed.overrides);
+                    self.override_keys.extend(removed.override_keys);
+                    self.col_anchor_guids.extend(removed.col_anchor_guids);
+                    self.row_anchor_guids.extend(removed.row_anchor_guids);
+                    self.grid_col_track_ids.extend(removed.grid_col_track_ids);
+                    self.grid_row_track_ids.extend(removed.grid_row_track_ids);
+                    self.no_auto_layout.extend(removed.no_auto_layout);
+                    self.scales.extend(removed.scales);
+                    self.unexpanded_instances.extend(removed.unexpanded_instances);
+                    self.instance_fingerprints.extend(removed.instance_fingerprints);
+                    self.swap_mains_of.extend(removed.swap_mains_of);
+                    self.self_digests.extend(removed.self_digests);
+                    self.pending_by_page.insert(page, removed.insts);
+                    if !removed.nodes.is_empty() {
+                        self.page_nodes.insert(page, removed.nodes);
+                    }
+                    self.hydrated_pages.remove(&page);
+                }
             }
-            self.hydrated_pages.remove(&page);
             return;
         }
-        let staged = self.staged_copies.remove(&page).or_else(|| {
-            if self.hydrated_pages.contains(&page) || self.pending_by_page.contains_key(&page) {
-                None
-            } else {
-                self.infer_duplicated_page(doc, page)
+        let Some((src_page, id_map)) = self.staged_copies.remove(&page) else {
+            if !self.hydrated_pages.contains(&page) && !self.pending_by_page.contains_key(&page) {
+                let mut unstaged_insts = 0usize;
+                doc.walk(page, |n, _| {
+                    if matches!(n.kind, NodeKind::Instance { .. })
+                        && n.children.is_empty()
+                        && !self.targets.contains_key(&n.id)
+                        && !self.overrides.contains_key(&n.id)
+                    {
+                        unstaged_insts += 1;
+                    }
+                });
+                if unstaged_insts > 0 {
+                    self.dropped_duplicate_records += unstaged_insts;
+                    eprintln!(
+                        "designos-fig: inserted page {page:?} was not staged as a duplicate; dropped {unstaged_insts} unhydrated instance override record(s)"
+                    );
+                }
             }
-        });
-        let Some((src_page, id_map)) = staged else {
             return;
         };
         if self.hydrated_pages.contains(&src_page) {
@@ -4267,11 +4293,9 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         }
     }
 
-    fn remove_page(&mut self, page: NodeId) {
+    fn remove_page(&mut self, page: NodeId) -> Option<designos_doc::DeferredPageStash> {
         self.staged_copies.remove(&page);
-        let Some(insts) = self.pending_by_page.remove(&page) else {
-            return;
-        };
+        let insts = self.pending_by_page.remove(&page)?;
         let nodes = self.page_nodes.remove(&page).unwrap_or_default();
         let mut removed = RemovedDeferredPage {
             insts: Vec::with_capacity(insts.len()),
@@ -4339,7 +4363,16 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             }
             removed.nodes.push(node);
         }
-        self.removed_pages.insert(page, removed);
+        let inst_count = removed.insts.len();
+        self.live_stash_count.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        self.live_stash_records.fetch_add(inst_count, std::sync::atomic::Ordering::AcqRel);
+        Some(designos_doc::DeferredPageStash(std::sync::Arc::new(RemovedDeferredPageGuard {
+            data: std::sync::Mutex::new(Some(removed)),
+            inst_count,
+            live_stash_count: self.live_stash_count.clone(),
+            live_stash_records: self.live_stash_records.clone(),
+            hydrator: self.self_weak.clone(),
+        })))
     }
 
     fn dropped_duplicate_records(&self) -> usize {
@@ -4348,6 +4381,14 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
 
     fn take_dropped_duplicate_records(&mut self) -> usize {
         std::mem::take(&mut self.dropped_duplicate_records)
+    }
+
+    fn stored_record_count(&self) -> usize {
+        self.pending_by_page.values().map(Vec::len).sum::<usize>() + self.live_stash_records.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    fn shared_map_entry_count(&self) -> usize {
+        self.ids.len() + self.overrides.len() + self.override_keys.len() + self.path_cache.len() + self.blob_cache.len()
     }
 }
 
@@ -5410,7 +5451,9 @@ mod expand_depth_tests {
             self_digests: HashMap::new(),
             staged_copies: HashMap::new(),
             page_nodes: HashMap::new(),
-            removed_pages: HashMap::new(),
+            self_weak: std::sync::Weak::new(),
+            live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             dropped_duplicate_records: 0,
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
@@ -5458,7 +5501,9 @@ mod expand_depth_tests {
             self_digests: HashMap::new(),
             staged_copies: HashMap::new(),
             page_nodes: HashMap::new(),
-            removed_pages: HashMap::new(),
+            self_weak: std::sync::Weak::new(),
+            live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             dropped_duplicate_records: 0,
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator_b)));

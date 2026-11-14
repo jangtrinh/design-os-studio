@@ -116,29 +116,32 @@ impl Document {
     }
 
     /// Updates the page loader and this document's pending-page set when `page` is inserted.
-    pub(crate) fn on_insert_page(&self, page: NodeId) {
+    pub(crate) fn on_insert_page(&self, page: NodeId, stash: Option<crate::DeferredPageStash>) {
         let Some(hydrator) = self.page_hydrator.as_ref() else { return };
         let loader_at = loader_address(hydrator);
-        let Ok(mut loader) = hydrator.lock() else { return };
-        loader.insert_page(self, page);
-        if !loader.is_hydrated(page) {
-            let mut state = self.deferred_pages(loader_at, &*loader);
-            if let Some(deferred) = state.as_mut() {
-                deferred.pages.insert(page);
+        if let Ok(mut loader) = hydrator.lock() {
+            loader.insert_page(self, page, stash.clone());
+            if !loader.is_hydrated(page) {
+                let mut state = self.deferred_pages(loader_at, &*loader);
+                if let Some(deferred) = state.as_mut() {
+                    deferred.pages.insert(page);
+                }
             }
         }
+        drop(stash);
     }
 
     /// Updates the page loader and this document's pending-page set when `page` is removed.
-    pub(crate) fn on_remove_page(&self, page: NodeId) {
-        let Some(hydrator) = self.page_hydrator.as_ref() else { return };
+    pub(crate) fn on_remove_page(&self, page: NodeId) -> Option<crate::DeferredPageStash> {
+        let Some(hydrator) = self.page_hydrator.as_ref() else { return None };
         let loader_at = loader_address(hydrator);
-        let Ok(mut loader) = hydrator.lock() else { return };
-        loader.remove_page(page);
+        let Ok(mut loader) = hydrator.lock() else { return None };
+        let stash = loader.remove_page(page);
         let mut state = self.deferred.lock();
         if let Some(deferred) = state.as_mut().filter(|d| d.loader == loader_at) {
             deferred.pages.remove(&page);
         }
+        stash
     }
 
     /// The pages this document has not loaded and the loader can still load (or has already loaded for

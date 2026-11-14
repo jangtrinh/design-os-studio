@@ -4607,4 +4607,103 @@ mod tests {
         app.doc.relayout_subtree(p);
         assert_eq!(app.doc.get(f).unwrap().size, Vec2::new(80.0, 50.0));
     }
+
+    #[test]
+    fn duplicate_page_with_identical_unopened_sibling_page_keeps_its_own_child_overrides_across_20_runs() {
+        use designos_fig::container::Compression;
+        use designos_fig::kiwi::KiwiValue as V;
+        use designos_fig::testkit::{color, en, figma_like_schema, fl, guid, matrix, msg, node, vec2};
+
+        let solid_paint = |r: f32, g: f32, b: f32| -> V {
+            msg(vec![("type", en("SOLID")), ("color", color(r, g, b, 1.0)), ("opacity", fl(1.0)), ("visible", V::Bool(true)), ("blendMode", en("NORMAL"))])
+        };
+        let nc = |id: (u32, u32), parent: (u32, u32), pos: &str, ty: &str, name: &str, size: (f32, f32), mut extra: Vec<(&str, V)>| -> V {
+            let mut fields = vec![
+                ("visible", V::Bool(true)),
+                ("opacity", fl(1.0)),
+                ("phase", en("CREATED")),
+                ("size", vec2(size.0, size.1)),
+                ("transform", matrix(0.0, 0.0)),
+                ("blendMode", en("PASS_THROUGH")),
+            ];
+            fields.append(&mut extra);
+            node(id, parent, pos, ty, name, fields)
+        };
+        let inst_with_label = |id: (u32, u32), parent: (u32, u32), label_text: &str| -> V {
+            nc(
+                id,
+                parent,
+                "!",
+                "INSTANCE",
+                "Hero button",
+                (120.0, 48.0),
+                vec![(
+                    "symbolData",
+                    msg(vec![
+                        ("symbolID", guid(1, 10)),
+                        (
+                            "symbolOverrides",
+                            V::Array(vec![msg(vec![
+                                ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 11)]))])),
+                                ("textData", msg(vec![("characters", V::String(label_text.into()))])),
+                            ])]),
+                        ),
+                    ]),
+                )],
+            )
+        };
+        let mut changes = vec![
+            nc((0, 0), (0, 0), "", "DOCUMENT", "Document", (0.0, 0.0), vec![]),
+            nc((0, 1), (0, 0), "!", "CANVAS", "Cover", (0.0, 0.0), vec![]),
+            nc((0, 2), (0, 0), "\"", "CANVAS", "Page P", (0.0, 0.0), vec![]),
+            nc((0, 3), (0, 0), "#", "CANVAS", "Page Q", (0.0, 0.0), vec![]),
+            nc((1, 10), (0, 1), "!", "SYMBOL", "Buttons/Button", (120.0, 48.0), vec![("fillPaints", V::Array(vec![solid_paint(0.9, 0.9, 0.9)]))]),
+            nc(
+                (1, 11),
+                (1, 10),
+                "!",
+                "TEXT",
+                "Label",
+                (80.0, 20.0),
+                vec![("textData", msg(vec![("characters", V::String("Button CTA".into()))])), ("fontSize", fl(14.0))],
+            ),
+            inst_with_label((1, 21), (0, 2), "From Page P"),
+            inst_with_label((1, 22), (0, 3), "From Page Q"),
+        ];
+        for i in 0..25_000u32 {
+            changes.push(nc((9, i + 1), (0, 1), "!", "ROUNDED_RECTANGLE", "F", (4.0, 4.0), vec![]));
+        }
+        let schema = figma_like_schema();
+        let root = schema.find("Message").expect("Message in schema");
+        let body = schema.encode_message(root, &msg(vec![("nodeChanges", V::Array(changes))])).expect("encode");
+        let fig = designos_fig::container::write_container(&schema.encode(), &body, Compression::Zstd, 106);
+
+        let label_on_page = |doc: &Document, page: NodeId| -> String {
+            let inst = doc.get(page).expect("page").children[0];
+            let label = doc.get(inst).expect("inst").children[0];
+            match &doc.get(label).expect("label").kind {
+                NodeKind::Text(t) => t.content.clone(),
+                other => panic!("expected text child, got {other:?}"),
+            }
+        };
+
+        for run in 0..20 {
+            let mut app = App::new(designos_fig::import_fig(&fig).expect("import"));
+            let page_p = app.doc.pages.iter().copied().find(|&p| app.doc.get(p).is_some_and(|n| n.name == "Page P")).expect("Page P");
+            let copy_p = app.duplicate_page(page_p).expect("duplicate Page P");
+            assert_eq!(label_on_page(&app.doc, copy_p), "From Page P", "run {run}: hydrated copy of Page P must never receive Page Q's overrides");
+
+            let saved = designos_fig::export_fig(&app.doc).expect("save");
+            let mut reopened = designos_fig::import_fig(&saved).expect("reopen");
+            let r_p = reopened.pages.iter().copied().find(|&p| reopened.get(p).is_some_and(|n| n.name == "Page P")).expect("reopened Page P");
+            let r_q = reopened.pages.iter().copied().find(|&p| reopened.get(p).is_some_and(|n| n.name == "Page Q")).expect("reopened Page Q");
+            let r_copy = reopened.pages.iter().copied().find(|&p| reopened.get(p).is_some_and(|n| n.name == "Page P copy")).expect("reopened Page P copy");
+            reopened.ensure_page_hydrated(r_p);
+            reopened.ensure_page_hydrated(r_q);
+            reopened.ensure_page_hydrated(r_copy);
+            assert_eq!(label_on_page(&reopened, r_copy), "From Page P", "run {run}: saved copy of Page P must keep Page P's overrides");
+            assert_eq!(label_on_page(&reopened, r_p), "From Page P", "run {run}: original Page P must keep Page P's overrides");
+            assert_eq!(label_on_page(&reopened, r_q), "From Page Q", "run {run}: sibling Page Q must keep Page Q's overrides");
+        }
+    }
 }

@@ -219,8 +219,21 @@ impl Tx {
     }
 
     /// Applies a structural command now and remembers it for the commit.
-    pub fn cmd(&mut self, doc: &mut Document, c: Command) -> Result<(), DocError> {
+    pub fn cmd(&mut self, doc: &mut Document, mut c: Command) -> Result<(), DocError> {
         self.ed.note_opened(doc);
+        if let Command::InsertPage { nodes, .. } = &mut c {
+            if let Some(dst) = nodes.first_mut().filter(|n| n.component.deferred_page_stash.is_none()) {
+                let page_id = dst.id;
+                for inv in self.inverses.iter_mut().rev() {
+                    if let Command::InsertPage { nodes: inv_nodes, .. } = inv {
+                        if let Some(src) = inv_nodes.first_mut().filter(|n| n.id == page_id && n.component.deferred_page_stash.is_some()) {
+                            dst.component.deferred_page_stash = src.component.deferred_page_stash.take();
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         let inv = c.clone().apply(doc)?;
         self.cmds.push(c);
         self.inverses.push(inv);
@@ -390,7 +403,16 @@ impl Tx {
         crate::comp_ops::record_overrides(doc, &self.ed.before, &mut updates);
         self.ed.revert(doc);
         while let Some(inv) = self.inverses.pop() {
-            inv.apply(doc)?;
+            let unapplied = inv.apply(doc)?;
+            if let (Command::InsertPage { nodes: mut unapplied_nodes, .. }, Some(Command::InsertPage { nodes: cmd_nodes, .. })) =
+                (unapplied, self.cmds.get_mut(self.inverses.len()))
+            {
+                if let (Some(src), Some(dst)) = (unapplied_nodes.first_mut(), cmd_nodes.first_mut()) {
+                    if dst.component.deferred_page_stash.is_none() {
+                        dst.component.deferred_page_stash = src.component.deferred_page_stash.take();
+                    }
+                }
+            }
         }
         let mut all = std::mem::take(&mut self.cmds);
         all.extend(updates);
