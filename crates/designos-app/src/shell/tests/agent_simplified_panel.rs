@@ -527,6 +527,93 @@ fn a_mention_row_click_over_a_running_tab_picks_the_row() {
     finish(s);
 }
 
+/// How a press reaches the app when eframe holds the window events until the redraw: the pointer arrives on `p` and the button goes
+/// down in the same pass (`together`: the release too), so the pass has not yet seen the pointer over the overlay it presses.
+fn press_on_arrival(s: &mut Sim, p: Pos2, together: bool) {
+    s.pos = p;
+    let mut events = vec![Event::PointerMoved(p), Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: true, modifiers: s.mods }];
+    if together {
+        events.push(Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: false, modifiers: s.mods });
+        s.frame(events);
+    } else {
+        s.frame(events);
+        s.button(false);
+    }
+    s.frame(vec![]);
+}
+
+/// A press that arrives together with the pointer, over a row of an overlay that is already open, still lands on the row: the
+/// viewport's sense this pass is not what egui hit-tests, so the viewport must already be hover-only for the whole overlay time.
+#[test]
+fn a_press_arriving_with_the_pointer_on_a_mode_menu_row_reaches_the_row() {
+    use crate::agent_permissions::AgentPermissionMode;
+    for together in [false, true] {
+        let mut s = session_sim();
+        s.shell.app.terminal.permission_mode = AgentPermissionMode::AskRisky;
+        let mode = recorded(&s, "agents-composer-mode-btn").unwrap();
+        s.click(mode.center());
+        frames(&mut s, 2);
+        assert!(s.shell.app.terminal.mode_menu_open);
+        let skip = recorded(&s, "agents-composer-mode-skip").expect("Skip permissions row");
+        press_on_arrival(&mut s, skip.center(), together);
+        assert_eq!(s.shell.app.terminal.permission_mode, AgentPermissionMode::Skip, "together={together}: the row took the press");
+        assert_eq!(s.shell.app.terminal.tabs[0].permission_mode, AgentPermissionMode::Ask, "the running tab keeps its mode");
+        finish(s);
+    }
+}
+
+#[test]
+fn a_press_arriving_with_the_pointer_on_an_attach_menu_row_reaches_the_row() {
+    for together in [false, true] {
+        let mut s = session_sim();
+        let before = s.shell.app.terminal.active_composer().attach_prd;
+        let add = recorded(&s, "agents-composer-add-btn").unwrap();
+        s.click(add.center());
+        frames(&mut s, 2);
+        assert!(s.shell.app.terminal.attach_menu_open);
+        let row = recorded(&s, "agents-composer-attach-prd").expect("Attach PRD row");
+        press_on_arrival(&mut s, row.center(), together);
+        assert_ne!(s.shell.app.terminal.active_composer().attach_prd, before, "together={together}: the row took the press");
+        finish(s);
+    }
+}
+
+#[test]
+fn a_press_arriving_with_the_pointer_on_a_mention_row_reaches_the_row() {
+    for together in [false, true] {
+        let mut s = session_sim();
+        let input = recorded(&s, "agents-composer-input").unwrap();
+        s.click(input.center());
+        frames(&mut s, 2);
+        s.type_text("@");
+        frames(&mut s, 4);
+        assert!(s.shell.app.terminal.mention_popup.is_open());
+        let row = recorded(&s, "agent-mention-row-0").expect("the popup has a first row");
+        press_on_arrival(&mut s, row.center(), together);
+        assert!(!s.shell.app.terminal.mention_popup.is_open(), "together={together}: the row took the press and picked the mention");
+        assert!(!s.shell.app.terminal.active_mentions.is_empty());
+        finish(s);
+    }
+}
+
+/// An outside press still closes an open overlay and still focuses the terminal, whatever the viewport's sense.
+#[test]
+fn an_outside_press_arriving_with_the_pointer_closes_the_menu_and_focuses_the_terminal() {
+    for together in [false, true] {
+        let mut s = session_sim();
+        let mode = recorded(&s, "agents-composer-mode-btn").unwrap();
+        s.click(mode.center());
+        frames(&mut s, 2);
+        assert!(s.shell.app.terminal.mode_menu_open);
+        s.shell.app.terminal.viewport_focused = false;
+        let outside = viewport_point(&s);
+        press_on_arrival(&mut s, outside, together);
+        assert!(!s.shell.app.terminal.mode_menu_open, "together={together}: an outside press closes the menu");
+        assert!(s.shell.app.terminal.viewport_focused, "together={together}: and focuses the terminal");
+        finish(s);
+    }
+}
+
 /// The terminal yields pointer input only while a menu is open: with every menu closed it still takes a click (focus) and the wheel
 /// (scrollback).
 #[test]
