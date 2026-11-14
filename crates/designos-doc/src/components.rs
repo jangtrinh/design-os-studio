@@ -2096,7 +2096,7 @@ fn direct_transfer_gate_allows(
 /// over to nodes with the same name path.
 fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
     let Some(inode) = c.s.get(i).cloned() else { return };
-    let prior_parked = inode.component.parked_overrides.clone();
+    let prior_parked = if inode.component.parked_overrides.is_empty() { Vec::new() } else { inode.component.parked_overrides.clone() };
     if !prior_parked.is_empty() {
         c.had_parked.insert(i);
     }
@@ -2142,7 +2142,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                         shown,
                         swapped: is_swapped_inst,
                         picks: kn.component.variant_picks.clone(),
-                        parked: kn.component.parked_overrides.clone(),
+                        parked: if has_parked { kn.component.parked_overrides.clone() } else { Vec::new() },
                     }),
                     _ => {
                         if is_swapped_inst {
@@ -2401,22 +2401,44 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         c.update(nn);
     }
 
+    let kept_for_return = restore_parked_overrides(c, i, new_comp, same_family, &prior_parked, newly_parked, &by_path, &mut dropped_fields);
+
+    if dropped_inner_swaps > 0 || dropped_fields > 0 || kept_for_return > 0 {
+        eprintln!(
+            "designos-doc: swapping instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s), {dropped_fields} field override(s), and kept {kept_for_return} override(s) for return"
+        );
+    }
+    c.dropped_changes += dropped_inner_swaps + dropped_fields;
+    c.kept_for_return += kept_for_return;
+}
+
+#[allow(clippy::too_many_arguments)]
+fn restore_parked_overrides(
+    c: &mut Ctx,
+    i: NodeId,
+    new_comp: NodeId,
+    same_family: bool,
+    prior_parked: &[ParkedOverride],
+    newly_parked: Vec<ParkedOverride>,
+    by_path: &BTreeMap<Vec<NestedStep>, NodeId>,
+    dropped_fields: &mut usize,
+) -> usize {
     let mut remaining_parked: Vec<ParkedOverride> = Vec::new();
     let mut to_apply_by_node: BTreeMap<NodeId, Vec<ParkedOverride>> = BTreeMap::new();
     if same_family {
-        for po in &prior_parked {
+        for po in prior_parked {
             if newly_parked.iter().any(|np| np.path == po.path && np.field == po.field) {
                 continue;
             }
             let Some(orig) = po.origin_source.and_then(|id| c.s.get(id)) else {
-                dropped_fields += 1;
+                *dropped_fields += 1;
                 continue;
             };
             let Some(&nid) = by_path.get(&po.path) else {
                 if family_has_compatible_layer(c.s, new_comp, &po.path, po.field) {
                     remaining_parked.push(po.clone());
                 } else {
-                    dropped_fields += 1;
+                    *dropped_fields += 1;
                 }
                 continue;
             };
@@ -2424,7 +2446,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                 if family_has_compatible_layer(c.s, new_comp, &po.path, po.field) {
                     remaining_parked.push(po.clone());
                 } else {
-                    dropped_fields += 1;
+                    *dropped_fields += 1;
                 }
                 continue;
             };
@@ -2432,7 +2454,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                 if family_has_compatible_layer(c.s, new_comp, &po.path, po.field) {
                     remaining_parked.push(po.clone());
                 } else {
-                    dropped_fields += 1;
+                    *dropped_fields += 1;
                 }
                 continue;
             }
@@ -2440,8 +2462,8 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                 // Live override on the returning layer wins; parked entry is removed.
                 continue;
             }
-            let Some(new_orig) = nn.component.source.and_then(|s| c.s.get(s)) else {
-                dropped_fields += 1;
+            let Some(new_orig) = nn.component.source.and_then(|s| c.s.get(s)).filter(|n| n.component.source.is_none_or(|up| c.s.get(up).is_some())) else {
+                *dropped_fields += 1;
                 continue;
             };
             let path_has_chars = nn.component.overrides.contains(&OverrideField::Characters)
@@ -2463,7 +2485,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             } else if family_has_compatible_layer(c.s, new_comp, &po.path, po.field) {
                 remaining_parked.push(po.clone());
             } else {
-                dropped_fields += 1;
+                *dropped_fields += 1;
             }
         }
         for (nid, mut pos) in to_apply_by_node {
@@ -2505,11 +2527,11 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                     remaining_parked.push(po);
                 }
             } else {
-                dropped_fields += 1;
+                *dropped_fields += 1;
             }
         }
     } else {
-        dropped_fields += prior_parked.len();
+        *dropped_fields += prior_parked.len();
     }
     let kept_for_return = remaining_parked.len();
     if !(prior_parked.is_empty() && remaining_parked.is_empty()) && c.s.get(i).is_some_and(|cur| cur.component.parked_overrides != remaining_parked) {
@@ -2518,14 +2540,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             c.update(cur_inst);
         }
     }
-
-    if dropped_inner_swaps > 0 || dropped_fields > 0 || kept_for_return > 0 {
-        eprintln!(
-            "designos-doc: swapping instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s), {dropped_fields} field override(s), and kept {kept_for_return} override(s) for return"
-        );
-    }
-    c.dropped_changes += dropped_inner_swaps + dropped_fields;
-    c.kept_for_return += kept_for_return;
+    kept_for_return
 }
 
 struct CarriedOverride {
@@ -12409,6 +12424,72 @@ mod tests {
         );
         assert!(d.get(inst).unwrap().component.parked_overrides.is_empty(), "entry with deleted origin is removed");
         assert_eq!((d_bc, k_bc), (1, 0), "entry with deleted origin is counted as dropped");
+    }
+
+    #[test]
+    fn parked_value_is_dropped_and_never_written_when_target_source_is_missing_or_deleted() {
+        let mut d = Document::new("ParkedTargetSourceUnresolved");
+        let page = d.add_page("P");
+        let a = build_rich_variant(&mut d, page, "State=A", 0.0, true);
+        let b = build_rich_variant(&mut d, page, "State=B", 240.0, false);
+        let c_var = build_rich_variant(&mut d, page, "State=C", 480.0, true);
+        let c_chip = child_named(&d, c_var, "Chip");
+        let c = combine_as_variants(&mut d, &[a, b, c_var]);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, c_var, page, Vec2::new(0.0, 140.0));
+        apply(&mut d, c);
+        let baseline_c = *d.get(page).unwrap().children.last().unwrap();
+        let expected_c_chip = normalized_node(&d, child_named(&d, baseline_c, "Chip"));
+
+        // 1. Switch back B -> C when the returning target layer's component.source points at a deleted node.
+        let c = create_instance(&mut d, a, page, Vec2::new(300.0, 140.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let inst_chip = child_named(&d, inst, "Chip");
+        override_fill(&mut d, inst_chip, Color::rgb(10, 200, 90));
+        let (c, d_ab, k_ab) = set_instance_prop_counts(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        assert_eq!((d_ab, k_ab), (0, 1));
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 1);
+        let parked_entry = d.get(inst).unwrap().component.parked_overrides.clone();
+
+        d.get_mut(c_chip).unwrap().component.source = Some(NodeId(999_999));
+        let (c, d_bc, k_bc) = set_instance_prop_counts(&mut d, inst, "State", Some(PropValue::Variant("C".into())));
+        apply(&mut d, c);
+        assert_eq!(
+            normalized_node(&d, child_named(&d, inst, "Chip")),
+            expected_c_chip,
+            "when target layer's component.source points at a deleted node, the waiting fill is never written"
+        );
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty(), "the waiting entry is removed");
+        assert_eq!((d_bc, k_bc), (1, 0), "the waiting entry is counted as dropped");
+        d.get_mut(c_chip).unwrap().component.source = None;
+
+        // 2. Returning target layer itself has component.source missing (None) or pointing at a deleted node.
+        for bad_source in [None, Some(NodeId(999_999))] {
+            let target_chip = child_named(&d, inst, "Chip");
+            d.get_mut(target_chip).unwrap().component.source = bad_source;
+            d.get_mut(inst).unwrap().component.parked_overrides = parked_entry.clone();
+            let mut by_path = BTreeMap::new();
+            by_path.insert(vec![("Chip".to_string(), 0)], target_chip);
+            let (cmd, dropped_fields, kept) = {
+                let mut ctx = Ctx::new(&mut d);
+                let mut dropped_fields = 0;
+                let kept = restore_parked_overrides(&mut ctx, inst, c_var, true, &parked_entry, Vec::new(), &by_path, &mut dropped_fields);
+                (ctx.finish(), dropped_fields, kept)
+            };
+            apply(&mut d, cmd);
+            let mut expected = expected_c_chip.clone();
+            expected.component.source = bad_source;
+            assert_eq!(
+                normalized_node(&d, child_named(&d, inst, "Chip")),
+                expected,
+                "waiting fill is not painted when target component.source is {bad_source:?}"
+            );
+            assert!(d.get(inst).unwrap().component.parked_overrides.is_empty(), "waiting entry is removed when target component.source is {bad_source:?}");
+            assert_eq!((dropped_fields, kept), (1, 0), "dropped count increases by 1 for {bad_source:?}");
+        }
     }
 
     #[test]
