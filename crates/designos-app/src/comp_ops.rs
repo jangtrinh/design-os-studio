@@ -561,6 +561,15 @@ impl App {
         }
     }
 
+    /// Resets parked overrides of a missing variant layer on `instance`.
+    pub fn reset_parked_overrides(&mut self, instance: NodeId, path: &[(String, usize)], fields: &[OverrideField]) {
+        let mut tx = Tx::new();
+        let cmd = reset_parked_overrides(&mut self.doc, instance, path, fields);
+        if self.push_cmd(&mut tx, cmd) {
+            self.run_tx(tx);
+        }
+    }
+
     /// Owner of the property definitions shown for `comp`: its set, else itself.
     pub fn prop_owner(&self, comp: NodeId) -> NodeId {
         self.doc.get(comp).and_then(|n| n.parent).filter(|p| matches!(self.doc.get(*p).map(|n| &n.kind), Some(NodeKind::ComponentSet(_)))).unwrap_or(comp)
