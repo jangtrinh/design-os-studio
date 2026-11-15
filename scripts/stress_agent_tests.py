@@ -49,6 +49,49 @@ def stop_burners(burners: list[subprocess.Popen[bytes]]) -> None:
             pass
 
 
+def stop_cargo(active_cargo: list[subprocess.Popen[str]]) -> None:
+    for proc in list(active_cargo):
+        if proc.poll() is None:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except OSError:
+                pass
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+
+
+def run_cargo_process(
+    cmd: list[str],
+    env: dict[str, str],
+    active_cargo: list[subprocess.Popen[str]],
+) -> tuple[int, str, str]:
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(ROOT),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    active_cargo.append(proc)
+    try:
+        stdout, stderr = proc.communicate()
+        return proc.returncode, stdout or "", stderr or ""
+    finally:
+        if proc in active_cargo:
+            active_cargo.remove(proc)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--burners", type=int, default=16, help="Number of CPU burner processes (default: 16)")
@@ -67,26 +110,22 @@ def main() -> int:
         "designos",
     ]
 
-    build_proc = subprocess.run(
-        [*cargo_cmd_base, "--no-run"],
-        cwd=str(ROOT),
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    if build_proc.returncode != 0:
-        sys.stderr.write(build_proc.stdout)
-        sys.stderr.write(build_proc.stderr)
-        return build_proc.returncode
-
     burners: list[subprocess.Popen[bytes]] = []
+    active_cargo: list[subprocess.Popen[str]] = []
 
     def handle_signal(signum: int, _frame: object) -> None:
+        stop_cargo(active_cargo)
         stop_burners(burners)
         raise SystemExit(128 + signum)
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
+
+    build_rc, build_out, build_err = run_cargo_process([*cargo_cmd_base, "--no-run"], env, active_cargo)
+    if build_rc != 0:
+        sys.stderr.write(build_out)
+        sys.stderr.write(build_err)
+        return build_rc
 
     passed = 0
     failed = 0
@@ -110,18 +149,12 @@ def main() -> int:
 
         for idx in range(1, args.runs + 1):
             t0 = time.monotonic()
-            proc = subprocess.run(
-                [*cargo_cmd_base, args.filter],
-                cwd=str(ROOT),
-                env=env,
-                capture_output=True,
-                text=True,
-            )
+            rc, out, err = run_cargo_process([*cargo_cmd_base, args.filter], env, active_cargo)
             elapsed = time.monotonic() - t0
-            combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+            combined = out + "\n" + err
             results = RESULT_RE.findall(combined)
-            summary = results[-1] if results else f"exit={proc.returncode}"
-            if proc.returncode == 0:
+            summary = results[-1] if results else f"exit={rc}"
+            if rc == 0:
                 passed += 1
                 print(f"[run {idx}/{args.runs}] PASS ({elapsed:.2f}s) — {summary}", flush=True)
             else:
@@ -139,6 +172,7 @@ def main() -> int:
                     ):
                         print(f"    {line}", flush=True)
     finally:
+        stop_cargo(active_cargo)
         stop_burners(burners)
 
     print(

@@ -3651,7 +3651,7 @@ mod tests {
     fn failed_start_returns_user_entries_in_order_and_discards_system_entry_with_notice() {
         let dir = temp_composer_dir("failed-start-two-users-one-system");
         let bin_dir = dir.join("bin");
-        write_executable_stub(&bin_dir, "claude", "sleep 30");
+        write_executable_stub(&bin_dir, "claude", "echo 'Error: failed to initialize' >&2\nexit 1");
 
         let mut st = TerminalState::new_for_session("doc-1437-failed", "Failed Start Queue", Some(&dir));
         st.path_prepend.push(bin_dir);
@@ -3660,13 +3660,11 @@ mod tests {
         assert_eq!(st.send_from_composer_box("user entry one", None), SendOutcome::Queued);
         st.tabs[0].last_output_at = std::sync::Arc::new(std::sync::Mutex::new(None));
         st.tabs[0].composer.flush_paused = true;
-        st.tabs[0].spawned_at = Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - Duration::from_secs(1);
         assert_eq!(st.send_system_prompt("system image task", None), SendOutcome::Queued);
         assert_eq!(st.send_to_agent("user entry two", None), SendOutcome::Queued);
         assert_eq!(st.composer_draft(), "");
 
-        st.tabs[0].start_failure = Some(crate::agent_start_failure::diagnose(AgentCliPreset::Claude, true, Some(1), "Error: failed to initialize\n"));
-        st.tick_composer();
+        assert!(st.poll_until_start_failure(crate::test_timing::STUB_WAIT), "Start failure must be recorded");
         assert_eq!(
             st.composer_draft(),
             "user entry one\n\nuser entry two",
