@@ -2664,9 +2664,23 @@ mod tests {
         let json = d.to_json().unwrap();
         assert!(!json.contains("\"stroke_geometry_for\""), "unstamped node should omit stroke_geometry_for in raw JSON");
 
-        let loaded = Document::from_json(&json).unwrap();
+        let mut loaded = Document::from_json(&json).unwrap();
         let n = loaded.get(id).unwrap();
         assert!(n.stroke_geometry_for.is_some(), "load must stamp a stored stroke outline that lacks a stamp");
         assert!(n.live_stroke_outline().is_some(), "freshly stamped outline must be live");
+        assert_eq!(
+            d.get(id).unwrap().effective_stroke_geometry_stamp(),
+            n.effective_stroke_geometry_stamp(),
+            "effective stamp is identical whether omitted or present and matching"
+        );
+        assert!(crate::diff3(&d, &loaded, &d).ours.nodes.is_empty(), "branch diff treats omitted and matching stamps as identical");
+        assert_eq!(loaded.to_json().unwrap(), json, "saving a loaded file with no edit is byte-identical");
+
+        // Change stroke weight directly (no setter) and save: the mismatching stamp is written, and reload keeps it stale.
+        loaded.get_mut(id).unwrap().stroke.weight = 6.0;
+        let stale_json = loaded.to_json().unwrap();
+        assert!(stale_json.contains("\"stroke_geometry_for\""), "mismatching stamp must be written on save");
+        let reloaded = Document::from_json(&stale_json).unwrap();
+        assert!(reloaded.get(id).unwrap().live_stroke_outline().is_none(), "reloaded stale outline must still not be drawn");
     }
 }

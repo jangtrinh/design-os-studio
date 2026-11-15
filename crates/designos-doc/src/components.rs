@@ -1550,8 +1550,7 @@ pub fn drop_baked_outline_of_parametric_shape(n: &mut Node) {
             | NodeKind::Section
     ) {
         n.fill_geometry = None;
-        n.stroke_geometry = None;
-        n.stroke_geometry_for = None;
+        n.drop_stroke_outline();
     }
 }
 
@@ -1699,8 +1698,7 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
         let outline_is_stale = if arc_is_own { !ov.contains(&OverrideField::Size) } else { ov.contains(&OverrideField::Size) && *ra != own };
         if outline_is_stale {
             n.fill_geometry = None;
-            n.stroke_geometry = None;
-            n.stroke_geometry_for = None;
+            n.drop_stroke_outline();
         }
     }
     match (&r.kind, &n.kind) {
@@ -1953,8 +1951,7 @@ fn apply_parked_override_to_node(po: &ParkedOverride, to: &mut Node) {
             }
             if !matches!(to.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) && fill_geometry.is_none() && stroke_geometry.is_none() {
                 to.fill_geometry = None;
-                to.stroke_geometry = None;
-                to.stroke_geometry_for = None;
+                to.drop_stroke_outline();
             }
             if let Some(v) = explicit_width {
                 to.plugin_data.insert("pen:explicit_width".into(), v.clone());
@@ -2187,8 +2184,7 @@ fn slot_child_reference_for_inst(d: &Document, inst: NodeId, child_id: NodeId, r
     copy_overridden(slot_child, &mut eff_rn, &fields);
     if kinds_differ && fields.contains(&OverrideField::Size) && !matches!(eff_rn.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
         eff_rn.fill_geometry = None;
-        eff_rn.stroke_geometry = None;
-        eff_rn.stroke_geometry_for = None;
+        eff_rn.drop_stroke_outline();
     }
     Some(eff_rn)
 }
@@ -2550,8 +2546,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
         if kinds_differ && fields.contains(&OverrideField::Size) && !matches!(nn.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
             nn.fill_geometry = None;
-            nn.stroke_geometry = None;
-            nn.stroke_geometry_for = None;
+            nn.drop_stroke_outline();
         }
         c.update(nn);
     }

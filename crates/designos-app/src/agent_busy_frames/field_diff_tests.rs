@@ -106,7 +106,8 @@ fn populated() -> Node {
     n.style_refs.insert("fill".into(), "S:1".into());
     n.fill_geometry = Some(vec![path_with(2)]);
     n.stroke_geometry = Some(vec![path_with(1)]);
-    n.stamp_stroke_geometry();
+    n.stroke_geometry_for =
+        Some(designos_doc::StrokeGeometryStamp { size: Vec2::new(5.0, 5.0), weight: 8.0, ..designos_doc::StrokeGeometryStamp::of_node(&n) });
     n.component = ComponentLink { description: "Main".into(), ..Default::default() };
     n.prototype = PrototypeProps { fixed_children: vec![NodeId(8)], ..Default::default() };
     n.variables.bindings.insert("fills".into(), "V:1".into());
@@ -176,7 +177,7 @@ fn field_edits() -> Vec<(&'static str, Vec<Edit>)> {
         ("stroke_geometry", vec![|n| n.stroke_geometry = None, |n| n.stroke_geometry = Some(Vec::new()), |n| n.stroke_geometry = Some(vec![path_with(3)])]),
         (
             "stroke_geometry_for",
-            vec![|n| n.stroke_geometry_for = None, |n| {
+            vec![|n| n.stroke_geometry_for = None, |n| n.stamp_stroke_geometry(), |n| {
                 let mut other = n.clone();
                 other.stroke.weight = 9.0;
                 n.stroke_geometry_for = Some(designos_doc::StrokeGeometryStamp::of_node(&other));

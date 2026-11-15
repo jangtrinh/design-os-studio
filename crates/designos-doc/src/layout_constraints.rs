@@ -285,8 +285,7 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
                 scale_paths(fg, kx, ky);
             }
             if drop_bake {
-                node.stroke_geometry = None;
-                node.stroke_geometry_for = None;
+                node.drop_stroke_outline();
             } else if let Some(sg) = &mut node.stroke_geometry {
                 scale_paths(sg, kx, ky);
                 if let Some(stamp) = &mut node.stroke_geometry_for {
@@ -337,14 +336,12 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
                 }
             } else {
                 node.fill_geometry = None;
-                node.stroke_geometry = None;
-                node.stroke_geometry_for = None;
+                node.drop_stroke_outline();
             }
         }
         _ => {
             node.fill_geometry = None;
-            node.stroke_geometry = None;
-            node.stroke_geometry_for = None;
+            node.drop_stroke_outline();
         }
     }
 }
@@ -486,8 +483,7 @@ pub fn apply_resize_to_fit_one(doc: &mut Document, id: NodeId, mut touch: impl F
             let new_size = Vec2::new(bb.w, bb.h);
             if (n.size.x - new_size.x).abs() > 1e-5 || (n.size.y - new_size.y).abs() > 1e-5 {
                 n.fill_geometry = None;
-                n.stroke_geometry = None;
-                n.stroke_geometry_for = None;
+                n.drop_stroke_outline();
             }
             n.transform = n.transform * Affine::translate(bb.x, bb.y);
             n.size = new_size;
