@@ -12409,7 +12409,7 @@ mod tests {
         std::fs::create_dir_all(bin_dir).expect("create stub bin dir");
         for name in ["claude", "codex"] {
             let path = bin_dir.join(name);
-            std::fs::write(&path, "#!/bin/sh\nsleep 30\n").expect("write stub cli");
+            std::fs::write(&path, "#!/bin/sh\n/bin/sleep 30\n").expect("write stub cli");
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod stub cli");
         }
     }
@@ -12431,6 +12431,26 @@ mod tests {
             let _ = stdin.write_all(payload.as_bytes());
         }
         child
+    }
+
+    #[cfg(unix)]
+    fn tab_has_request_file(tab_dir: &Path) -> bool {
+        std::fs::read_dir(tab_dir)
+            .ok()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|entry| entry.file_name().to_str().is_some_and(|name| name.ends_with(".request.json")))
+    }
+
+    #[cfg(unix)]
+    fn wait_for_tab_approval_request(st: &mut TerminalState, child: &mut std::process::Child, tab_idx: usize) -> bool {
+        let tab_id = st.tabs[tab_idx].id;
+        let channel_dir = crate::agent_approval_channel::prepare_channel_dir(&st.session_dir).expect("prepare private channel dir");
+        let tab_dir = crate::agent_approval_channel::tab_approvals_dir(&st.session_dir, tab_id).expect("tab approvals dir");
+        let ready = crate::test_timing::wait_for_dir_or_child_exit(&channel_dir, &tab_dir, child, || tab_has_request_file(&tab_dir));
+        let _ = st.poll_live_agent_bridge();
+        ready && !st.tabs[tab_idx].pending_approvals.is_empty()
     }
 
     #[cfg(unix)]
@@ -12500,11 +12520,8 @@ mod tests {
 
             assert!(private_hooks.is_file(), "{later_mode:?}: canvas snapshot while an Ask tab is running must keep writing the private Ask hooks");
 
-            let hook_child = spawn_tab_approval_hook(&script_path, first_tab_id, SAFE_READ_PAYLOAD);
-            let asked = crate::test_timing::poll_until(std::time::Duration::from_millis(5000), || {
-                let _ = app.terminal.poll_live_agent_bridge();
-                !app.terminal.tabs[first_idx].pending_approvals.is_empty()
-            });
+            let mut hook_child = spawn_tab_approval_hook(&script_path, first_tab_id, SAFE_READ_PAYLOAD);
+            let asked = wait_for_tab_approval_request(&mut app.terminal, &mut hook_child, first_idx);
             assert!(asked, "{later_mode:?}: first tab started in Ask must still raise an in-panel approval request instead of auto-allowing");
             let req_id = app.terminal.tabs[first_idx].pending_approvals[0].id.clone();
             app.terminal.focus_tab_by_id(first_tab_id);
@@ -12584,11 +12601,8 @@ mod tests {
         let script_path = crate::agent_approval_channel::hook_script_path(&app.terminal.session_dir).expect("private hook script path");
 
         // Tab A (Ask, background) must NOT be weakened: a safe read tool must still ask.
-        let child_a = spawn_tab_approval_hook(&script_path, tab_a_id, SAFE_READ_PAYLOAD);
-        let a_asked = crate::test_timing::poll_until(std::time::Duration::from_millis(5000), || {
-            let _ = app.terminal.poll_live_agent_bridge();
-            !app.terminal.tabs[tab_a_idx].pending_approvals.is_empty()
-        });
+        let mut child_a = spawn_tab_approval_hook(&script_path, tab_a_id, SAFE_READ_PAYLOAD);
+        let a_asked = wait_for_tab_approval_request(&mut app.terminal, &mut child_a, tab_a_idx);
         assert!(a_asked, "background Ask tab A must still ask after a canvas snapshot while AskRisky tab B is active");
         let req_id = app.terminal.tabs[tab_a_idx].pending_approvals[0].id.clone();
         app.terminal.focus_tab_by_id(tab_a_id);
@@ -12626,11 +12640,8 @@ mod tests {
         assert!(app.terminal.tabs[tab_b_idx].pending_approvals.is_empty(), "auto-allowed tool on Tab B leaves no pending request");
 
         // Ask the stricter tab (Tab A) a second time after it became active for the second time.
-        let child_a_second = spawn_tab_approval_hook(&script_path, tab_a_id, SAFE_READ_PAYLOAD);
-        let a_asked_second = crate::test_timing::poll_until(std::time::Duration::from_millis(5000), || {
-            let _ = app.terminal.poll_live_agent_bridge();
-            !app.terminal.tabs[tab_a_idx].pending_approvals.is_empty()
-        });
+        let mut child_a_second = spawn_tab_approval_hook(&script_path, tab_a_id, SAFE_READ_PAYLOAD);
+        let a_asked_second = wait_for_tab_approval_request(&mut app.terminal, &mut child_a_second, tab_a_idx);
         assert!(a_asked_second, "stricter Ask tab A must ask again after becoming active for the second time");
         let req_id_second = app.terminal.tabs[tab_a_idx].pending_approvals[0].id.clone();
         app.terminal.answer_pending_approval(&req_id_second, ApprovalDecision::Allow);
@@ -12698,11 +12709,8 @@ mod tests {
         let _ = app.terminal.poll_live_agent_bridge();
         assert!(app.terminal.tabs[restarted_idx].pending_approvals.is_empty(), "restarted AskRisky tab raises no approval card for safe read");
 
-        let first_child = spawn_tab_approval_hook(&script_path, first_tab_id, SAFE_READ_PAYLOAD);
-        let first_asked = crate::test_timing::poll_until(std::time::Duration::from_millis(5000), || {
-            let _ = app.terminal.poll_live_agent_bridge();
-            !app.terminal.tabs[first_idx].pending_approvals.is_empty()
-        });
+        let mut first_child = spawn_tab_approval_hook(&script_path, first_tab_id, SAFE_READ_PAYLOAD);
+        let first_asked = wait_for_tab_approval_request(&mut app.terminal, &mut first_child, first_idx);
         assert!(first_asked, "original Ask tab must still ask when its hook runs after a restarted tab started in AskRisky");
         let first_req_id = app.terminal.tabs[first_idx].pending_approvals[0].id.clone();
         app.terminal.focus_tab_by_id(first_tab_id);
