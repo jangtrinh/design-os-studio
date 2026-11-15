@@ -1190,6 +1190,9 @@ pub fn detach_instance(doc: &mut Document, instance: NodeId) -> Command {
 pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField]) -> Command {
     let mut ids = Vec::new();
     doc.walk(node, |n, _| ids.push(n.id));
+    // A parked entry of a field goes only when the reset target has no live override of that field itself: resetting the
+    // instance's own fill keeps a parked fill of another layer, while a live override on a descendant never blocks the clear.
+    let target_live = doc.get(node).map(|n| n.component.overrides.clone()).unwrap_or_default();
     let mut c = Ctx::new(doc);
     for id in ids {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
@@ -1206,7 +1209,7 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
             n.component.remove_override(f);
             if *f == OverrideField::MainComponent {
                 n.component.parked_overrides.clear();
-            } else {
+            } else if id == node && !target_live.contains(f) {
                 n.component.parked_overrides.retain(|p| p.field != *f);
             }
             match f {
@@ -1241,6 +1244,19 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
         }
     }
     sync_one(&mut c, node);
+    c.finish()
+}
+
+/// Resets parked overrides matching `path` and `fields` on `instance`.
+pub fn reset_parked_overrides(doc: &mut Document, instance: NodeId, path: &[(String, usize)], fields: &[OverrideField]) -> Command {
+    let mut c = Ctx::new(doc);
+    if let Some(mut n) = c.s.get(instance).cloned() {
+        let before = n.component.parked_overrides.len();
+        n.component.parked_overrides.retain(|p| !(p.path == path && fields.contains(&p.field)));
+        if n.component.parked_overrides.len() != before {
+            c.update(n);
+        }
+    }
     c.finish()
 }
 
@@ -12452,6 +12468,106 @@ mod tests {
         let c = detach_instance(&mut d, inst);
         apply(&mut d, c);
         assert!(d.get(inst).unwrap().component.is_empty(), "detaching an instance with parked overrides leaves an empty ComponentLink");
+    }
+
+    #[test]
+    fn parked_override_survives_resetting_another_override_and_clears_when_reset_on_its_own() {
+        let mut d = Document::new("ParkedSelectiveReset");
+        let page = d.add_page("P");
+        let a = build_rich_variant(&mut d, page, "State=A", 0.0, true);
+        let b = build_rich_variant(&mut d, page, "State=B", 240.0, false);
+        let c = combine_as_variants(&mut d, &[a, b]);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, a, page, Vec2::new(0.0, 140.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+
+        let sub = child_named(&d, inst, "Subtitle");
+        override_text(&mut d, sub, "Parked subtitle");
+        let chip = child_named(&d, inst, "Chip");
+        override_fill(&mut d, chip, Color::rgb(10, 200, 90));
+        let title = child_named(&d, inst, "Title");
+        override_text(&mut d, title, "Custom title");
+        override_fill(&mut d, inst, Color::rgb(12, 34, 56));
+
+        // Switch to State=B so Subtitle and Chip overrides are parked on inst.
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 2);
+
+        // Reset live child Title's text override and inst's own live fill override.
+        let title_on_b = child_named(&d, inst, "Title");
+        let c = reset_overrides(&mut d, title_on_b, &[OverrideField::Characters]);
+        apply(&mut d, c);
+        let c = reset_overrides(&mut d, inst, &[OverrideField::Fills]);
+        apply(&mut d, c);
+
+        // Switch back to State=A: parked Subtitle and Chip overrides both return; Title is back to default.
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("A".into())));
+        apply(&mut d, c);
+        assert_eq!(text_of(&d, child_named(&d, inst, "Title")), "Title");
+        assert_eq!(text_of(&d, child_named(&d, inst, "Subtitle")), "Parked subtitle", "parked text override returns after resetting another child");
+        assert_eq!(
+            d.get(child_named(&d, inst, "Chip")).unwrap().fills[0].kind,
+            PaintKind::Solid(Color::rgb(10, 200, 90)),
+            "parked fill override on Chip survives resetting inst's own live fill override"
+        );
+
+        // Switch to State=B again, then reset only Subtitle's parked override on its own.
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 2);
+        let c_reset_sub = reset_parked_overrides(&mut d, inst, &[("Subtitle".into(), 0)], &[OverrideField::Characters]);
+        let undo_reset = apply(&mut d, c_reset_sub);
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 1);
+
+        // Undo and redo the parked-override reset before switching back.
+        let redo_reset = apply(&mut d, undo_reset);
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 2);
+        let _ = apply(&mut d, redo_reset);
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 1);
+
+        // Switch back to State=A: Subtitle does not return, while Chip still returns.
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("A".into())));
+        apply(&mut d, c);
+        assert_eq!(text_of(&d, child_named(&d, inst, "Subtitle")), "Default subtitle", "reset parked override does not return on switch back");
+        assert_eq!(
+            d.get(child_named(&d, inst, "Chip")).unwrap().fills[0].kind,
+            PaintKind::Solid(Color::rgb(10, 200, 90)),
+            "unreset parked override on Chip still returns"
+        );
+    }
+
+    #[test]
+    fn instance_reset_of_a_field_clears_its_parked_entry_even_with_a_live_override_on_a_child() {
+        let mut d = Document::new("ParkedClearLiveChild");
+        let page = d.add_page("P");
+        let a = build_rich_variant(&mut d, page, "State=A", 0.0, true);
+        let b = build_rich_variant(&mut d, page, "State=B", 240.0, false);
+        let c = combine_as_variants(&mut d, &[a, b]);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, a, page, Vec2::new(0.0, 140.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+
+        let sub = child_named(&d, inst, "Subtitle");
+        override_text(&mut d, sub, "Parked subtitle");
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 1);
+        // A live text override on a child that exists in State=B.
+        let title = child_named(&d, inst, "Title");
+        override_text(&mut d, title, "Live title");
+
+        let c = reset_overrides(&mut d, inst, &[OverrideField::Characters]);
+        apply(&mut d, c);
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty(), "a live text override on Title does not keep the parked Subtitle text");
+        assert_eq!(text_of(&d, child_named(&d, inst, "Title")), "Title", "the walk still resets the child's live text");
+
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("A".into())));
+        apply(&mut d, c);
+        assert_eq!(text_of(&d, child_named(&d, inst, "Subtitle")), "Default subtitle");
     }
 
     #[test]

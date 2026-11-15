@@ -253,7 +253,11 @@ pub(crate) fn has_changes(app: &App, inst: NodeId) -> bool {
         }
         let Some(n) = app.doc.get(id) else { continue };
         visited += 1;
-        if !n.component.overrides.is_empty() || (n.id == inst && !n.component.values.is_empty()) || exposed_values.contains(&n.id) {
+        if !n.component.overrides.is_empty()
+            || !n.component.parked_overrides.is_empty()
+            || (n.id == inst && !n.component.values.is_empty())
+            || exposed_values.contains(&n.id)
+        {
             return true;
         }
         stack.extend(n.children.iter().copied());
@@ -511,27 +515,106 @@ pub fn show_slot_picker_popup(app: &mut App, ctx: &egui::Context) {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct OverrideListEntry {
+    pub node: NodeId,
+    pub path: Vec<(String, usize)>,
+    pub layer_name: Option<String>,
+    pub heading: Option<String>,
+    pub fields: Vec<OverrideField>,
+    pub parked: bool,
+    pub label: String,
+}
+
+fn parked_path_label(path: &[(String, usize)]) -> String {
+    if path.is_empty() {
+        return "Layer".into();
+    }
+    path.iter().map(|(name, occ)| if *occ == 0 { name.clone() } else { format!("{name} #{}", occ + 1) }).collect::<Vec<_>>().join(" / ")
+}
+
+pub(crate) fn overrides_list(doc: &Document, id: NodeId) -> Vec<OverrideListEntry> {
+    let Some(n) = doc.get(id) else { return Vec::new() };
+    let mut out = Vec::new();
+    let fields: Vec<OverrideField> = n.component.overrides.iter().copied().collect();
+    if !fields.is_empty() {
+        let names: Vec<&str> = fields.iter().map(|f| override_name(*f)).collect();
+        out.push(OverrideListEntry {
+            node: id,
+            path: Vec::new(),
+            layer_name: None,
+            heading: None,
+            fields,
+            parked: false,
+            label: format!("Changed: {}", names.join(", ")),
+        });
+    }
+    let mut parked_paths: Vec<Vec<(String, usize)>> = Vec::new();
+    for p in &n.component.parked_overrides {
+        if !parked_paths.contains(&p.path) {
+            parked_paths.push(p.path.clone());
+        }
+    }
+    for path in parked_paths {
+        let fields: Vec<OverrideField> =
+            n.component.parked_overrides.iter().filter(|p| p.path == path).map(|p| p.field).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+        let names: Vec<&str> = fields.iter().map(|f| override_name(*f)).collect();
+        let layer = parked_path_label(&path);
+        out.push(OverrideListEntry {
+            node: id,
+            path,
+            layer_name: Some(layer.clone()),
+            heading: Some(format!("{layer} (not in variant)")),
+            fields,
+            parked: true,
+            label: format!("Changed: {}", names.join(", ")),
+        });
+    }
+    out
+}
+
 /// "Changed in this instance" row with a reset button, for instances and the
 /// layers inside them.
 fn overrides_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
-    let Some(n) = app.doc.get(id) else { return };
-    let fields: Vec<OverrideField> = n.component.overrides.iter().copied().collect();
-    if fields.is_empty() {
+    let entries = overrides_list(&app.doc, id);
+    if entries.is_empty() {
         return;
     }
-    let names: Vec<&str> = fields.iter().map(|f| override_name(*f)).collect();
-    let r = pane.rect(theme::SECTION_CONTENT_X, 0.0, 128.0, theme::FIELD_HEIGHT);
-    let shown = widgets::elide(ui.painter(), &format!("Changed: {}", names.join(", ")), &theme::font_body(), r.width());
-    ui.painter().text(Pos2::new(r.left(), r.center().y), Align2::LEFT_CENTER, shown, theme::font_body(), theme::TEXT_SECONDARY);
-    let btn = pane.rect(theme::FIELD_COL_X[1] + 24.0, 0.0, 64.0, theme::FIELD_HEIGHT);
-    widgets::record(ui, "reset-overrides", btn);
-    let resp = ui.interact(btn, ui.id().with("reset-overrides"), Sense::click());
-    ui.painter().rect_filled(btn, theme::cr(theme::RADIUS_CONTROL), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
-    ui.painter().text(btn.center(), Align2::CENTER_CENTER, "Reset", theme::font_body(), theme::TEXT);
-    if resp.clicked() {
-        app.reset_node_overrides(id, &fields);
+    for (idx, entry) in entries.iter().enumerate() {
+        if let Some(heading) = &entry.heading {
+            let shown_heading = widgets::elide(ui.painter(), heading, &theme::font_caption_medium(), theme::SECTION_CONTENT_W);
+            sublabel(ui, pane, &shown_heading);
+            if shown_heading != *heading {
+                // Two long layer paths can elide to the same heading: the full path stays one hover away.
+                let hr = pane.rect(theme::SECTION_CONTENT_X, -(theme::LABEL_BOX_H + theme::SPACE_FACT), theme::SECTION_CONTENT_W, theme::LABEL_BOX_H);
+                ui.interact(hr, ui.id().with(("override-heading", idx, &entry.path)), Sense::hover()).on_hover_text(heading);
+            }
+        }
+        let r = pane.rect(theme::SECTION_CONTENT_X, 0.0, 128.0, theme::FIELD_HEIGHT);
+        let shown = widgets::elide(ui.painter(), &entry.label, &theme::font_body(), r.width());
+        ui.painter().text(Pos2::new(r.left(), r.center().y), Align2::LEFT_CENTER, &shown, theme::font_body(), theme::TEXT_SECONDARY);
+        if shown != entry.label {
+            ui.interact(r, ui.id().with(("override-label", idx, &entry.path)), Sense::hover()).on_hover_text(&entry.label);
+        }
+        let btn = pane.rect(theme::FIELD_COL_X[1] + 24.0, 0.0, 64.0, theme::FIELD_HEIGHT);
+        if idx == 0 {
+            widgets::record(ui, "reset-overrides", btn);
+        }
+        if let Some(layer) = &entry.layer_name {
+            widgets::record(ui, &format!("reset-parked-overrides:{layer}"), btn);
+        }
+        let resp = ui.interact(btn, ui.id().with(("reset-overrides", entry.parked, &entry.path)), Sense::click());
+        ui.painter().rect_filled(btn, theme::cr(theme::RADIUS_CONTROL), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+        ui.painter().text(btn.center(), Align2::CENTER_CENTER, "Reset", theme::font_body(), theme::TEXT);
+        if resp.clicked() {
+            if entry.parked {
+                app.reset_parked_overrides(entry.node, &entry.path, &entry.fields);
+            } else {
+                app.reset_node_overrides(entry.node, &entry.fields);
+            }
+        }
+        row_end(pane);
     }
-    row_end(pane);
     pane.y += 4.0;
     section_sep(ui, pane, false);
 }
@@ -943,6 +1026,104 @@ mod props_panel_tests {
         ComponentPropDef { name: name.into(), kind, default: PropValue::Text(String::new()) }
     }
 
+    fn apply_textures_delta(atlas: &mut std::collections::HashMap<egui::TextureId, image::RgbaImage>, delta: &egui::TexturesDelta) {
+        for (tid, d) in &delta.set {
+            let [w, h] = d.image.size();
+            let src: Vec<[u8; 4]> = match &d.image {
+                egui::ImageData::Color(c) => c.pixels.iter().map(|p| p.to_array()).collect(),
+            };
+            if let Some([ox, oy]) = d.pos {
+                if let Some(existing) = atlas.get_mut(tid) {
+                    for y in 0..h {
+                        for x in 0..w {
+                            let px = src[y * w + x];
+                            if (ox + x) < existing.width() as usize && (oy + y) < existing.height() as usize {
+                                existing.put_pixel((ox + x) as u32, (oy + y) as u32, image::Rgba(px));
+                            }
+                        }
+                    }
+                }
+            } else {
+                let mut img = image::RgbaImage::new(w as u32, h as u32);
+                for y in 0..h {
+                    for x in 0..w {
+                        img.put_pixel(x as u32, y as u32, image::Rgba(src[y * w + x]));
+                    }
+                }
+                atlas.insert(*tid, img);
+            }
+        }
+    }
+
+    fn rasterize_panel_shapes(
+        ctx: &egui::Context,
+        shapes: Vec<egui::epaint::ClippedShape>,
+        atlas: &std::collections::HashMap<egui::TextureId, image::RgbaImage>,
+        width: u32,
+        height: u32,
+    ) -> image::RgbaImage {
+        let [br, bg, bb, _] = theme::BG_PRIMARY.to_array();
+        let mut fb = image::RgbaImage::from_pixel(width, height, image::Rgba([br, bg, bb, 0xFF]));
+        for cp in ctx.tessellate(shapes, 1.0) {
+            let egui::epaint::Primitive::Mesh(mesh) = cp.primitive else { continue };
+            let clip_min_x = cp.clip_rect.min.x.floor().max(0.0) as i32;
+            let clip_min_y = cp.clip_rect.min.y.floor().max(0.0) as i32;
+            let clip_max_x = cp.clip_rect.max.x.ceil().min(width as f32) as i32;
+            let clip_max_y = cp.clip_rect.max.y.ceil().min(height as f32) as i32;
+            let tex = atlas.get(&mesh.texture_id);
+            for tri in mesh.indices.chunks_exact(3) {
+                let (v0, v1, v2) = (&mesh.vertices[tri[0] as usize], &mesh.vertices[tri[1] as usize], &mesh.vertices[tri[2] as usize]);
+                let min_x = v0.pos.x.min(v1.pos.x).min(v2.pos.x).floor().max(clip_min_x as f32) as i32;
+                let max_x = v0.pos.x.max(v1.pos.x).max(v2.pos.x).ceil().min(clip_max_x as f32) as i32;
+                let min_y = v0.pos.y.min(v1.pos.y).min(v2.pos.y).floor().max(clip_min_y as f32) as i32;
+                let max_y = v0.pos.y.max(v1.pos.y).max(v2.pos.y).ceil().min(clip_max_y as f32) as i32;
+                let denom = (v1.pos.y - v2.pos.y) * (v0.pos.x - v2.pos.x) + (v2.pos.x - v1.pos.x) * (v0.pos.y - v2.pos.y);
+                if denom.abs() < 1e-6 {
+                    continue;
+                }
+                let inv_denom = 1.0 / denom;
+                let (c0, c1, c2) = (v0.color.to_array().map(|c| c as f32), v1.color.to_array().map(|c| c as f32), v2.color.to_array().map(|c| c as f32));
+                for py in min_y..max_y {
+                    for px in min_x..max_x {
+                        let p = Pos2::new(px as f32 + 0.5, py as f32 + 0.5);
+                        let w0 = ((v1.pos.y - v2.pos.y) * (p.x - v2.pos.x) + (v2.pos.x - v1.pos.x) * (p.y - v2.pos.y)) * inv_denom;
+                        let w1 = ((v2.pos.y - v0.pos.y) * (p.x - v2.pos.x) + (v0.pos.x - v2.pos.x) * (p.y - v2.pos.y)) * inv_denom;
+                        let w2 = 1.0 - w0 - w1;
+                        if w0 >= -1e-4 && w1 >= -1e-4 && w2 >= -1e-4 {
+                            let mut col = [0.0f32; 4];
+                            for k in 0..4 {
+                                col[k] = (w0 * c0[k] + w1 * c1[k] + w2 * c2[k]).clamp(0.0, 255.0);
+                            }
+                            if let Some(t) = tex {
+                                let u = (w0 * v0.uv.x + w1 * v1.uv.x + w2 * v2.uv.x).clamp(0.0, 1.0);
+                                let v = (w0 * v0.uv.y + w1 * v1.uv.y + w2 * v2.uv.y).clamp(0.0, 1.0);
+                                let tx = ((u * t.width() as f32).floor() as u32).min(t.width().saturating_sub(1));
+                                let ty = ((v * t.height() as f32).floor() as u32).min(t.height().saturating_sub(1));
+                                let tp = t.get_pixel(tx, ty).0;
+                                for k in 0..4 {
+                                    col[k] *= tp[k] as f32 / 255.0;
+                                }
+                            }
+                            let src_a = col[3] / 255.0;
+                            if src_a > 0.0 {
+                                let dst = fb.get_pixel(px as u32, py as u32).0;
+                                let inv_a = 1.0 - src_a;
+                                let out_px = [
+                                    (col[0] + dst[0] as f32 * inv_a).round().clamp(0.0, 255.0) as u8,
+                                    (col[1] + dst[1] as f32 * inv_a).round().clamp(0.0, 255.0) as u8,
+                                    (col[2] + dst[2] as f32 * inv_a).round().clamp(0.0, 255.0) as u8,
+                                    255,
+                                ];
+                                fb.put_pixel(px as u32, py as u32, image::Rgba(out_px));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        fb
+    }
+
     #[test]
     fn property_kind_rank_matches_panel_order() {
         assert_eq!(kind_rank(&PropKind::Variant { options: vec![] }), 0);
@@ -1283,6 +1464,183 @@ mod props_panel_tests {
         app.edit_nodes(&[bb], |n| n.size.y = 48.0);
         let s = app.doc.get(si).unwrap();
         assert_eq!(s.size.y, 48.0, "the swapped slot was never resized: it follows its main's height edit");
+    }
+
+    #[test]
+    fn overrides_list_shows_parked_entries_and_resets_each_without_touching_other_overrides() {
+        let mut doc = Document::new("ParkedOverridesPanel");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let build_variant = |app: &mut App, name: &str, x: f32, with_subtitle: bool| -> NodeId {
+            let id = app.doc.alloc_id();
+            let mut f = Node::frame(id, designos_doc::Rect::new(x, 0.0, 180.0, 72.0));
+            f.name = name.into();
+            let comp = app.doc.insert(page, f).unwrap();
+            let tid = app.doc.alloc_id();
+            let mut t = Node::text(tid, designos_doc::Rect::new(8.0, 8.0, 120.0, 18.0), "Default title", TextStyle::default());
+            t.name = "Title".into();
+            app.doc.insert(comp, t).unwrap();
+            if with_subtitle {
+                let sid = app.doc.alloc_id();
+                let mut s = Node::text(sid, designos_doc::Rect::new(8.0, 30.0, 140.0, 16.0), "Default subtitle", TextStyle::default());
+                s.name = "Subtitle".into();
+                app.doc.insert(comp, s).unwrap();
+                let cid = app.doc.alloc_id();
+                let mut c = Node::rectangle(cid, designos_doc::Rect::new(8.0, 50.0, 40.0, 12.0));
+                c.name = "Chip".into();
+                c.fills = vec![Paint::solid(Color::rgb(120, 120, 120))];
+                app.doc.insert(comp, c).unwrap();
+            }
+            create_component(&mut app.doc, comp).apply(&mut app.doc).unwrap();
+            comp
+        };
+
+        let var_a = build_variant(&mut app, "State=A", 0.0, true);
+        let var_b = build_variant(&mut app, "State=B", 220.0, false);
+        combine_as_variants(&mut app.doc, &[var_a, var_b]).apply(&mut app.doc).unwrap();
+
+        create_instance(&mut app.doc, var_a, page, designos_doc::Vec2::new(0.0, 120.0)).apply(&mut app.doc).unwrap();
+        let inst = *app.doc.get(page).unwrap().children.last().unwrap();
+        let child_by_name = |doc: &Document, parent: NodeId, name: &str| -> NodeId {
+            doc.get(parent).unwrap().children.iter().copied().find(|&cid| doc.get(cid).unwrap().name == name).unwrap()
+        };
+        let text_content = |doc: &Document, id: NodeId| -> String {
+            match &doc.get(id).unwrap().kind {
+                NodeKind::Text(tp) => tp.content.clone(),
+                other => panic!("expected Text, got {other:?}"),
+            }
+        };
+
+        // Override Subtitle text, Chip fill, and Title text on State=A.
+        let sub_a = child_by_name(&app.doc, inst, "Subtitle");
+        app.edit_nodes(&[sub_a], |n| {
+            if let NodeKind::Text(tp) = &mut n.kind {
+                tp.content = "Parked subtitle".into();
+            }
+        });
+        let chip_a = child_by_name(&app.doc, inst, "Chip");
+        app.edit_nodes(&[chip_a], |n| {
+            n.fills = vec![Paint::solid(Color::rgb(20, 180, 90))];
+        });
+        let title_a = child_by_name(&app.doc, inst, "Title");
+        app.edit_nodes(&[title_a], |n| {
+            if let NodeKind::Text(tp) = &mut n.kind {
+                tp.content = "Custom title".into();
+            }
+        });
+
+        // Switch to State=B (Subtitle and Chip are parked; Title is live).
+        app.set_instance_prop(inst, "State", Some(PropValue::Variant("B".into())));
+        let entries = overrides_list(&app.doc, inst);
+        assert_eq!(
+            entries,
+            vec![
+                OverrideListEntry {
+                    node: inst,
+                    path: vec![("Subtitle".into(), 0)],
+                    layer_name: Some("Subtitle".into()),
+                    heading: Some("Subtitle (not in variant)".into()),
+                    fields: vec![OverrideField::Characters],
+                    parked: true,
+                    label: "Changed: text".into(),
+                },
+                OverrideListEntry {
+                    node: inst,
+                    path: vec![("Chip".into(), 0)],
+                    layer_name: Some("Chip".into()),
+                    heading: Some("Chip (not in variant)".into()),
+                    fields: vec![OverrideField::Fills],
+                    parked: true,
+                    label: "Changed: fill".into(),
+                },
+            ],
+            "Overrides list model includes parked entries marked as belonging to layers the current variant lacks"
+        );
+
+        // Reset live child Title's override; switch back to State=A: parked entries return.
+        let title_b = child_by_name(&app.doc, inst, "Title");
+        app.reset_node_overrides(title_b, &[OverrideField::Characters]);
+        app.set_instance_prop(inst, "State", Some(PropValue::Variant("A".into())));
+        assert_eq!(text_content(&app.doc, child_by_name(&app.doc, inst, "Title")), "Default title");
+        assert_eq!(text_content(&app.doc, child_by_name(&app.doc, inst, "Subtitle")), "Parked subtitle");
+        assert_eq!(app.doc.get(child_by_name(&app.doc, inst, "Chip")).unwrap().fills[0].kind, PaintKind::Solid(Color::rgb(20, 180, 90)));
+
+        // Switch back to State=B, click Subtitle's Reset button in the rendered Overrides list, switch back to State=A:
+        // Subtitle does not return, while Chip still returns.
+        app.set_instance_prop(inst, "State", Some(PropValue::Variant("B".into())));
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 600.0));
+        let mut atlas = std::collections::HashMap::new();
+        let mut last_shapes = Vec::new();
+        let mut last_pane_y = 0.0f32;
+        for _ in 0..2 {
+            widgets::clear_pass_records();
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+                let mut pane = Pane { x0: 0.0, oy: 0.0, y: 0.0, title_end: -1.0 };
+                sections(&mut app, ui, &mut pane, inst);
+                last_pane_y = pane.y;
+            });
+            widgets::finish_pass_records();
+            apply_textures_delta(&mut atlas, &out.textures_delta);
+            last_shapes = out.shapes;
+        }
+        if let Ok(proof_path) = std::env::var("DESIGNOS_PARKED_OVERRIDE_PROOF") {
+            let h = (last_pane_y.ceil() as u32 + 16).max(160);
+            let img = rasterize_panel_shapes(&ctx, last_shapes, &atlas, theme::RIGHT_PANEL_WIDTH as u32, h);
+            let scaled = image::imageops::resize(&img, img.width() * 3, img.height() * 3, image::imageops::FilterType::Nearest);
+            scaled.save(&proof_path).expect("save parked override proof image");
+        }
+        let recorded = widgets::last_pass_names();
+        let sub_reset_rect =
+            recorded.iter().find_map(|(k, r)| (k == "reset-parked-overrides:Subtitle").then_some(*r)).expect("recorded reset button for parked Subtitle entry");
+        assert!(recorded.iter().any(|(k, _)| k == "reset-parked-overrides:Chip"), "recorded reset button for parked Chip entry");
+        let click_events = vec![
+            egui::Event::PointerMoved(sub_reset_rect.center()),
+            egui::Event::PointerButton {
+                pos: sub_reset_rect.center(),
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            },
+            egui::Event::PointerButton {
+                pos: sub_reset_rect.center(),
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            },
+        ];
+        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events: click_events, ..Default::default() }, |ui| {
+            let mut pane = Pane { x0: 0.0, oy: 0.0, y: 0.0, title_end: -1.0 };
+            sections(&mut app, ui, &mut pane, inst);
+        });
+        let remaining = overrides_list(&app.doc, inst);
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].layer_name.as_deref(), Some("Chip"));
+
+        app.set_instance_prop(inst, "State", Some(PropValue::Variant("A".into())));
+        assert_eq!(
+            text_content(&app.doc, child_by_name(&app.doc, inst, "Subtitle")),
+            "Default subtitle",
+            "parked override reset from the list does not return on switch back"
+        );
+        assert_eq!(
+            app.doc.get(child_by_name(&app.doc, inst, "Chip")).unwrap().fills[0].kind,
+            PaintKind::Solid(Color::rgb(20, 180, 90)),
+            "unreset parked entry on Chip still returns"
+        );
+
+        // Park Chip again, clear variant values so parked_overrides is the only change, and verify has_changes + Reset all.
+        app.set_instance_prop(inst, "State", Some(PropValue::Variant("B".into())));
+        app.doc.get_mut(inst).unwrap().component.values.clear();
+        assert_eq!(overrides_list(&app.doc, inst).len(), 1);
+        assert!(has_changes(&app, inst));
+        app.selection = vec![inst];
+        app.reset_selection();
+        assert!(overrides_list(&app.doc, inst).is_empty(), "Reset all clears parked entries");
+        assert!(!has_changes(&app, inst));
     }
 }
 
