@@ -51,22 +51,28 @@ def stop_burners(burners: list[subprocess.Popen[bytes]]) -> None:
 
 def stop_cargo(active_cargo: list[subprocess.Popen[str]]) -> None:
     for proc in list(active_cargo):
-        if proc.poll() is None:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
             try:
-                os.killpg(proc.pid, signal.SIGTERM)
+                os.killpg(proc.pid, signal.SIGKILL)
             except OSError:
                 pass
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
+                pass
+        for stream in (proc.stdout, proc.stderr):
+            if stream is not None:
                 try:
-                    os.killpg(proc.pid, signal.SIGKILL)
+                    stream.close()
                 except OSError:
                     pass
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    pass
+    active_cargo.clear()
 
 
 def run_cargo_process(
@@ -84,12 +90,10 @@ def run_cargo_process(
         start_new_session=True,
     )
     active_cargo.append(proc)
-    try:
-        stdout, stderr = proc.communicate()
-        return proc.returncode, stdout or "", stderr or ""
-    finally:
-        if proc in active_cargo:
-            active_cargo.remove(proc)
+    stdout, stderr = proc.communicate()
+    if proc in active_cargo:
+        active_cargo.remove(proc)
+    return proc.returncode, stdout or "", stderr or ""
 
 
 def main() -> int:
@@ -114,23 +118,26 @@ def main() -> int:
     active_cargo: list[subprocess.Popen[str]] = []
 
     def handle_signal(signum: int, _frame: object) -> None:
-        stop_cargo(active_cargo)
-        stop_burners(burners)
+        for proc in list(active_cargo):
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except OSError:
+                pass
         raise SystemExit(128 + signum)
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    build_rc, build_out, build_err = run_cargo_process([*cargo_cmd_base, "--no-run"], env, active_cargo)
-    if build_rc != 0:
-        sys.stderr.write(build_out)
-        sys.stderr.write(build_err)
-        return build_rc
-
     passed = 0
     failed = 0
 
     try:
+        build_rc, build_out, build_err = run_cargo_process([*cargo_cmd_base, "--no-run"], env, active_cargo)
+        if build_rc != 0:
+            sys.stderr.write(build_out)
+            sys.stderr.write(build_err)
+            return build_rc
+
         for _ in range(max(0, args.burners)):
             burners.append(
                 subprocess.Popen(

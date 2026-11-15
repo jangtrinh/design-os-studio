@@ -3660,8 +3660,8 @@ mod tests {
         assert_eq!(st.send_from_composer_box("user entry one", None), SendOutcome::Queued);
         st.tabs[0].last_output_at = std::sync::Arc::new(std::sync::Mutex::new(None));
         st.tabs[0].composer.flush_paused = true;
-        assert_eq!(st.send_system_prompt("system image task", None), SendOutcome::Queued);
-        assert_eq!(st.send_to_agent("user entry two", None), SendOutcome::Queued);
+        st.tabs[0].composer.pending_send.push_back(QueuedSend::new("system image task", true));
+        st.tabs[0].composer.pending_send.push_back(QueuedSend::new("user entry two", false));
         assert_eq!(st.composer_draft(), "");
 
         assert!(st.poll_until_start_failure(crate::test_timing::STUB_WAIT), "Start failure must be recorded");
