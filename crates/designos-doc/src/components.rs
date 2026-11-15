@@ -1190,16 +1190,9 @@ pub fn detach_instance(doc: &mut Document, instance: NodeId) -> Command {
 pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField]) -> Command {
     let mut ids = Vec::new();
     doc.walk(node, |n, _| ids.push(n.id));
-    let mut live_fields = BTreeSet::new();
-    for &id in &ids {
-        if let Some(n) = doc.get(id) {
-            for f in fields {
-                if n.component.overrides.contains(f) {
-                    live_fields.insert(*f);
-                }
-            }
-        }
-    }
+    // A parked entry of a field goes only when the reset target has no live override of that field itself: resetting the
+    // instance's own fill keeps a parked fill of another layer, while a live override on a descendant never blocks the clear.
+    let target_live = doc.get(node).map(|n| n.component.overrides.clone()).unwrap_or_default();
     let mut c = Ctx::new(doc);
     for id in ids {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
@@ -1216,7 +1209,7 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
             n.component.remove_override(f);
             if *f == OverrideField::MainComponent {
                 n.component.parked_overrides.clear();
-            } else if id == node && !live_fields.contains(f) {
+            } else if id == node && !target_live.contains(f) {
                 n.component.parked_overrides.retain(|p| p.field != *f);
             }
             match f {
@@ -12544,6 +12537,37 @@ mod tests {
             PaintKind::Solid(Color::rgb(10, 200, 90)),
             "unreset parked override on Chip still returns"
         );
+    }
+
+    #[test]
+    fn instance_reset_of_a_field_clears_its_parked_entry_even_with_a_live_override_on_a_child() {
+        let mut d = Document::new("ParkedClearLiveChild");
+        let page = d.add_page("P");
+        let a = build_rich_variant(&mut d, page, "State=A", 0.0, true);
+        let b = build_rich_variant(&mut d, page, "State=B", 240.0, false);
+        let c = combine_as_variants(&mut d, &[a, b]);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, a, page, Vec2::new(0.0, 140.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+
+        let sub = child_named(&d, inst, "Subtitle");
+        override_text(&mut d, sub, "Parked subtitle");
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 1);
+        // A live text override on a child that exists in State=B.
+        let title = child_named(&d, inst, "Title");
+        override_text(&mut d, title, "Live title");
+
+        let c = reset_overrides(&mut d, inst, &[OverrideField::Characters]);
+        apply(&mut d, c);
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty(), "a live text override on Title does not keep the parked Subtitle text");
+        assert_eq!(text_of(&d, child_named(&d, inst, "Title")), "Title", "the walk still resets the child's live text");
+
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("A".into())));
+        apply(&mut d, c);
+        assert_eq!(text_of(&d, child_named(&d, inst, "Subtitle")), "Default subtitle");
     }
 
     #[test]

@@ -584,6 +584,11 @@ fn overrides_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
         if let Some(heading) = &entry.heading {
             let shown_heading = widgets::elide(ui.painter(), heading, &theme::font_caption_medium(), theme::SECTION_CONTENT_W);
             sublabel(ui, pane, &shown_heading);
+            if shown_heading != *heading {
+                // Two long layer paths can elide to the same heading: the full path stays one hover away.
+                let hr = pane.rect(theme::SECTION_CONTENT_X, -(theme::LABEL_BOX_H + theme::SPACE_FACT), theme::SECTION_CONTENT_W, theme::LABEL_BOX_H);
+                ui.interact(hr, ui.id().with(("override-heading", idx, &entry.path)), Sense::hover()).on_hover_text(heading);
+            }
         }
         let r = pane.rect(theme::SECTION_CONTENT_X, 0.0, 128.0, theme::FIELD_HEIGHT);
         let shown = widgets::elide(ui.painter(), &entry.label, &theme::font_body(), r.width());
