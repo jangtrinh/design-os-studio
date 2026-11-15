@@ -643,7 +643,7 @@ impl App {
             node.transform = n.transform * Affine::translate(bb.x, bb.y);
             node.size = v2(bb.w.max(1.0), bb.h.max(1.0));
             node.fill_geometry = None;
-            node.stroke_geometry = None;
+            node.drop_stroke_outline();
             node.corner_radii = [0.0; 4];
             node.corner_smoothing = 0.0;
             // the box has another size: siblings in an auto-layout row and fitted groups follow
@@ -703,7 +703,7 @@ impl App {
                 node.size = v2(bb.w.max(1.0), bb.h.max(1.0));
                 node.kind = NodeKind::Vector { paths: net.to_paths(), network: Some(net) };
                 node.fill_geometry = None;
-                node.stroke_geometry = None;
+                node.drop_stroke_outline();
             }
         }
         if removed == 0 {

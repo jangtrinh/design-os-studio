@@ -716,7 +716,7 @@ fn apply_descendant_overrides(
                     n.kind = NodeKind::Ellipse(arc);
                     // a baked outline would outrank the arc when drawing
                     n.fill_geometry = None;
-                    n.stroke_geometry = None;
+                    n.drop_stroke_outline();
                     n.component.overrides.insert(OverrideField::Arc);
                 }
             }

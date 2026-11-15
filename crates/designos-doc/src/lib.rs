@@ -1349,6 +1349,9 @@ impl Document {
         let p = self.nodes.get_mut(&parent).ok_or(DocError::NotFound(parent))?;
         p.children.push(id);
         node.parent = Some(parent);
+        if node.stroke_geometry.is_some() && node.stroke_geometry_for.is_none() {
+            node.stamp_stroke_geometry();
+        }
         self.next_id = self.next_id.max(id.0);
         self.nodes.insert(id, node);
         self.mark_node_dirty(parent);
@@ -1895,7 +1898,19 @@ impl Document {
         report.copy_links_relinked = relink_copy_layers(&mut doc);
         doc.migrate_text();
         doc.normalize_extensions();
+        doc.stamp_loaded_stroke_outlines();
         (doc, report)
+    }
+
+    /// Stamps any stored [`Node::stroke_geometry`] loaded from a document saved before
+    /// `stroke_geometry_for` existed. Parked `Size` overrides keep `stroke_geometry_for: None`
+    /// so they are stamped from the destination child's own stroke when restored.
+    fn stamp_loaded_stroke_outlines(&mut self) {
+        for node in self.nodes.values_mut() {
+            if node.stroke_geometry.is_some() && node.stroke_geometry_for.is_none() {
+                node.stamp_stroke_geometry();
+            }
+        }
     }
 
     /// Converts literal list prefixes of every text node to real lists (see [`migrate_literal_lists`])
@@ -2292,9 +2307,17 @@ mod tests {
         let id = d.alloc_id();
         d.insert(page, Node::rectangle(id, Rect::new(1.0, 2.0, 30.0, 40.0))).unwrap();
         let rect_json = serde_json::to_string(d.get(id).unwrap()).unwrap();
-        for omitted in
-            ["\"source_id\"", "\"children\"", "\"effects\"", "\"style_refs\"", "\"fill_geometry\"", "\"stroke_geometry\"", "\"corner_radii\"", "\"stroke\""]
-        {
+        for omitted in [
+            "\"source_id\"",
+            "\"children\"",
+            "\"effects\"",
+            "\"style_refs\"",
+            "\"fill_geometry\"",
+            "\"stroke_geometry\"",
+            "\"stroke_geometry_for\"",
+            "\"corner_radii\"",
+            "\"stroke\"",
+        ] {
             assert!(!rect_json.contains(omitted), "{omitted} should be omitted on default node: {rect_json}");
         }
         let back = Document::from_json(&d.to_json().unwrap()).unwrap();
@@ -2646,5 +2669,44 @@ mod tests {
             assert_eq!(!is_orphan_style_in(&doc.styles, &doc.style_meta, k), *expected_table);
         }
         assert_eq!(nodes_exclusive.len(), 200_000);
+    }
+
+    #[test]
+    fn document_loaded_without_stroke_stamp_stamps_outline_on_load() {
+        let mut d = Document::new("t");
+        let page = d.add_page("P");
+        let id = d.alloc_id();
+        let mut rect = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 20.0));
+        rect.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        rect.stroke.weight = 2.0;
+        rect.stroke_geometry = Some(vec![Path {
+            cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(40.0, 0.0)), PathCmd::LineTo(Vec2::new(40.0, 20.0)), PathCmd::Close],
+            fill_rule: FillRule::NonZero,
+        }]);
+        rect.stroke_geometry_for = None;
+        d.insert(page, rect).unwrap();
+        // Simulate a legacy native document saved before `stroke_geometry_for` existed.
+        d.nodes.get_mut(&id).unwrap().stroke_geometry_for = None;
+        let json = d.to_json().unwrap();
+        assert!(!json.contains("\"stroke_geometry_for\""), "unstamped node should omit stroke_geometry_for in raw JSON");
+
+        let mut loaded = Document::from_json(&json).unwrap();
+        let n = loaded.get(id).unwrap();
+        assert!(n.stroke_geometry_for.is_some(), "load must stamp a stored stroke outline that lacks a stamp");
+        assert!(n.live_stroke_outline().is_some(), "freshly stamped outline must be live");
+        assert_eq!(
+            d.get(id).unwrap().effective_stroke_geometry_stamp(),
+            n.effective_stroke_geometry_stamp(),
+            "effective stamp is identical whether omitted or present and matching"
+        );
+        assert!(crate::diff3(&d, &loaded, &d).ours.nodes.is_empty(), "branch diff treats omitted and matching stamps as identical");
+        assert_eq!(loaded.to_json().unwrap(), json, "saving a loaded file with no edit is byte-identical");
+
+        // Change stroke weight directly (no setter) and save: the mismatching stamp is written, and reload keeps it stale.
+        loaded.get_mut(id).unwrap().stroke.weight = 6.0;
+        let stale_json = loaded.to_json().unwrap();
+        assert!(stale_json.contains("\"stroke_geometry_for\""), "mismatching stamp must be written on save");
+        let reloaded = Document::from_json(&stale_json).unwrap();
+        assert!(reloaded.get(id).unwrap().live_stroke_outline().is_none(), "reloaded stale outline must still not be drawn");
     }
 }

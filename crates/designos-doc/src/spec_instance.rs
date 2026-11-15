@@ -1369,7 +1369,7 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
                     inner_radius: arc.inner_radius.clamp(0.0, 1.0),
                 });
                 node.fill_geometry = None;
-                node.stroke_geometry = None;
+                node.drop_stroke_outline();
                 node.component.overrides.insert(OverrideField::Arc);
             }
         }
