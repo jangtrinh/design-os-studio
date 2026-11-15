@@ -4118,6 +4118,219 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         self.hydrated_pages.contains(&page) || !self.pending_by_page.contains_key(&page)
     }
 
+    fn expand_component_scratch(&mut self, doc: &Document, component: NodeId) -> Option<Document> {
+        if self.expanded_comps.contains(&component) || self.pending_by_page.is_empty() {
+            return None;
+        }
+        let mut has_direct_pending = false;
+        doc.walk(component, |n, _| {
+            if n.id != component && self.targets.contains_key(&n.id) && !self.done.contains(&n.id) {
+                has_direct_pending = true;
+            }
+        });
+        if !has_direct_pending {
+            return None;
+        }
+        let mut comp_queue = vec![component];
+        let mut visited_comps = HashSet::new();
+        let mut all_insts = BTreeSet::new();
+        let mut pending_insts = BTreeSet::new();
+        let mut has_instance_swap_values = false;
+        while let Some(c) = comp_queue.pop() {
+            if !visited_comps.insert(c) {
+                continue;
+            }
+            if c != component {
+                if let Some(parent_id) = doc.get(c).and_then(|n| n.parent) {
+                    if let Some(parent) = doc.get(parent_id) {
+                        if matches!(parent.kind, NodeKind::ComponentSet(_)) {
+                            for &sibling in &parent.children {
+                                if doc.get(sibling).is_some_and(|s| matches!(s.kind, NodeKind::Component(_))) && !visited_comps.contains(&sibling) {
+                                    comp_queue.push(sibling);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            doc.walk(c, |n, _| {
+                if n.component.values.values().any(|v| matches!(v, PropValue::Instance(t) if t.0 != 0)) {
+                    has_instance_swap_values = true;
+                }
+                if n.id != c {
+                    if let Some(&target) = self.targets.get(&n.id) {
+                        all_insts.insert(n.id);
+                        if !self.done.contains(&n.id) {
+                            pending_insts.insert(n.id);
+                            if !visited_comps.contains(&target) {
+                                comp_queue.push(target);
+                            }
+                            if let Some(swaps) = self.swap_mains_of.get(&n.id) {
+                                for &s in swaps {
+                                    if !visited_comps.contains(&s) {
+                                        comp_queue.push(s);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                for v in n.component.values.values() {
+                    if let PropValue::Instance(t) = v {
+                        if t.0 != 0 && !visited_comps.contains(t) {
+                            comp_queue.push(*t);
+                        }
+                    }
+                }
+            });
+        }
+        if pending_insts.is_empty() {
+            return None;
+        }
+
+        let mut scratch_doc = Document::new(&doc.name);
+        for &c in &visited_comps {
+            if let Some(parent_id) = doc.get(c).and_then(|n| n.parent) {
+                if let Some(parent) = doc.get(parent_id) {
+                    if matches!(parent.kind, NodeKind::ComponentSet(_)) && !scratch_doc.nodes.contains_key(&parent_id) {
+                        scratch_doc.nodes.insert(parent_id, parent.clone());
+                    }
+                }
+            }
+            doc.walk(c, |n, _| {
+                scratch_doc.nodes.insert(n.id, n.clone());
+            });
+        }
+
+        let mut scratch_targets = BTreeMap::new();
+        let mut scratch_done = BTreeSet::new();
+        for &inst in &all_insts {
+            if let Some(&target) = self.targets.get(&inst) {
+                scratch_targets.insert(inst, target);
+            }
+            if self.done.contains(&inst) {
+                scratch_done.insert(inst);
+            }
+        }
+
+        let mut fingerprints = crate::component_fingerprint::Fingerprints::default();
+        let mut scratch_overrides = BTreeMap::new();
+        for &inst in &pending_insts {
+            let Some(mut ov) = self.overrides.get(&inst).cloned() else { continue };
+            if let (Some(&main), Some(&stored)) = (self.targets.get(&inst), self.instance_fingerprints.get(&inst)) {
+                let swaps = self.swap_mains_of.get(&inst).map(Vec::as_slice).unwrap_or(&[]);
+                let mains = crate::component_fingerprint::instance_mains(doc, inst, main, swaps);
+                if fingerprints.of_mains(doc, &mains) != stored {
+                    ov.fast_derived.clear();
+                }
+            }
+            scratch_overrides.insert(inst, ov);
+        }
+        drop(fingerprints);
+
+        let mut scratch_override_keys = HashMap::new();
+        let mut scratch_col_anchors = HashMap::new();
+        let mut scratch_row_anchors = HashMap::new();
+        let mut scratch_col_tracks = HashMap::new();
+        let mut scratch_row_tracks = HashMap::new();
+        let mut scratch_no_auto_layout = HashSet::new();
+        let mut scratch_scales = BTreeMap::new();
+        for (&id, node) in &scratch_doc.nodes {
+            if let Some(v) = self.override_keys.get(&id).cloned() {
+                scratch_override_keys.insert(id, v);
+            }
+            if !has_instance_swap_values {
+                has_instance_swap_values = node.component.values.values().any(|v| matches!(v, PropValue::Instance(t) if t.0 != 0));
+            }
+            if let Some(v) = self.col_anchor_guids.get(&id).cloned() {
+                scratch_col_anchors.insert(id, v);
+            }
+            if let Some(v) = self.row_anchor_guids.get(&id).cloned() {
+                scratch_row_anchors.insert(id, v);
+            }
+            if let Some(v) = self.grid_col_track_ids.get(&id).cloned() {
+                scratch_col_tracks.insert(id, v);
+            }
+            if let Some(v) = self.grid_row_track_ids.get(&id).cloned() {
+                scratch_row_tracks.insert(id, v);
+            }
+            if self.no_auto_layout.contains(&id) {
+                scratch_no_auto_layout.insert(id);
+            }
+            if let Some(&v) = self.scales.get(&id) {
+                scratch_scales.insert(id, v);
+            }
+        }
+
+        let next_clone = self.next_clone.max(doc.peek_next_id().0);
+        let mut cx = Ctx {
+            doc: scratch_doc,
+            ids: std::mem::take(&mut self.ids),
+            instances: Vec::new(),
+            unresolved: Vec::new(),
+            overrides: scratch_overrides,
+            rest_overrides: Vec::new(),
+            node_lock_fields: HashSet::new(),
+            override_keys: scratch_override_keys,
+            col_anchor_guids: scratch_col_anchors,
+            row_anchor_guids: scratch_row_anchors,
+            grid_col_track_ids: scratch_col_tracks,
+            grid_row_track_ids: scratch_row_tracks,
+            no_auto_layout: scratch_no_auto_layout,
+            scales: scratch_scales,
+            pending_swaps: Vec::new(),
+            component_keys: BTreeMap::new(),
+            library_keys: BTreeMap::new(),
+            proto: Vec::new(),
+            overlay_props: BTreeMap::new(),
+            flow_pages: Vec::new(),
+            path_cache: std::mem::take(&mut self.path_cache),
+            blob_cache: std::mem::take(&mut self.blob_cache),
+            blobs: &[],
+            fast_derived_map: None,
+            large_file: true,
+            expanded_comps: self.expanded_comps.clone(),
+            next_clone,
+            clone_budget_total: self.clone_budget_total,
+            cloned_nodes: self.cloned_nodes,
+            budget_exhausted: self.budget_exhausted,
+            unexpanded_instances: BTreeSet::new(),
+            has_instance_swap_values,
+            has_connectors: false,
+            connectors: Vec::new(),
+            deferred_pending: None,
+        };
+        let res = cx.expand_nested(component, &scratch_targets, &mut scratch_done);
+        if res.is_ok() && !cx.budget_exhausted && cx.unexpanded_instances.is_empty() {
+            cx.mark_custom_instance_slots();
+        }
+        self.ids = cx.ids;
+        self.path_cache = cx.path_cache;
+        self.blob_cache = cx.blob_cache;
+        if let Err(err) = res {
+            eprintln!("designos-fig: scratch component expansion of {component:?} failed: {err}");
+            return None;
+        }
+        if cx.budget_exhausted || !cx.unexpanded_instances.is_empty() {
+            if cx.unexpanded_instances.is_empty() {
+                self.unexpanded_instances.extend(pending_insts);
+            } else {
+                self.unexpanded_instances.extend(cx.unexpanded_instances);
+            }
+            eprintln!(
+                "designos-fig: clone budget ({}) reached while expanding component {component:?}; {} nested instance(s) left unexpanded",
+                self.clone_budget_total,
+                self.unexpanded_instances.len()
+            );
+            return None;
+        }
+        Some(cx.doc)
+    }
+
+    fn is_pending_instance(&self, instance: NodeId) -> bool {
+        self.targets.contains_key(&instance) && !self.done.contains(&instance)
+    }
+
     fn unexpanded_instances(&self) -> usize {
         self.unexpanded_instances.len()
     }
