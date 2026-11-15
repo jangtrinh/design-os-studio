@@ -31,6 +31,8 @@ pub struct MentionPopupState {
     pub scroll_y: f32,
     /// Token `(at_byte, query)` dismissed with `Escape` so the popup stays closed until the user edits the token.
     pub dismissed_token: Option<(usize, String)>,
+    /// Identifier of the composer whose text owns `dismissed_token` (`Some(0)` in New Chat, `Some(tab.id)` on an agent tab).
+    pub composer_id: Option<usize>,
     /// Incremental budgeted search job for the current query.
     pub search_job: Option<MentionSearchJob>,
     /// Ranked candidates from `search_job`.
