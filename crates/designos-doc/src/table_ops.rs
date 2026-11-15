@@ -636,7 +636,8 @@ pub fn set_cell_text(doc: &Document, table: NodeId, row_index: usize, col_index:
     let pos = (row_index, col_index);
     let key = d.key_at(grid.covering_anchor(pos).unwrap_or(pos));
     let cell = d.cell_text_mut(key).ok_or_else(|| E::BrokenTable("The cell is missing. Use a table operation to repair the table.".into()))?;
-    let unchanged = cell.content == text;
+    // The same string still changes the cell when it carries styling runs or lists, which the replacement clears.
+    let unchanged = cell.content == text && cell.runs.is_empty() && cell.lists.is_empty();
     cell.content = text.to_string();
     cell.runs.clear();
     cell.lists.clear();
