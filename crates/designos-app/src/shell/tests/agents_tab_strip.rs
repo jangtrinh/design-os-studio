@@ -328,6 +328,8 @@ fn closing_a_background_tab_with_waiting_text_raises_the_new_chat_toast_in_the_w
     s.shell.app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("a second stub claude starts");
     frames(&mut s, 3);
     assert_eq!((s.shell.app.terminal.tabs.len(), s.shell.app.terminal.active_tab), (2, 1));
+    s.shell.app.terminal.tabs[0].last_output_at = std::sync::Arc::new(std::sync::Mutex::new(None));
+    s.shell.app.terminal.tabs[0].composer.flush_paused = true;
     s.shell.app.terminal.tabs[0].composer.pending_send.push_back(crate::agent_composer::QueuedSend::new("Keep this queued", false));
     let close_id = egui::Id::new(("agents-left-tab-close", s.shell.app.terminal.tabs[0].id));
     let close = s.ctx.read_response(close_id).expect("the strip laid the close button out").rect;
