@@ -311,9 +311,23 @@ fn unchanged_layer_with_stored_stroke_outline_and_loaded_unstamped_doc_render_st
     // Clear the stamp and round-trip through JSON to simulate a document saved without stamps.
     t.node(r).stroke_geometry_for = None;
     let json = t.doc.to_json().unwrap();
+    assert!(!json.contains("\"stroke_geometry_for\""));
     t.doc = Document::from_json(&json).unwrap();
+    let resaved = t.doc.to_json().unwrap();
+    assert_eq!(resaved, json, "a file saved without stamps, opened and saved with no edit must be byte-identical");
     let from_unstamped = t.render(60, 60);
     assert_eq!(from_unstamped.data(), expected.data(), "document loaded without stamps must stamp and draw the stored outline identically");
+
+    // Change a stroke weight directly (no setter) and save: the stamp is written; reload: the outline is still not drawn.
+    t.node(r).stroke.weight = 10.0;
+    let stale_json = t.doc.to_json().unwrap();
+    assert!(stale_json.contains("\"stroke_geometry_for\""), "stale outline must write its mismatching stamp on save");
+    let reloaded = Document::from_json(&stale_json).unwrap();
+    assert!(reloaded.get(r).unwrap().live_stroke_outline().is_none(), "reloaded stale outline must still be rejected");
+    t.doc = reloaded;
+    let pm = t.render(60, 60);
+    assert_eq!(px(&pm, 30, 30), WHITE, "reloaded stale outline bar must not be drawn");
+    assert_eq!(px(&pm, 30, 11), [0, 0, 255, 255], "reloaded stale outline must fall back to live perimeter stroke");
 }
 
 #[test]

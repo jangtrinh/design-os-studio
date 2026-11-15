@@ -976,8 +976,7 @@ pub fn apply_bound_key_to_node(node: &mut Node, key: &str, value: &VariableValue
                 let clamped = r.max(0.0);
                 node.corner_radii = [clamped; 4];
                 node.fill_geometry = None;
-                node.stroke_geometry = None;
-                node.stroke_geometry_for = None;
+                node.drop_stroke_outline();
             }
         }
         return;

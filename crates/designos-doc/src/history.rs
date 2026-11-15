@@ -135,13 +135,6 @@ impl Command {
                     table::check_kind_change(&cur.kind, &node.kind)?;
                 }
                 let cur = doc.get_mut(node.id).ok_or(DocError::NotFound(node.id))?;
-                if node.stroke_geometry.is_none() {
-                    node.stroke_geometry_for = None;
-                } else if node.stroke_geometry_for.is_none()
-                    || (cur.stroke_geometry != node.stroke_geometry && node.stroke_geometry_for == cur.stroke_geometry_for)
-                {
-                    node.stamp_stroke_geometry();
-                }
                 node.parent = cur.parent;
                 node.children = std::mem::take(&mut cur.children);
                 let old = std::mem::replace(cur, *node);

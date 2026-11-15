@@ -111,7 +111,7 @@ fn set_node_endpoint_cap(n: &mut Node, is_end: bool, chosen: StrokeCap) {
         }
         *paths = net.to_paths();
     }
-    n.stroke_geometry = None;
+    n.drop_stroke_outline();
     n.fig_metadata.remove("strokeCap");
     n.fig_metadata.remove("strokeCapSource");
 }
@@ -143,7 +143,7 @@ fn swap_node_endpoints(n: &mut Node) {
         }
         *paths = net.to_paths();
     }
-    n.stroke_geometry = None;
+    n.drop_stroke_outline();
     n.fig_metadata.remove("strokeCap");
     n.fig_metadata.remove("strokeCapSource");
 }
@@ -314,7 +314,7 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect, st: &PopState
                     if !has_dashes(&n.stroke) {
                         set_open_end_caps(n, CAPS[i].1);
                     }
-                    n.stroke_geometry = None;
+                    n.drop_stroke_outline();
                 });
             }
         });
@@ -324,7 +324,7 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect, st: &PopState
             if let Some(i) = dropdown(ui, r, "strokep-join", &joins[cur], &joins) {
                 app.edit_nodes(&ids, |n| {
                     n.stroke.join = JOINS[i].1;
-                    n.stroke_geometry = None;
+                    n.drop_stroke_outline();
                 });
             }
         });
@@ -335,7 +335,7 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect, st: &PopState
                 let limit = miter_limit(a);
                 app.edit_nodes(&ids, |n| {
                     n.stroke.miter_limit = limit;
-                    n.stroke_geometry = None;
+                    n.drop_stroke_outline();
                 });
             }
         });
@@ -346,7 +346,7 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect, st: &PopState
                 let v = v.max(0.0);
                 app.edit_nodes(&ids, |n| {
                     n.stroke.dashes = if v <= 0.0 { Vec::new() } else { vec![v, n.stroke.dashes.get(1).copied().unwrap_or(v)] };
-                    n.stroke_geometry = None;
+                    n.drop_stroke_outline();
                 });
             }
         });
@@ -356,7 +356,7 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect, st: &PopState
                 app.edit_nodes(&ids, |n| {
                     let d = n.stroke.dashes.first().copied().unwrap_or(0.0);
                     n.stroke.dashes = if d <= 0.0 { Vec::new() } else { vec![d, v] };
-                    n.stroke_geometry = None;
+                    n.drop_stroke_outline();
                 });
             }
         });
@@ -365,7 +365,7 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect, st: &PopState
                 if let Some(i) = dropdown_mixed(ui, r, "strokep-dash-cap", cap_lbl, &caps, common_cap.is_none()) {
                     app.edit_nodes(&ids, |n| {
                         n.stroke.cap = CAPS[i].1;
-                        n.stroke_geometry = None;
+                        n.drop_stroke_outline();
                     });
                 }
             });
@@ -451,7 +451,10 @@ mod tests {
 
         // 2. Enable dashes on r1 (None) and r2 (Square), plus baked stroke_geometry on r1.
         app.doc.get_mut(r1).unwrap().stroke.dashes = vec![8.0, 4.0];
-        app.doc.get_mut(r1).unwrap().stroke_geometry = Some(vec![Path { cmds: Vec::new(), fill_rule: FillRule::NonZero }]);
+        app.doc.get_mut(r1).unwrap().stroke_geometry = Some(vec![Path { cmds: vec![designos_doc::PathCmd::Close], fill_rule: FillRule::NonZero }]);
+        app.doc.get_mut(r1).unwrap().stamp_stroke_geometry();
+        let r1_before = app.doc.get(r1).unwrap().clone();
+        assert!(r1_before.stroke_geometry_for.is_some());
         app.doc.get_mut(r2).unwrap().stroke.dashes = vec![8.0, 4.0];
 
         let texts_mixed = run_frame(&mut app, vec![], 0.2);
@@ -489,6 +492,8 @@ mod tests {
 
         assert_eq!(app.doc.get(r1).unwrap().stroke.cap, StrokeCap::Round, "r1 updated to Round");
         assert!(app.doc.get(r1).unwrap().stroke_geometry.is_none(), "stale stroke_geometry cleared on cap edit");
+        assert!(app.doc.get(r1).unwrap().stroke_geometry_for.is_none(), "stale stroke_geometry_for cleared on cap edit");
+        let r1_after = app.doc.get(r1).unwrap().clone();
         assert_eq!(app.doc.get(r2).unwrap().stroke.cap, StrokeCap::Round, "r2 updated to Round");
         assert_eq!(app.doc.get(r3_unstroked).unwrap().stroke.cap, StrokeCap::None, "unstroked layer r3 left untouched");
 
@@ -496,10 +501,12 @@ mod tests {
         let dd_text_after = texts_after.iter().find(|(_, r)| dash_cap_dd_rect.contains(r.center())).map(|(s, _)| s.as_str()).unwrap_or("");
         assert_eq!(dd_text_after, "Round", "Dash cap dropdown shows 'Round' after selection agrees");
 
-        // 4. One undo step restores both r1 and r2 to their prior caps.
+        // 4. One undo step restores both r1 and r2 to their prior caps (and r1's outline + stamp).
         app.undo();
-        assert_eq!(app.doc.get(r1).unwrap().stroke.cap, StrokeCap::None, "r1 restored by single undo");
+        assert_eq!(app.doc.get(r1).unwrap(), &r1_before, "r1 restored by single undo");
         assert_eq!(app.doc.get(r2).unwrap().stroke.cap, StrokeCap::Square, "r2 restored by single undo");
+        app.redo();
+        assert_eq!(app.doc.get(r1).unwrap(), &r1_after, "r1 restored by single redo");
     }
 
     use egui::Pos2;

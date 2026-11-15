@@ -666,8 +666,7 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
             }
             if is_rect_like {
                 n.fill_geometry = None;
-                n.stroke_geometry = None;
-                n.stroke_geometry_for = None;
+                n.drop_stroke_outline();
             }
         }
         "height" => {
@@ -680,8 +679,7 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
             }
             if is_rect_like {
                 n.fill_geometry = None;
-                n.stroke_geometry = None;
-                n.stroke_geometry_for = None;
+                n.drop_stroke_outline();
             }
         }
         "minWidth" => n.layout_child.min_w = Some(x.max(0.0)),
@@ -701,8 +699,7 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
         }
         "strokeWeight" => {
             n.stroke.weight = x.max(0.0);
-            n.stroke_geometry = None;
-            n.stroke_geometry_for = None;
+            n.drop_stroke_outline();
         }
         "strokeTopWeight" | "strokeRightWeight" | "strokeBottomWeight" | "strokeLeftWeight" => {
             let w = n.stroke.weight;
@@ -714,8 +711,7 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
                 _ => 3,
             };
             sw[i] = x.max(0.0);
-            n.stroke_geometry = None;
-            n.stroke_geometry_for = None;
+            n.drop_stroke_outline();
         }
         "itemSpacing" | "counterAxisSpacing" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft" => {
             if let Some(al) = n.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {

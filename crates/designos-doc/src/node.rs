@@ -61,7 +61,7 @@ fn is_default_grid_tracks(t: &GridTracks) -> bool {
     t.is_default()
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct Node {
     pub id: NodeId,
     /// Original id from an imported file (Figma "12:34"), for round-tripping.
@@ -125,7 +125,9 @@ pub struct Node {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke_geometry: Option<Vec<Path>>,
     /// Size and stroke settings that [`Node::stroke_geometry`] was computed for.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Written to JSON only when it does not match the layer's current `size`
+    /// and `stroke` fields (the outline is stale).
+    #[serde(default)]
     pub stroke_geometry_for: Option<StrokeGeometryStamp>,
     /// Component/instance bookkeeping; empty for ordinary nodes.
     #[serde(default, skip_serializing_if = "ComponentLink::is_empty")]
@@ -166,6 +168,168 @@ pub struct Node {
     /// Timelines, assignments and animated-property tracks of this layer; absent for almost every layer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<Box<crate::NodeMotion>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename = "Node")]
+struct NodeSer<'a> {
+    id: &'a NodeId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_id: &'a Option<String>,
+    name: &'a String,
+    kind: &'a NodeKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent: &'a Option<NodeId>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    children: &'a Vec<NodeId>,
+    #[serde(skip_serializing_if = "is_true")]
+    visible: &'a bool,
+    #[serde(skip_serializing_if = "is_false")]
+    locked: &'a bool,
+    #[serde(skip_serializing_if = "is_one")]
+    opacity: &'a f32,
+    #[serde(skip_serializing_if = "is_default_node_blend")]
+    blend: &'a BlendMode,
+    transform: &'a Affine,
+    size: &'a Vec2,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    fills: &'a Vec<Paint>,
+    #[serde(skip_serializing_if = "is_default_node_stroke")]
+    stroke: &'a Stroke,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    effects: &'a Vec<Effect>,
+    #[serde(skip_serializing_if = "is_zero_radii")]
+    corner_radii: &'a [f32; 4],
+    #[serde(skip_serializing_if = "is_zero")]
+    corner_smoothing: &'a f32,
+    #[serde(skip_serializing_if = "is_default_constraints")]
+    constraints: &'a Constraints,
+    #[serde(skip_serializing_if = "is_default_layout_child")]
+    layout_child: &'a LayoutChild,
+    #[serde(skip_serializing_if = "is_false")]
+    is_mask: &'a bool,
+    #[serde(skip_serializing_if = "MaskType::is_default")]
+    mask_type: &'a MaskType,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    style_refs: &'a BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "OwnedFieldSet::is_empty")]
+    text_style_overrides: &'a OwnedFieldSet,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fill_geometry: &'a Option<Vec<Path>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stroke_geometry: &'a Option<Vec<Path>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stroke_geometry_for: Option<&'a StrokeGeometryStamp>,
+    #[serde(skip_serializing_if = "ComponentLink::is_empty")]
+    component: &'a ComponentLink,
+    #[serde(skip_serializing_if = "PrototypeProps::is_empty")]
+    prototype: &'a PrototypeProps,
+    #[serde(skip_serializing_if = "NodeVariables::is_empty")]
+    variables: &'a NodeVariables,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    export_settings: &'a Vec<ExportPreset>,
+    #[serde(skip_serializing_if = "DevInfo::is_empty")]
+    dev: &'a DevInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slide: &'a Option<SlideProps>,
+    #[serde(skip_serializing_if = "is_false")]
+    lock_aspect: &'a bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hyperlink: &'a Option<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    plugin_data: &'a BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detached_symbol_id: &'a Option<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    fig_metadata: &'a BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    motion: &'a Option<Box<crate::NodeMotion>>,
+}
+
+impl Serialize for Node {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let Self {
+            id,
+            source_id,
+            name,
+            kind,
+            parent,
+            children,
+            visible,
+            locked,
+            opacity,
+            blend,
+            transform,
+            size,
+            fills,
+            stroke,
+            effects,
+            corner_radii,
+            corner_smoothing,
+            constraints,
+            layout_child,
+            is_mask,
+            mask_type,
+            style_refs,
+            text_style_overrides,
+            fill_geometry,
+            stroke_geometry,
+            stroke_geometry_for: _,
+            component,
+            prototype,
+            variables,
+            export_settings,
+            dev,
+            slide,
+            lock_aspect,
+            hyperlink,
+            plugin_data,
+            detached_symbol_id,
+            fig_metadata,
+            motion,
+        } = self;
+        NodeSer {
+            id,
+            source_id,
+            name,
+            kind,
+            parent,
+            children,
+            visible,
+            locked,
+            opacity,
+            blend,
+            transform,
+            size,
+            fills,
+            stroke,
+            effects,
+            corner_radii,
+            corner_smoothing,
+            constraints,
+            layout_child,
+            is_mask,
+            mask_type,
+            style_refs,
+            text_style_overrides,
+            fill_geometry,
+            stroke_geometry,
+            stroke_geometry_for: self.stale_stroke_geometry_stamp(),
+            component,
+            prototype,
+            variables,
+            export_settings,
+            dev,
+            slide,
+            lock_aspect,
+            hyperlink,
+            plugin_data,
+            detached_symbol_id,
+            fig_metadata,
+            motion,
+        }
+        .serialize(serializer)
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -689,6 +853,33 @@ impl Node {
             self.stroke_geometry_for = Some(StrokeGeometryStamp::of_node(self));
         } else {
             self.stroke_geometry_for = None;
+        }
+    }
+
+    /// Drops [`Node::stroke_geometry`] and [`Node::stroke_geometry_for`] together.
+    pub fn drop_stroke_outline(&mut self) {
+        self.stroke_geometry = None;
+        self.stroke_geometry_for = None;
+    }
+
+    /// Returns [`Node::stroke_geometry_for`] only when it is present and does not
+    /// match the layer's current `size` and `stroke` fields (so the stored outline
+    /// is stale and the stamp must be written when serializing).
+    pub fn stale_stroke_geometry_stamp(&self) -> Option<&StrokeGeometryStamp> {
+        self.stroke_geometry_for.as_ref().filter(|stamp| !stamp.matches_node(self))
+    }
+
+    /// Effective stamp of [`Node::stroke_geometry`]: `None` when no non-empty
+    /// outline is stored, the stored stamp when present, or the layer's current
+    /// `size` and `stroke` stamp when omitted.
+    pub fn effective_stroke_geometry_stamp(&self) -> Option<std::borrow::Cow<'_, StrokeGeometryStamp>> {
+        if self.stroke_geometry.as_ref().is_some_and(|g| !g.is_empty()) {
+            match &self.stroke_geometry_for {
+                Some(stamp) => Some(std::borrow::Cow::Borrowed(stamp)),
+                None => Some(std::borrow::Cow::Owned(StrokeGeometryStamp::of_node(self))),
+            }
+        } else {
+            self.stroke_geometry_for.as_ref().map(std::borrow::Cow::Borrowed)
         }
     }
 

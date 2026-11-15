@@ -599,7 +599,7 @@ pub(crate) fn node_fingerprint(node: &designos_doc::Node) -> u64 {
     if let Some(motion) = &node.motion {
         let _ = motion.serialize(HashSerializer(&mut h));
     }
-    if let Some(stamp) = &node.stroke_geometry_for {
+    if let Some(stamp) = node.effective_stroke_geometry_stamp() {
         let _ = stamp.serialize(HashSerializer(&mut h));
     }
     h.finish()
@@ -1968,5 +1968,37 @@ mod import_notice_tests {
     fn both_notices_share_one_entry_for_the_file() {
         let notice = import_notice("kit.fig", Some("2 numbers replaced".into()), 3).unwrap();
         assert_eq!(notice, format!("kit.fig: 2 numbers replaced; {}", crate::io::clone_budget_notice(3)));
+    }
+
+    #[test]
+    fn doc_hash_and_node_fingerprint_match_for_omitted_and_matching_stroke_stamp() {
+        use super::{doc_hash, node_fingerprint};
+        use designos_doc::{Document, FillRule, Node, Path, PathCmd, Rect, Vec2};
+
+        let mut d = Document::new("stamp-hash");
+        let page = d.add_page("P");
+        let id = d.alloc_id();
+        let mut rect = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 20.0));
+        rect.stroke.weight = 4.0;
+        rect.stroke_geometry = Some(vec![Path {
+            cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(40.0, 0.0)), PathCmd::Close],
+            fill_rule: FillRule::NonZero,
+        }]);
+        d.insert(page, rect).unwrap();
+
+        let mut omitted = d.clone();
+        omitted.nodes.get_mut(&id).unwrap().stroke_geometry_for = None;
+
+        assert_eq!(doc_hash(&omitted), doc_hash(&d), "doc_hash treats omitted and matching stamp identically");
+        assert_eq!(
+            node_fingerprint(omitted.get(id).unwrap()),
+            node_fingerprint(d.get(id).unwrap()),
+            "node_fingerprint treats omitted and matching stamp identically"
+        );
+
+        let mut stale = d.clone();
+        stale.nodes.get_mut(&id).unwrap().stroke_geometry_for.as_mut().unwrap().weight = 8.0;
+        assert_ne!(doc_hash(&stale), doc_hash(&d), "doc_hash distinguishes a stale stamp");
+        assert_ne!(node_fingerprint(stale.get(id).unwrap()), node_fingerprint(d.get(id).unwrap()), "node_fingerprint distinguishes a stale stamp");
     }
 }
