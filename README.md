@@ -105,7 +105,7 @@ To read the container version of an exported file, run `unzip -p out.fig canvas.
 
 ## Watch
 
-Four short films of DESIGN:OS Studio, starting with an agent editing a `.fig` headless, with no Figma app and no display. Writing `.fig` files is still [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834). Current release is v0.7.14. FREE and source-available (PolyForm Shield).
+Four short films of DESIGN:OS Studio, starting with an agent editing a `.fig` headless, with no Figma app and no display. Writing `.fig` files is still [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834). Current release is v0.7.15. FREE and source-available (PolyForm Shield).
 
 <p align="left">
   <a href="https://www.youtube.com/watch?v=_LtPH2uREr0"><img src="https://i.ytimg.com/vi/_LtPH2uREr0/mqdefault.jpg" alt="An agent edits a .fig headless, without Figma | DESIGN:OS Studio (YouTube, 0:57)" width="320"></a>
@@ -189,7 +189,16 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.14. The latest captures are from the 0.7.12 release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.15. The latest captures are from the 0.7.12 release build, and older releases are short lists.
+
+<a id="new-in-v0715"></a>
+### 0.7.15
+
+- **Components.** A nested instance keeps its overrides when its variant is switched by hand and back, and an override on a layer the other variant lacks comes back when the instance is switched back. The switch report now gives two numbers: dropped, and kept for a return. Rows of a nested instance in the component panel show the variable pill and offer the same bind control as top-level rows.
+- **Figma files.** A `.fig` saved with pages that were never opened keeps more of what the user did: a duplicated page keeps its instances' child overrides, a reset field is dropped from the saved entry, a move is saved, and a variable binding is dropped only for the field that was edited. A variable collection marked not publishable stays that way through import and save, and stays out of the published assets and the design-system search.
+- **Lines and shapes.** An imported line resized through the agent tools or a variable-bound size keeps its stroke outline stretched as the editor does, and a dash array of `[0, 0]` counts as solid. A child with no fill area counts as an empty operand in a boolean operation. A hairline ring with an Inside or Outside stroke exports to SVG as one ellipse, as the canvas draws it.
+- **Agents.** An image job whose agent start is refused for good fails at once with the agent menu's sentence and one error toast, and so does every job queued behind it. The mode control shows the mode the next send uses, and a click on the mode menu, the attach menu or the @ popup reaches the row instead of the terminal under it.
+- **Fixes.** A plain click on a corner radius or shape handle changes nothing and leaves no undo step, a panic in the macOS quit callback no longer aborts the app, a toast with a button is always kept, and the rules pack lists more errors that `designos_apply_spec` can return. Many fixes were carried from pull requests by @NamAIEngineer.
 
 <a id="new-in-v0714"></a>
 ### 0.7.14
@@ -790,7 +799,7 @@ design-os-studio/
 - A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG ([#1278](https://github.com/jangtrinh/design-os-studio/issues/1278)).
 - Editing a text style in a file imported before 0.7.0 resets its linked layers' paragraph indent and list spacing to 0 ([#1279](https://github.com/jangtrinh/design-os-studio/issues/1279)).
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
-- The Windows test suite is advisory for 0.7.14. Releases are verified on macOS. Test (windows-latest) failed on the v0.7.14 release PR; Windows users are asked to test the published build and report in [#1843](https://github.com/jangtrinh/design-os-studio/issues/1843). Earlier Windows CI failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
+- The Windows test suite is advisory for 0.7.15. Releases are verified on macOS. Test (windows-latest) failed on the v0.7.15 release PR; Windows users are asked to test the published build and report in [#1843](https://github.com/jangtrinh/design-os-studio/issues/1843). Earlier Windows CI failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use

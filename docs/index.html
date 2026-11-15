@@ -65,7 +65,7 @@
       "license": "https://polyformproject.org/licenses/shield/1.0.0",
       "url": "https://jangtrinh.github.io/design-os-studio/",
       "downloadUrl": "https://github.com/jangtrinh/design-os-studio/releases",
-      "softwareVersion": "0.7.14",
+      "softwareVersion": "0.7.15",
       "dateModified": "2026-11-13",
       "@id": "https://jangtrinh.github.io/design-os-studio/#app",
       "isBasedOn": {
@@ -120,7 +120,7 @@
           "name": "Can a coding agent edit a .fig without opening the Studio window?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Yes. Use designos-mcp (39 tools in v0.7.14) or the designos CLI (--inspect-json, --export-fig, --scan-design-system, --codegen). Disclose issue #834 on any write."
+            "text": "Yes. Use designos-mcp (39 tools in v0.7.15) or the designos CLI (--inspect-json, --export-fig, --scan-design-system, --codegen). Disclose issue #834 on any write."
           }
         },
         {
@@ -152,7 +152,7 @@
     {
       "@type": "VideoObject",
       "name": "An agent edits a .fig headless, without Figma | DESIGN:OS Studio",
-      "description": "A coding agent edits a .fig headless in DESIGN:OS Studio, with no Figma app and no display. FREE and source-available (PolyForm Shield). As of v0.7.14 it ships 39 MCP tools. A .fig save has known issue #834.",
+      "description": "A coding agent edits a .fig headless in DESIGN:OS Studio, with no Figma app and no display. FREE and source-available (PolyForm Shield). As of v0.7.15 it ships 39 MCP tools. A .fig save has known issue #834.",
       "thumbnailUrl": "https://i.ytimg.com/vi/_LtPH2uREr0/maxresdefault.jpg",
       "uploadDate": "2026-11-12T05:06:23+00:00",
       "contentUrl": "https://www.youtube.com/watch?v=_LtPH2uREr0",
@@ -393,7 +393,7 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
       <li><a href="#watch">Watch</a></li>
       <li><a href="#faq">FAQ</a></li>
     </ul>
-    <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.14/designos-0.7.14-macos.dmg">Download for macOS</a>
+    <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.15/designos-0.7.15-macos.dmg">Download for macOS</a>
   </nav>
 </header>
 
@@ -405,7 +405,7 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
       <h1 id="title"><span class="sel sel-box" id="sel-box">Open and write .fig files. No Figma required.<span class="pill" id="sel-pill" aria-hidden="true" hidden></span></span></h1>
       <p class="sub">Edit them on a local GPU canvas, or headless through designos-mcp (39 tools) and the designos CLI. FREE + source-available (PolyForm Shield).</p>
       <div class="cta">
-        <a class="btn btn-primary" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.14/designos-0.7.14-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
+        <a class="btn btn-primary" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.15/designos-0.7.15-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
         <a class="btn btn-ghost" href="https://github.com/jangtrinh/design-os-studio"><svg class="ico" aria-hidden="true"><use href="#i-github"/></svg>View on GitHub</a>
       </div>
       <p class="cta-note"><a href="https://github.com/jangtrinh/design-os-studio/releases/latest">Windows · Linux · all downloads</a></p>
@@ -572,9 +572,19 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
     <div class="wrap">
       <div class="new-head">
         <h2 id="new-h">What’s new.</h2>
-        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.14. The latest captures are from the 0.7.12 release build, and older releases are short lists.</p>
+        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.15. The latest captures are from the 0.7.12 release build, and older releases are short lists.</p>
       </div>
       <div class="new-grid">
+        <article class="new-release new-release--0715" id="new-in-v0715" aria-labelledby="v0715-h">
+          <h3 id="v0715-h" class="new-ver">0.7.15</h3>
+          <ul class="new-bullets">
+            <li><strong>Components.</strong> A nested instance keeps its overrides when its variant is switched by hand and back, and an override on a layer the other variant lacks comes back when the instance is switched back. The switch report now gives two numbers: dropped, and kept for a return. Rows of a nested instance in the component panel show the variable pill and offer the same bind control as top-level rows.</li>
+            <li><strong>Figma files.</strong> A <code>.fig</code> saved with pages that were never opened keeps more of what the user did: a duplicated page keeps its instances' child overrides, a reset field is dropped from the saved entry, a move is saved, and a variable binding is dropped only for the field that was edited. A variable collection marked not publishable stays that way through import and save, and stays out of the published assets and the design-system search.</li>
+            <li><strong>Lines and shapes.</strong> An imported line resized through the agent tools or a variable-bound size keeps its stroke outline stretched as the editor does, and a dash array of <code>[0, 0]</code> counts as solid. A child with no fill area counts as an empty operand in a boolean operation. A hairline ring with an Inside or Outside stroke exports to SVG as one ellipse, as the canvas draws it.</li>
+            <li><strong>Agents.</strong> An image job whose agent start is refused for good fails at once with the agent menu's sentence and one error toast, and so does every job queued behind it. The mode control shows the mode the next send uses, and a click on the mode menu, the attach menu or the @ popup reaches the row instead of the terminal under it.</li>
+            <li><strong>Fixes.</strong> A plain click on a corner radius or shape handle changes nothing and leaves no undo step, a panic in the macOS quit callback no longer aborts the app, a toast with a button is always kept, and the rules pack lists more errors that <code>designos_apply_spec</code> can return. Many fixes were carried from pull requests by @NamAIEngineer.</li>
+          </ul>
+        </article>
         <article class="new-release new-release--0714" id="new-in-v0714" aria-labelledby="v0714-h">
           <h3 id="v0714-h" class="new-ver">0.7.14</h3>
           <ul class="new-bullets">
@@ -817,26 +827,26 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
       <h2 id="install-h">Install.</h2>
       <div class="install">
         <div>
-          <h3>Download Studio 0.7.14</h3>
+          <h3>Download Studio 0.7.15</h3>
           <ul class="dl">
             <li>
               <span class="os">macOS</span>
               <span class="files">
-                <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.14/designos-0.7.14-macos.dmg">.dmg <small>155 MB</small></a>
-                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.14/designos-0.7.14-macos-universal.tar.gz">.tar.gz <small>140 MB</small></a>
+                <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.15/designos-0.7.15-macos.dmg">.dmg <small>158 MB</small></a>
+                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.15/designos-0.7.15-macos-universal.tar.gz">.tar.gz <small>142 MB</small></a>
               </span>
             </li>
             <li>
               <span class="os">Windows</span>
               <span class="files">
-                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.14/designos-0.7.14-x86_64-pc-windows-msvc.zip">.zip <small>65 MB</small></a>
+                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.15/designos-0.7.15-x86_64-pc-windows-msvc.zip">.zip <small>66 MB</small></a>
               </span>
             </li>
             <li>
               <span class="os">Linux</span>
               <span class="files">
-                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.14/designos_0.7.14_amd64.deb">.deb <small>59 MB</small></a>
-                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.14/designos-0.7.14-x86_64-unknown-linux-gnu.tar.gz">.tar.gz <small>80 MB</small></a>
+                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.15/designos_0.7.15_amd64.deb">.deb <small>60 MB</small></a>
+                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.15/designos-0.7.15-x86_64-unknown-linux-gnu.tar.gz">.tar.gz <small>81 MB</small></a>
               </span>
             </li>
           </ul>
@@ -873,7 +883,7 @@ rm -rf /tmp/design-os-studio</code></pre></div>
   <section id="watch" class="sec" aria-labelledby="watch-h">
     <div class="wrap">
       <h2 id="watch-h">Watch.</h2>
-      <p class="watch-lead">Four short films of DESIGN:OS Studio, starting with an agent editing a <code>.fig</code> headless, with no Figma app and no display. Writing <code>.fig</code> files is still known issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a>. Current release is v0.7.14, with 39 MCP tools. FREE and source-available (PolyForm Shield). More on the <a href="https://www.youtube.com/@designosbyjang">design:os by Jang</a> channel and the <a href="https://jangtrinh.github.io/videos/">videos hub</a>.</p>
+      <p class="watch-lead">Four short films of DESIGN:OS Studio, starting with an agent editing a <code>.fig</code> headless, with no Figma app and no display. Writing <code>.fig</code> files is still known issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a>. Current release is v0.7.15, with 39 MCP tools. FREE and source-available (PolyForm Shield). More on the <a href="https://www.youtube.com/@designosbyjang">design:os by Jang</a> channel and the <a href="https://jangtrinh.github.io/videos/">videos hub</a>.</p>
       <ul class="watch-grid">
         <li>
           <a href="https://www.youtube.com/watch?v=_LtPH2uREr0">
@@ -930,7 +940,7 @@ rm -rf /tmp/design-os-studio</code></pre></div>
         </details>
         <details>
           <summary>Can a coding agent edit a .fig without opening the Studio window?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
-          <p>Yes. Use <code>designos-mcp</code> (39 tools in v0.7.14) or the <code>designos</code> CLI (<code>--inspect-json</code>, <code>--export-fig</code>, <code>--scan-design-system</code>, <code>--codegen</code>). Disclose issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a> on any write.</p>
+          <p>Yes. Use <code>designos-mcp</code> (39 tools in v0.7.15) or the <code>designos</code> CLI (<code>--inspect-json</code>, <code>--export-fig</code>, <code>--scan-design-system</code>, <code>--codegen</code>). Disclose issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a> on any write.</p>
         </details>
         <details>
           <summary>How do coding agents work with it?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
@@ -958,7 +968,7 @@ rm -rf /tmp/design-os-studio</code></pre></div>
       </div>
       <div class="get__actions">
         <div class="cta">
-          <a class="btn btn-primary" id="get-download" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.14/designos-0.7.14-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
+          <a class="btn btn-primary" id="get-download" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.15/designos-0.7.15-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
           <a class="btn btn-ghost" href="https://github.com/jangtrinh/design-os-studio"><svg class="ico" aria-hidden="true"><use href="#i-github"/></svg>View on GitHub</a>
         </div>
         <p class="cta-note"><a href="https://github.com/jangtrinh/design-os-studio/releases/latest">Windows · Linux · all downloads</a></p>
