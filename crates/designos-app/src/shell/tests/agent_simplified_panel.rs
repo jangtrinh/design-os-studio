@@ -28,9 +28,11 @@ pub(super) fn new_chat_sim() -> Sim {
     let mut s = Sim::new();
     s.use_stub_agent_clis();
     s.shell.app.terminal.session_registry.last_cli = None;
+    s.shell.app.terminal.picker.cache.refresh_blocking();
+    s.shell.app.terminal.picker.probe_started = true;
     s.cmd_key(Key::Backtick);
     assert!(s.app().terminal.tabs.is_empty(), "no session yet");
-    settle_probes(&mut s);
+    frames(&mut s, 3);
     s
 }
 
@@ -1394,6 +1396,8 @@ fn a_refused_run_login_leaves_the_waiting_notice_of_another_tab_alone() {
     s.shell.app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("a second stub tab");
     {
         let terminal = &mut s.shell.app.terminal;
+        *terminal.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+        terminal.tabs[0].spawned_at = std::time::Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - std::time::Duration::from_secs(1);
         terminal.tabs[0].composer.pending_send.push_back(crate::agent_composer::QueuedSend::new("still waiting", false));
         terminal.tabs[0].composer.notice = Some("Queued message waits for the agent".into());
         terminal.active_tab = 1;
