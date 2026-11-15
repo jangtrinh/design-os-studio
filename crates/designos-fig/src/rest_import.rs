@@ -4316,15 +4316,12 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         self.path_cache = cx.path_cache;
         self.blob_cache = cx.blob_cache;
         if let Err(err) = res {
+            self.unexpanded_instances.extend(pending_insts);
             eprintln!("designos-fig: scratch component expansion of {component:?} failed: {err}");
             return None;
         }
         if cx.budget_exhausted || !cx.unexpanded_instances.is_empty() {
-            if cx.unexpanded_instances.is_empty() {
-                self.unexpanded_instances.extend(pending_insts);
-            } else {
-                self.unexpanded_instances.extend(cx.unexpanded_instances);
-            }
+            self.unexpanded_instances.extend(pending_insts);
             eprintln!(
                 "designos-fig: clone budget ({}) reached while expanding component {component:?}; {} nested instance(s) left unexpanded",
                 self.clone_budget_total,
@@ -5750,6 +5747,146 @@ mod expand_depth_tests {
         assert_eq!(doc_h.hydration_unexpanded_instances(), 1);
         assert_eq!(doc_h.take_hydration_unexpanded_instances(), 1);
         assert_eq!(doc_h.hydration_unexpanded_instances(), 0);
+    }
+
+    fn scratch_nested_instance_doc(
+        next_clone: u64,
+        clone_budget_total: usize,
+    ) -> (Document, std::sync::Arc<std::sync::Mutex<DeferredFigHydrator>>, NodeId, NodeId, NodeId, NodeId) {
+        let mut doc = Document::new("scratch_miss_ids");
+        let p1 = doc.add_page("Page 1");
+        let p2 = doc.add_page("Page 2");
+        let leaf_comp = NodeId(10);
+        let mut c_leaf = Node::new(leaf_comp, NodeKind::Component(FrameProps::default()));
+        let leaf_rect = NodeId(11);
+        let mut r_leaf = Node::new(leaf_rect, NodeKind::Rectangle);
+        r_leaf.parent = Some(leaf_comp);
+        c_leaf.children.push(leaf_rect);
+        c_leaf.parent = Some(p1);
+
+        let inner_comp = NodeId(12);
+        let mut c_inner = Node::new(inner_comp, NodeKind::Component(FrameProps::default()));
+        let staged_inst_src = NodeId(13);
+        let mut i_staged = Node::new(staged_inst_src, NodeKind::Instance { frame: FrameProps::default(), component: Some(leaf_comp), component_key: None });
+        let staged_inst_child = NodeId(14);
+        let mut r_staged = Node::new(staged_inst_child, NodeKind::Rectangle);
+        r_staged.parent = Some(staged_inst_src);
+        r_staged.component.source = Some(leaf_rect);
+        i_staged.children.push(staged_inst_child);
+        i_staged.parent = Some(inner_comp);
+        c_inner.children.push(staged_inst_src);
+        c_inner.parent = Some(p1);
+
+        let outer_comp = NodeId(20);
+        let mut c_outer = Node::new(outer_comp, NodeKind::Component(FrameProps::default()));
+        let nested_inst = NodeId(21);
+        let mut i_nested = Node::new(nested_inst, NodeKind::Instance { frame: FrameProps::default(), component: Some(inner_comp), component_key: None });
+        i_nested.parent = Some(outer_comp);
+        c_outer.children.push(nested_inst);
+        c_outer.parent = Some(p2);
+
+        doc.get_mut(p1).unwrap().children.extend([leaf_comp, inner_comp]);
+        doc.get_mut(p2).unwrap().children.push(outer_comp);
+        doc.nodes.insert(leaf_comp, c_leaf);
+        doc.nodes.insert(leaf_rect, r_leaf);
+        doc.nodes.insert(inner_comp, c_inner);
+        doc.nodes.insert(staged_inst_src, i_staged);
+        doc.nodes.insert(staged_inst_child, r_staged);
+        doc.nodes.insert(outer_comp, c_outer);
+        doc.nodes.insert(nested_inst, i_nested);
+        doc.reserve_ids(nested_inst);
+
+        let mut pending_by_page = HashMap::new();
+        pending_by_page.insert(p2, vec![nested_inst]);
+        let mut hydrated_pages = HashSet::new();
+        hydrated_pages.insert(p1);
+        let mut targets = BTreeMap::new();
+        targets.insert(nested_inst, inner_comp);
+        let mut expanded_comps = HashSet::new();
+        expanded_comps.insert(leaf_comp);
+        expanded_comps.insert(inner_comp);
+        let hydrator = std::sync::Arc::new(std::sync::Mutex::new(DeferredFigHydrator {
+            pending_by_page,
+            hydrated_pages,
+            targets,
+            done: BTreeSet::new(),
+            ids: BTreeMap::new(),
+            overrides: BTreeMap::new(),
+            override_keys: HashMap::new(),
+            col_anchor_guids: HashMap::new(),
+            row_anchor_guids: HashMap::new(),
+            grid_col_track_ids: HashMap::new(),
+            grid_row_track_ids: HashMap::new(),
+            no_auto_layout: HashSet::new(),
+            scales: BTreeMap::new(),
+            path_cache: HashMap::new(),
+            blob_cache: HashMap::new(),
+            expanded_comps,
+            next_clone,
+            clone_budget_total,
+            cloned_nodes: 0,
+            budget_exhausted: false,
+            unexpanded_instances: BTreeSet::new(),
+            last_error: None,
+            instance_fingerprints: HashMap::new(),
+            derived_outlines: HashMap::new(),
+            swap_mains_of: HashMap::new(),
+            self_digests: HashMap::new(),
+            staged_copies: HashMap::new(),
+            page_nodes: HashMap::new(),
+            self_weak: std::sync::Weak::new(),
+            live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            dropped_duplicate_records: 0,
+        }));
+        doc.page_hydrator = Some(hydrator.clone());
+        (doc, hydrator, p1, p2, outer_comp, nested_inst)
+    }
+
+    #[test]
+    fn scratch_budget_stop_after_staging_instance_records_live_id_without_alloc_collision() {
+        // Budget 1 clones `staged_inst_src` into `staged[0]` (allocating scratch id 22) and then trips
+        // when popping `staged_inst_child` (`parent_idx = Some(0)`), which inserts the staged scratch
+        // instance id into `cx.unexpanded_instances`. Because the scratch document is discarded, the
+        // hydrator must record the live pending instance id (`nested_inst`, 21) so a following `alloc_id`
+        // does not collide with the miss set.
+        let (mut doc, hydrator, p1, _p2, outer_comp, nested_inst) = scratch_nested_instance_doc(22, 1);
+        let cmd = designos_doc::create_instance(&mut doc, outer_comp, p1, Vec2::ZERO);
+        let inserted_ids: Vec<NodeId> = match &cmd {
+            designos_doc::Command::Insert { nodes, .. } => nodes.iter().map(|n| n.id).collect(),
+            _ => panic!("expected Insert"),
+        };
+        cmd.apply(&mut doc).unwrap();
+        let next_id = doc.alloc_id();
+
+        let recorded = hydrator.lock().unwrap().unexpanded_instances.clone();
+        assert_eq!(recorded, BTreeSet::from([nested_inst]), "recorded miss ids must be the live pending instance ids");
+        for id in inserted_ids.iter().copied().chain(std::iter::once(next_id)) {
+            assert!(!recorded.contains(&id), "allocated id {id:?} collided with recorded miss set {recorded:?}");
+        }
+        assert_eq!(doc.hydration_unexpanded_instances(), 1);
+        assert!(doc.hydration_error().is_none());
+
+        let cmd2 = designos_doc::create_instance(&mut doc, outer_comp, p1, Vec2::ZERO);
+        cmd2.apply(&mut doc).unwrap();
+        assert_eq!(
+            hydrator.lock().unwrap().unexpanded_instances,
+            BTreeSet::from([nested_inst]),
+            "repeated scratch budget stops must deduplicate on the live pending instance id"
+        );
+        assert_eq!(doc.hydration_unexpanded_instances(), 1);
+    }
+
+    #[test]
+    fn scratch_id_exhaustion_counts_miss_with_live_id() {
+        let (mut doc, hydrator, p1, _p2, outer_comp, nested_inst) = scratch_nested_instance_doc(u64::MAX, MAX_IMPORT_CLONES);
+        let cmd = designos_doc::create_instance(&mut doc, outer_comp, p1, Vec2::ZERO);
+        cmd.apply(&mut doc).unwrap();
+
+        let recorded = hydrator.lock().unwrap().unexpanded_instances.clone();
+        assert_eq!(recorded, BTreeSet::from([nested_inst]), "id-space exhaustion during scratch expansion must record the live pending instance id");
+        assert_eq!(doc.hydration_unexpanded_instances(), 1);
+        assert!(doc.hydration_error().is_none());
     }
 
     #[test]
