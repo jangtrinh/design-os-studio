@@ -2623,21 +2623,28 @@ mod tests {
 
     #[test]
     fn unchanged_tab_hook_keeps_the_existing_file() {
-        let session = std::env::temp_dir().join(format!("designos-2009-write-{}", crate::live_sync_tests::unique_tab_id()));
+        let session = std::env::temp_dir().join(format!("designos-tab-hook-write-{}", crate::live_sync_tests::unique_tab_id()));
         let _ = std::fs::remove_dir_all(&session);
         let channel = crate::agent_approval_channel::prepare_channel_dir(&session).expect("channel");
         let path = install_tab_hook_script(&channel, None, 7, AgentPermissionMode::Ask).expect("first write");
+        let past = std::time::SystemTime::now() - std::time::Duration::from_secs(10);
+        std::fs::File::options().write(true).open(&path).expect("open script").set_modified(past).expect("backdate script mtime");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("drift permissions before no-op reinstall");
+        }
         let before = std::fs::metadata(&path).expect("script metadata");
         let before_bytes = std::fs::read(&path).expect("script bytes");
-        std::thread::sleep(std::time::Duration::from_millis(2));
         install_tab_hook_script(&channel, None, 7, AgentPermissionMode::Ask).expect("same content is a no-op");
         let after = std::fs::metadata(&path).expect("script metadata after");
         assert_eq!(std::fs::read(&path).unwrap(), before_bytes);
         assert_eq!(after.modified().unwrap(), before.modified().unwrap(), "same snapshot content must not rewrite the script");
         #[cfg(unix)]
         {
-            use std::os::unix::fs::MetadataExt;
+            use std::os::unix::fs::{MetadataExt, PermissionsExt};
             assert_eq!(after.ino(), before.ino(), "same snapshot content must keep the existing inode");
+            assert_eq!(after.permissions().mode() & 0o777, 0o700, "unchanged install still reasserts 0700 executable mode");
         }
         crate::agent_approval_channel::remove_channel(&session);
         let _ = std::fs::remove_dir_all(&session);
@@ -2645,7 +2652,7 @@ mod tests {
 
     #[test]
     fn closing_one_tab_hook_does_not_leave_it_or_remove_another() {
-        let session = std::env::temp_dir().join(format!("designos-2009-remove-{}", crate::live_sync_tests::unique_tab_id()));
+        let session = std::env::temp_dir().join(format!("designos-tab-hook-remove-{}", crate::live_sync_tests::unique_tab_id()));
         let _ = std::fs::remove_dir_all(&session);
         let channel = crate::agent_approval_channel::prepare_channel_dir(&session).expect("channel");
         let first = install_tab_hook_script(&channel, None, 7, AgentPermissionMode::Ask).expect("first script");
