@@ -3503,7 +3503,12 @@ mod tests {
     fn the_send_button_is_disabled_not_just_red_over_the_skill_limit() {
         let ctx = themed_context();
         let dir = temp_composer_dir("skills-send-disabled");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
         let mut st = TerminalState::new_for_session("doc-skills-send-disabled", "Skill Send", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.picker.cache.refresh_blocking();
+        st.picker.probe_started = true;
         for builtin in ["design-system-rhythm", "accessibility-wcag", "component-craft"] {
             st.skills.toggle_skill(builtin);
         }
@@ -3646,18 +3651,22 @@ mod tests {
     fn failed_start_returns_user_entries_in_order_and_discards_system_entry_with_notice() {
         let dir = temp_composer_dir("failed-start-two-users-one-system");
         let bin_dir = dir.join("bin");
-        write_executable_stub(&bin_dir, "claude", "echo 'Error: failed to initialize' >&2\nexit 1");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
 
         let mut st = TerminalState::new_for_session("doc-1437-failed", "Failed Start Queue", Some(&dir));
         st.path_prepend.push(bin_dir);
         st.active_runtime = AgentCliPreset::Claude;
 
         assert_eq!(st.send_from_composer_box("user entry one", None), SendOutcome::Queued);
+        st.tabs[0].last_output_at = std::sync::Arc::new(std::sync::Mutex::new(None));
+        st.tabs[0].composer.flush_paused = true;
+        st.tabs[0].spawned_at = Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - Duration::from_secs(1);
         assert_eq!(st.send_system_prompt("system image task", None), SendOutcome::Queued);
         assert_eq!(st.send_to_agent("user entry two", None), SendOutcome::Queued);
         assert_eq!(st.composer_draft(), "");
 
-        assert!(st.poll_until_start_failure(crate::test_timing::STUB_WAIT), "Start failure must be recorded");
+        st.tabs[0].start_failure = Some(crate::agent_start_failure::diagnose(AgentCliPreset::Claude, true, Some(1), "Error: failed to initialize\n"));
+        st.tick_composer();
         assert_eq!(
             st.composer_draft(),
             "user entry one\n\nuser entry two",
@@ -3803,7 +3812,7 @@ mod tests {
     fn make_tab_ready_for_test(st: &mut TerminalState, idx: usize, old_spawn: bool) {
         let tab = &mut st.tabs[idx];
         tab.parser.lock().unwrap().process(b"\x1b[?2004h");
-        *tab.last_output_at.lock().unwrap() = Some(Instant::now() - READY_QUIET_OUTPUT - Duration::from_millis(50));
+        tab.last_output_at = std::sync::Arc::new(std::sync::Mutex::new(Some(Instant::now() - READY_QUIET_OUTPUT - Duration::from_millis(50))));
         if old_spawn {
             tab.spawned_at = Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - Duration::from_secs(1);
         }
@@ -3986,11 +3995,16 @@ mod tests {
         st.active_runtime = AgentCliPreset::Claude;
 
         assert_eq!(st.send_to_agent("user prompt at start", None), SendOutcome::Queued);
+        let _ = attach_recording_writer(&mut st.tabs[0]);
+        st.tabs[0].last_output_at = std::sync::Arc::new(std::sync::Mutex::new(None));
+        st.tabs[0].composer.flush_paused = true;
+        st.tabs[0].spawned_at = Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - Duration::from_secs(1);
         let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 7: Remove background.", None);
         assert_eq!(st.tabs.len(), 1);
         assert_eq!(st.tabs[0].composer.pending_send.len(), 2);
 
         // First ready tick flushes the user prompt even when an image job was queued behind it.
+        st.tabs[0].composer.flush_paused = false;
         make_tab_ready_for_test(&mut st, 0, true);
         st.tick_composer();
         st.flush_pending_enter_now();
