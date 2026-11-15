@@ -57,6 +57,9 @@ pub(super) fn attach_menu(ui: &mut Ui, anchor: Rect, prd_on: bool, skills_n: usi
         }
     }
     let stay = pick.is_none() && !close_menu(ui, rect, anchor, ATTACH_PASS);
+    if stay {
+        note_overlay(ui.ctx(), rect);
+    }
     (pick, stay)
 }
 
@@ -88,6 +91,9 @@ pub(super) fn mode_menu(ui: &mut Ui, anchor: Rect, current: PermissionMode) -> (
         theme::TEXT_TERTIARY,
     );
     let stay = pick.is_none() && !close_menu(ui, rect, anchor, MODE_PASS);
+    if stay {
+        note_overlay(ui.ctx(), rect);
+    }
     (pick, stay)
 }
 
@@ -111,7 +117,6 @@ fn menu_frame(ui: &mut Ui, rect: Rect, id: &str) {
     kit::menu_surface(ui.painter(), rect);
     widgets::record(ui, id, rect);
     crate::widgets::popup_open::mark_open(ui.ctx());
-    note_overlay(ui.ctx(), rect);
 }
 
 const OVERLAYS_SLOT: &str = "agents-composer-overlay-rects";
@@ -153,12 +158,13 @@ pub(crate) fn note_overlay(ctx: &egui::Context, rect: Rect) {
     });
 }
 
-/// True when a composer overlay was painted in this pass or the one before it. The previous pass is there because egui hit-tests a
-/// press against the widgets of the pass before: the viewport must already be hover-only in the pass that first sees the pointer on
-/// a row. It reads what was painted, not a flag, so an open flag left behind by a tab that paints no composer holds nothing.
+/// True when a composer overlay stays open in this pass. The composer runs before the terminal viewport in the same pass, so noting
+/// the overlay in this pass already makes the viewport hover-only before egui hit-tests the next pass's press against this pass's
+/// widgets. It reads what was noted this pass, not a stale flag, so a pass that closes a menu or a tab that paints no composer
+/// holds nothing.
 pub(crate) fn overlay_painted_recently(ctx: &egui::Context) -> bool {
     let now = ctx.cumulative_pass_nr();
-    ctx.data(|d| d.get_temp::<Overlays>(Id::new(OVERLAYS_SLOT))).is_some_and(|o| o.seen != 0 && now < o.seen + 1)
+    ctx.data(|d| d.get_temp::<Overlays>(Id::new(OVERLAYS_SLOT))).is_some_and(|o| o.seen == now + 1)
 }
 
 /// True when `pos` is over an overlay the composer painted in this pass.

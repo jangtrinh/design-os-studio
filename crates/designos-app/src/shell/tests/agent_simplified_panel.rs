@@ -741,6 +741,78 @@ fn switching_agent_tabs_closes_the_mention_popup() {
 }
 
 #[test]
+fn a_press_one_and_two_frames_after_a_menu_row_pick_starts_a_selection() {
+    let menus = [("agents-composer-mode-btn", "agents-composer-mode-skip"), ("agents-composer-add-btn", "agents-composer-attach-prd")];
+    for (btn_id, row_id) in menus {
+        for frames_after in [1usize, 2] {
+            let mut s = session_sim();
+            let btn = recorded(&s, btn_id).unwrap();
+            s.click(btn.center());
+            frames(&mut s, 2);
+            let row = recorded(&s, row_id).unwrap();
+            s.mv(row.center());
+            s.button(true);
+            s.button(false);
+            assert!(!s.shell.app.terminal.mode_menu_open && !s.shell.app.terminal.attach_menu_open, "{btn_id}: the row pick closed the menu");
+            let vp = recorded(&s, "agents-terminal-viewport").expect("the panel recorded its viewport");
+            let a = egui::pos2(vp.left() + 40.0, vp.top() + 40.0);
+            let b = egui::pos2(vp.left() + 160.0, vp.top() + 60.0);
+            if frames_after == 2 {
+                s.mv(a);
+            }
+            s.pos = a;
+            s.frame(vec![Event::PointerMoved(a), Event::PointerButton { pos: a, button: PointerButton::Primary, pressed: true, modifiers: s.mods }]);
+            s.mv(b);
+            s.button(false);
+            s.frame(vec![]);
+            assert!(
+                s.shell.app.terminal.active_tab().unwrap().selection.is_some(),
+                "{btn_id} frames_after={frames_after}: a press after a row pick starts a terminal selection"
+            );
+            finish(s);
+        }
+    }
+}
+
+#[test]
+fn switching_to_a_tab_with_an_empty_composer_and_back_keeps_the_mention_popup_dismissed() {
+    let mut s = session_sim();
+    s.shell.app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("a second agent tab");
+    frames(&mut s, 3);
+    let last = recorded(&s, "agents-left-tab-select").expect("the last tab's rect");
+    let tab_a = egui::pos2(last.left() - 40.0, last.center().y);
+    let tab_b = egui::pos2(last.left() + 12.0, last.center().y);
+    s.click(tab_a);
+    frames(&mut s, 2);
+    assert_eq!(s.shell.app.terminal.tabs.len(), 2);
+    assert_eq!(s.shell.app.terminal.active_tab, 0, "tab A is on screen");
+
+    s.shell.app.terminal.set_composer_draft("@");
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.mention_popup.is_open());
+
+    s.click(tab_b);
+    frames(&mut s, 3);
+    assert_eq!(s.shell.app.terminal.tabs.len(), 2);
+    assert_eq!(s.shell.app.terminal.active_tab, 1, "switched to tab B");
+    assert!(s.shell.app.terminal.composer_draft().is_empty(), "tab B has an empty composer");
+    assert!(!s.shell.app.terminal.mention_popup.is_open(), "switching to tab B closed the popup");
+
+    s.click(tab_a);
+    frames(&mut s, 3);
+    assert_eq!(s.shell.app.terminal.active_tab, 0, "switched back to tab A");
+    assert!(!s.shell.app.terminal.mention_popup.is_open(), "the round trip leaves the popup closed on tab A");
+
+    let input = recorded(&s, "agents-composer-input").unwrap();
+    s.click(egui::pos2(input.right() - 8.0, input.center().y));
+    frames(&mut s, 2);
+    s.type_text(" @");
+    frames(&mut s, 4);
+    assert!(s.shell.app.terminal.mention_popup.is_open(), "typing a new @ in tab A opens the popup again");
+    finish(s);
+}
+
+#[test]
 fn chrome_focus_band_is_the_header_only() {
     let mut s = session_sim();
     let top = panel_top(&s);

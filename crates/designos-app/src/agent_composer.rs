@@ -197,6 +197,8 @@ pub struct ComposerState {
     pub attach_prd: bool,
     /// Fingerprint of a selection chip the user dismissed. `None` shows the chip.
     pub selection_chip_dismissed: Option<u64>,
+    /// The `(at_byte, query)` mention token dismissed in this composer so another tab's draft never clears it.
+    pub dismissed_token: Option<(usize, String)>,
 }
 
 impl ComposerState {
@@ -628,6 +630,23 @@ impl TerminalState {
             &mut tab.composer
         } else {
             &mut self.unattached_composer
+        }
+    }
+
+    /// Stable identifier of the live composer on screen (`Some(0)` in New Chat, `Some(tab.id)` on an agent tab, `None` on a shell tab).
+    pub fn active_composer_id(&self) -> Option<usize> {
+        if self.in_new_chat() {
+            Some(0)
+        } else {
+            self.active_tab().filter(|t| !t.is_shell_process()).map(|t| t.id)
+        }
+    }
+
+    fn composer_by_id_mut(&mut self, id: usize) -> Option<&mut ComposerState> {
+        if id == 0 {
+            Some(&mut self.unattached_composer)
+        } else {
+            self.tabs.iter_mut().find(|t| t.id == id).map(|t| &mut t.composer)
         }
     }
 
@@ -1186,6 +1205,18 @@ pub fn show_composer(
     let is_shell_tab = state.active_tab().is_some_and(|t| t.is_shell_process());
     let new_chat = state.in_new_chat();
     let composer_live = !is_shell_tab || new_chat;
+    let now_id = state.active_composer_id();
+    if state.mention_popup.composer_id != now_id {
+        state.mention_popup.dismiss();
+        if let Some(prev_id) = state.mention_popup.composer_id {
+            let tok = state.mention_popup.dismissed_token.take();
+            if let Some(prev_comp) = state.composer_by_id_mut(prev_id) {
+                prev_comp.dismissed_token = tok;
+            }
+        }
+        state.mention_popup.dismissed_token = now_id.and_then(|id| state.composer_by_id_mut(id).and_then(|c| c.dismissed_token.clone()));
+        state.mention_popup.composer_id = now_id;
+    }
     if !composer_live {
         // A composer that is not live paints no popup and reads no text, so nothing else would ever close an `@` popup left open.
         state.mention_popup.dismiss();
@@ -1220,6 +1251,7 @@ pub fn show_composer(
             let _ = with_composer_draft(state, |draft, popup, mentions| popup.handle_keyboard(&ctx, draft, mentions));
             apply_post_pick_cursor(ui, state, input_id);
         }
+        state.active_composer_mut().dismissed_token = state.mention_popup.dismissed_token.clone();
     }
 
     let mut submit_composer = false;
@@ -1368,6 +1400,7 @@ pub fn show_composer(
             let _ = with_composer_draft(state, |draft, popup, mentions| popup.show(ui, panel_rect, composer_rect, draft, mentions));
             apply_post_pick_cursor(ui, state, input_id);
         }
+        state.active_composer_mut().dismissed_token = state.mention_popup.dismissed_token.clone();
     }
     if state.composer_draft() != prev_draft {
         // User typed directly into the field; leave history cursor mode.
