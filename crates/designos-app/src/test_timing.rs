@@ -51,6 +51,230 @@ pub fn wait_for_nonempty_file(path: &std::path::Path, budget: Duration) -> Strin
     text
 }
 
+/// Blocks on OS directory events on `channel_dir` and `tab_dir` (and on `child`'s exit via its piped `stderr` EOF)
+/// until `condition` holds or `child` exits. Uses no wall-clock timer, sleep, or spin loop.
+#[cfg(target_os = "macos")]
+pub fn wait_for_dir_or_child_exit(
+    channel_dir: &std::path::Path,
+    tab_dir: &std::path::Path,
+    child: &mut std::process::Child,
+    mut condition: impl FnMut() -> bool,
+) -> bool {
+    use std::ffi::CString;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+
+    struct FdGuard {
+        kq: libc::c_int,
+        channel_fd: libc::c_int,
+        tab_fd: libc::c_int,
+    }
+
+    impl Drop for FdGuard {
+        fn drop(&mut self) {
+            unsafe {
+                if self.tab_fd >= 0 {
+                    libc::close(self.tab_fd);
+                }
+                if self.channel_fd >= 0 {
+                    libc::close(self.channel_fd);
+                }
+                if self.kq >= 0 {
+                    libc::close(self.kq);
+                }
+            }
+        }
+    }
+
+    fn open_and_register_vnode(kq: libc::c_int, path: &std::path::Path) -> libc::c_int {
+        let Ok(c_path) = CString::new(path.as_os_str().as_bytes()) else {
+            return -1;
+        };
+        let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_EVTONLY | libc::O_CLOEXEC) };
+        if fd < 0 {
+            return -1;
+        }
+        let change = libc::kevent {
+            ident: fd as libc::uintptr_t,
+            filter: libc::EVFILT_VNODE,
+            flags: libc::EV_ADD | libc::EV_ENABLE | libc::EV_CLEAR,
+            fflags: libc::NOTE_WRITE | libc::NOTE_EXTEND | libc::NOTE_ATTRIB | libc::NOTE_RENAME | libc::NOTE_DELETE,
+            data: 0,
+            udata: std::ptr::null_mut(),
+        };
+        let rc = unsafe { libc::kevent(kq, &change, 1, std::ptr::null_mut(), 0, std::ptr::null()) };
+        if rc < 0 {
+            unsafe {
+                libc::close(fd);
+            }
+            return -1;
+        }
+        fd
+    }
+
+    if condition() {
+        return true;
+    }
+    let kq = unsafe { libc::kqueue() };
+    if kq < 0 {
+        let _ = child.wait();
+        return condition();
+    }
+    let channel_fd = open_and_register_vnode(kq, channel_dir);
+    let mut guard = FdGuard { kq, channel_fd, tab_fd: -1 };
+
+    // The child's exit is seen as EOF on its stderr pipe. Without that pipe, or when it cannot be watched, nothing would wake
+    // the wait when the child exits without writing the file, so block on the exit itself.
+    let stderr_fd = child.stderr.as_ref().map(|s| s.as_raw_fd()).unwrap_or(-1);
+    if stderr_fd < 0 {
+        let _ = child.wait();
+        return condition();
+    }
+    let change = libc::kevent {
+        ident: stderr_fd as libc::uintptr_t,
+        filter: libc::EVFILT_READ,
+        flags: libc::EV_ADD | libc::EV_ENABLE,
+        fflags: 0,
+        data: 0,
+        udata: std::ptr::null_mut(),
+    };
+    if unsafe { libc::kevent(guard.kq, &change, 1, std::ptr::null_mut(), 0, std::ptr::null()) } < 0 {
+        let _ = child.wait();
+        return condition();
+    }
+
+    loop {
+        if guard.tab_fd < 0 && tab_dir.is_dir() {
+            guard.tab_fd = open_and_register_vnode(guard.kq, tab_dir);
+        }
+        if condition() {
+            return true;
+        }
+        if child.try_wait().ok().flatten().is_some() {
+            return condition();
+        }
+        let mut events = [libc::kevent { ident: 0, filter: 0, flags: 0, fflags: 0, data: 0, udata: std::ptr::null_mut() }; 4];
+        let n = unsafe { libc::kevent(guard.kq, std::ptr::null(), 0, events.as_mut_ptr(), events.len() as libc::c_int, std::ptr::null()) };
+        if n < 0 {
+            if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                continue;
+            }
+            let _ = child.wait();
+            return condition();
+        }
+        let stderr_events = events[..n as usize].iter().filter(|ev| ev.ident == stderr_fd as libc::uintptr_t);
+        let mut stderr_eof = false;
+        for ev in stderr_events {
+            stderr_eof |= (ev.flags & libc::EV_EOF) != 0;
+            // Drain what the child wrote: a level-triggered read event left unread would wake this loop forever, and a full
+            // pipe would block the child. `data` is the byte count ready, so these reads never block.
+            let mut left = ev.data.max(0) as usize;
+            let mut buf = [0u8; 4096];
+            while left > 0 {
+                let got = unsafe { libc::read(stderr_fd, buf.as_mut_ptr().cast(), left.min(buf.len())) };
+                if got <= 0 {
+                    break;
+                }
+                left -= got as usize;
+            }
+        }
+        if stderr_eof {
+            let _ = child.wait();
+            return condition();
+        }
+    }
+}
+
+/// Blocks on OS directory events on `channel_dir` and `tab_dir` (and on `child`'s exit via its piped `stderr` EOF)
+/// until `condition` holds or `child` exits. Uses no wall-clock timer, sleep, or spin loop.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn wait_for_dir_or_child_exit(
+    channel_dir: &std::path::Path,
+    tab_dir: &std::path::Path,
+    child: &mut std::process::Child,
+    mut condition: impl FnMut() -> bool,
+) -> bool {
+    use std::ffi::CString;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+
+    struct InotifyGuard(libc::c_int);
+    impl Drop for InotifyGuard {
+        fn drop(&mut self) {
+            if self.0 >= 0 {
+                unsafe {
+                    libc::close(self.0);
+                }
+            }
+        }
+    }
+
+    fn add_watch(ifd: libc::c_int, path: &std::path::Path) -> libc::c_int {
+        let Ok(c_path) = CString::new(path.as_os_str().as_bytes()) else {
+            return -1;
+        };
+        unsafe { libc::inotify_add_watch(ifd, c_path.as_ptr(), libc::IN_CREATE | libc::IN_MOVED_TO | libc::IN_MODIFY | libc::IN_CLOSE_WRITE | libc::IN_ATTRIB) }
+    }
+
+    if condition() {
+        return true;
+    }
+    let ifd = unsafe { libc::inotify_init1(libc::IN_CLOEXEC | libc::IN_NONBLOCK) };
+    if ifd < 0 {
+        let _ = child.wait();
+        return condition();
+    }
+    let _guard = InotifyGuard(ifd);
+    let _ = add_watch(ifd, channel_dir);
+    let mut tab_wd = -1;
+    // The child's exit is seen as a hang-up on its stderr pipe; without that pipe, block on the exit itself.
+    let stderr_fd = child.stderr.as_ref().map(|s| s.as_raw_fd()).unwrap_or(-1);
+    if stderr_fd < 0 {
+        let _ = child.wait();
+        return condition();
+    }
+
+    loop {
+        if tab_wd < 0 && tab_dir.is_dir() {
+            tab_wd = add_watch(ifd, tab_dir);
+        }
+        if condition() {
+            return true;
+        }
+        if child.try_wait().ok().flatten().is_some() {
+            return condition();
+        }
+        let mut pfds =
+            [libc::pollfd { fd: ifd, events: libc::POLLIN, revents: 0 }, libc::pollfd { fd: stderr_fd, events: libc::POLLIN | libc::POLLHUP, revents: 0 }];
+        let rc = unsafe { libc::poll(pfds.as_mut_ptr(), 2, -1) };
+        if rc < 0 {
+            if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                continue;
+            }
+            let _ = child.wait();
+            return condition();
+        }
+        if (pfds[0].revents & libc::POLLIN) != 0 {
+            let mut buf = [0u8; 512];
+            while unsafe { libc::read(ifd, buf.as_mut_ptr().cast(), buf.len()) } > 0 {}
+        }
+        if (pfds[1].revents & libc::POLLIN) != 0 {
+            // Drain what the child wrote, so a level-triggered POLLIN does not wake this loop forever and a full pipe does
+            // not block the child. One read per wake never blocks after poll reported data.
+            let mut buf = [0u8; 4096];
+            let got = unsafe { libc::read(stderr_fd, buf.as_mut_ptr().cast(), buf.len()) };
+            if got == 0 {
+                let _ = child.wait();
+                return condition();
+            }
+        }
+        if (pfds[1].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL)) != 0 {
+            let _ = child.wait();
+            return condition();
+        }
+    }
+}
+
 /// A [`TerminalState`] for a test that removes its session folder (`<sessions root>/p<pid>-tab-<id>`) when the test ends, passed or
 /// panicked. Nothing else removes that folder, and one that outlives its test is what a later process with the same pid finds as stale
 /// state; the folders also pile up by the hundred thousand on a machine that runs the suite all day.
@@ -156,5 +380,59 @@ mod tests {
         });
         assert!(fastest >= Duration::from_millis(3), "{fastest:?}");
         assert!(calls > 1, "keeps sampling until patience runs out, ran {calls} time(s)");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wait_for_dir_or_child_exit_wakes_when_tab_dir_and_request_file_appear() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let channel_dir = std::env::temp_dir().join(format!("designos-dir-wait-wake-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&channel_dir);
+        std::fs::create_dir_all(&channel_dir).expect("create channel dir");
+        let tab_dir = channel_dir.join("tab-1");
+        let req_tmp = tab_dir.join("req.request.tmp");
+        let req_file = tab_dir.join("req.request.json");
+
+        let script = format!(
+            "cat >/dev/null; mkdir -p '{}'; printf '{{\"id\":\"req\"}}' > '{}'; mv -f '{}' '{}'",
+            tab_dir.display(),
+            req_tmp.display(),
+            req_tmp.display(),
+            req_file.display()
+        );
+        let mut child =
+            Command::new("/bin/sh").arg("-c").arg(&script).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("spawn child");
+        let mut stdin = child.stdin.take().expect("piped stdin");
+        let writer = std::thread::spawn(move || {
+            let _ = stdin.write_all(b"go");
+        });
+
+        let found = wait_for_dir_or_child_exit(&channel_dir, &tab_dir, &mut child, || req_file.is_file());
+        writer.join().expect("join writer");
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&channel_dir);
+        assert!(found, "wait_for_dir_or_child_exit must block until the child creates tab_dir and renames the request file into place");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wait_for_dir_or_child_exit_returns_false_when_child_exits_without_writing_file() {
+        use std::process::{Command, Stdio};
+
+        let channel_dir = std::env::temp_dir().join(format!("designos-dir-wait-exit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&channel_dir);
+        std::fs::create_dir_all(&channel_dir).expect("create channel dir");
+        let tab_dir = channel_dir.join("tab-1");
+        let req_file = tab_dir.join("req.request.json");
+
+        let mut child =
+            Command::new("/bin/sh").arg("-c").arg("exit 0").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("spawn child");
+
+        let found = wait_for_dir_or_child_exit(&channel_dir, &tab_dir, &mut child, || req_file.is_file());
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&channel_dir);
+        assert!(!found, "wait_for_dir_or_child_exit must wake on child exit and return false when no request file was written");
     }
 }
