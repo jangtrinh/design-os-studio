@@ -123,19 +123,24 @@ pub fn wait_for_dir_or_child_exit(
     let channel_fd = open_and_register_vnode(kq, channel_dir);
     let mut guard = FdGuard { kq, channel_fd, tab_fd: -1 };
 
+    // The child's exit is seen as EOF on its stderr pipe. Without that pipe, or when it cannot be watched, nothing would wake
+    // the wait when the child exits without writing the file, so block on the exit itself.
     let stderr_fd = child.stderr.as_ref().map(|s| s.as_raw_fd()).unwrap_or(-1);
-    if stderr_fd >= 0 {
-        let change = libc::kevent {
-            ident: stderr_fd as libc::uintptr_t,
-            filter: libc::EVFILT_READ,
-            flags: libc::EV_ADD | libc::EV_ENABLE,
-            fflags: 0,
-            data: 0,
-            udata: std::ptr::null_mut(),
-        };
-        unsafe {
-            let _ = libc::kevent(guard.kq, &change, 1, std::ptr::null_mut(), 0, std::ptr::null());
-        }
+    if stderr_fd < 0 {
+        let _ = child.wait();
+        return condition();
+    }
+    let change = libc::kevent {
+        ident: stderr_fd as libc::uintptr_t,
+        filter: libc::EVFILT_READ,
+        flags: libc::EV_ADD | libc::EV_ENABLE,
+        fflags: 0,
+        data: 0,
+        udata: std::ptr::null_mut(),
+    };
+    if unsafe { libc::kevent(guard.kq, &change, 1, std::ptr::null_mut(), 0, std::ptr::null()) } < 0 {
+        let _ = child.wait();
+        return condition();
     }
 
     loop {
@@ -157,7 +162,22 @@ pub fn wait_for_dir_or_child_exit(
             let _ = child.wait();
             return condition();
         }
-        let stderr_eof = stderr_fd >= 0 && events[..n as usize].iter().any(|ev| ev.ident == stderr_fd as libc::uintptr_t && (ev.flags & libc::EV_EOF) != 0);
+        let stderr_events = events[..n as usize].iter().filter(|ev| ev.ident == stderr_fd as libc::uintptr_t);
+        let mut stderr_eof = false;
+        for ev in stderr_events {
+            stderr_eof |= (ev.flags & libc::EV_EOF) != 0;
+            // Drain what the child wrote: a level-triggered read event left unread would wake this loop forever, and a full
+            // pipe would block the child. `data` is the byte count ready, so these reads never block.
+            let mut left = ev.data.max(0) as usize;
+            let mut buf = [0u8; 4096];
+            while left > 0 {
+                let got = unsafe { libc::read(stderr_fd, buf.as_mut_ptr().cast(), left.min(buf.len())) };
+                if got <= 0 {
+                    break;
+                }
+                left -= got as usize;
+            }
+        }
         if stderr_eof {
             let _ = child.wait();
             return condition();
@@ -207,7 +227,12 @@ pub fn wait_for_dir_or_child_exit(
     let _guard = InotifyGuard(ifd);
     let _ = add_watch(ifd, channel_dir);
     let mut tab_wd = -1;
+    // The child's exit is seen as a hang-up on its stderr pipe; without that pipe, block on the exit itself.
     let stderr_fd = child.stderr.as_ref().map(|s| s.as_raw_fd()).unwrap_or(-1);
+    if stderr_fd < 0 {
+        let _ = child.wait();
+        return condition();
+    }
 
     loop {
         if tab_wd < 0 && tab_dir.is_dir() {
@@ -221,8 +246,7 @@ pub fn wait_for_dir_or_child_exit(
         }
         let mut pfds =
             [libc::pollfd { fd: ifd, events: libc::POLLIN, revents: 0 }, libc::pollfd { fd: stderr_fd, events: libc::POLLIN | libc::POLLHUP, revents: 0 }];
-        let nfds: libc::nfds_t = if stderr_fd >= 0 { 2 } else { 1 };
-        let rc = unsafe { libc::poll(pfds.as_mut_ptr(), nfds, -1) };
+        let rc = unsafe { libc::poll(pfds.as_mut_ptr(), 2, -1) };
         if rc < 0 {
             if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
                 continue;
@@ -234,7 +258,17 @@ pub fn wait_for_dir_or_child_exit(
             let mut buf = [0u8; 512];
             while unsafe { libc::read(ifd, buf.as_mut_ptr().cast(), buf.len()) } > 0 {}
         }
-        if stderr_fd >= 0 && (pfds[1].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL)) != 0 {
+        if (pfds[1].revents & libc::POLLIN) != 0 {
+            // Drain what the child wrote, so a level-triggered POLLIN does not wake this loop forever and a full pipe does
+            // not block the child. One read per wake never blocks after poll reported data.
+            let mut buf = [0u8; 4096];
+            let got = unsafe { libc::read(stderr_fd, buf.as_mut_ptr().cast(), buf.len()) };
+            if got == 0 {
+                let _ = child.wait();
+                return condition();
+            }
+        }
+        if (pfds[1].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL)) != 0 {
             let _ = child.wait();
             return condition();
         }
