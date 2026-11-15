@@ -2646,6 +2646,15 @@ mod tests {
             assert_eq!(after.ino(), before.ino(), "same snapshot content must keep the existing inode");
             assert_eq!(after.permissions().mode() & 0o777, 0o700, "unchanged install still reasserts 0700 executable mode");
         }
+        // A new mode for the same tab changes the bytes, so the script must be replaced, not kept.
+        install_tab_hook_script(&channel, None, 7, AgentPermissionMode::AskRisky).expect("changed content rewrites");
+        let changed = std::fs::metadata(&path).expect("script metadata after mode change");
+        assert_ne!(std::fs::read(&path).unwrap(), before_bytes, "a changed mode writes the new script");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            assert_ne!(changed.ino(), before.ino(), "changed content goes through the atomic replace");
+        }
         crate::agent_approval_channel::remove_channel(&session);
         let _ = std::fs::remove_dir_all(&session);
     }

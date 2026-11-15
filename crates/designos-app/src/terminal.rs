@@ -3757,6 +3757,7 @@ impl TerminalState {
             Err(e) => {
                 // The tab never started, so nothing will read the hooks file written for it.
                 crate::gemini_status_hooks::remove_tab_file(&self.session_dir, id);
+                crate::agent_permissions::remove_tab_hook_script(&self.session_dir, id);
                 // What was moved aside before the start failed stays moved: the line says so too.
                 self.status_msg = Some(pty_error_line(&e, self.set_aside_note.take().as_deref()));
                 Err(e)
