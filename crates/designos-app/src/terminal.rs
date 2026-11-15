@@ -20,6 +20,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+/// What the New chat notice, the status line and the toast say when a closed tab's waiting text moves into New chat.
+pub const QUEUED_RESTORED_IN_NEW_CHAT: &str = "Queued message restored in New chat";
 pub const TERM_BG_VIEWPORT: Color32 = theme::BG;
 pub const TERM_BG_BAR: Color32 = theme::BG_PRIMARY;
 pub const TERM_BG_ELEVATED: Color32 = theme::BG_SECONDARY;
@@ -1565,6 +1567,9 @@ pub struct TerminalState {
     /// The reason the last start was refused because Ask when risky cannot run that CLI, for the prompt that asked for it to read
     /// and keep its text; cleared by the next start that goes ahead.
     pub(crate) last_start_refusal: Option<&'static str>,
+    /// Set when a closed tab's waiting text went to New chat while another tab stays on screen: the app tells the person once
+    /// ([`Self::take_restore_toast`]), since the notice itself sits in the New chat composer that is not showing.
+    restore_toast_due: bool,
     /// Last computed `(rows, cols)` of the VT100 viewport (`#1171`).
     pub viewport_size: (u16, u16),
 }
@@ -1855,6 +1860,7 @@ impl TerminalState {
             write_backoff: crate::agent_session_files::WriteBackoff::default(),
             set_aside_note: None,
             last_start_refusal: None,
+            restore_toast_due: false,
             viewport_size: (28, 100),
         }
     }
@@ -3433,22 +3439,36 @@ impl TerminalState {
     /// Picks a live tab that was started as `preset`; otherwise starts a new tab running that agent CLI. An
     /// existing tab is never relabelled, so a user's Shell or another CLI keeps its identity and never receives
     /// the prompt. The prompt is queued while a fresh tab is still starting.
-    pub fn submit_system_image_prompt(&mut self, preset: AgentCliPreset, prompt: &str, file_path: Option<&Path>) {
+    pub fn submit_system_image_prompt(&mut self, preset: AgentCliPreset, prompt: &str, file_path: Option<&Path>) -> Result<(), String> {
         let reusable =
             self.tabs.iter_mut().position(|t| t.spawn_preset == preset && t.start_failure.is_none() && !t.exited_notice_shown && t.accepts_agent_input());
-        self.active_runtime = preset;
         match reusable {
-            Some(idx) => self.active_tab = idx,
+            Some(idx) => {
+                self.active_tab = idx;
+            }
             None => {
-                if self.spawn_tab(preset, file_path).is_err() {
-                    return;
-                }
+                let idx = self.spawn_tab(preset, file_path)?;
+                self.active_tab = idx;
             }
         }
         if let Some(tab) = self.active_tab_mut() {
             tab.composer.premark = Some(prompt.chars().take(64).collect());
         }
-        let _ = self.send_system_prompt(prompt, file_path);
+        match self.send_system_prompt(prompt, file_path) {
+            crate::agent_composer::SendOutcome::Written
+            | crate::agent_composer::SendOutcome::Queued
+            | crate::agent_composer::SendOutcome::Unconfirmed
+            | crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::Permission | crate::agent_composer::RefuseReason::NotReady) => {
+                self.active_runtime = preset;
+                Ok(())
+            }
+            // The sentence the composer's caption shows for this refusal: the tab's mode refusal or start failure, else the generic one.
+            // A refusal left by an earlier start (`last_start_refusal`) says nothing about this send, so it is never read here.
+            crate::agent_composer::SendOutcome::Refused(reason) => Err(self
+                .active_tab()
+                .and_then(|tab| tab.mode_refusal().map(str::to_string).or_else(|| tab.start_failure.as_ref().map(|failure| failure.headline())))
+                .unwrap_or_else(|| reason.message().to_string())),
+        }
     }
 
     /// Records `preset` as the last chosen agent CLI in this file's `sessions.json` (`#652` §3 rule 4).
@@ -3885,7 +3905,7 @@ impl TerminalState {
                         self.unattached_composer.draft.push_str("\n\n");
                         self.unattached_composer.draft.push_str(&recovered);
                     }
-                    self.unattached_composer.notice = Some("Queued message restored after tab close".into());
+                    self.unattached_composer.notice = Some(QUEUED_RESTORED_IN_NEW_CHAT.into());
                     // The caption line shows a notice only beside a refused outcome, as it does for a draft returned by a failed start.
                     self.unattached_composer.last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NotWritable));
                     restored_text = true;
@@ -3911,18 +3931,25 @@ impl TerminalState {
                 self.session_grants.clear();
             }
             self.sync_active_tab_approvals();
-            // The text waits in New chat, which is not on screen while another tab stays: say so where the person is looking.
+            // The text waits in New chat, which is not on screen while another tab stays. Keep that tab's own notice intact
+            // and surface the recovery in the global status line instead.
             if restored_text {
-                if let Some(tab) = self.active_tab_mut() {
-                    tab.composer.notice = Some("Queued message restored after tab close".into());
-                    tab.composer.last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NotWritable));
-                    self.status_msg = Some("Queued message restored after tab close".into());
+                self.status_msg = Some(QUEUED_RESTORED_IN_NEW_CHAT.into());
+                // New chat's own caption tells the person when it is on screen; otherwise the app raises a toast.
+                if !self.in_new_chat() {
+                    self.restore_toast_due = true;
                 }
             }
         }
         if self.tabs.is_empty() {
             self.cleanup_ephemeral_session_dir();
         }
+    }
+
+    /// The toast text to raise for text a tab close moved into New chat while another tab stays, once however many tabs closed since
+    /// the last call. `None` when nothing is due.
+    pub fn take_restore_toast(&mut self) -> Option<&'static str> {
+        std::mem::take(&mut self.restore_toast_due).then_some(QUEUED_RESTORED_IN_NEW_CHAT)
     }
 
     /// Returns a mutable reference to the currently active `TerminalTab`.
