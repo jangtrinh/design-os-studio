@@ -153,19 +153,17 @@ pub fn prop_bindings_of(n: &Node) -> impl Iterator<Item = (&str, &str)> {
     n.variables.bindings.iter().filter_map(|(k, v)| Some((prop_binding_name(k)?, v.as_str())))
 }
 
-/// Whether `variable` is in `targets` or reaches a variable in `targets` by following
-/// `VariableValue::Alias` links in the mode that `node` resolves each variable's collection in.
+/// Whether `variable` is in `targets` or reaches a variable in `targets` by following `VariableValue::Alias` links, each
+/// from the value [`Document::resolve_variable`] selects for `node` (an extension's, a multi-axis entry, the mode's).
 fn variable_reaches_any(doc: &Document, node: NodeId, variable: &str, targets: &std::collections::HashSet<String>) -> bool {
-    let mut id = variable;
+    let mut id = variable.to_string();
     for _ in 0..16 {
-        if targets.contains(id) {
+        if targets.contains(&id) {
             return true;
         }
-        let Some(v) = doc.variables.get(id) else { return false };
-        let Some(mode) = doc.variable_mode(node, &v.collection) else { return false };
-        let val = v.values.get(&mode).or_else(|| doc.variable_collections.get(&v.collection).and_then(|c| v.values.get(&c.default_mode)));
-        match val {
-            Some(VariableValue::Alias(next)) => id = next.as_str(),
+        let Some(v) = doc.variables.get(&id) else { return false };
+        match doc.selected_variable_value(node, v, &[]) {
+            Some(VariableValue::Alias(next)) => id = next,
             _ => return false,
         }
     }
