@@ -338,9 +338,11 @@ fn dashed_line_and_caps() {
         n
     });
     let pm = t.render(60, 20);
-    assert_eq!(px(&pm, 5, 10), [255, 0, 0, 255]);
-    assert_eq!(px(&pm, 15, 10), WHITE);
-    assert_eq!(px(&pm, 25, 10), [255, 0, 0, 255]);
+    // a centred Line is stroked at y in [-weight, 0] above its axis: rows 6..10
+    assert_eq!(px(&pm, 5, 8), [255, 0, 0, 255]);
+    assert_eq!(px(&pm, 15, 8), WHITE);
+    assert_eq!(px(&pm, 25, 8), [255, 0, 0, 255]);
+    assert_eq!(px(&pm, 5, 10), WHITE, "nothing below the axis");
     let _ = l;
 }
 

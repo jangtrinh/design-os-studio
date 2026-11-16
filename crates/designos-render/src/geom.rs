@@ -479,9 +479,11 @@ fn derived_shape(doc: &Document, n: &Node, tol: f32) -> Option<Shape> {
             Some(s)
         }
         NodeKind::Line => {
+            // Figma's band for a centred line sits at y in [-weight, 0]; see `Node::line_centerline`
+            let c = n.line_centerline()?;
             let mut pb = sk::PathBuilder::new();
-            pb.move_to(0.0, 0.0);
-            pb.line_to(w, 0.0);
+            pb.move_to(c.x0, c.y);
+            pb.line_to(c.x1, c.y);
             Some(Shape {
                 paths: vec![(pb.finish()?, sk::FillRule::Winding)],
                 closed: false,

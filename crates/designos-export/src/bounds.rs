@@ -93,10 +93,16 @@ pub fn own_overflow(n: &Node) -> (f32, f32, f32, f32) {
         }
     }
 
+    // a centred line is stroked in the band y in [-weight, 0] (see `Node::line_centerline`): it hangs
+    // a full weight above the box and nothing below it
+    let (line_top, line_bottom) = match n.line_centerline() {
+        Some(c) if has_stroke && c.y < 0.0 => (-2.0 * c.y, 0.0),
+        _ => (stroke_outset, stroke_outset),
+    };
     let l = stroke_outset + eff_l;
-    let t = stroke_outset + eff_t;
+    let t = line_top + eff_t;
     let r = stroke_outset + eff_r;
-    let b = stroke_outset + eff_b;
+    let b = line_bottom + eff_b;
 
     (l.max(0.0).ceil(), t.max(0.0).ceil(), r.max(0.0).ceil(), b.max(0.0).ceil())
 }

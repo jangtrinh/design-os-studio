@@ -28,7 +28,8 @@ fn stroke(cap: StrokeCap) -> Stroke {
     }
 }
 
-/// A dashed line of `len` whose end vertices carry `caps`, or a plain `Line` node when `caps` is `None`.
+/// A dashed flat vector of `len` whose end vertices carry `caps`, or the same vector with no vertex caps when `caps` is `None`.
+/// (A `Line` node is not the reference: its live stroke sits at Figma's band, shifted off the axis and inset for round caps.)
 fn dashed_line(t: &mut T, len: f32, stroke_cap: StrokeCap, caps: Option<(StrokeCap, StrokeCap)>) -> NodeId {
     t.add(None, |id| {
         let mut n = match caps {
@@ -39,7 +40,10 @@ fn dashed_line(t: &mut T, len: f32, stroke_cap: StrokeCap, caps: Option<(StrokeC
                 net.vertices[1].cap = Some(end);
                 Node::new(id, NodeKind::Vector { paths: vec![path], network: Some(net) })
             }
-            None => Node::new(id, NodeKind::Line),
+            None => {
+                let path = Path { cmds: vec![PathCmd::MoveTo(Vec2::ZERO), PathCmd::LineTo(Vec2::new(len, 0.0))], fill_rule: FillRule::NonZero };
+                Node::new(id, NodeKind::Vector { paths: vec![path], network: None })
+            }
         };
         n.transform = Affine::translate(X0, Y);
         n.size = Vec2::new(len, 0.0);
