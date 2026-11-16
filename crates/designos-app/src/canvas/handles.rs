@@ -496,7 +496,7 @@ pub fn table_col_resize_handle(doc: &designos_doc::Document, id: designos_doc::N
     };
     let (cols, rows, pad, col_gap, row_gap) = match node.kind.frame_props().and_then(|fp| fp.auto_layout.as_ref()) {
         Some(al) if al.direction == LayoutDirection::Grid => {
-            (al.grid_columns.max(1), al.grid_rows.max(1), al.padding, al.item_spacing.max(0.0), al.counter_spacing.max(0.0))
+            (al.grid_columns.max(1), al.grid_rows.max(1), al.padding, al.item_spacing.max(0.0), al.line_gap().max(0.0))
         }
         _ if node.name.to_ascii_lowercase().contains("table") => (2, 2, [0.0; 4], 0.0, 0.0),
         _ => return Vec::new(),

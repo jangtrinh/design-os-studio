@@ -139,7 +139,7 @@ fn levelled_rows_follow_a_bound_item_spacing() {
 
 #[test]
 fn levelled_rows_follow_a_bound_row_gap() {
-    let al = AutoLayout { item_spacing: 4.0, counter_spacing: 4.0, ..Default::default() };
+    let al = AutoLayout { item_spacing: 4.0, counter_spacing: Some(4.0), ..Default::default() };
     let (doc, grid, items) = levelled_grid(al, &[("counterAxisSpacing", GAP)]);
     assert_rows_match_studio(&doc, grid, &items, 0.0, 0.0, GAP.1, [95.0, 95.0]);
 }

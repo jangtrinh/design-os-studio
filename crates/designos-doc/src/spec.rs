@@ -27,8 +27,8 @@ pub struct LayoutSpec {
     #[serde(default, skip_serializing_if = "NumberOrVar::is_zero")]
     pub gap: NumberOrVar,
     /// Cross-axis spacing between wrapped lines in px (or `"var:..."`).
-    #[serde(default, skip_serializing_if = "NumberOrVar::is_zero")]
-    pub counter_gap: NumberOrVar,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counter_gap: Option<NumberOrVar>,
     /// `[top, right, bottom, left]` padding in px or `"var:..."` references.
     #[serde(default)]
     pub padding: [NumberOrVar; 4],
@@ -932,8 +932,8 @@ impl Document {
                 if let Some(g) = ls.gap.as_num() {
                     al.item_spacing = g;
                 }
-                if let Some(cg) = ls.counter_gap.as_num() {
-                    al.counter_spacing = cg;
+                if let Some(cg) = ls.counter_gap.as_ref().and_then(NumberOrVar::as_num) {
+                    al.counter_spacing = Some(cg);
                 }
                 let pad_nums = [ls.padding[0].unwrap_or(0.0), ls.padding[1].unwrap_or(0.0), ls.padding[2].unwrap_or(0.0), ls.padding[3].unwrap_or(0.0)];
                 let any_pad_set = ls.padding.iter().any(|p| !p.is_zero());
@@ -1345,11 +1345,11 @@ impl Document {
             if let NumberOrVar::Ref(_) = &ls.gap {
                 let _ = self.bind_or_eval_number(id, &node_kind, &ls.gap, &["itemSpacing"], "gap", format!("{path}.layout.gap"), index, libraries, report)?;
             }
-            if let NumberOrVar::Ref(_) = &ls.counter_gap {
+            if let Some(cg @ NumberOrVar::Ref(_)) = &ls.counter_gap {
                 let _ = self.bind_or_eval_number(
                     id,
                     &node_kind,
-                    &ls.counter_gap,
+                    cg,
                     &["counterAxisSpacing"],
                     "counter_gap",
                     format!("{path}.layout.counter_gap"),
@@ -1844,7 +1844,8 @@ impl Document {
                 .get("counterAxisSpacing")
                 .and_then(|vid| self.export_var_ref(index, vid))
                 .map(NumberOrVar::Ref)
-                .unwrap_or_else(|| NumberOrVar::Num(al.counter_spacing));
+                .unwrap_or_else(|| NumberOrVar::Num(al.line_gap()));
+            let counter_gap = (!counter_gap.is_zero()).then_some(counter_gap);
             let pad_keys = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
             let padding: [NumberOrVar; 4] = std::array::from_fn(|i| {
                 n.variables

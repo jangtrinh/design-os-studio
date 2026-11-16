@@ -15,7 +15,7 @@ fn stroke_2px(n: &mut Node, align: StrokeAlign) {
 }
 
 fn base(cols: u32, gap: f32, primary: Sizing, counter: Sizing) -> AutoLayout {
-    AutoLayout { grid_columns: cols, item_spacing: gap, counter_spacing: gap, primary_sizing: primary, counter_sizing: counter, ..Default::default() }
+    AutoLayout { grid_columns: cols, item_spacing: gap, counter_spacing: Some(gap), primary_sizing: primary, counter_sizing: counter, ..Default::default() }
 }
 
 fn four_fill_items(doc: &mut designos_doc::Document, grid: designos_doc::NodeId) -> Vec<designos_doc::NodeId> {

@@ -181,9 +181,9 @@ pub fn css_for_with(doc: &Document, node: NodeId, fmt: ColorFormat) -> String {
                 if al.counter_align_content == CounterAlignContent::SpaceBetween {
                     push("align-content", "space-between".into());
                 }
-                if !distributes_space(al.primary_align) || al.counter_spacing > 0.0 {
-                    let (row, col) =
-                        if al.direction == LayoutDirection::Horizontal { (al.counter_spacing, al.item_spacing) } else { (al.item_spacing, al.counter_spacing) };
+                let line_gap = al.line_gap();
+                if !distributes_space(al.primary_align) || line_gap > 0.0 {
+                    let (row, col) = if al.direction == LayoutDirection::Horizontal { (line_gap, al.item_spacing) } else { (al.item_spacing, line_gap) };
                     if row > 0.0 || col > 0.0 {
                         push("gap", if (row - col).abs() < 1e-4 { format!("{}px", num(row)) } else { format!("{}px {}px", num(row), num(col)) });
                     }
@@ -822,6 +822,7 @@ mod tests {
                         direction: LayoutDirection::Vertical,
                         wrap: true,
                         item_spacing: 12.0,
+                        counter_spacing: Some(0.0),
                         primary_align: align,
                         counter_align_content: CounterAlignContent::SpaceBetween,
                         ..Default::default()
@@ -954,7 +955,7 @@ mod tests {
             let mut al = AutoLayout {
                 direction: LayoutDirection::Grid,
                 item_spacing: 16.0,
-                counter_spacing: 24.0,
+                counter_spacing: Some(24.0),
                 padding: [12.0, 16.0, 12.0, 16.0],
                 primary_sizing: Sizing::Hug,
                 counter_sizing: Sizing::Fixed,

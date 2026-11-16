@@ -718,7 +718,7 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
                 let x = x.max(0.0);
                 match key {
                     "itemSpacing" => al.item_spacing = x,
-                    "counterAxisSpacing" => al.counter_spacing = x,
+                    "counterAxisSpacing" => al.counter_spacing = Some(x),
                     "paddingTop" => al.padding[0] = x,
                     "paddingRight" => al.padding[1] = x,
                     "paddingBottom" => al.padding[2] = x,

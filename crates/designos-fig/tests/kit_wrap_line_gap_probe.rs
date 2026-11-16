@@ -923,4 +923,220 @@ fn probe_kit_wrapped_auto_layout_line_gap() {
             r_rest_frame.get("counterAxisSpacing"),
         );
     }
+
+    // 6. Record-level comparison of a no-edit save of the kit on this branch vs main
+    println!("\n=== 6. NO-EDIT KIT SAVE: THIS BRANCH VS MAIN ===");
+    let mut doc_branch = designos_fig::import_fig(&bytes).expect("import_fig on kit");
+    drop(bytes);
+    doc_branch.images.clear();
+
+    let mut doc_main = doc_branch.clone();
+    for n in doc_main.nodes.values_mut() {
+        if let Some(al) = n.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
+            al.counter_spacing = Some(al.line_gap());
+        }
+    }
+
+    // Recompute main-component fingerprints on `doc_main` just as `import_fig` on `main` does at open time,
+    // because `node_content_hash` includes `AutoLayout::serialize` (`counter_spacing_auto` for `None`).
+    if let Some(inner_hydrator) = doc_main.page_hydrator.clone() {
+        use std::collections::BTreeSet;
+        use std::hash::{DefaultHasher, Hasher};
+        use std::sync::{Arc, Mutex};
+
+        let mut subtree_cache: HashMap<NodeId, (u64, Vec<NodeId>)> = HashMap::new();
+        let scan = |doc: &Document, root: NodeId| -> (u64, Vec<NodeId>) {
+            let mut h = DefaultHasher::new();
+            let mut named = BTreeSet::new();
+            let mut stack = vec![root];
+            while let Some(id) = stack.pop() {
+                h.write_u64(id.0);
+                let Some(n) = doc.get(id) else {
+                    h.write_u8(0);
+                    continue;
+                };
+                h.write_u64(designos_doc::branch_diff::node_content_hash(n));
+                h.write_usize(n.children.len());
+                if let NodeKind::Instance { component: Some(c), .. } = &n.kind {
+                    if *c != root {
+                        named.insert(*c);
+                    }
+                }
+                stack.extend(n.children.iter().rev().copied());
+            }
+            (h.finish(), named.into_iter().collect())
+        };
+        let mut of_mains = |doc: &Document, mains: &[NodeId]| -> u64 {
+            let roots: BTreeSet<NodeId> = mains.iter().copied().collect();
+            let mut reached = BTreeSet::new();
+            let mut queue: Vec<NodeId> = roots.iter().copied().collect();
+            while let Some(m) = queue.pop() {
+                if reached.insert(m) {
+                    let (_, sub) = subtree_cache.entry(m).or_insert_with(|| scan(doc, m));
+                    queue.extend(sub.iter().copied());
+                }
+            }
+            let mut h = DefaultHasher::new();
+            for m in &roots {
+                h.write_u64(m.0);
+            }
+            h.write_u8(0xff);
+            for m in reached {
+                h.write_u64(m.0);
+                h.write_u64(subtree_cache[&m].0);
+            }
+            h.finish()
+        };
+
+        let mut main_fps: HashMap<NodeId, u64> = HashMap::new();
+        for (&inst_id, n) in &doc_main.nodes {
+            let NodeKind::Instance { component: Some(main), .. } = &n.kind else { continue };
+            let Some(held) = inner_hydrator.lock().unwrap().pending_instance_derived(inst_id) else { continue };
+            let mut mains = vec![*main];
+            mains.extend(held.swap_mains.iter().copied());
+            mains.extend(n.component.values.values().filter_map(|v| match v {
+                PropValue::Instance(t) if t.0 != 0 && matches!(doc_main.get(*t).map(|m| &m.kind), Some(NodeKind::Component(_))) => Some(*t),
+                _ => None,
+            }));
+            main_fps.insert(inst_id, of_mains(&doc_main, &mains));
+        }
+
+        struct MainHydrator {
+            inner: Arc<Mutex<dyn PageHydrator>>,
+            fps: HashMap<NodeId, u64>,
+        }
+        impl std::fmt::Debug for MainHydrator {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("MainHydrator")
+            }
+        }
+        impl PageHydrator for MainHydrator {
+            fn hydrate_page(&mut self, doc: &mut Document, page: NodeId) -> bool {
+                self.inner.lock().unwrap().hydrate_page(doc, page)
+            }
+            fn hydrate_all(&mut self, doc: &mut Document) -> bool {
+                self.inner.lock().unwrap().hydrate_all(doc)
+            }
+            fn is_hydrated(&self, page: NodeId) -> bool {
+                self.inner.lock().unwrap().is_hydrated(page)
+            }
+            fn pending_instance_overrides(&self, instance: NodeId) -> Option<String> {
+                self.inner.lock().unwrap().pending_instance_overrides(instance)
+            }
+            fn pending_instance_derived(&self, instance: NodeId) -> Option<PendingDerived> {
+                let mut held = self.inner.lock().unwrap().pending_instance_derived(instance)?;
+                if let Some(&fp) = self.fps.get(&instance) {
+                    held.fingerprint = fp;
+                }
+                Some(held)
+            }
+            fn pending_instance_self_digests(&self, instance: NodeId) -> Option<BTreeMap<OverrideField, u64>> {
+                self.inner.lock().unwrap().pending_instance_self_digests(instance)
+            }
+        }
+        doc_main.page_hydrator = Some(Arc::new(Mutex::new(MainHydrator { inner: inner_hydrator, fps: main_fps })));
+    }
+
+    let branch_saved = export_fig(&doc_branch).expect("export_fig branch");
+    let main_saved = export_fig(&doc_main).expect("export_fig main");
+    drop(doc_branch);
+    drop(doc_main);
+
+    let decode_changes = |saved: &[u8]| -> Vec<Value> {
+        let mut arch = container::open(saved).expect("open saved container");
+        let (sch_bin, msg_bin) = container::read_archive_chunks(&arch).expect("read saved chunks");
+        arch.canvas = Vec::new();
+        let sch = Schema::decode(&sch_bin).expect("decode saved schema");
+        let root = sch.root_message().expect("saved root message");
+        let mut msg = sch.decode_message_for_import(root, &msg_bin).expect("decode saved message");
+        match msg.take_field("nodeChanges") {
+            Some(KiwiValue::Array(arr)) => arr.into_iter().map(kiwi::into_json_fast).collect(),
+            _ => Vec::new(),
+        }
+    };
+
+    let branch_ncs = decode_changes(&branch_saved);
+    drop(branch_saved);
+    let main_ncs = decode_changes(&main_saved);
+    drop(main_saved);
+
+    assert_eq!(branch_ncs.len(), main_ncs.len(), "branch and main saves must have identical nodeChanges count");
+
+    let mut omitted_wrapped_in_orig_kit = 0usize;
+    let mut omitted_wrapped_inherited_instances = 0usize;
+    let mut omitted_unwrapped_node_records = 0usize;
+    let mut omitted_override_entries = 0usize;
+    let mut unexpected_diffs = Vec::new();
+
+    for (idx, (mut b_nc, mut m_nc)) in branch_ncs.into_iter().zip(main_ncs.into_iter()).enumerate() {
+        let guid = b_nc.get("guid").and_then(guid_str).unwrap_or_else(|| format!("idx:{idx}"));
+        let orig_nc = by_guid.get(&guid).map(|&i| &nodes[i]);
+
+        if b_nc.get("stackCounterSpacing") != m_nc.get("stackCounterSpacing") {
+            let b_val = fnum(&b_nc, "stackCounterSpacing");
+            let m_val = fnum(&m_nc, "stackCounterSpacing");
+            let orig_had = orig_nc.is_some_and(|o| fnum(o, "stackCounterSpacing").is_some());
+            if b_val.is_none() && m_val.is_some() && !orig_had {
+                if fstr(&b_nc, "stackWrap") == Some("WRAP") {
+                    if orig_nc.is_some_and(|o| fstr(o, "stackWrap") == Some("WRAP")) {
+                        omitted_wrapped_in_orig_kit += 1;
+                    } else {
+                        omitted_wrapped_inherited_instances += 1;
+                    }
+                } else {
+                    omitted_unwrapped_node_records += 1;
+                }
+                if let Some(obj) = m_nc.as_object_mut() {
+                    obj.remove("stackCounterSpacing");
+                }
+            } else {
+                unexpected_diffs.push(format!("node {guid}: unexpected stackCounterSpacing diff branch={b_val:?} main={m_val:?} orig_had={orig_had}"));
+            }
+        }
+
+        let b_ovs = b_nc.get_mut("symbolData").and_then(|s| s.get_mut("symbolOverrides")).and_then(Value::as_array_mut);
+        let m_ovs = m_nc.get_mut("symbolData").and_then(|s| s.get_mut("symbolOverrides")).and_then(Value::as_array_mut);
+        if let (Some(b_arr), Some(m_arr)) = (b_ovs, m_ovs) {
+            if b_arr.len() == m_arr.len() {
+                for (b_ov, m_ov) in b_arr.iter_mut().zip(m_arr.iter_mut()) {
+                    if b_ov.get("stackCounterSpacing") != m_ov.get("stackCounterSpacing") {
+                        let b_val = fnum(b_ov, "stackCounterSpacing");
+                        let m_val = fnum(m_ov, "stackCounterSpacing");
+                        let path = guid_path(b_ov);
+                        let orig_ov_had = orig_nc
+                            .and_then(|o| o.get("symbolData"))
+                            .and_then(|s| s.get("symbolOverrides"))
+                            .and_then(Value::as_array)
+                            .is_some_and(|arr| arr.iter().any(|e| guid_path(e) == path && fnum(e, "stackCounterSpacing").is_some()));
+                        if b_val.is_none() && m_val.is_some() && !orig_ov_had {
+                            omitted_override_entries += 1;
+                            if let Some(obj) = m_ov.as_object_mut() {
+                                obj.remove("stackCounterSpacing");
+                            }
+                        } else {
+                            unexpected_diffs.push(format!(
+                                "node {guid} override {path:?}: unexpected stackCounterSpacing diff branch={b_val:?} main={m_val:?} orig_ov_had={orig_ov_had}"
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        if b_nc != m_nc {
+            unexpected_diffs.push(format!("node {guid}: other fields differ between branch and main"));
+        }
+    }
+
+    let omitted_wrapped_node_records = omitted_wrapped_in_orig_kit + omitted_wrapped_inherited_instances;
+    println!("  Total exported NodeChange records compared: {}", by_guid.len());
+    println!(
+        "  Wrapped stack node records (`stackWrap == \"WRAP\"`) omitting `stackCounterSpacing` vs main: {omitted_wrapped_node_records} ({omitted_wrapped_in_orig_kit} with `stackWrap == \"WRAP\"` on original record + {omitted_wrapped_inherited_instances} INSTANCE records inheriting wrap from SYMBOL)"
+    );
+    println!("  Non-wrapped stack node records (`stackWrap != \"WRAP\"`) omitting `stackCounterSpacing` vs main: {omitted_unwrapped_node_records}");
+    println!("  Total stack node records omitting `stackCounterSpacing` vs main: {}", omitted_wrapped_node_records + omitted_unwrapped_node_records);
+    println!("  `symbolOverrides` entries omitting `stackCounterSpacing` vs main: {omitted_override_entries}");
+    println!("  Unexpected record/field diffs: {}", unexpected_diffs.len());
+    assert!(unexpected_diffs.is_empty(), "unexpected diffs between branch and main kit save: {unexpected_diffs:#?}");
+    assert_eq!(omitted_wrapped_in_orig_kit, 485, "expected 485 wrapped stack records from original kit omitting stackCounterSpacing");
 }

@@ -543,7 +543,7 @@ pub fn number_value_at(n: &Node, key: &str) -> Option<f32> {
         }
         "counterAxisSpacing" => {
             let al = n.kind.frame_props()?.auto_layout.as_ref()?;
-            al.counter_spacing
+            al.line_gap()
         }
         "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft" => {
             let al = n.kind.frame_props()?.auto_layout.as_ref()?;

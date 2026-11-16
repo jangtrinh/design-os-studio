@@ -668,7 +668,7 @@ pub fn parse_frame_props(v: &Value, doc: &Document, w_sizing: Sizing, h_sizing: 
     al.direction = direction;
     al.wrap = wrap;
     al.item_spacing = gap;
-    al.counter_spacing = gap;
+    al.counter_spacing = Some(gap);
     al.padding = padding;
     al.primary_align = primary_align;
     al.counter_align = counter_align;

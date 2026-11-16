@@ -1898,9 +1898,9 @@ fn wrap_lines_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a:
     let icon = if a.direction == LayoutDirection::Horizontal { Icon::PaddingV } else { Icon::PaddingH };
     let cgap_r = pane.col(0, 0.0);
     if let Some(v) = var_bind::numeric(app, ui, cgap_r, sel, &["counterAxisSpacing"], |ui, r| {
-        field::num_field(ui, r, "al-counter-gap", Prefix::Icon(icon), Some(a.counter_spacing), "")
+        field::num_field(ui, r, "al-counter-gap", Prefix::Icon(icon), Some(a.line_gap()), "")
     }) {
-        update_al(app, sel, |al| al.counter_spacing = v);
+        update_al(app, sel, |al| al.counter_spacing = Some(v));
     }
     let between = a.counter_align_content == CounterAlignContent::SpaceBetween;
     let options = ["Auto", "Between"].map(String::from);

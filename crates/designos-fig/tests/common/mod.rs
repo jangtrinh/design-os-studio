@@ -127,7 +127,7 @@ fn grid_frame(doc: &mut Document, parent: NodeId, name: &str, columns: u32, rows
         grid_columns: columns,
         grid_rows: rows,
         item_spacing: 4.0,
-        counter_spacing: 6.0,
+        counter_spacing: Some(6.0),
         ..AutoLayout::default()
     };
     tweak(&mut al);
