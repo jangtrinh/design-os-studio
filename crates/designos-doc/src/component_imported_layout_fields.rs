@@ -123,25 +123,53 @@ pub(crate) fn meaning_hash(n: &Node) -> u64 {
     h.finish()
 }
 
-/// The layers of the subtree under `root`, parents before children, in child order.
-pub(crate) fn subtree(doc: &Document, root: NodeId) -> Option<Vec<NodeId>> {
-    let mut out = Vec::new();
+/// Visits the layers of the subtree under `root`, parents before children, in child order, looking each one up once.
+/// `f` gets the layer's position in that order and returns whether to go on. `Some(true)` when every layer was
+/// visited, `Some(false)` when `f` stopped the walk, `None` when a listed child is missing.
+pub(crate) fn walk(doc: &Document, root: NodeId, mut f: impl FnMut(usize, &Node) -> bool) -> Option<bool> {
     let mut stack = vec![root];
+    let mut k = 0;
     while let Some(id) = stack.pop() {
         let n = doc.get(id)?;
-        out.push(id);
+        if !f(k, n) {
+            return Some(false);
+        }
+        k += 1;
         stack.extend(n.children.iter().rev().copied());
     }
-    Some(out)
+    Some(true)
 }
 
 /// Hash of the layout of the subtree under `root`; `None` when a listed child is missing.
 pub(crate) fn layout_hash(doc: &Document, root: NodeId) -> Option<u64> {
     let mut h = StableHasher::new();
-    for id in subtree(doc, root)? {
-        hash_layer(&mut h, doc.get(id)?, id == root);
-    }
+    walk(doc, root, |_, n| {
+        hash_layer(&mut h, n, n.id == root);
+        true
+    })?;
     Some(h.finish())
+}
+
+/// The layout fields of every layer under `root` in [`walk`] order, when their [`layout_hash`] is `stored`.
+pub(crate) fn noted_if_stored(doc: &Document, root: NodeId, stored: u64) -> Option<Vec<LayoutFields>> {
+    let mut h = StableHasher::new();
+    let mut fields = Vec::new();
+    walk(doc, root, |_, n| {
+        hash_layer(&mut h, n, n.id == root);
+        fields.push(LayoutFields::of(n));
+        true
+    })?;
+    (h.finish() == stored).then_some(fields)
+}
+
+/// Whether the layers under `root` are the ones in `before`, in [`walk`] order, and `same` holds for each pair.
+pub(crate) fn same_layers(doc: &Document, root: NodeId, before: &[LayoutFields], mut same: impl FnMut(&LayoutFields, &Node) -> bool) -> bool {
+    let mut count = 0;
+    let all = walk(doc, root, |k, n| {
+        count = k + 1;
+        before.get(k).is_some_and(|b| b.id == n.id && same(b, n))
+    });
+    all == Some(true) && count == before.len()
 }
 
 /// The layout fields of one layer, as written back when its stored geometry is kept.

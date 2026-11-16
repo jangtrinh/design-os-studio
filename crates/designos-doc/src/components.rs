@@ -1355,11 +1355,11 @@ fn sync_component(c: &mut Ctx, owner: NodeId) {
     };
     targets.sort_by_key(|t| (depth(c.s, *t), t.0));
     // Imported instances whose stored geometry may outlive this sync (see `component_imported_layout`).
-    let held = crate::component_imported_layout::before_sync(c.s, &targets);
+    let held = crate::component_imported_layout_sync::before_sync(c.s, &targets);
     for &t in &targets {
         sync_one(c, t);
     }
-    crate::component_imported_layout::after_sync(c, held);
+    crate::component_imported_layout_sync::after_sync(c, held);
 }
 
 /// The main nested copy `id` shows when no pick is recorded on it and its bound variant properties `choices` drive it:

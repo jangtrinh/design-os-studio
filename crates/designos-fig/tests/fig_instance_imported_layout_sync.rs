@@ -269,7 +269,29 @@ fn chip_bar_fig() -> Vec<u8> {
 /// 112), and a Panel instance on the page whose copy of that row Figma stored the same way. A sync of Row reaches the
 /// Panel instance only through its nested copy.
 fn row_in_panel_fig() -> Vec<u8> {
+    row_in_panel_with(Vec::new())
+}
+
+/// [`row_in_panel_fig`] plus a Board main, listed first, holding a Panel instance that Figma stored the same way: an
+/// instance inside a main that a sync of Row reaches through its copy of the row inside another main.
+fn panel_in_board_fig() -> Vec<u8> {
+    let board = node((4, 1), (0, 1), "a", "SYMBOL", "Board", vec![("size", vec2(200.0, 80.0)), ("transform", matrix(0.0, 400.0))]);
+    let panel_in_board = instance_on(
+        (4, 1),
+        (4, 2),
+        "Panel in Board",
+        (3, 1),
+        (180.0, 60.0),
+        (10.0, 10.0),
+        vec![derived(&[(3, 2), (1, 2)], (20.0, 24.0), (10.0, 8.0)), derived(&[(3, 2), (1, 3)], (111.0, 24.0), (38.0, 8.0))],
+        vec![],
+    );
+    row_in_panel_with(vec![board, panel_in_board])
+}
+
+fn row_in_panel_with(first: Vec<V>) -> Vec<u8> {
     let mut changes = page();
+    changes.extend(first);
     let mut row = vec![("size", vec2(100.0, 40.0)), ("transform", matrix(0.0, 0.0)), ("stackPrimarySizing", en("FIXED"))];
     row.extend(auto_layout("HORIZONTAL", 8.0, 10.0));
     changes.push(node((1, 1), (0, 1), "a", "SYMBOL", "Row", row));
@@ -647,6 +669,17 @@ fn edited_main_inside_the_holders_main_gives_the_record_free_sync() {
 fn no_change_sync_keeps_an_instance_reached_through_its_nested_copy() {
     let (mut doc, panel, row) = imported(&row_in_panel_fig(), "Panel instance", "Row");
     assert!(doc.get(panel).unwrap().component.imported_layout.is_some(), "the panel instance is recorded");
+    assert_record_free_sync_moves(&doc, row, panel);
+    assert_eq!(sync_and_compare(&mut doc, row, panel), Outcome::KeptStored);
+}
+
+/// The same inside a main: the Panel instance in Board is decided after the row in Panel it mirrors is back on its
+/// stored geometry, although both sit in one main each.
+#[test]
+fn no_change_sync_keeps_an_instance_in_a_main_reached_through_a_copy_from_another_main() {
+    let (mut doc, panel, row) = imported(&panel_in_board_fig(), "Panel in Board", "Row");
+    let row_in_panel = find(&doc, "Row in Panel", true);
+    assert!(panel < row_in_panel, "the instance that mirrors the row comes first in id order");
     assert_record_free_sync_moves(&doc, row, panel);
     assert_eq!(sync_and_compare(&mut doc, row, panel), Outcome::KeptStored);
 }
