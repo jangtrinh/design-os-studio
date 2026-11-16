@@ -290,7 +290,7 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
             primary_sizing: Sizing::Fixed,
             counter_sizing: Sizing::Hug,
             wrap: true,
-            counter_spacing: 14.0,
+            counter_spacing: Some(14.0),
             stroke_included: true,
             reverse_z: true,
             ..AutoLayout::default()
@@ -349,7 +349,7 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
     assert_eq!(imp_al.padding, [8.0, 16.0, 12.0, 20.0]);
     assert_eq!(imp_al.item_spacing, 10.0);
     assert!(imp_al.wrap);
-    assert_eq!(imp_al.counter_spacing, 14.0);
+    assert_eq!(imp_al.counter_spacing, Some(14.0));
     assert!(imp_al.stroke_included);
     assert!(imp_al.reverse_z);
     assert!(imp_comp.variables.bindings.contains_key("paddingLeft"));
@@ -671,7 +671,7 @@ fn roundtrip_figma_parity_grid_slots_axes_props_and_overrides() {
         auto_layout: Some(AutoLayout {
             direction: LayoutDirection::Grid,
             item_spacing: 12.0,
-            counter_spacing: 8.0,
+            counter_spacing: Some(8.0),
             padding: [16.0, 16.0, 16.0, 16.0],
             grid_columns: 3,
             grid_rows: 2,
@@ -809,7 +809,7 @@ fn roundtrip_figma_parity_grid_slots_axes_props_and_overrides() {
     assert_eq!(g_al.grid_columns, 3);
     assert_eq!(g_al.grid_rows, 2);
     assert_eq!(g_al.item_spacing, 12.0);
-    assert_eq!(g_al.counter_spacing, 8.0);
+    assert_eq!(g_al.counter_spacing, Some(8.0));
 
     let rt_cell = find(&rt, "HeroCell");
     assert_eq!(rt_cell.layout_child.col_span, 2);
@@ -1221,7 +1221,7 @@ fn rea_v106_all_seven_gaps_fidelity_and_roundtrip() {
     let grid_al = grid.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
     assert_eq!(grid_al.direction, LayoutDirection::Grid);
     assert_eq!(grid_al.item_spacing, 16.0);
-    assert_eq!(grid_al.counter_spacing, 24.0);
+    assert_eq!(grid_al.counter_spacing, Some(24.0));
     assert_eq!(grid_al.grid_columns, 4);
     assert_eq!(grid_al.grid_rows, 2);
     assert_eq!(&grid_al.grid_col_tracks[..4], &[GridTrack::Flex(1.0), GridTrack::Flex(2.0), GridTrack::Fixed(120.0), GridTrack::Hug]);

@@ -2534,7 +2534,9 @@ impl<'a> Ctx<'a> {
                 k => {
                     if let Some(al) = k.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
                         al.item_spacing *= s;
-                        al.counter_spacing *= s;
+                        if let Some(c) = &mut al.counter_spacing {
+                            *c *= s;
+                        }
                         al.padding.iter_mut().for_each(|p| *p *= s);
                     }
                 }
@@ -3564,7 +3566,7 @@ impl<'a> Ctx<'a> {
                     al.item_spacing = x;
                 }
                 if let Some(x) = fnum(set, "counterAxisSpacing") {
-                    al.counter_spacing = x;
+                    al.counter_spacing = Some(x);
                 }
                 for (idx, k) in [(0, "paddingTop"), (1, "paddingRight"), (2, "paddingBottom"), (3, "paddingLeft")] {
                     if let Some(x) = fnum(set, k) {
@@ -5118,7 +5120,7 @@ fn frame_props(v: &Value) -> FrameProps {
         let item_spacing = p("itemSpacing");
         // An absent counter gap on a wrap frame is Figma's "Auto" line gap: it follows the item spacing.
         // An explicit value, zero included, is kept.
-        let counter_spacing = fnum(v, "counterAxisSpacing").unwrap_or(if wrap { item_spacing } else { 0.0 });
+        let counter_spacing = fnum(v, "counterAxisSpacing");
         AutoLayout {
             direction,
             wrap,

@@ -1458,42 +1458,161 @@ pub enum Sizing {
     Fill,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct AutoLayout {
     pub direction: LayoutDirection,
     pub wrap: bool,
     pub item_spacing: f32,
-    pub counter_spacing: f32,
+    pub counter_spacing: Option<f32>,
     /// top, right, bottom, left
     pub padding: [f32; 4],
     pub primary_align: LayoutAlign,
     pub counter_align: LayoutAlign,
     /// Wrapped lines along the counter axis (`stackCounterAlignContent`); only used when `wrap` is on.
-    #[serde(default, skip_serializing_if = "is_default_counter_align_content")]
     pub counter_align_content: CounterAlignContent,
     /// Layout engine revision (`stackLayoutVersion`); 1 and up is the CSS-aligned layout.
-    #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub layout_version: u8,
     pub primary_sizing: Sizing,
     pub counter_sizing: Sizing,
     pub stroke_included: bool,
     pub reverse_z: bool,
-    #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub grid_columns: u32,
-    #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub grid_rows: u32,
-    #[serde(default, skip_serializing_if = "is_default_grid_tracks")]
     pub grid_col_tracks: GridTracks,
-    #[serde(default, skip_serializing_if = "is_default_grid_tracks")]
     pub grid_row_tracks: GridTracks,
-    #[serde(default, skip_serializing_if = "is_default_grid_auto_tracks")]
     pub grid_auto_tracks: GridAutoTracks,
+}
+
+impl Serialize for AutoLayout {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        #[serde(rename = "AutoLayout")]
+        struct AutoLayoutSer<'a> {
+            direction: LayoutDirection,
+            wrap: bool,
+            item_spacing: f32,
+            counter_spacing: f32,
+            #[serde(skip_serializing_if = "is_false")]
+            counter_spacing_auto: bool,
+            padding: &'a [f32; 4],
+            primary_align: LayoutAlign,
+            counter_align: LayoutAlign,
+            #[serde(skip_serializing_if = "is_default_counter_align_content")]
+            counter_align_content: &'a CounterAlignContent,
+            #[serde(skip_serializing_if = "is_zero_u8")]
+            layout_version: &'a u8,
+            primary_sizing: Sizing,
+            counter_sizing: Sizing,
+            stroke_included: bool,
+            reverse_z: bool,
+            #[serde(skip_serializing_if = "is_zero_u32")]
+            grid_columns: &'a u32,
+            #[serde(skip_serializing_if = "is_zero_u32")]
+            grid_rows: &'a u32,
+            #[serde(skip_serializing_if = "is_default_grid_tracks")]
+            grid_col_tracks: &'a GridTracks,
+            #[serde(skip_serializing_if = "is_default_grid_tracks")]
+            grid_row_tracks: &'a GridTracks,
+            #[serde(skip_serializing_if = "is_default_grid_auto_tracks")]
+            grid_auto_tracks: &'a GridAutoTracks,
+        }
+        let counter_spacing = match self.counter_spacing {
+            Some(cs) => cs,
+            None if self.item_spacing.is_finite() => self.line_gap(),
+            None => 0.0,
+        };
+        AutoLayoutSer {
+            direction: self.direction,
+            wrap: self.wrap,
+            item_spacing: self.item_spacing,
+            counter_spacing,
+            counter_spacing_auto: self.counter_spacing.is_none(),
+            padding: &self.padding,
+            primary_align: self.primary_align,
+            counter_align: self.counter_align,
+            counter_align_content: &self.counter_align_content,
+            layout_version: &self.layout_version,
+            primary_sizing: self.primary_sizing,
+            counter_sizing: self.counter_sizing,
+            stroke_included: self.stroke_included,
+            reverse_z: self.reverse_z,
+            grid_columns: &self.grid_columns,
+            grid_rows: &self.grid_rows,
+            grid_col_tracks: &self.grid_col_tracks,
+            grid_row_tracks: &self.grid_row_tracks,
+            grid_auto_tracks: &self.grid_auto_tracks,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for AutoLayout {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename = "AutoLayout")]
+        struct AutoLayoutDe {
+            direction: LayoutDirection,
+            wrap: bool,
+            item_spacing: f32,
+            counter_spacing: f32,
+            #[serde(default)]
+            counter_spacing_auto: bool,
+            padding: [f32; 4],
+            primary_align: LayoutAlign,
+            counter_align: LayoutAlign,
+            #[serde(default)]
+            counter_align_content: CounterAlignContent,
+            #[serde(default)]
+            layout_version: u8,
+            primary_sizing: Sizing,
+            counter_sizing: Sizing,
+            stroke_included: bool,
+            reverse_z: bool,
+            #[serde(default)]
+            grid_columns: u32,
+            #[serde(default)]
+            grid_rows: u32,
+            #[serde(default)]
+            grid_col_tracks: GridTracks,
+            #[serde(default)]
+            grid_row_tracks: GridTracks,
+            #[serde(default)]
+            grid_auto_tracks: GridAutoTracks,
+        }
+        let w = AutoLayoutDe::deserialize(deserializer)?;
+        Ok(Self {
+            direction: w.direction,
+            wrap: w.wrap,
+            item_spacing: w.item_spacing,
+            counter_spacing: (!w.counter_spacing_auto).then_some(w.counter_spacing),
+            padding: w.padding,
+            primary_align: w.primary_align,
+            counter_align: w.counter_align,
+            counter_align_content: w.counter_align_content,
+            layout_version: w.layout_version,
+            primary_sizing: w.primary_sizing,
+            counter_sizing: w.counter_sizing,
+            stroke_included: w.stroke_included,
+            reverse_z: w.reverse_z,
+            grid_columns: w.grid_columns,
+            grid_rows: w.grid_rows,
+            grid_col_tracks: w.grid_col_tracks,
+            grid_row_tracks: w.grid_row_tracks,
+            grid_auto_tracks: w.grid_auto_tracks,
+        })
+    }
 }
 
 impl AutoLayout {
     /// Default auto-layout for new frames created in Studio (version 1: CSS-aligned, borders inside the box).
     pub fn v1() -> Self {
         Self { layout_version: 1, ..Self::default() }
+    }
+
+    /// Counter-axis spacing (`stackCounterSpacing`). An unset gap (`None`) follows `item_spacing`
+    /// when `wrap` is on and is `0.0` otherwise.
+    pub fn line_gap(&self) -> f32 {
+        self.counter_spacing.unwrap_or(if self.wrap { self.item_spacing } else { 0.0 })
     }
 
     /// Effective `[top, right, bottom, left]` inset used by the layout solver.

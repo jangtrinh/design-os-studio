@@ -78,7 +78,7 @@ fn each_number_property_is_covered() {
         n.stroke.weight = 2.0;
         n.stroke.paints = vec![Paint::solid(BLUE)];
         n.kind = NodeKind::Frame(FrameProps {
-            auto_layout: Some(AutoLayout { item_spacing: 16.0, counter_spacing: 10.0, padding: [24.0, 6.0, 0.0, 0.0], ..AutoLayout::v1() }),
+            auto_layout: Some(AutoLayout { item_spacing: 16.0, counter_spacing: Some(10.0), padding: [24.0, 6.0, 0.0, 0.0], ..AutoLayout::v1() }),
             ..FrameProps::default()
         });
     }

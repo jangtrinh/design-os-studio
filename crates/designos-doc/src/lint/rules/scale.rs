@@ -437,24 +437,9 @@ pub fn evaluate_off_scale(
             check_scale_property(&scales.spacing, "spacing", false, node, page_bounds, xpath, severity, "itemSpacing", al.item_spacing, suppressed_props, out);
         }
 
-        if al.wrap
-            && al.counter_spacing >= 0.0
-            && !node.variables.bindings.contains_key("counterAxisSpacing")
-            && !number_inherited(node, src, "counterAxisSpacing")
-        {
-            check_scale_property(
-                &scales.spacing,
-                "spacing",
-                false,
-                node,
-                page_bounds,
-                xpath,
-                severity,
-                "counterAxisSpacing",
-                al.counter_spacing,
-                suppressed_props,
-                out,
-            );
+        let line_gap = al.line_gap();
+        if al.wrap && line_gap >= 0.0 && !node.variables.bindings.contains_key("counterAxisSpacing") && !number_inherited(node, src, "counterAxisSpacing") {
+            check_scale_property(&scales.spacing, "spacing", false, node, page_bounds, xpath, severity, "counterAxisSpacing", line_gap, suppressed_props, out);
         }
 
         for (i, key) in PADDING_KEYS.iter().enumerate() {

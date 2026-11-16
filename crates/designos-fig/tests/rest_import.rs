@@ -67,7 +67,7 @@ fn frame_properties() {
     assert_eq!(al.primary_sizing, Sizing::Hug);
     assert_eq!(al.counter_sizing, Sizing::Fixed);
     assert_eq!(al.padding, [8.0, 20.0, 12.0, 16.0]);
-    assert_eq!((al.item_spacing, al.counter_spacing), (10.0, 6.0));
+    assert_eq!((al.item_spacing, al.counter_spacing), (10.0, Some(6.0)));
     assert!(al.stroke_included && al.reverse_z && !al.wrap);
     assert_eq!(f.grids.len(), 3);
     assert!(matches!(f.grids[0], LayoutGrid::Columns { count: 4, .. }));
