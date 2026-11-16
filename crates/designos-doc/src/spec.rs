@@ -1844,8 +1844,10 @@ impl Document {
                 .get("counterAxisSpacing")
                 .and_then(|vid| self.export_var_ref(index, vid))
                 .map(NumberOrVar::Ref)
-                .unwrap_or_else(|| NumberOrVar::Num(al.line_gap()));
-            let counter_gap = (!counter_gap.is_zero()).then_some(counter_gap);
+                .or_else(|| al.counter_spacing.map(NumberOrVar::Num));
+            // An omitted counter_gap applies as "follows item spacing", so only a gap that follows item spacing is
+            // left out, plus a zero gap on a frame that does not wrap, where both resolve to no gap.
+            let counter_gap = counter_gap.filter(|g| al.wrap || !g.is_zero());
             let pad_keys = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
             let padding: [NumberOrVar; 4] = std::array::from_fn(|i| {
                 n.variables
@@ -2060,6 +2062,31 @@ pub fn estimate_intrinsic_text_size(tp: &TextProps) -> Vec2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_then_apply_keeps_a_wrapped_line_gap_explicit_or_following_item_spacing() {
+        let mut doc = Document::new("wrap-line-gap");
+        let page = doc.add_page("Page");
+        for (gap, wrap) in [(Some(0.0), true), (Some(24.0), true), (None, true), (None, false), (Some(0.0), false)] {
+            let spec: NodeSpec = serde_json::from_value(serde_json::json!({
+                "kind": "frame",
+                "name": "Row",
+                "layout": { "direction": "row", "wrap": wrap, "gap": 16 }
+            }))
+            .unwrap();
+            let id = doc.apply_spec(page, &spec).unwrap();
+            if let Some(al) = doc.get_mut(id).unwrap().kind.frame_props_mut().unwrap().auto_layout.as_mut() {
+                al.counter_spacing = gap;
+            }
+            let exported = doc.export_spec(id).unwrap();
+            let back = doc.apply_spec(page, &exported).unwrap();
+            let al = doc.get(back).unwrap().kind.frame_props().unwrap().auto_layout.clone().unwrap();
+            let want = if !wrap && gap == Some(0.0) { None } else { gap };
+            assert_eq!(al.counter_spacing, want, "wrap {wrap}, counter spacing {gap:?}");
+            let src = doc.get(id).unwrap().kind.frame_props().unwrap().auto_layout.clone().unwrap();
+            assert_eq!(al.line_gap(), src.line_gap(), "wrap {wrap}, counter spacing {gap:?}");
+        }
+    }
 
     #[test]
     fn hug_text_max_width_wraps_and_grows_height() {
