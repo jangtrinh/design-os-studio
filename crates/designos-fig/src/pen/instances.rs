@@ -774,7 +774,7 @@ fn apply_descendant_overrides(
                     }
                     if let Some(gap) = gap_opt {
                         al.item_spacing = gap;
-                        al.counter_spacing = gap;
+                        al.counter_spacing = Some(gap);
                     }
                     if let Some(jc) = jc_opt {
                         al.primary_align = jc;

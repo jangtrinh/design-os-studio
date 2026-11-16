@@ -727,7 +727,7 @@ fn grid_slot_frame_keeps_slot_parameter_in_swiftui_and_compose() {
             direction: LayoutDirection::Grid,
             grid_columns: 2,
             item_spacing: 8.0,
-            counter_spacing: 8.0,
+            counter_spacing: Some(8.0),
             primary_sizing: Sizing::Fixed,
             counter_sizing: Sizing::Hug,
             ..Default::default()

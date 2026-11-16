@@ -52,3 +52,31 @@ fn files_written_before_the_fields_existed_load_with_defaults() {
     let text = back.nodes.values().find_map(|n| if let NodeKind::Text(t) = &n.kind { Some(t) } else { None }).unwrap();
     assert_eq!(text.text_wrap, TextWrap::Auto);
 }
+
+#[test]
+fn old_designos_file_loads_as_some_and_saves_byte_identical() {
+    let mut legacy_doc = doc(
+        AutoLayout { direction: LayoutDirection::Horizontal, wrap: true, item_spacing: 16.0, counter_spacing: Some(12.0), ..Default::default() },
+        TextWrap::Auto,
+    );
+    let legacy_json = legacy_doc.to_json().unwrap();
+    assert!(!legacy_json.contains("counter_spacing_auto"), "explicit Some must not write marker: {legacy_json}");
+    let loaded = Document::from_json(&legacy_json).unwrap();
+    let al = loaded.nodes.values().find_map(|n| n.kind.frame_props().and_then(|f| f.auto_layout.as_ref())).unwrap();
+    assert_eq!((al.counter_spacing, al.line_gap()), (Some(12.0), 12.0));
+    assert_eq!(loaded.to_json().unwrap(), legacy_json, "saving a document whose gaps are all Some must be byte-identical to main");
+    let _ = &mut legacy_doc;
+}
+
+#[test]
+fn none_counter_spacing_writes_resolved_number_plus_marker_and_round_trips() {
+    let d =
+        doc(AutoLayout { direction: LayoutDirection::Horizontal, wrap: true, item_spacing: 24.0, counter_spacing: None, ..Default::default() }, TextWrap::Auto);
+    let json = d.to_json().unwrap();
+    assert!(json.contains("\"counter_spacing\":24.0"), "older Studio builds need the resolved number in counter_spacing: {json}");
+    assert!(json.contains("\"counter_spacing_auto\":true"), "marker field must be written for None: {json}");
+    let back = Document::from_json(&json).unwrap();
+    let al = back.nodes.values().find_map(|n| n.kind.frame_props().and_then(|f| f.auto_layout.as_ref())).unwrap();
+    assert_eq!((al.counter_spacing, al.line_gap()), (None, 24.0));
+    assert_eq!(back.to_json().unwrap(), json);
+}

@@ -1067,7 +1067,7 @@ pub fn analyze_spacing(doc: &Document, page: Option<NodeId>) -> Value {
         doc.walk(root, |n, _| {
             if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
                 record(al.item_spacing);
-                record(al.counter_spacing);
+                record(al.line_gap());
                 for &p in &al.padding {
                     record(p);
                 }

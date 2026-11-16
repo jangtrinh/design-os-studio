@@ -234,6 +234,7 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
         .collect();
     // Does the frame's cross extent exceed what its lines need (a Fixed frame, or a hugging one raised by its minimum)?
     let mut cross_has_slack = !hug_cross;
+    let line_gap = al.line_gap();
     if !al.wrap {
         if hug_cross {
             frame_cross = ax.clamp_cross(&own, line_cross[0] + pc);
@@ -243,7 +244,7 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
             line_cross[0] = (frame_cross - pc).max(0.0);
         }
     } else {
-        let total: f32 = line_cross.iter().sum::<f32>() + al.counter_spacing * (lines.len() as f32 - 1.0);
+        let total: f32 = line_cross.iter().sum::<f32>() + line_gap * (lines.len() as f32 - 1.0);
         if hug_cross {
             frame_cross = ax.clamp_cross(&own, total + pc);
             cross_has_slack = frame_cross - pc > total + 1e-3;
@@ -252,14 +253,14 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
 
     // Wrapped lines spread edge to edge (CSS align-content: space-between); the counter spacing stays the minimum gap.
     let counter_gap = if al.wrap && al.counter_align_content == CounterAlignContent::SpaceBetween && lines.len() > 1 && cross_has_slack {
-        ((frame_cross - pc - line_cross.iter().sum::<f32>()) / (lines.len() as f32 - 1.0)).max(al.counter_spacing)
+        ((frame_cross - pc - line_cross.iter().sum::<f32>()) / (lines.len() as f32 - 1.0)).max(line_gap)
     } else {
-        al.counter_spacing
+        line_gap
     };
     let mut rects = vec![Rect::default(); kids.len()];
     let mut cross_cursor = pc_start;
     if al.wrap && lines.len() > 1 && cross_has_slack && al.counter_align_content == CounterAlignContent::Auto && !kids.iter().all(|k| k.stretches_cross()) {
-        let used: f32 = line_cross.iter().sum::<f32>() + al.counter_spacing * (lines.len() as f32 - 1.0);
+        let used: f32 = line_cross.iter().sum::<f32>() + line_gap * (lines.len() as f32 - 1.0);
         let slack = (frame_cross - pc - used).max(0.0);
         cross_cursor += match al.counter_align {
             LayoutAlign::Center => slack / 2.0,
@@ -524,7 +525,7 @@ mod tests {
                 direction: LayoutDirection::Horizontal,
                 counter_sizing: Sizing::Hug,
                 wrap: true,
-                counter_spacing: 10.0,
+                counter_spacing: Some(10.0),
                 ..Default::default()
             }),
             ..Default::default()
@@ -984,7 +985,7 @@ mod tests {
             primary_align: LayoutAlign::Center,
             counter_align,
             item_spacing: 32.0,
-            counter_spacing: 32.0,
+            counter_spacing: Some(32.0),
             padding: [32.0, 32.0, 32.0, 32.0],
             ..AutoLayout::default()
         }

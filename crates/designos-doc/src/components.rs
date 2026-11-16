@@ -2973,7 +2973,7 @@ fn apply_transferred_layout(orig: &Node, new_orig: &Node, old: &Node, nn: &mut N
                     kept_any = true;
                 }
             }
-            let strip = |al: &AutoLayout| AutoLayout { padding: [0.0; 4], item_spacing: 0.0, counter_spacing: 0.0, ..al.clone() };
+            let strip = |al: &AutoLayout| AutoLayout { padding: [0.0; 4], item_spacing: 0.0, counter_spacing: None, ..al.clone() };
             if strip(fa) != strip(oa) {
                 any_user_diff = true;
                 if strip(oa) == strip(na) {
@@ -3377,6 +3377,13 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
     if (!(top && swapped_here) || kept_size_override) && c.s.get(i).is_some_and(|x| x.kind.is_container()) {
         if let Some(slot_after) = c.s.get(i).map(|x| x.size).filter(|&sz| sz != rn.size) {
             apply_instance_constraints(c, i, rn.size, slot_after, 64);
+        } else if c.s.get(i).is_some_and(|x| {
+            x.component.has_override(&OverrideField::Layout)
+                && x.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some()
+                && x.kind.frame_props().map(|f| &f.auto_layout) != rn.kind.frame_props().map(|f| &f.auto_layout)
+        }) {
+            let sz = c.s.get(i).map(|x| x.size).unwrap_or(rn.size);
+            solve_instance_auto_layout(c, i, sz, sz, 64);
         }
     }
     seen.truncate(seen_before);
@@ -3449,6 +3456,13 @@ fn sync_children_from_scratch(c: &mut Ctx, scratch: &Document, ref_id: NodeId, i
     if c.s.get(i).is_some_and(|x| x.kind.is_container()) {
         if let Some(slot_after) = c.s.get(i).map(|x| x.size).filter(|&sz| sz != rn.size) {
             apply_instance_constraints(c, i, rn.size, slot_after, 64);
+        } else if c.s.get(i).is_some_and(|x| {
+            x.component.has_override(&OverrideField::Layout)
+                && x.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some()
+                && x.kind.frame_props().map(|f| &f.auto_layout) != rn.kind.frame_props().map(|f| &f.auto_layout)
+        }) {
+            let sz = c.s.get(i).map(|x| x.size).unwrap_or(rn.size);
+            solve_instance_auto_layout(c, i, sz, sz, 64);
         }
     }
 }
@@ -11966,7 +11980,7 @@ mod tests {
                 counter_sizing: Sizing::Hug,
                 padding: [0.0; 4],
                 item_spacing: 0.0,
-                counter_spacing: 0.0,
+                counter_spacing: Some(0.0),
                 ..Default::default()
             });
         }
@@ -12092,7 +12106,7 @@ mod tests {
                 counter_sizing: Sizing::Hug,
                 padding: [0.0; 4],
                 item_spacing: 0.0,
-                counter_spacing: 0.0,
+                counter_spacing: Some(0.0),
                 ..Default::default()
             });
         }

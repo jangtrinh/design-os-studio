@@ -455,4 +455,52 @@ mod tests {
         );
         assert_eq!(n, &expected);
     }
+
+    #[test]
+    fn update_node_and_apply_spec_writers_preserve_none_on_item_spacing_and_set_some_on_counter_gap() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        e.call(
+            "designos_apply_batch",
+            json!({
+                "ops": [{
+                    "op": "set_variables",
+                    "upsert_collections": [{ "id": "col:spacing", "name": "Spacing" }],
+                    "upsert_variables": [
+                        { "id": "var:gap_20", "name": "gap_20", "collection": "col:spacing", "kind": "Number", "values": { "light": 20.0 } },
+                        { "id": "var:gap_12", "name": "gap_12", "collection": "col:spacing", "kind": "Number", "values": { "light": 12.0 } }
+                    ]
+                }]
+            }),
+        )
+        .unwrap();
+
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "frame",
+                        "name": "WrapRow",
+                        "width": 200,
+                        "layout": { "direction": "row", "wrap": true, "gap": 16 }
+                    }
+                }),
+            )
+            .unwrap();
+        let fid = NodeId(res["root_node_id"].as_u64().unwrap());
+        let al = e.doc.get(fid).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        assert_eq!((al.item_spacing, al.counter_spacing, al.line_gap()), (16.0, None, 16.0));
+
+        // Binding itemSpacing via update_node leaves counter_spacing as None so line_gap follows 20.0.
+        e.call("designos_update_node", json!({ "node_id": fid.0, "bindings": { "itemSpacing": "var:gap_20" } })).unwrap();
+        let al = e.doc.get(fid).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        assert_eq!((al.item_spacing, al.counter_spacing, al.line_gap()), (20.0, None, 20.0));
+
+        // Binding counterAxisSpacing via update_node makes counter_spacing explicit Some(12.0).
+        e.call("designos_update_node", json!({ "node_id": fid.0, "bindings": { "counterAxisSpacing": "var:gap_12" } })).unwrap();
+        let al = e.doc.get(fid).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        assert_eq!((al.item_spacing, al.counter_spacing, al.line_gap()), (20.0, Some(12.0), 12.0));
+    }
 }
