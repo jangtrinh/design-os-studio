@@ -1,0 +1,49 @@
+# Fix round 1: T5b MCP table op (PR #1797, branch jangtrinh/tables-t5b-mcp, HEAD a69be1207)
+
+Controller: Claude Code (Opus), 2026-11-08. The Opus review verdict is NEEDS_CHANGES. Read the whole review first:
+/Users/jangtrinh/Products/design-os-studio/plans/261106-2245-epic-waves/specs/tables-0710/reports/review-t5b-opus.md
+Probes and logs are in /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/321cb55d-2bf5-4d6e-94ae-a4c01d2c117b/scratchpad/review-t5b/evidence/
+
+Your "done" is not evidence. Every claim must be backed by output you pasted. The review found test files in your report that do not exist, so fix that first.
+
+Same rules as before:
+- crates/designos-mcp only.
+- Run `git branch --show-current` before every commit.
+- No rebase, amend or force-push. Fast-forward push only.
+- Never use pkill or killall.
+
+## Merge order (controller ruling)
+The order is T4, then the #1796 live-patch replay fix, then T5b. The #1796 fix lives in designos-app and is NOT yours. T5b stays a draft until #1796 merges.
+
+## Fix these. Each one needs a named test that is red on a69be1207 and green after the fix.
+1. Remove the `rotation` parameter you added to `designos_update_node` and batch `update`. It is outside the spec, and it erases flips.
+2. Acceptance gaps:
+   - Add a `designos_get_metadata` test.
+   - The merge-overlap test must assert `failed_op`.
+   - The 50x50 test must check all 2,500 cell keys.
+   - Remove the 500 ms wall-clock assert from the default suite. Make it `#[ignore]`, with a note to run it in release.
+   - The tool snapshot diff must contain ONLY the new op: restore the `connect` endpoint schema.
+3. ledger_reconnect.rs: when one table patch fails, skip only that patch and report it. It must never discard unrelated agent edits. Use the reviewer's lost-rectangle case as the test.
+4. Write tests for the R-T1-2 commit-point checks in batch.rs and ledger_reconnect.rs. Removing a check must turn a test red.
+5. No MCP-only limits. Use designos-doc's limits and resize semantics: a single source, no extra track cap and no different minimums. `resize` changes only what the request asks for. Fix the schema text to match.
+6. New-cell text style: do NOT hard-code #B3B3B5 or any default look in MCP. Call designos-doc's own row and column insert ops and keep whatever style they give the new cells. If designos-doc gives new cells no style, report it and stop on this item. The controller will route a shared-layer fix (the cell inherits its neighbour's style).
+7. Tool description:
+   - The action is `resize`, not `resize_table`.
+   - Mention `table` in the top-level description.
+   - Regenerate the tool docs, then run the docs-are-current test.
+8. Correct your report:
+   - Remove the nonexistent test files.
+   - Cell text is 16 px.
+   - Remove the false spec citations.
+   - NoChange comes from R-T1-11.
+
+## Gates (paste raw output and exit codes)
+- `cargo fmt --all -- --check`
+- `cargo clippy -p designos-mcp --locked --bins --tests -- -D warnings`
+- `cargo test -p designos-mcp --locked`
+
+Then push fast-forward. Keep the PR a DRAFT.
+
+Append a "Fix round 1" section to agy-t5b-mcp-table-op.md. Put what could NOT be verified first. The last line is `Status: ...`.
+
+Do not end your turn while a cargo task you started is still running.

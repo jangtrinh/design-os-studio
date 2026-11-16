@@ -172,6 +172,9 @@ fn fp_tree(nodes: &BTreeMap<NodeId, Node>, id: NodeId, refs: &BTreeMap<NodeId, S
     for v in c.variables.bindings.values_mut() {
         *v = strip(v, prefix).to_string();
     }
+    for v in c.component.prop_default_variables.values_mut() {
+        *v = strip(v, prefix).to_string();
+    }
     c.variables.modes =
         std::mem::take(&mut c.variables.modes).into_iter().map(|(k, v)| (strip(&k, prefix).to_string(), strip(&v, prefix).to_string())).collect();
     h.write(&serde_json::to_string(&c).unwrap_or_default());
@@ -320,10 +323,15 @@ pub fn publishable_assets(doc: &Document) -> Vec<(String, LibraryAssetKind, Stri
     }
     // A soft-deleted collection or variable is not published as an asset (a variable's `is_publishable` says so);
     // `snapshot` still carries one that a published component binds to, so the component renders as it does here.
-    for (id, c) in doc.variable_collections.iter().filter(|(id, c)| !imported.contains(id.as_str()) && !c.is_soft_deleted()) {
+    for (id, c) in doc.variable_collections.iter().filter(|(id, c)| !imported.contains(id.as_str()) && !c.is_soft_deleted() && !c.is_hidden_from_publishing()) {
         out.push((format!("col:{id}"), LibraryAssetKind::VariableCollection, c.name.clone()));
     }
-    for (id, v) in doc.variables.iter().filter(|(id, v)| !imported.contains(id.as_str()) && v.is_publishable() && !in_extension(doc, v)) {
+    for (id, v) in doc.variables.iter().filter(|(id, v)| {
+        !imported.contains(id.as_str())
+            && v.is_publishable()
+            && !in_extension(doc, v)
+            && !doc.variable_collections.get(&v.collection).is_some_and(VariableCollection::is_hidden_from_publishing)
+    }) {
         out.push((format!("var:{id}"), LibraryAssetKind::Variable, v.name.clone()));
     }
     out
@@ -380,6 +388,7 @@ pub fn snapshot(doc: &Document, library_id: &str, name: &str, version: u32) -> L
     for n in snap.nodes.values() {
         style_keys.extend(n.style_refs.values().cloned());
         var_ids.extend(n.variables.bindings.values().cloned());
+        var_ids.extend(n.component.prop_default_variables.values().cloned());
         coll_ids.extend(n.variables.modes.keys().cloned());
         image_refs_of(n, &mut images);
     }
@@ -453,6 +462,7 @@ pub fn snapshot(doc: &Document, library_id: &str, name: &str, version: u32) -> L
     for n in snap.nodes.values_mut() {
         n.style_refs.retain(|_, v| styles.contains(v));
         n.variables.bindings.retain(|_, v| vars.contains(v));
+        n.component.prop_default_variables.retain(|_, v| vars.contains(v) || v.starts_with("key:"));
         n.variables.modes.retain(|k, _| colls.contains(k));
     }
     for m in snap.style_meta.values_mut() {
@@ -1025,6 +1035,7 @@ impl<'a> Trial<'a> {
             let n = &self.snap.nodes[id];
             styles.extend(n.style_refs.values().cloned());
             vars.extend(n.variables.bindings.values().cloned());
+            vars.extend(n.component.prop_default_variables.values().cloned());
             colls.extend(n.variables.modes.keys().cloned());
         }
         for s in styles {
@@ -1072,6 +1083,11 @@ impl<'a> Trial<'a> {
         }
         for v in n.variables.bindings.values_mut() {
             *v = self.ns(v);
+        }
+        for v in n.component.prop_default_variables.values_mut() {
+            if !v.starts_with("key:") {
+                *v = self.ns(v);
+            }
         }
         n.variables.modes = std::mem::take(&mut n.variables.modes)
             .into_iter()
@@ -1744,6 +1760,58 @@ mod tests {
     }
 
     #[test]
+    fn hidden_variable_collections_are_not_published() {
+        let mut d = lib_doc();
+        d.variable_collections.get_mut("c1").unwrap().set_hidden_from_publishing(true);
+        let expected_assets = vec![
+            ("c2".to_string(), LibraryAssetKind::Component, "Button".to_string()),
+            ("style:Brand".to_string(), LibraryAssetKind::Style, "Brand".to_string()),
+            ("col:c2".to_string(), LibraryAssetKind::VariableCollection, "Alias".to_string()),
+            ("var:v2".to_string(), LibraryAssetKind::Variable, "Gap".to_string()),
+        ];
+        assert_eq!(publishable_assets(&d), expected_assets, "hidden collection and its variables stay out of publishable_assets");
+
+        // Native .designos save and reopen keeps the hidden collection state.
+        let reopened = Document::from_json(&d.to_json().unwrap()).unwrap();
+        assert!(reopened.variable_collections["c1"].is_hidden_from_publishing());
+        assert!(!reopened.variable_collections["c2"].is_hidden_from_publishing());
+        assert_eq!(publishable_assets(&reopened), expected_assets);
+    }
+
+    #[test]
+    fn alias_in_visible_collection_to_hidden_collection_resolves_for_consumer() {
+        let mut d = lib_doc();
+        d.variable_collections.get_mut("c1").unwrap().set_hidden_from_publishing(true);
+        let snap = snapshot(&d, "L1", "Lib", 1);
+        let snap_assets: Vec<(String, LibraryAssetKind, String)> = snap.assets.iter().map(|a| (a.key.clone(), a.kind, a.name.clone())).collect();
+        assert_eq!(
+            snap_assets,
+            vec![
+                ("c2".to_string(), LibraryAssetKind::Component, "Button".to_string()),
+                ("style:Brand".to_string(), LibraryAssetKind::Style, "Brand".to_string()),
+                ("col:c2".to_string(), LibraryAssetKind::VariableCollection, "Alias".to_string()),
+                ("var:v2".to_string(), LibraryAssetKind::Variable, "Gap".to_string()),
+            ]
+        );
+        // The hidden collection and its variable cannot be imported directly as published assets.
+        let mut app = consumer();
+        let noop_col = import_asset(&mut app, &snap, "col:c1", None);
+        run(&mut app, noop_col);
+        let noop_var = import_asset(&mut app, &snap, "var:v1", None);
+        run(&mut app, noop_var);
+        assert!(app.variables.is_empty() && app.variable_collections.is_empty());
+
+        // Importing the visible alias variable pulls the backing hidden variable and collection
+        // from the snapshot closure so the consumer resolves the concrete value without false removal diffs.
+        let cmd = import_asset(&mut app, &snap, "var:v2", None);
+        run(&mut app, cmd);
+        assert_eq!(app.variables["L1/v2"].values.get("m"), Some(&VariableValue::Alias("L1/v1".into())));
+        assert!(app.variable_collections["L1/c1"].is_hidden_from_publishing());
+        assert_eq!(app.resolve_variable(NodeId(0), "L1/v2"), Some(VariableValue::Number(8.0)));
+        assert_eq!(pending_updates(&app, &snap), Vec::new());
+    }
+
+    #[test]
     fn import_copies_component_styles_and_variables_with_alias_closure() {
         let lib = lib_doc();
         let snap = snapshot(&lib, "L1", "Lib", 1);
@@ -2227,5 +2295,62 @@ mod tests {
         h.undo(&mut d).unwrap();
         assert_eq!(d.get(plain).unwrap(), &before_plain);
         assert_eq!(d.get(over).unwrap(), &before_over);
+    }
+
+    #[test]
+    fn library_publish_and_insert_preserve_and_namespace_bound_property_defaults() {
+        let mut lib = lib_doc();
+        lib.variable_collections.get_mut("c1").unwrap().variables.push("v_def".into());
+        lib.variables.insert(
+            "v_def".into(),
+            Variable {
+                id: "v_def".into(),
+                name: "DefaultLabel".into(),
+                collection: "c1".into(),
+                kind: VariableKind::String,
+                values: [("m".to_string(), VariableValue::String("Confirm".into()))].into(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        // Mark v_def soft-deleted so only its reference in `prop_default_variables` pulls it into the snapshot.
+        lib.variables.get_mut("v_def").unwrap().extensions.insert(SOFT_DELETED_EXTENSION_KEY.into(), serde_json::Value::Bool(true));
+
+        let lib_comp_id = lib.nodes.values().find(|n| n.name == "Button").unwrap().id;
+        let lib_comp = lib.get_mut(lib_comp_id).unwrap();
+        lib_comp.component.props.push(ComponentPropDef { name: "Label".into(), kind: PropKind::Text, default: PropValue::Text("Submit".into()) });
+        lib_comp.component.prop_default_variables.insert("Label".into(), "v_def".into());
+        lib_comp.component.prop_default_variables.insert("Remote".into(), "key:remote_var".into());
+        lib_comp.component.prop_default_variables.insert("Dangling".into(), "v_nonexistent".into());
+
+        let snap = snapshot(&lib, "L1", "Lib", 1);
+        assert!(snap.variables.contains_key("v_def"), "snapshot must collect variables referenced in prop_default_variables");
+        let snap_comp = snap.nodes.values().find(|n| n.name == "Button").unwrap();
+        assert!(!snap_comp.component.prop_default_variables.contains_key("Dangling"), "snapshot must prune dangling prop_default_variables");
+        assert_eq!(snap_comp.component.prop_default_variables.get("Label").map(String::as_str), Some("v_def"));
+        assert_eq!(
+            snap_comp.component.prop_default_variables.get("Remote").map(String::as_str),
+            Some("key:remote_var"),
+            "key: id must survive library snapshot retain"
+        );
+
+        let mut d = consumer();
+        let key = button_key(&lib);
+        let page = d.pages[0];
+        let cmd = import_asset(&mut d, &snap, &key, Some(Placement { parent: page, at: Vec2::new(5.0, 6.0) }));
+        run(&mut d, cmd);
+
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let comp = instance_component(d.get(inst).unwrap()).unwrap();
+        assert_eq!(d.get(comp).unwrap().component.prop_default_variables.get("Label").map(String::as_str), Some("L1/v_def"));
+        assert_eq!(d.get(comp).unwrap().component.prop_default_variables.get("Remote").map(String::as_str), Some("key:remote_var"));
+        assert!(d.variables.contains_key("L1/v_def"), "the prefixed variable id must exist in the receiving document");
+        assert!(d.get(inst).unwrap().component.prop_default_variables.is_empty(), "instance must not store prop_default_variables");
+        assert_eq!(pending_updates(&d, &snap), vec![], "fingerprint must strip library prefix on prop_default_variables");
     }
 }

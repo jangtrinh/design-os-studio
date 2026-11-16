@@ -337,7 +337,7 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
         }
     }
     geometry(new_transform.tx, new_transform.ty, new_size.x, new_size.y)?;
-    if matches!(node.kind, NodeKind::Vector { .. }) {
+    if matches!(node.kind, NodeKind::Vector { .. } | NodeKind::Line) {
         designos_doc::apply_constrained_geometry(&mut node, new_transform, new_size);
     } else {
         node.transform = new_transform;
@@ -407,4 +407,100 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
     }
     let changed = doc.get(id) != Some(&node);
     Ok((node, changed, warnings))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::engine::Engine;
+    use designos_doc::*;
+    use serde_json::json;
+
+    #[test]
+    fn an_imported_line_scales_its_stored_outline_when_resized_by_mcp() {
+        let mut e = Engine::new();
+        let page = NodeId(e.resolve_default_page().unwrap().0);
+        let id = e.doc.alloc_id();
+        let mut line = Node::new(id, NodeKind::Line);
+        line.size = Vec2::new(100.0, 0.0);
+        line.stroke.weight = 10.0;
+        line.stroke_geometry = Some(vec![Path {
+            cmds: vec![
+                PathCmd::MoveTo(Vec2::new(-5.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(105.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(105.0, 0.0)),
+                PathCmd::LineTo(Vec2::new(-5.0, 0.0)),
+                PathCmd::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+        }]);
+        let line = e.doc.insert(page, line).unwrap();
+        let mut expected = e.doc.get(line).unwrap().clone();
+        let tf = expected.transform;
+        apply_constrained_geometry(&mut expected, tf, Vec2::new(200.0, 0.0));
+
+        e.call("designos_update_node", json!({"node_id": line.0, "width": 200.0, "height": 0.0})).unwrap();
+        let n = e.doc.get(line).unwrap();
+        assert_eq!(
+            n.stroke_geometry,
+            Some(vec![Path {
+                cmds: vec![
+                    PathCmd::MoveTo(Vec2::new(-5.0, -10.0)),
+                    PathCmd::LineTo(Vec2::new(205.0, -10.0)),
+                    PathCmd::LineTo(Vec2::new(205.0, 0.0)),
+                    PathCmd::LineTo(Vec2::new(-5.0, 0.0)),
+                    PathCmd::Close,
+                ],
+                fill_rule: FillRule::NonZero,
+            }])
+        );
+        assert_eq!(n, &expected);
+    }
+
+    #[test]
+    fn update_node_and_apply_spec_writers_preserve_none_on_item_spacing_and_set_some_on_counter_gap() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        e.call(
+            "designos_apply_batch",
+            json!({
+                "ops": [{
+                    "op": "set_variables",
+                    "upsert_collections": [{ "id": "col:spacing", "name": "Spacing" }],
+                    "upsert_variables": [
+                        { "id": "var:gap_20", "name": "gap_20", "collection": "col:spacing", "kind": "Number", "values": { "light": 20.0 } },
+                        { "id": "var:gap_12", "name": "gap_12", "collection": "col:spacing", "kind": "Number", "values": { "light": 12.0 } }
+                    ]
+                }]
+            }),
+        )
+        .unwrap();
+
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "frame",
+                        "name": "WrapRow",
+                        "width": 200,
+                        "layout": { "direction": "row", "wrap": true, "gap": 16 }
+                    }
+                }),
+            )
+            .unwrap();
+        let fid = NodeId(res["root_node_id"].as_u64().unwrap());
+        let al = e.doc.get(fid).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        assert_eq!((al.item_spacing, al.counter_spacing, al.line_gap()), (16.0, None, 16.0));
+
+        // Binding itemSpacing via update_node leaves counter_spacing as None so line_gap follows 20.0.
+        e.call("designos_update_node", json!({ "node_id": fid.0, "bindings": { "itemSpacing": "var:gap_20" } })).unwrap();
+        let al = e.doc.get(fid).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        assert_eq!((al.item_spacing, al.counter_spacing, al.line_gap()), (20.0, None, 20.0));
+
+        // Binding counterAxisSpacing via update_node makes counter_spacing explicit Some(12.0).
+        e.call("designos_update_node", json!({ "node_id": fid.0, "bindings": { "counterAxisSpacing": "var:gap_12" } })).unwrap();
+        let al = e.doc.get(fid).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        assert_eq!((al.item_spacing, al.counter_spacing, al.line_gap()), (20.0, Some(12.0), 12.0));
+    }
 }

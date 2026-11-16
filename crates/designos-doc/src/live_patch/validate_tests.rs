@@ -112,6 +112,86 @@ fn a_failed_replay_leaves_no_id_remaps_behind() {
 }
 
 #[test]
+fn a_refused_checked_replay_restores_document_metadata() {
+    let (mut doc, page, frame_id) = doc_with_frame();
+    let table_cmd = crate::table_ops::create_table(&doc, page, crate::Vec2::new(0.0, 0.0), 1, 1, &crate::TableStyle::default()).unwrap();
+    table_cmd.apply(&mut doc).unwrap();
+    let table_id = *doc.get(page).unwrap().children.last().unwrap();
+
+    let mut invalid_table = doc.get(table_id).unwrap().clone();
+    if let crate::NodeKind::Table(props) = &mut invalid_table.kind {
+        props.rows.push(crate::TableTrack { id: crate::TrackId { session: 99, local: 1 }, size: 24.0 });
+    } else {
+        panic!("table fixture did not create a table");
+    }
+    let set_kind = [("kind".to_string(), serde_json::to_value(invalid_table.kind).unwrap())].into_iter().collect();
+    let inserted = crate::Node::rectangle(frame_id, crate::Rect::new(0.0, 0.0, 5.0, 5.0));
+    let marker_id = frame_id;
+    let marker = crate::InProgress::new(Some("Codex".into()), Some("reconnect".into()), crate::now_ms());
+    let patch = LivePatch::new(vec![
+        LiveOp::SetInProgress { node: marker_id, state: Some(marker) },
+        LiveOp::Insert { parent: page, at: SiblingHint::default(), nodes: vec![inserted] },
+        LiveOp::Update { id: table_id, set: set_kind, unset: Vec::new() },
+    ]);
+    let before_nodes = doc.nodes.clone();
+    let before_next = doc.peek_next_id();
+    let before_gap = doc.gap_cursor;
+    let before_in_progress = doc.in_progress.clone();
+    doc.mark_node_dirty(frame_id);
+    doc.pending_relayout.push(frame_id);
+    doc.layout_epoch = 41;
+    let before_dirty = doc.dirty.clone();
+    let before_pending = doc.pending_relayout.clone();
+    let before_layout_epoch = doc.layout_epoch;
+
+    let result = replay_live_patch_checked(&mut doc, &patch, &mut LivePatchState::default());
+    assert!(result.is_err(), "invalid table patch must be refused");
+    assert_eq!(doc.nodes, before_nodes, "a refused patch must roll back nodes");
+    assert_eq!(doc.peek_next_id(), before_next, "a refused patch must roll back the id watermark");
+    assert_eq!(doc.gap_cursor, before_gap, "a refused patch must roll back the id gap cursor");
+    assert_eq!(doc.in_progress, before_in_progress, "a refused patch must roll back transient work state");
+    assert_eq!(doc.dirty, before_dirty, "a refused patch must roll back dirty metadata");
+    assert_eq!(doc.pending_relayout, before_pending, "a refused patch must roll back pending layout work");
+    assert_eq!(doc.layout_epoch, before_layout_epoch, "a refused patch must roll back the layout epoch");
+}
+
+#[test]
+fn an_agent_insert_row_keeps_a_user_resized_column() {
+    let mut agent = Document::new("agent table");
+    let page = agent.add_page("Page");
+    let table_cmd = crate::table_ops::create_table(&agent, page, crate::Vec2::new(0.0, 0.0), 2, 2, &crate::TableStyle::default()).unwrap();
+    table_cmd.apply(&mut agent).unwrap();
+    let table_id = *agent.get(page).unwrap().children.last().unwrap();
+    let mut editor = agent.clone();
+    let column_id = match &editor.get(table_id).unwrap().kind {
+        crate::NodeKind::Table(props) => props.cols[0].id,
+        _ => panic!("table fixture did not create a table"),
+    };
+    crate::table_ops::resize_col(&editor, table_id, column_id, 300.0).unwrap().apply(&mut editor).unwrap();
+
+    let agent_insert = crate::table_ops::insert_rows(&agent, table_id, 1, 1).unwrap();
+    let patch = LivePatch::new(live_ops_for_command(&agent, &agent_insert).unwrap());
+    replay_live_patch(&mut editor, &patch, &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+
+    let width = match &editor.get(table_id).unwrap().kind {
+        crate::NodeKind::Table(props) => props.cols[0].size,
+        _ => panic!("table disappeared"),
+    };
+    assert_eq!(width, 300.0, "an agent row insert must not overwrite the user's column width");
+    let first_col = match &editor.get(table_id).unwrap().kind {
+        crate::NodeKind::Table(props) => props.cols[0].id,
+        _ => unreachable!(),
+    };
+    for cell_id in editor.get(table_id).unwrap().children.clone() {
+        if let crate::NodeKind::TableCell(cell) = &editor.get(cell_id).unwrap().kind {
+            if cell.col == first_col {
+                assert_eq!(editor.get(cell_id).unwrap().size.x, 300.0, "new and existing cells must follow the user's column width");
+            }
+        }
+    }
+}
+
+#[test]
 fn an_agent_edit_cannot_insert_a_page_or_turn_a_layer_into_one() {
     let (base, page, frame_id) = doc_with_frame();
     let page_kind = serde_json::to_value(&base.get(page).unwrap().kind).unwrap();

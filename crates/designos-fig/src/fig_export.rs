@@ -232,7 +232,9 @@ pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
 /// collection `extensions` / `mode_extensions` that `.fig` `VARIABLE_SET` / `VARIABLE` nodes do not carry (`E1-9` §4, §10).
 pub fn export_fig_with_report(doc: &Document) -> Result<(Vec<u8>, Vec<crate::variables_dtcg::SkippedVariable>), FigError> {
     let bytes = export_fig(doc)?;
-    let omitted = crate::variables_dtcg::collect_omitted_extensions(doc);
+    let mut omitted = crate::variables_dtcg::collect_omitted_extensions(doc);
+    let publish_marker = format!("'{}'", designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY);
+    omitted.retain(|s| !s.reason.contains(&publish_marker));
     Ok((bytes, omitted))
 }
 
@@ -1050,6 +1052,12 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         if let Some(lib) = &c.source_library_key {
             fields.push(("sourceLibraryKey", V::String(lib.clone())));
         }
+        // Write the collection's publish switch when the opened file had it or when the user changed the state.
+        if c.is_hidden_from_publishing() {
+            fields.push(("isPublishable", V::Bool(false)));
+        } else if c.extensions.get(designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY).and_then(serde_json::Value::as_bool) == Some(false) {
+            fields.push(("isPublishable", V::Bool(true)));
+        }
         if c.is_extendable() {
             fields.push(("isCollectionExtendable", V::Bool(true)));
         }
@@ -1145,9 +1153,11 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         if let Some(k) = &v.key {
             fields.push(("key", V::String(k.clone())));
         }
-        // The file's own publish switch: only a variable hidden from publishing writes it.
+        // Write the variable's publish switch when the opened file had it or when the user changed the state.
         if v.hidden_from_publishing {
             fields.push(("isPublishable", V::Bool(false)));
+        } else if v.extensions.contains_key(designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY) {
+            fields.push(("isPublishable", V::Bool(true)));
         }
         // A deleted variable the file still uses stays in the file as deleted; it must not come back as a live one.
         if v.is_soft_deleted() {
@@ -1628,10 +1638,12 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             grid::push_frame_fields(cx, id, &node, al, &mut fields, &mut carried);
             if al.direction == LayoutDirection::Grid {
                 fields.push(("gridColumnGap", fl(al.item_spacing)));
-                fields.push(("gridRowGap", fl(al.counter_spacing)));
+                fields.push(("gridRowGap", fl(al.line_gap())));
             }
             fields.push(("stackSpacing", fl(al.item_spacing)));
-            fields.push(("stackCounterSpacing", fl(al.counter_spacing)));
+            if let Some(cs) = al.counter_spacing {
+                fields.push(("stackCounterSpacing", fl(cs)));
+            }
             // Figma stores top and left padding on the vertical and horizontal padding fields.
             fields.push(("stackVerticalPadding", fl(al.padding[0])));
             fields.push(("stackPaddingRight", fl(al.padding[1])));
@@ -1882,6 +1894,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                             msg(vec![("dataType", en("SLOT_CONTENT_ID")), ("value", msg(vec![("slotContentIdValue", msg(vec![("guid", guid(g.0, g.1))]))]))]),
                         ));
                     }
+                }
+            }
+            if !matches!(p.kind, PropKind::Slot) {
+                if let Some(alias) = prop_def_alias(cx, &node, p) {
+                    df.push(("varValue", alias));
                 }
             }
             prop_defs.push(msg(df));
@@ -2171,6 +2188,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         if !matches!(cap.as_str(), "" | "NONE" | "ROUND" | "SQUARE") {
             carried.push(("figMetadata", json!({"strokeCap": cap})));
         }
+    }
+    // The bound variant properties a person picked by hand on a top-level instance. A nested copy's ride in the entry that
+    // overrides it (see `collect_instance_overrides_for`).
+    if matches!(node.kind, NodeKind::Instance { .. }) && is_top_instance(&node) && !node.component.variant_picks.is_empty() {
+        carried.push(("variantPicks", json!(node.component.variant_picks)));
     }
     pd_entries.extend(carrier::carrier_entries(&carried));
     if !pd_entries.is_empty() {
@@ -2953,6 +2975,7 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
             };
         let has_nested_prop_ov = !own && !n.component.values.is_empty() && src_node.is_none_or(|sn| sn.component.values != n.component.values);
         let has_own_variant_bindings = !own && !n.component.own_variant_bindings.is_empty();
+        let has_variant_picks = !own && !n.component.variant_picks.is_empty();
 
         // A swapped nested instance inherits its shell paints and variable bindings from the component it was swapped to.
         let inherited_src = if nested_comp_differs {
@@ -2982,8 +3005,13 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
 
         // The instance's own bindings, override level and detached id are fields of its node change already, so
         // only a flagged field makes an entry for it; they are left out of it below.
+        let combined_ovs;
         let ovs = match own_fields {
             Some(fields) if own => fields,
+            _ if own && !n.component.fig_own_entry_flags.is_empty() => {
+                combined_ovs = n.component.override_fields();
+                &combined_ovs
+            }
             _ => &n.component.overrides,
         };
         // The instance keeps the effects Figma cached for it under a link it inherits. Figma's file states that as the
@@ -3002,7 +3030,8 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                     || n.component.detached_symbol_id.is_some()
                     || nested_comp_differs
                     || has_nested_prop_ov
-                    || has_own_variant_bindings))
+                    || has_own_variant_bindings
+                    || has_variant_picks))
         {
             let mut ov: Vec<(&'static str, V)> = Vec::new();
             let mut carried: carrier::Carried = Vec::new();
@@ -3167,10 +3196,12 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                         grid::push_frame_fields(cx, cid, n, al, &mut ov, &mut carried);
                         if al.direction == LayoutDirection::Grid {
                             ov.push(("gridColumnGap", fl(al.item_spacing)));
-                            ov.push(("gridRowGap", fl(al.counter_spacing)));
+                            ov.push(("gridRowGap", fl(al.line_gap())));
                         }
                         ov.push(("stackSpacing", fl(al.item_spacing)));
-                        ov.push(("stackCounterSpacing", fl(al.counter_spacing)));
+                        if let Some(cs) = al.counter_spacing {
+                            ov.push(("stackCounterSpacing", fl(cs)));
+                        }
                         ov.push(("stackVerticalPadding", fl(al.padding[0])));
                         ov.push(("stackPaddingRight", fl(al.padding[1])));
                         ov.push(("stackPaddingBottom", fl(al.padding[2])));
@@ -3295,6 +3326,9 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
             if has_own_variant_bindings {
                 carried.push(("ownVariantBindings", json!(n.component.own_variant_bindings)));
             }
+            if has_variant_picks {
+                carried.push(("variantPicks", json!(n.component.variant_picks)));
+            }
             if !ve.is_empty() {
                 ov.push(("variableConsumptionMap", msg(vec![("entries", V::Array(ve))])));
             }
@@ -3323,6 +3357,31 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
 /// `varValue` of a component property assignment bound to a variable: the alias, with the type the property takes.
 fn prop_alias(cx: &ExportCtx, node: &Node, prop_name: &str) -> Option<V> {
     let var = cx.doc.variables.get(bound_prop_variable_of(node, prop_name)?)?;
+    let vg = cx.resolve_var_guid(&var.id)?;
+    let resolved = match var.kind {
+        VariableKind::Boolean => "BOOLEAN",
+        VariableKind::String => "STRING",
+        VariableKind::Number => "FLOAT",
+        VariableKind::Color => "COLOR",
+    };
+    Some(msg(vec![("dataType", en("ALIAS")), ("resolvedDataType", en(resolved)), ("value", msg(vec![("alias", msg(vec![("guid", guid(vg.0, vg.1))]))]))]))
+}
+
+fn prop_def_alias(cx: &ExportCtx, node: &Node, p: &ComponentPropDef) -> Option<V> {
+    let var_id = node.component.prop_default_variables.get(&p.name)?;
+    if let Some(key) = var_id.strip_prefix("key:") {
+        let resolved = match &p.kind {
+            PropKind::Boolean => "BOOLEAN",
+            PropKind::Text | PropKind::Variant { .. } => "STRING",
+            PropKind::InstanceSwap { .. } | PropKind::Slot => return None,
+        };
+        return Some(msg(vec![
+            ("dataType", en("ALIAS")),
+            ("resolvedDataType", en(resolved)),
+            ("value", msg(vec![("alias", msg(vec![("assetRef", msg(vec![("key", V::String(key.to_string()))]))]))])),
+        ]));
+    }
+    let var = cx.doc.variables.get(var_id)?;
     let vg = cx.resolve_var_guid(&var.id)?;
     let resolved = match var.kind {
         VariableKind::Boolean => "BOOLEAN",
@@ -4308,5 +4367,74 @@ fn blend_name(b: BlendMode) -> &'static str {
         BlendMode::Saturation => "SATURATION",
         BlendMode::Color => "COLOR",
         BlendMode::Luminosity => "LUMINOSITY",
+    }
+}
+
+#[cfg(test)]
+mod parked_override_export_tests {
+    use super::*;
+
+    #[test]
+    fn parked_overrides_are_never_written_to_exported_fig_bytes() {
+        let mut d = Document::new("FigParkedOverrideSkip");
+        let page = d.add_page("Page 1");
+
+        let mk_variant = |d: &mut Document, name: &str, x: f32, with_sub: bool| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 120.0, 60.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let tid = d.alloc_id();
+            let mut title = Node::text(tid, Rect::new(8.0, 8.0, 80.0, 16.0), "Title", TextStyle::default());
+            title.name = "Title".into();
+            d.insert(comp, title).unwrap();
+            if with_sub {
+                let sid = d.alloc_id();
+                let mut sub = Node::text(sid, Rect::new(8.0, 28.0, 80.0, 16.0), "Default subtitle", TextStyle::default());
+                sub.name = "Subtitle".into();
+                d.insert(comp, sub).unwrap();
+            }
+            create_component(d, comp).apply(d).unwrap();
+            comp
+        };
+
+        let a = mk_variant(&mut d, "State=A", 0.0, true);
+        let b = mk_variant(&mut d, "State=B", 160.0, false);
+        combine_as_variants(&mut d, &[a, b]).apply(&mut d).unwrap();
+
+        create_instance(&mut d, a, page, Vec2::new(0.0, 120.0)).apply(&mut d).unwrap();
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let sub = *d.get(inst).unwrap().children.iter().find(|&&c| d.get(c).unwrap().name == "Subtitle").unwrap();
+        let mut sn = d.get(sub).unwrap().clone();
+        if let NodeKind::Text(tp) = &mut sn.kind {
+            tp.content = "Parked subtitle text".into();
+        }
+        sn.component.overrides.insert(OverrideField::Characters);
+        Command::Update { node: Box::new(sn) }.apply(&mut d).unwrap();
+
+        set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("B".into()))).apply(&mut d).unwrap();
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 1);
+
+        let mut clean = d.clone();
+        clean.get_mut(inst).unwrap().component.parked_overrides.clear();
+
+        let bytes_with_parked = export_fig(&d).unwrap();
+        let bytes_without_parked = export_fig(&clean).unwrap();
+        assert_eq!(bytes_with_parked, bytes_without_parked);
+
+        let pen_with_parked = crate::export_pen_json(&d).unwrap();
+        let pen_without_parked = crate::export_pen_json(&clean).unwrap();
+        assert_eq!(pen_with_parked, pen_without_parked, "pen export omits parked overrides and writes only what the instance shows");
+        assert!(!pen_with_parked.contains("parked_overrides"));
+        assert!(!pen_with_parked.contains("Parked subtitle text"));
+
+        let rest_with_parked = crate::export_rest_json(&d).to_string();
+        let rest_without_parked = crate::export_rest_json(&clean).to_string();
+        assert_eq!(rest_with_parked, rest_without_parked, "REST export omits parked overrides and writes only what the instance shows");
+        assert!(!rest_with_parked.contains("parked_overrides"));
+        assert!(!rest_with_parked.contains("Parked subtitle text"));
+
+        let native_json = d.to_json().unwrap();
+        assert!(native_json.contains("parked_overrides"), "native file writes parked_overrides");
     }
 }

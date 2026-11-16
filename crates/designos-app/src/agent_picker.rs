@@ -37,16 +37,22 @@ pub struct AgentPickerState {
     pub pill_cache_valid: bool,
     /// The probe generation the cached pill was built from.
     pub pill_cache_generation: u64,
+    /// The permission mode the cached pill was built for: the rows it picks from depend on it.
+    pub pill_cache_mode: crate::terminal::PermissionMode,
     /// `More…` in the agent menu stays open while the other-CLI form is open.
     pub menu_more_open: bool,
     /// Scroll of the agent menu when it is taller than the room above the pill.
     pub menu_scroll: f32,
+    /// Set when the `Other CLI…` form opens: the next menu pass scrolls the form into view (`#1010`).
+    pub reveal_other_form: bool,
+    /// The agent menu's height on its last pass: a change while the `Other CLI…` form is open (a window resize) reveals the form again.
+    pub menu_view_h: f32,
 }
 
 impl AgentPickerState {
-    /// True while the cached pill was built from settled probes and no probe result has changed since.
-    pub fn pill_cache_current(&self) -> bool {
-        self.pill_cache_valid && self.pill_cache_generation == self.cache.generation()
+    /// True while the cached pill was built from settled probes, for `mode`, and no probe result has changed since.
+    pub fn pill_cache_current(&self, mode: crate::terminal::PermissionMode) -> bool {
+        self.pill_cache_valid && self.pill_cache_generation == self.cache.generation() && self.pill_cache_mode == mode
     }
 
     /// Starts the background version + sign-in probe when the picker or `+` menu is opened (`#652` §3 rule 2 & §5).
@@ -85,11 +91,13 @@ impl AgentPickerState {
     pub fn open_other_form(&mut self) {
         self.other_form_open = true;
         self.other_error = None;
+        self.reveal_other_form = true;
     }
 
     /// Closes and resets the inline `"Other CLI…"` form.
     pub fn close_other_form(&mut self) {
         self.other_form_open = false;
+        self.reveal_other_form = false;
         self.other_label_input.clear();
         self.other_command_input.clear();
         self.other_error = None;
@@ -135,15 +143,23 @@ pub fn composer_pill(state: &mut TerminalState) -> (&'static str, Option<AgentCl
     let new_chat = state.in_new_chat();
     if !new_chat {
         if let Some(tab) = state.active_tab() {
-            return (tab.spawn_preset.display_name(), startable_preset(tab.spawn_preset));
+            let preset = startable_preset(tab.spawn_preset);
+            // Only an agent the mode cannot run is hidden; a shell tab is not one and keeps its own name.
+            let custom_without_hook = tab.permission_mode == crate::terminal::PermissionMode::AskRisky && tab.is_custom_cli();
+            let unavailable =
+                custom_without_hook || preset.is_some_and(|preset| !crate::agent_permissions::preset_available_in_mode(preset, tab.permission_mode));
+            if unavailable {
+                return (CHOOSE_AGENT, None);
+            }
+            return (tab.spawn_preset.display_name(), preset);
         }
     }
     if let Some(preset) = startable_preset(state.active_runtime) {
-        if state.picker.cache.is_preset_installed(preset) {
+        if crate::agent_permissions::preset_available_in_mode(preset, state.permission_mode) && state.picker.cache.is_preset_installed(preset) {
             return (preset.display_name(), Some(preset));
         }
     }
-    if state.picker.pill_cache_current() {
+    if state.picker.pill_cache_current(state.permission_mode) {
         return (state.picker.pill_label_cache, state.picker.pill_preset_cache);
     }
     // Starting the probe cycle writes seed probes, so it comes first: the generation read next is the one the rows are built from.
@@ -161,6 +177,7 @@ pub fn composer_pill(state: &mut TerminalState) -> (&'static str, Option<AgentCl
     state.picker.pill_preset_cache = preset;
     state.picker.pill_cache_valid = state.picker.open_row_order_settled;
     state.picker.pill_cache_generation = generation;
+    state.picker.pill_cache_mode = state.permission_mode;
     (label, preset)
 }
 
@@ -186,7 +203,7 @@ pub fn rows_for_state(state: &mut TerminalState) -> Vec<PickerRow> {
     rows
 }
 
-/// In Ask for risky only, a CLI with no shared approval hook cannot be started from the picker.
+/// In Ask when risky, a CLI with no shared approval hook cannot be started from the picker.
 fn apply_ask_risky_availability(state: &TerminalState, rows: &mut [PickerRow]) {
     if state.permission_mode != crate::terminal::PermissionMode::AskRisky {
         return;
@@ -197,9 +214,7 @@ fn apply_ask_risky_availability(state: &TerminalState, rows: &mut [PickerRow]) {
         }
         let reason = match &row.kind {
             PickerRowKind::CatalogCli { preset, .. } => crate::agent_permissions::ask_risky_unsupported_reason(*preset),
-            PickerRowKind::CustomCli { .. } | PickerRowKind::OtherCli => {
-                Some("A custom command does not share the approval hook, so Ask for risky only is unavailable.")
-            }
+            PickerRowKind::CustomCli { .. } | PickerRowKind::OtherCli => Some(crate::agent_permissions::CUSTOM_CLI_ASK_RISKY_REASON),
             PickerRowKind::Shell => None,
         };
         let Some(reason) = reason else { continue };
@@ -403,6 +418,13 @@ fn menu_slot_width(p: &egui::Painter, label: &str) -> f32 {
     (widgets::text_width(p, label, &menu_label_font()) + theme::INSET_FRAME * 2.0).max(theme::TARGET_MIN)
 }
 
+/// The menu scroll that shows the content span `top..bottom` in a viewport `view_h` tall with the least movement: a span that
+/// fits ends at the viewport's bottom edge, one that does not starts at its top edge. Stays within `0..=max_scroll`.
+fn scroll_to_reveal(top: f32, bottom: f32, view_h: f32, max_scroll: f32) -> f32 {
+    let target = if bottom - top <= view_h { bottom - view_h } else { top };
+    target.clamp(0.0, max_scroll.max(0.0))
+}
+
 /// Agent menu above the composer pill. Other CLI and Shell stay behind `More…`.
 pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_rect: Rect, top_y: f32, file_path: Option<&Path>) {
     let (pill_label, pill_preset) = composer_pill(state);
@@ -455,6 +477,16 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     let menu_x = raw_x.clamp(x_lo, x_hi);
     let menu_r = Rect::from_min_size(Pos2::new(menu_x, menu_top), Vec2::new(menu_w, view_h));
     let max_scroll = (content_h - view_h).max(0.0);
+    let resized = (state.picker.menu_view_h - view_h).abs() > 0.5;
+    state.picker.menu_view_h = view_h;
+    if (state.picker.reveal_other_form || resized) && state.picker.other_form_open {
+        // The form sits under the Other CLI row, which Shell may follow; a menu capped by the room above the pill would leave it clipped until the wheel moves.
+        let rows_above =
+            main_idx.len() + 1 + folded_idx.iter().position(|&idx| matches!(rows[idx].kind, PickerRowKind::OtherCli)).map_or(folded_idx.len(), |at| at + 1);
+        let form_top = inset + rows_above as f32 * row_h;
+        state.picker.menu_scroll = scroll_to_reveal(form_top, form_top + form_h, view_h, max_scroll);
+        state.picker.reveal_other_form = false;
+    }
     if ui.rect_contains_pointer(menu_r) {
         let dy = ui.input(|i| i.smooth_scroll_delta.y);
         if dy != 0.0 {
@@ -1029,6 +1061,64 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// The pill is cached between frames. A switch to Ask when risky must not leave it naming an agent the menu now marks
+    /// unavailable, and Send in New chat must not start that agent.
+    #[test]
+    fn switching_to_ask_for_risky_only_drops_the_cached_pill_agent_and_send_starts_nothing() {
+        let root = temp_test_dir("pill-mode-switch");
+        let mut st = TerminalState::for_tab(1);
+        st.picker.settings_root_override = Some(root.clone());
+        seed_test_probes(&mut st);
+        st.session_registry.last_cli = Some("codex".into());
+        st.active_runtime = AgentCliPreset::Shell;
+        st.permission_mode = crate::terminal::PermissionMode::Ask;
+        assert_eq!(composer_pill(&mut st).1, Some(AgentCliPreset::Codex), "precondition: in Ask the pill falls back to the last agent, Codex");
+        assert!(st.picker.pill_cache_current(crate::terminal::PermissionMode::Ask), "precondition: the pill is cached");
+
+        st.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        let (label, preset) = composer_pill(&mut st);
+        assert_ne!(preset, Some(AgentCliPreset::Codex), "the pill still names {label}");
+        assert_ne!(label, "Codex");
+
+        st.set_composer_draft("make a hero");
+        let _ = st.send_from_composer_box("make a hero", None);
+        assert!(st.tabs.iter().all(|tab| tab.spawn_preset != AgentCliPreset::Codex), "Send started Codex in Ask when risky");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A shell tab is no agent the mode could make unavailable: its pill keeps naming the shell in every mode.
+    #[test]
+    fn a_shell_tab_keeps_its_own_name_on_the_composer_pill_in_every_mode() {
+        for mode in [crate::terminal::PermissionMode::Ask, crate::terminal::PermissionMode::Skip, crate::terminal::PermissionMode::AskRisky] {
+            let mut st = crate::test_timing::ScopedTerminalState::default();
+            st.spawn_tab(AgentCliPreset::Shell, None).expect("shell tab");
+            st.active_tab_mut().expect("active tab").permission_mode = mode;
+            let (label, preset) = composer_pill(&mut st);
+            assert_eq!(label, AgentCliPreset::Shell.display_name(), "{mode:?}");
+            assert_eq!(preset, None, "{mode:?}");
+            st.shutdown();
+        }
+    }
+
+    #[test]
+    fn ask_risky_composer_pill_never_offers_an_unavailable_active_runtime() {
+        let root = temp_test_dir("ask-risky-pill");
+        let mut st = TerminalState::for_tab(1);
+        st.picker.settings_root_override = Some(root.clone());
+        seed_test_probes(&mut st);
+        st.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        st.active_runtime = AgentCliPreset::Codex;
+
+        let (label, preset) = composer_pill(&mut st);
+        assert_ne!(preset, Some(AgentCliPreset::Codex));
+        assert_ne!(label, "Codex");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn ask_risky_menu_rows_without_a_hook_are_disabled_and_keep_the_reason_in_the_tooltip() {
         let root = temp_test_dir("ask-risky-menu");
@@ -1381,5 +1471,18 @@ mod tests {
             let form = paint_other_form(surface, panel_w, Some(error));
             assert_caption_clear_of_buttons(&form, &what);
         }
+    }
+}
+
+#[cfg(test)]
+mod reveal_tests {
+    use super::scroll_to_reveal;
+
+    #[test]
+    fn a_form_that_fits_ends_at_the_bottom_edge_and_one_that_does_not_starts_at_the_top_edge() {
+        assert_eq!(scroll_to_reveal(300.0, 440.0, 360.0, 500.0), 80.0, "a fitting span ends at the viewport's bottom");
+        assert_eq!(scroll_to_reveal(300.0, 440.0, 100.0, 500.0), 300.0, "a span taller than the viewport starts at its top");
+        assert_eq!(scroll_to_reveal(20.0, 100.0, 360.0, 500.0), 0.0, "a span already in view does not scroll");
+        assert_eq!(scroll_to_reveal(300.0, 440.0, 360.0, 50.0), 50.0, "never past the end of the content");
     }
 }

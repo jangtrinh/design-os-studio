@@ -36,6 +36,37 @@ fn toast_clock_runs_from_the_first_paint(raise: impl FnOnce(&mut Sim), seconds: 
 }
 
 #[test]
+fn distinct_error_waits_for_the_error_on_screen_to_expire() {
+    let mut s = Sim::new();
+    s.shell.app.show_toast("First error", true);
+    s.frame(vec![]);
+    s.shell.app.show_toast("Second error", true);
+    s.frame(vec![]);
+
+    assert_eq!(s.app().toast.as_ref().map(|t| t.text.as_str()), Some("First error"), "the error on screen keeps its slot");
+    assert_eq!(s.app().toast_queue.len(), 1, "the second error waits");
+    assert!(painted_text(&s, "First error") && !painted_text(&s, "Second error"));
+
+    let expires = s.app().now + crate::theme::TOAST_SECONDS + 0.1;
+    frame_at(&mut s, expires);
+    frame_at(&mut s, expires + 0.05);
+    assert_eq!(s.app().toast.as_ref().map(|t| t.text.as_str()), Some("Second error"), "it appears once the first one is over");
+    assert!(s.app().toast_queue.is_empty());
+    assert!(painted_text(&s, "Second error"));
+}
+
+#[test]
+fn error_after_a_plain_toast_still_takes_the_slot_at_once() {
+    let mut s = Sim::new();
+    s.shell.app.show_toast("Saved", false);
+    s.frame(vec![]);
+    s.shell.app.show_toast("Something failed", true);
+
+    assert_eq!(s.app().toast.as_ref().map(|t| t.text.as_str()), Some("Something failed"));
+    assert!(s.app().toast_queue.is_empty());
+}
+
+#[test]
 fn toast_clock_reveal_toast_survives_a_30s_block_then_lasts_reveal_seconds() {
     toast_clock_runs_from_the_first_paint(
         |s| {

@@ -2,7 +2,7 @@
 
 #![allow(clippy::result_large_err)]
 
-use crate::spec::{parse_sizing, FalseLiteral, SlotFillSpec};
+use crate::spec::{parse_sizing, ArcOverrideSpec, FalseLiteral, SlotFillSpec};
 use crate::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -1107,7 +1107,10 @@ pub(crate) fn apply_instance_props_with_ctx(
 
         let is_text_prop = matches!(def.kind, PropKind::Text);
         let def_name = def.name.clone();
-        let cmd = set_instance_prop(doc, instance_id, &def_name, Some(pv));
+        let (cmd, refusal) = set_instance_prop_explained(doc, instance_id, &def_name, Some(pv));
+        if let Some(message) = refusal {
+            return Err(SpecError::named("INSTANCE_CYCLE", message, Some(format!("props.{key}")), Vec::new(), None));
+        }
         cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
         if is_text_prop {
             let mut bound_text_ids = Vec::new();
@@ -1189,8 +1192,11 @@ fn bind_instance_props(
         edits.push((def.name.clone(), var_id));
     }
     let refs: Vec<(&str, Option<&str>)> = edits.iter().map(|(n, v)| (n.as_str(), Some(v.as_str()))).collect();
-    let cmd = bind_prop_variables(doc, instance_id, &refs)
+    let (cmd, refusal) = bind_prop_variables_explained(doc, instance_id, &refs)
         .map_err(|e| SpecError::named("PROPERTY_TYPE_MISMATCH", e.to_string(), Some("props".into()), Vec::new(), None))?;
+    if let Some(message) = refusal {
+        return Err(SpecError::named("INSTANCE_CYCLE", message, Some("props".into()), Vec::new(), None));
+    }
     cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
     ctx.bindings_created += edits.len();
     for (name, _) in &edits {
@@ -1261,29 +1267,14 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
             if !ov.variant.is_empty() {
                 swapped_with_variant = true;
             }
-            if let Some(held) = held_main_at(doc, new_comp, target_id) {
-                let held_name = cycle_node_label(doc, held);
-                return Err(SpecError::named(
-                    "INSTANCE_CYCLE",
-                    format!(
-                        "Cannot swap nested instance to component '{swap_ref}' inside main component '{held_name}': that would make a component hold an instance of itself (cycle)"
-                    ),
-                    Some("overrides.swap".into()),
-                    Vec::new(),
-                    None,
-                ));
+            if let Some((held, path)) = held_main_cycle_path_at(doc, new_comp, target_id, &[]) {
+                let message = cycle_refusal_message(CycleAction::Swap, &cycle_node_label(doc, held), &path);
+                return Err(SpecError::named("INSTANCE_CYCLE", message, Some("overrides.swap".into()), Vec::new(), None));
             }
             if new_comp == target_id || doc.is_ancestor(new_comp, target_id) {
-                let target_name = cycle_node_label(doc, new_comp);
-                return Err(SpecError::named(
-                    "INSTANCE_CYCLE",
-                    format!(
-                        "Cannot swap nested instance to ancestor component '{target_name}': that would make a component hold an instance of itself (cycle)"
-                    ),
-                    Some("overrides.swap".into()),
-                    Vec::new(),
-                    None,
-                ));
+                let path = nested_loop_path(doc, new_comp, doc.get(target_id).and_then(|n| n.parent));
+                let message = cycle_refusal_message(CycleAction::Swap, &cycle_node_label(doc, new_comp), &path);
+                return Err(SpecError::named("INSTANCE_CYCLE", message, Some("overrides.swap".into()), Vec::new(), None));
             }
             let cmd = swap_instance(doc, target_id, new_comp);
             cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
@@ -1313,12 +1304,18 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
                 .filter(|&p| matches!(doc.get(p).map(|x| &x.kind), Some(NodeKind::ComponentSet(_))))
                 .unwrap_or(cur_comp);
             let new_comp = resolve_variant_component(doc, owner, &ov.variant, Some(cur_comp), None)?;
-            for (k, v) in &ov.variant {
-                let cmd = set_instance_prop(doc, target_id, k, Some(PropValue::Variant(v.clone())));
-                cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
-            }
             if new_comp != cur_comp {
                 let cmd = swap_instance(doc, target_id, new_comp);
+                // the guard answers an empty command: the instance would hold a main that holds itself
+                if matches!(&cmd, Command::Batch(parts) if parts.is_empty()) {
+                    let message = crate::refused_swap_message(doc, target_id, (cur_comp, new_comp));
+                    return Err(SpecError::named("INSTANCE_CYCLE", message, Some("overrides.variant".into()), Vec::new(), None));
+                }
+                cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
+            }
+            // Each entry is a pick as the panel's is: one that names the variant the copy shows holds a bound property.
+            for (k, v) in &ov.variant {
+                let cmd = set_nested_instance_prop(doc, target_id, k, Some(PropValue::Variant(v.clone())));
                 cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
             }
         }
@@ -1353,7 +1350,31 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
             apply_instance_slots_with_ctx(doc, target_id, &ov.slots, "overrides.slots", ctx)?;
         }
 
-        // 4. Text characters (`text`)
+        // 4a. Arc data on a descendant ellipse.
+        if let Some(arc) = &ov.arc {
+            let is_ellipse = doc.get(target_id).is_some_and(|n| matches!(n.kind, NodeKind::Ellipse(_)));
+            if !is_ellipse {
+                return Err(SpecError::named(
+                    "OVERRIDE_FIELD_NOT_APPLICABLE",
+                    format!("Cannot apply 'arc' override to non-ellipse layer '{}'", doc.get(target_id).map(|n| n.name.as_str()).unwrap_or("")),
+                    Some("overrides.arc".into()),
+                    Vec::new(),
+                    None,
+                ));
+            }
+            if let Some(node) = doc.get_mut(target_id) {
+                node.kind = NodeKind::Ellipse(ArcData {
+                    start: arc.start_angle,
+                    end: arc.start_angle + arc.sweep_angle,
+                    inner_radius: arc.inner_radius.clamp(0.0, 1.0),
+                });
+                node.fill_geometry = None;
+                node.drop_stroke_outline();
+                node.component.overrides.insert(OverrideField::Arc);
+            }
+        }
+
+        // 4b. Text characters (`text`)
         if let Some(text_val) = &ov.text {
             let is_text = doc.get(target_id).is_some_and(|n| matches!(n.kind, NodeKind::Text(_)));
             if !is_text {
@@ -1668,9 +1689,13 @@ fn child_matches_preferred(doc: &Document, child: &Node, preferred: &[NodeId]) -
     None
 }
 
-fn has_instance_cycle(doc: &Document, parent: NodeId, resolved_id: NodeId, variant_comp_id: NodeId) -> bool {
-    if parent == variant_comp_id || doc.is_ancestor(variant_comp_id, parent) || parent == resolved_id || doc.is_ancestor(resolved_id, parent) {
-        return true;
+/// The node that an instance of `resolved_id` / `variant_comp_id` under `parent` would sit inside, when that is the
+/// component itself, its set, or an instance of either, with the path of the loop it closes.
+fn instance_cycle_path(doc: &Document, parent: NodeId, resolved_id: NodeId, variant_comp_id: NodeId) -> Option<(NodeId, Vec<String>)> {
+    for owner in [variant_comp_id, resolved_id] {
+        if parent == owner || doc.is_ancestor(owner, parent) {
+            return Some((owner, nested_loop_path(doc, owner, Some(parent))));
+        }
     }
     let mut cur = Some(parent);
     while let Some(cid) = cur {
@@ -1682,12 +1707,15 @@ fn has_instance_cycle(doc: &Document, parent: NodeId, resolved_id: NodeId, varia
                 .filter(|&p| matches!(doc.get(p).map(|x| &x.kind), Some(NodeKind::ComponentSet(_))))
                 .unwrap_or(anc_comp);
             if anc_comp == variant_comp_id || anc_comp == resolved_id || anc_owner == resolved_id || anc_owner == variant_comp_id {
-                return true;
+                let mut path = vec![cycle_node_label(doc, anc_comp)];
+                path.extend(container_labels_between(doc, cid, Some(parent)));
+                path.push(cycle_node_label(doc, anc_comp));
+                return Some((anc_comp, path));
             }
         }
         cur = cn.parent;
     }
-    false
+    None
 }
 
 /// Applies `slots` (`SlotFillSpec::Disabled` or `SlotFillSpec::Fill`) onto `instance_id` (E15-2).
@@ -1940,28 +1968,13 @@ impl Document {
         let variant_comp_id = resolve_variant_component(self, resolved_id, &spec.variant, None, Some(spec))?;
 
         // Cycle check (§8.5 / E15-2 §8.3): cannot instantiate a component inside itself, its ComponentSet, or an instance of itself
-        if let Some(held) = held_main_at(self, variant_comp_id, parent) {
-            let held_name = cycle_node_label(self, held);
-            return Err(SpecError::named(
-                "INSTANCE_CYCLE",
-                format!(
-                    "Cannot place an instance of component '{comp_ref}' inside main component '{held_name}': that would make a component hold an instance of itself (cycle)"
-                ),
-                Some("component".into()),
-                Vec::new(),
-                None,
-            ));
+        if let Some((held, path)) = held_main_cycle_path_at(self, variant_comp_id, parent, &[]) {
+            let message = cycle_refusal_message(CycleAction::Add, &cycle_node_label(self, held), &path);
+            return Err(SpecError::named("INSTANCE_CYCLE", message, Some("component".into()), Vec::new(), None));
         }
-        if has_instance_cycle(self, parent, resolved_id, variant_comp_id) {
-            return Err(SpecError::named(
-                "INSTANCE_CYCLE",
-                format!(
-                    "Cannot place an instance of component '{comp_ref}' inside its own definition or enclosing instance: that would make a component hold an instance of itself (cycle)"
-                ),
-                Some("component".into()),
-                Vec::new(),
-                None,
-            ));
+        if let Some((owner, path)) = instance_cycle_path(self, parent, resolved_id, variant_comp_id) {
+            let message = cycle_refusal_message(CycleAction::Add, &cycle_node_label(self, owner), &path);
+            return Err(SpecError::named("INSTANCE_CYCLE", message, Some("component".into()), Vec::new(), None));
         }
 
         let cmd = create_instance(self, variant_comp_id, parent, Vec2::new(spec.x, spec.y));
@@ -1992,7 +2005,16 @@ impl Document {
         // Apply root component properties (`props`), slots (`slots`, E15-2), and descendant overrides (`overrides`)
         if let Err(e) = apply_instance_props_with_ctx(self, inst_id, &spec.props, ctx)
             .and_then(|()| apply_instance_slots_with_ctx(self, inst_id, &spec.slots, "slots", ctx))
-            .and_then(|()| apply_overrides_with_ctx(self, inst_id, &spec.overrides, ctx))
+            .and_then(|()| {
+                if !spec.name.is_empty() {
+                    if let Some(inst_node) = self.get_mut(inst_id) {
+                        if spec.name != inst_node.name {
+                            inst_node.name = spec.name.clone();
+                        }
+                    }
+                }
+                apply_overrides_with_ctx(self, inst_id, &spec.overrides, ctx)
+            })
         {
             let _ = Command::Remove { id: inst_id }.apply(self);
             return Err(e);
@@ -2333,6 +2355,13 @@ impl Document {
                     }
                     skip_slot_containers.extend(nested_skip_containers);
                     skip_slot_children.extend(nested_skip_children);
+                }
+            }
+
+            if ov_set.contains(&OverrideField::Arc) {
+                if let NodeKind::Ellipse(arc) = &cn.kind {
+                    spec_ov.arc = Some(ArcOverrideSpec { start_angle: arc.start, sweep_angle: arc.end - arc.start, inner_radius: arc.inner_radius });
+                    any_field = true;
                 }
             }
 
@@ -3055,6 +3084,57 @@ mod tests {
             let n2 = doc.get(resolve_override_path(&doc, inst2, rel).unwrap()).unwrap();
             assert_eq!(n1.component.overrides, n2.component.overrides, "override set mismatch on '{rel}'");
         }
+    }
+
+    #[test]
+    fn export_then_apply_round_trips_a_nested_instance_arc_override() {
+        fn has_own_arc(doc: &Document, id: NodeId) -> bool {
+            match doc.get(id).map(|n| &n.kind) {
+                Some(NodeKind::Ellipse(ArcData { start, end, inner_radius })) => {
+                    (*start + 1.5).abs() < 1e-5 && (*end - 1.0).abs() < 1e-5 && (*inner_radius - 0.7).abs() < 1e-5
+                }
+                _ => false,
+            }
+        }
+
+        let mut doc = Document::new("rings");
+        let page = doc.add_page("Page 1");
+        let component_id = doc.alloc_id();
+        let component = doc.insert(page, Node::frame(component_id, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+        let ellipse_id = doc.alloc_id();
+        let mut ellipse = Node::ellipse(ellipse_id, Rect::new(0.0, 0.0, 100.0, 100.0));
+        ellipse.name = "Ring".into();
+        ellipse.kind = NodeKind::Ellipse(ArcData { start: 0.0, end: std::f32::consts::TAU, inner_radius: 0.8 });
+        let main_ellipse = doc.insert(component, ellipse).unwrap();
+        create_component(&mut doc, component).apply(&mut doc).unwrap();
+        create_instance(&mut doc, component, page, Vec2::new(140.0, 0.0)).apply(&mut doc).unwrap();
+        let source_instance = *doc.get(page).unwrap().children.last().unwrap();
+        let source_ellipse = doc.get(source_instance).unwrap().children[0];
+
+        let before = doc.get(source_ellipse).unwrap().clone();
+        let mut own = before.clone();
+        own.kind = NodeKind::Ellipse(ArcData { start: -1.5, end: 1.0, inner_radius: 0.7 });
+        own.component.overrides.extend(record_override(&before, &own));
+        Command::Update { node: Box::new(own) }.apply(&mut doc).unwrap();
+        assert!(doc.get(source_ellipse).unwrap().component.overrides.contains(&OverrideField::Arc));
+
+        let exported = doc.export_spec(source_instance).unwrap();
+        let exported_json = serde_json::to_value(&exported).unwrap();
+        let arc = exported_json["overrides"].as_array().unwrap().iter().find(|ov| ov["path"] == "Ring").unwrap();
+        assert!((arc["arc"]["start_angle"].as_f64().unwrap() + 1.5).abs() < 1e-5);
+        assert!((arc["arc"]["sweep_angle"].as_f64().unwrap() - 2.5).abs() < 1e-5);
+        assert!((arc["arc"]["inner_radius"].as_f64().unwrap() - 0.7).abs() < 1e-5);
+
+        let copy = doc.apply_spec(page, &exported).unwrap();
+        let copy_ellipse = doc.get(copy).unwrap().children[0];
+        assert!(has_own_arc(&doc, copy_ellipse));
+
+        let mut main = doc.get(main_ellipse).unwrap().clone();
+        main.kind = NodeKind::Ellipse(ArcData { start: 0.5, end: 3.0, inner_radius: 0.4 });
+        Command::Update { node: Box::new(main) }.apply(&mut doc).unwrap();
+        let sync = sync_instances(&mut doc, component);
+        sync.apply(&mut doc).unwrap();
+        assert!(has_own_arc(&doc, copy_ellipse));
     }
 
     #[test]

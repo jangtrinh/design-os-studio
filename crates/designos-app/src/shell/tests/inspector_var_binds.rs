@@ -641,7 +641,7 @@ fn inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches() {
             let al = f.auto_layout.get_or_insert_with(Default::default);
             al.direction = LayoutDirection::Horizontal;
             al.wrap = true;
-            al.counter_spacing = 6.0;
+            al.counter_spacing = Some(6.0);
         }
     });
     s.frame(vec![]);
@@ -654,20 +654,66 @@ fn inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches() {
 
     let n = s.app().doc.get(hero).unwrap();
     assert!(n.variables.bindings.contains_key("counterAxisSpacing"));
-    assert_eq!(n.kind.frame_props().unwrap().auto_layout.as_ref().unwrap().counter_spacing, 24.0);
+    assert_eq!(n.kind.frame_props().unwrap().auto_layout.as_ref().unwrap().counter_spacing, Some(24.0));
     // Undo removes the binding and restores 6.0.
     s.cmd_key(Key::Z);
     s.frame(vec![]);
     let n = s.app().doc.get(hero).unwrap();
     assert!(!n.variables.bindings.contains_key("counterAxisSpacing"), "undo must remove counterAxisSpacing binding");
-    assert_eq!(n.kind.frame_props().unwrap().auto_layout.as_ref().unwrap().counter_spacing, 6.0);
+    assert_eq!(n.kind.frame_props().unwrap().auto_layout.as_ref().unwrap().counter_spacing, Some(6.0));
     sim_redo(&mut s);
     s.frame(vec![]);
     let pill = s.rect_of("bound:counterAxisSpacing");
     s.click(Pos2::new(pill.right() - 13.0, pill.center().y));
     s.frame(vec![]);
     assert!(!s.app().doc.get(hero).unwrap().variables.bindings.contains_key("counterAxisSpacing"));
-    assert_eq!(s.app().doc.get(hero).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap().counter_spacing, 24.0);
+    assert_eq!(s.app().doc.get(hero).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap().counter_spacing, Some(24.0));
+}
+
+#[test]
+fn inspector_and_variable_binding_make_counter_gap_explicit_while_item_spacing_does_not() {
+    let mut s = Sim::with(Options { select: Some("Welcome".into()), ..Default::default() });
+    let hero = s.by_name("Welcome");
+    let _ = add_test_collection_with_all_kinds(&mut s.shell.app);
+    s.shell.app.edit_nodes(&[hero], |n| {
+        if let Some(f) = n.kind.frame_props_mut() {
+            let al = f.auto_layout.get_or_insert_with(Default::default);
+            al.direction = LayoutDirection::Horizontal;
+            al.wrap = true;
+            al.item_spacing = 16.0;
+            al.counter_spacing = None;
+        }
+    });
+    s.frame(vec![]);
+
+    // Editing item spacing in the inspector leaves counter_spacing as None and moves line_gap().
+    let r = s.field_rect("al-gap");
+    s.click(Pos2::new(r.left() + 40.0, r.center().y));
+    s.type_text("20");
+    s.key(Key::Enter);
+    let al = s.app().doc.get(hero).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!((al.item_spacing, al.counter_spacing, al.line_gap()), (20.0, None, 20.0));
+
+    // Editing the line gap field in the inspector makes counter_spacing explicit Some(12.0).
+    let r = s.field_rect("al-counter-gap");
+    s.click(Pos2::new(r.left() + 40.0, r.center().y));
+    s.type_text("12");
+    s.key(Key::Enter);
+    let al = s.app().doc.get(hero).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!((al.item_spacing, al.counter_spacing, al.line_gap()), (20.0, Some(12.0), 12.0));
+
+    // Undo restores counter_spacing to None, then binding counterAxisSpacing makes it explicit Some(24.0).
+    s.cmd_key(Key::Z);
+    s.frame(vec![]);
+    let al = s.app().doc.get(hero).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!(al.counter_spacing, None);
+
+    s.click(s.rect_of("bind:counterAxisSpacing").center());
+    s.frame(vec![]);
+    s.click(s.rect_of("pick:Number/Step").center());
+    s.frame(vec![]);
+    let al = s.app().doc.get(hero).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!((al.item_spacing, al.counter_spacing, al.line_gap()), (20.0, Some(24.0), 24.0));
 }
 
 #[test]

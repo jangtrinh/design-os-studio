@@ -234,6 +234,7 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
         .collect();
     // Does the frame's cross extent exceed what its lines need (a Fixed frame, or a hugging one raised by its minimum)?
     let mut cross_has_slack = !hug_cross;
+    let line_gap = al.line_gap();
     if !al.wrap {
         if hug_cross {
             frame_cross = ax.clamp_cross(&own, line_cross[0] + pc);
@@ -243,7 +244,7 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
             line_cross[0] = (frame_cross - pc).max(0.0);
         }
     } else {
-        let total: f32 = line_cross.iter().sum::<f32>() + al.counter_spacing * (lines.len() as f32 - 1.0);
+        let total: f32 = line_cross.iter().sum::<f32>() + line_gap * (lines.len() as f32 - 1.0);
         if hug_cross {
             frame_cross = ax.clamp_cross(&own, total + pc);
             cross_has_slack = frame_cross - pc > total + 1e-3;
@@ -252,12 +253,21 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
 
     // Wrapped lines spread edge to edge (CSS align-content: space-between); the counter spacing stays the minimum gap.
     let counter_gap = if al.wrap && al.counter_align_content == CounterAlignContent::SpaceBetween && lines.len() > 1 && cross_has_slack {
-        ((frame_cross - pc - line_cross.iter().sum::<f32>()) / (lines.len() as f32 - 1.0)).max(al.counter_spacing)
+        ((frame_cross - pc - line_cross.iter().sum::<f32>()) / (lines.len() as f32 - 1.0)).max(line_gap)
     } else {
-        al.counter_spacing
+        line_gap
     };
     let mut rects = vec![Rect::default(); kids.len()];
     let mut cross_cursor = pc_start;
+    if al.wrap && lines.len() > 1 && cross_has_slack && al.counter_align_content == CounterAlignContent::Auto && !kids.iter().all(|k| k.stretches_cross()) {
+        let used: f32 = line_cross.iter().sum::<f32>() + line_gap * (lines.len() as f32 - 1.0);
+        let slack = (frame_cross - pc - used).max(0.0);
+        cross_cursor += match al.counter_align {
+            LayoutAlign::Center => slack / 2.0,
+            LayoutAlign::End => slack,
+            _ => 0.0,
+        };
+    }
     for (li, line) in lines.iter().enumerate() {
         let k = line.len() as f32;
         // Main sizes (distribute fill children by grow weight with a CSS flex freeze loop for min/max clamping).
@@ -266,7 +276,9 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
             let mut frozen: Vec<bool> = line.iter().map(|i| !kids[*i].main_fill).collect();
             let fixed: f32 = line.iter().zip(&frozen).filter(|(_, &f)| f).map(|(i, _)| nat_main(&kids[*i])).sum();
             let total_margins: f32 = line.iter().map(|i| ax.margin_main(&kids[*i].margin)).sum();
-            let mut rem_for_fill = (main_avail - al.item_spacing * (k - 1.0) - fixed - total_margins).max(0.0);
+            // The auto spacing modes place the children by free space alone: their stored item spacing is not reserved.
+            let reserved_spacing = if is_auto_spacing(al.primary_align) { 0.0 } else { al.item_spacing };
+            let mut rem_for_fill = (main_avail - reserved_spacing * (k - 1.0) - fixed - total_margins).max(0.0);
             loop {
                 let weight: f32 = line.iter().zip(&frozen).filter(|(_, &f)| !f).map(|(i, _)| fill_weight(&kids[*i])).sum();
                 if weight <= 0.0 {
@@ -331,11 +343,19 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
             }
         }
         let sum_main: f32 = line.iter().enumerate().map(|(j, i)| mains[j] + ax.margin_main(&kids[*i].margin)).sum();
-        // For Space* distribution modes, free space ignores the fixed gap and negative free space packs from the start;
-        // Center and End keep the signed offset so overflowing content stays centered or end-anchored.
+        // For Space* distribution modes, free space ignores the fixed gap and negative free space packs from the start
+        // (space-between in version 0 excepted, below); Center and End keep the signed offset so overflowing content stays
+        // centered or end-anchored.
         let free = main_avail - sum_main;
+        // Layout version 0 is Figma's legacy engine: space-between centres a frame's only child (unless it fills the main
+        // axis) and lets overflowing children overlap. Version 1 and up start a lone child at the start and stop at a zero gap.
+        let legacy = al.layout_version == 0;
         let (start, gap) = match al.primary_align {
-            LayoutAlign::SpaceBetween if k > 1.0 => (0.0, (free / (k - 1.0)).max(al.item_spacing.min(0.0))),
+            LayoutAlign::SpaceBetween if legacy && !al.wrap && kids.len() == 1 && !kids[0].main_fill => (free / 2.0, al.item_spacing),
+            // Wrapping lines keep their stored item spacing as the floor of the gap in every version: they were broken with it.
+            LayoutAlign::SpaceBetween if k > 1.0 && al.wrap => (0.0, (free / (k - 1.0)).max(al.item_spacing.min(0.0))),
+            LayoutAlign::SpaceBetween if k > 1.0 && legacy => (0.0, free / (k - 1.0)),
+            LayoutAlign::SpaceBetween if k > 1.0 => (0.0, (free / (k - 1.0)).max(0.0)),
             LayoutAlign::SpaceAround if free > 0.0 => (free / k / 2.0, free / k),
             LayoutAlign::SpaceEvenly if free > 0.0 => (free / (k + 1.0), free / (k + 1.0)),
             LayoutAlign::SpaceAround | LayoutAlign::SpaceEvenly => (0.0, 0.0),
@@ -375,6 +395,11 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
         cross_cursor += line_cross[li] + counter_gap;
     }
     LayoutOut { frame: ax.vec(frame_main, frame_cross), rects }
+}
+
+/// Space-between, space-around and space-evenly: the stored item spacing is not used, free space sets every gap.
+fn is_auto_spacing(align: LayoutAlign) -> bool {
+    matches!(align, LayoutAlign::SpaceBetween | LayoutAlign::SpaceAround | LayoutAlign::SpaceEvenly)
 }
 
 fn fill_weight(k: &ChildIn) -> f32 {
@@ -500,7 +525,7 @@ mod tests {
                 direction: LayoutDirection::Horizontal,
                 counter_sizing: Sizing::Hug,
                 wrap: true,
-                counter_spacing: 10.0,
+                counter_spacing: Some(10.0),
                 ..Default::default()
             }),
             ..Default::default()
@@ -635,7 +660,8 @@ mod tests {
 
     #[test]
     fn space_distribution_modes_keep_overflowing_content_anchored_at_start() {
-        for align in [LayoutAlign::SpaceBetween, LayoutAlign::SpaceAround, LayoutAlign::SpaceEvenly] {
+        // Space-between overflow collapses the gap from layout version 1 on; version 0 lets the children overlap (tested below).
+        for (align, layout_version) in [(LayoutAlign::SpaceBetween, 1), (LayoutAlign::SpaceAround, 0), (LayoutAlign::SpaceEvenly, 0)] {
             let mut d = Document::new("t");
             let page = d.add_page("p");
             let container_id = d.alloc_id();
@@ -647,6 +673,7 @@ mod tests {
                     counter_sizing: Sizing::Fixed,
                     primary_align: align,
                     item_spacing: 10.0,
+                    layout_version,
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -660,6 +687,222 @@ mod tests {
             d.relayout_subtree(container);
             assert_eq!(d.get(c1).unwrap().transform.ty, 0.0, "{align:?}: first child stays at start");
             assert_eq!(d.get(c2).unwrap().transform.ty, 80.0, "{align:?}: gap collapses to 0 when overflowing");
+        }
+    }
+
+    /// A fixed `frame`-sized frame laid out by `al` (both axes forced to Fixed) holding one `(w, h)` rectangle per entry of
+    /// `kids`. Nothing is solved yet.
+    fn fixed_frame_with_rectangles(al: AutoLayout, frame: (f32, f32), kids: &[(f32, f32)]) -> (Document, NodeId, Vec<NodeId>) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let frame_id = d.alloc_id();
+        let mut f = Node::frame(frame_id, Rect::new(0.0, 0.0, frame.0, frame.1));
+        f.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout { primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Fixed, ..al }),
+            ..Default::default()
+        });
+        let frame_id = d.insert(page, f).unwrap();
+        let ids = kids
+            .iter()
+            .map(|&(w, h)| {
+                let id = d.alloc_id();
+                d.insert(frame_id, Node::rectangle(id, Rect::new(0.0, 0.0, w, h))).unwrap()
+            })
+            .collect();
+        (d, frame_id, ids)
+    }
+
+    /// `(x, y, width, height)` of a node inside its parent.
+    fn slot_of(d: &Document, id: NodeId) -> (f32, f32, f32, f32) {
+        let n = d.get(id).unwrap();
+        (n.transform.tx, n.transform.ty, n.size.x, n.size.y)
+    }
+
+    fn space_between(direction: LayoutDirection, layout_version: u8) -> AutoLayout {
+        AutoLayout { direction, primary_align: LayoutAlign::SpaceBetween, layout_version, ..Default::default() }
+    }
+
+    #[test]
+    fn a_version_0_space_between_frame_centres_its_lone_child_on_the_main_axis() {
+        // Vertical 720 x 960 frame, one 720 x 484 child: (960 - 484) / 2 = 238.
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(space_between(LayoutDirection::Vertical, 0), (720.0, 960.0), &[(720.0, 484.0)]);
+        d.get_mut(kids[0]).unwrap().layout_child.horizontal = Sizing::Fill;
+        d.relayout_subtree(frame);
+        assert_eq!(slot_of(&d, kids[0]), (0.0, 238.0, 720.0, 484.0));
+
+        // The padding along the main axis counts: 32 + (1216 - 360) / 2 = 460.
+        let al = AutoLayout { padding: [0.0, 32.0, 0.0, 32.0], ..space_between(LayoutDirection::Horizontal, 0) };
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(al, (1280.0, 100.0), &[(360.0, 100.0)]);
+        d.relayout_subtree(frame);
+        assert_eq!(slot_of(&d, kids[0]), (460.0, 0.0, 360.0, 100.0));
+    }
+
+    #[test]
+    fn a_version_0_space_between_frame_leaves_a_lone_main_axis_fill_child_clamped_by_its_max_at_the_start() {
+        // Pins today's result for the lone Fill child that its max clamps: it is not centred. Whether Figma centres it is
+        // not settled; a decision either way has to change this test.
+        let al = AutoLayout { padding: [0.0, 32.0, 0.0, 32.0], ..space_between(LayoutDirection::Horizontal, 0) };
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(al, (1280.0, 100.0), &[(360.0, 100.0)]);
+        let lc = &mut d.get_mut(kids[0]).unwrap().layout_child;
+        lc.horizontal = Sizing::Fill;
+        lc.max_w = Some(360.0);
+        d.relayout_subtree(frame);
+        assert_eq!(slot_of(&d, kids[0]), (32.0, 0.0, 360.0, 100.0));
+    }
+
+    #[test]
+    fn a_version_1_space_between_frame_keeps_its_lone_child_at_the_start() {
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(space_between(LayoutDirection::Vertical, 1), (720.0, 960.0), &[(720.0, 484.0)]);
+        d.get_mut(kids[0]).unwrap().layout_child.horizontal = Sizing::Fill;
+        d.relayout_subtree(frame);
+        assert_eq!(slot_of(&d, kids[0]), (0.0, 0.0, 720.0, 484.0));
+    }
+
+    #[test]
+    fn a_space_between_frame_with_one_child_per_wrapped_line_keeps_every_child_at_the_start() {
+        // Wrap frames are not part of the legacy lone-child centring: a line with one child (or a frame with one child) stays put.
+        for layout_version in [0, 1] {
+            let al = AutoLayout { wrap: true, ..space_between(LayoutDirection::Horizontal, layout_version) };
+            let (mut d, frame, kids) = fixed_frame_with_rectangles(al, (400.0, 100.0), &[(300.0, 30.0), (300.0, 30.0)]);
+            d.relayout_subtree(frame);
+            assert_eq!(slot_of(&d, kids[0]), (0.0, 0.0, 300.0, 30.0), "version {layout_version}");
+            assert_eq!(slot_of(&d, kids[1]), (0.0, 30.0, 300.0, 30.0), "version {layout_version}");
+
+            let (mut d, frame, kids) = fixed_frame_with_rectangles(
+                AutoLayout { wrap: true, ..space_between(LayoutDirection::Horizontal, layout_version) },
+                (400.0, 100.0),
+                &[(100.0, 30.0)],
+            );
+            d.relayout_subtree(frame);
+            assert_eq!(slot_of(&d, kids[0]), (0.0, 0.0, 100.0, 30.0), "version {layout_version}");
+        }
+    }
+
+    #[test]
+    fn space_between_overflow_overlaps_children_in_version_0_and_stops_at_a_zero_gap_from_version_1() {
+        // Two 80 long children in a 100 long frame: free space is -60.
+        for (layout_version, second) in [(0, 20.0), (1, 80.0)] {
+            let (mut d, frame, kids) =
+                fixed_frame_with_rectangles(space_between(LayoutDirection::Vertical, layout_version), (50.0, 100.0), &[(50.0, 80.0), (50.0, 80.0)]);
+            d.relayout_subtree(frame);
+            assert_eq!(slot_of(&d, kids[0]).1, 0.0, "version {layout_version}");
+            assert_eq!(slot_of(&d, kids[1]).1, second, "version {layout_version}");
+        }
+    }
+
+    #[test]
+    fn space_between_distributes_positive_free_space_the_same_in_every_version() {
+        for layout_version in [0, 1] {
+            let (mut d, frame, kids) = fixed_frame_with_rectangles(
+                space_between(LayoutDirection::Vertical, layout_version),
+                (50.0, 100.0),
+                &[(50.0, 20.0), (50.0, 20.0), (50.0, 20.0)],
+            );
+            d.relayout_subtree(frame);
+            let ys: Vec<f32> = kids.iter().map(|k| slot_of(&d, *k).1).collect();
+            assert_eq!(ys, [0.0, 40.0, 80.0], "version {layout_version}");
+        }
+    }
+
+    #[test]
+    fn a_negative_item_spacing_does_not_overlap_children_under_version_1_space_between() {
+        let al = AutoLayout { item_spacing: -10.0, ..space_between(LayoutDirection::Vertical, 1) };
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(al, (50.0, 100.0), &[(50.0, 80.0), (50.0, 80.0)]);
+        d.relayout_subtree(frame);
+        assert_eq!(slot_of(&d, kids[0]).1, 0.0);
+        assert_eq!(slot_of(&d, kids[1]).1, 80.0);
+    }
+
+    #[test]
+    fn a_wrapping_space_between_line_keeps_the_negative_item_spacing_gap_in_every_version() {
+        // 80 + (-30) + 40 = 90 fits the 100 wide frame, so both children share one line with free space -20.
+        for layout_version in [0, 1] {
+            let al = AutoLayout { wrap: true, item_spacing: -30.0, ..space_between(LayoutDirection::Horizontal, layout_version) };
+            let (mut d, frame, kids) = fixed_frame_with_rectangles(al, (100.0, 100.0), &[(80.0, 30.0), (40.0, 30.0)]);
+            d.relayout_subtree(frame);
+            assert_eq!(slot_of(&d, kids[0]).0, 0.0, "version {layout_version}");
+            assert_eq!(slot_of(&d, kids[1]).0, 60.0, "version {layout_version}");
+        }
+    }
+
+    #[test]
+    fn a_version_0_space_between_frame_centres_a_lone_child_inside_its_padding_beside_an_absolute_sibling() {
+        // Width 200, padding left 40 and right 0: the content box is 160 wide, so a 40 wide child sits at 40 + 60 = 100. The
+        // absolutely positioned sibling is not a flow child, so the child is still alone.
+        let al = AutoLayout { padding: [0.0, 0.0, 0.0, 40.0], ..space_between(LayoutDirection::Horizontal, 0) };
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(al, (200.0, 100.0), &[(40.0, 100.0), (30.0, 30.0)]);
+        d.get_mut(kids[1]).unwrap().layout_child.absolute = true;
+        d.relayout_subtree(frame);
+        assert_eq!(slot_of(&d, kids[0]).0, 100.0);
+    }
+
+    #[test]
+    fn auto_spacing_modes_split_the_space_two_max_clamped_fill_children_leave_free() {
+        // Frame 300, Fill children clamped to 100 and 80: free space 120 goes to the mode's own distribution.
+        for layout_version in [0, 1] {
+            for (align, second_x, first_x) in [
+                (LayoutAlign::SpaceBetween, 220.0, 0.0),
+                (LayoutAlign::SpaceAround, 30.0 + 100.0 + 60.0, 30.0),
+                (LayoutAlign::SpaceEvenly, 40.0 + 100.0 + 40.0, 40.0),
+            ] {
+                let al = AutoLayout { direction: LayoutDirection::Horizontal, primary_align: align, item_spacing: 96.0, layout_version, ..Default::default() };
+                let (mut d, frame, kids) = fixed_frame_with_rectangles(al, (300.0, 100.0), &[(10.0, 100.0), (10.0, 100.0)]);
+                for (kid, max) in kids.iter().zip([100.0, 80.0]) {
+                    let lc = &mut d.get_mut(*kid).unwrap().layout_child;
+                    lc.horizontal = Sizing::Fill;
+                    lc.max_w = Some(max);
+                }
+                d.relayout_subtree(frame);
+                let what = format!("{align:?}, version {layout_version}");
+                assert_eq!(slot_of(&d, kids[0]).0, first_x, "{what}");
+                assert_eq!(slot_of(&d, kids[0]).2, 100.0, "{what}");
+                assert_eq!(slot_of(&d, kids[1]).0, second_x, "{what}");
+                assert_eq!(slot_of(&d, kids[1]).2, 80.0, "{what}");
+            }
+        }
+    }
+
+    /// A horizontal 1216 wide frame with item spacing 96 holding a 328 wide fixed child and a Fill child.
+    fn fixed_child_beside_fill_child(primary_align: LayoutAlign, layout_version: u8) -> (Document, NodeId, Vec<NodeId>) {
+        let al = AutoLayout { direction: LayoutDirection::Horizontal, primary_align, item_spacing: 96.0, layout_version, ..Default::default() };
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(al, (1216.0, 200.0), &[(328.0, 100.0), (100.0, 100.0)]);
+        d.get_mut(kids[1]).unwrap().layout_child.horizontal = Sizing::Fill;
+        d.relayout_subtree(frame);
+        (d, frame, kids)
+    }
+
+    #[test]
+    fn auto_spacing_modes_reserve_no_item_spacing_for_a_fill_child() {
+        for layout_version in [0, 1] {
+            for align in [LayoutAlign::SpaceBetween, LayoutAlign::SpaceAround, LayoutAlign::SpaceEvenly] {
+                let (d, _, kids) = fixed_child_beside_fill_child(align, layout_version);
+                let what = format!("{align:?}, version {layout_version}");
+                assert_eq!(slot_of(&d, kids[0]), (0.0, 0.0, 328.0, 100.0), "{what}");
+                assert_eq!(slot_of(&d, kids[1]), (328.0, 0.0, 888.0, 100.0), "{what}");
+            }
+        }
+    }
+
+    #[test]
+    fn start_center_and_end_packing_still_reserve_item_spacing_for_a_fill_child_in_every_version() {
+        for layout_version in [0, 1] {
+            for align in [LayoutAlign::Start, LayoutAlign::Center, LayoutAlign::End] {
+                let (d, _, kids) = fixed_child_beside_fill_child(align, layout_version);
+                let what = format!("{align:?}, version {layout_version}");
+                assert_eq!(slot_of(&d, kids[1]), (424.0, 0.0, 792.0, 100.0), "{what}");
+            }
+        }
+    }
+
+    #[test]
+    fn start_center_and_end_packing_place_a_lone_child_the_same_in_every_version() {
+        for layout_version in [0, 1] {
+            for (align, x) in [(LayoutAlign::Start, 0.0), (LayoutAlign::Center, 508.0), (LayoutAlign::End, 1016.0)] {
+                let al = AutoLayout { direction: LayoutDirection::Horizontal, primary_align: align, layout_version, ..Default::default() };
+                let (mut d, frame, kids) = fixed_frame_with_rectangles(al, (1216.0, 100.0), &[(200.0, 100.0)]);
+                d.relayout_subtree(frame);
+                assert_eq!(slot_of(&d, kids[0]).0, x, "{align:?}, version {layout_version}");
+            }
         }
     }
 
@@ -733,5 +976,131 @@ mod tests {
     fn an_explicit_start_align_self_still_pins_a_clamped_child_to_the_start() {
         let (d, kid) = frame_with_cross_fill_child(LayoutDirection::Vertical, LayoutAlign::Center, AlignSelf::Start, (None, Some(1280.0)));
         assert_eq!(cross_span(&d, kid, LayoutDirection::Vertical), (0.0, 1280.0));
+    }
+
+    fn wrapped_two_line_layout(counter_align: LayoutAlign) -> AutoLayout {
+        AutoLayout {
+            direction: LayoutDirection::Horizontal,
+            wrap: true,
+            primary_align: LayoutAlign::Center,
+            counter_align,
+            item_spacing: 32.0,
+            counter_spacing: Some(32.0),
+            padding: [32.0, 32.0, 32.0, 32.0],
+            ..AutoLayout::default()
+        }
+    }
+
+    #[test]
+    fn wrap_auto_content_aligns_line_block_by_counter_align() {
+        let eight_rects = [(88.0, 88.0); 8];
+        for (align, (y0, y1)) in [(LayoutAlign::Start, (32.0, 152.0)), (LayoutAlign::Center, (33.0, 153.0))] {
+            let (mut d, frame, kids) = fixed_frame_with_rectangles(wrapped_two_line_layout(align), (560.0, 274.0), &eight_rects);
+            d.relayout_subtree(frame);
+            for &k in &kids[0..4] {
+                assert_eq!(slot_of(&d, k).1, y0, "{align:?} first line");
+            }
+            for &k in &kids[4..8] {
+                assert_eq!(slot_of(&d, k).1, y1, "{align:?} second line");
+            }
+        }
+    }
+
+    #[test]
+    fn wrap_auto_content_end_align_with_positive_slack_places_block_at_far_padding_edge() {
+        let eight_rects = [(88.0, 88.0); 8];
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(wrapped_two_line_layout(LayoutAlign::End), (560.0, 274.0), &eight_rects);
+        d.relayout_subtree(frame);
+        for &k in &kids[0..4] {
+            assert_eq!(slot_of(&d, k).1, 34.0);
+        }
+        for &k in &kids[4..8] {
+            assert_eq!(slot_of(&d, k).1, 154.0);
+        }
+    }
+
+    #[test]
+    fn wrap_auto_content_overflow_under_center_and_end_stays_at_near_padding_edge() {
+        let eight_rects = [(88.0, 88.0); 8];
+        for align in [LayoutAlign::Center, LayoutAlign::End] {
+            let (mut d, frame, kids) = fixed_frame_with_rectangles(wrapped_two_line_layout(align), (560.0, 200.0), &eight_rects);
+            d.relayout_subtree(frame);
+            assert_eq!(slot_of(&d, kids[0]).1, 32.0, "{align:?} first line");
+            assert_eq!(slot_of(&d, kids[4]).1, 152.0, "{align:?} second line");
+        }
+    }
+
+    #[test]
+    fn wrap_auto_content_hugging_counter_axis_does_not_offset_lines() {
+        let eight_rects = [(88.0, 88.0); 8];
+        for align in [LayoutAlign::Center, LayoutAlign::End] {
+            let (mut d, frame, kids) = fixed_frame_with_rectangles(wrapped_two_line_layout(align), (560.0, 400.0), &eight_rects);
+            if let Some(al) = d.get_mut(frame).and_then(|n| n.kind.frame_props_mut()).and_then(|f| f.auto_layout.as_mut()) {
+                al.counter_sizing = Sizing::Hug;
+            }
+            d.relayout_subtree(frame);
+            assert_eq!(d.get(frame).unwrap().size.y, 272.0, "{align:?} hugged height");
+            assert_eq!(slot_of(&d, kids[0]).1, 32.0, "{align:?} first line");
+            assert_eq!(slot_of(&d, kids[4]).1, 152.0, "{align:?} second line");
+        }
+    }
+
+    #[test]
+    fn wrap_auto_content_single_line_with_center_alignment_has_no_double_offset() {
+        let four_rects = [(88.0, 88.0), (88.0, 48.0), (88.0, 88.0), (88.0, 48.0)];
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(wrapped_two_line_layout(LayoutAlign::Center), (560.0, 274.0), &four_rects);
+        d.relayout_subtree(frame);
+        assert_eq!(slot_of(&d, kids[0]).1, 32.0);
+        assert_eq!(slot_of(&d, kids[1]).1, 52.0);
+        assert_eq!(slot_of(&d, kids[2]).1, 32.0);
+        assert_eq!(slot_of(&d, kids[3]).1, 52.0);
+    }
+
+    #[test]
+    fn wrap_auto_content_with_absolute_child_aligns_flow_lines_and_leaves_absolute_child_unmoved() {
+        let eight_rects = [(88.0, 88.0); 8];
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(wrapped_two_line_layout(LayoutAlign::Center), (560.0, 274.0), &eight_rects);
+        let abs_id = d.alloc_id();
+        let mut abs_node = Node::rectangle(abs_id, Rect::new(10.0, 15.0, 40.0, 40.0));
+        abs_node.layout_child.absolute = true;
+        let abs_id = d.insert(frame, abs_node).unwrap();
+        d.relayout_subtree(frame);
+        assert_eq!(slot_of(&d, abs_id), (10.0, 15.0, 40.0, 40.0));
+        assert_eq!(slot_of(&d, kids[0]).1, 33.0);
+        assert_eq!(slot_of(&d, kids[4]).1, 153.0);
+    }
+
+    #[test]
+    fn wrap_auto_content_with_every_child_stretching_keeps_main_positions() {
+        let eight_rects = [(88.0, 88.0); 8];
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(wrapped_two_line_layout(LayoutAlign::Center), (560.0, 274.0), &eight_rects);
+        for &k in &kids {
+            d.get_mut(k).unwrap().layout_child.vertical = Sizing::Fill;
+        }
+        d.relayout_subtree(frame);
+        for &k in &kids[0..4] {
+            assert_eq!((slot_of(&d, k).1, slot_of(&d, k).3), (32.0, 88.0));
+        }
+        for &k in &kids[4..8] {
+            assert_eq!((slot_of(&d, k).1, slot_of(&d, k).3), (152.0, 88.0));
+        }
+    }
+
+    #[test]
+    fn wrap_auto_content_with_one_fixed_child_among_stretching_ones_still_aligns_the_block() {
+        let eight_rects = [(88.0, 88.0); 8];
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(wrapped_two_line_layout(LayoutAlign::Center), (560.0, 274.0), &eight_rects);
+        // Only the block of lines made of stretching children alone keeps main's start-packed
+        // positions; one fixed child is enough for the block to follow the counter alignment.
+        for &k in &kids[0..7] {
+            d.get_mut(k).unwrap().layout_child.vertical = Sizing::Fill;
+        }
+        d.relayout_subtree(frame);
+        for &k in &kids[0..4] {
+            assert_eq!((slot_of(&d, k).1, slot_of(&d, k).3), (33.0, 88.0));
+        }
+        for &k in &kids[4..8] {
+            assert_eq!((slot_of(&d, k).1, slot_of(&d, k).3), (153.0, 88.0));
+        }
     }
 }

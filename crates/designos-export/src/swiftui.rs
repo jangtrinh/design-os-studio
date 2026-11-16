@@ -1061,7 +1061,7 @@ mod tests {
         let al = AutoLayout {
             grid_columns: 2,
             item_spacing: 10.0,
-            counter_spacing: 8.0,
+            counter_spacing: Some(8.0),
             grid_col_tracks: vec![GridTrack::Fixed(100.0), GridTrack::Fixed(120.0)].into(),
             grid_row_tracks: vec![GridTrack::Fixed(40.0), GridTrack::Fixed(50.0)].into(),
             primary_sizing: Sizing::Fixed,

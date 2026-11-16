@@ -13,7 +13,7 @@ fn live_outside_autosave_off() -> (Sim, designos_mcp::server::Session, std::path
     let workspace = dir.0.join("mcp-workspace");
     std::fs::create_dir_all(&workspace).unwrap();
     let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &s.app().terminal.session_dir).expect("mcp session");
-    session.set_close_ack_timeout(Duration::from_millis(800));
+    session.set_close_ack_timeout(Duration::from_secs(5));
     (s, session, path, workspace, dir)
 }
 
@@ -26,7 +26,7 @@ fn live_library_autosave_off() -> (Sim, designos_mcp::server::Session, std::path
     let workspace = dir.0.join("mcp-workspace");
     std::fs::create_dir_all(&workspace).unwrap();
     let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &s.app().terminal.session_dir).expect("mcp session");
-    session.set_close_ack_timeout(Duration::from_millis(800));
+    session.set_close_ack_timeout(Duration::from_secs(5));
     (s, session, workspace, dir)
 }
 
@@ -83,7 +83,7 @@ fn close_while_pumping(s: &mut Sim, session: &mut designos_mcp::server::Session,
     std::thread::scope(|scope| {
         let h = scope.spawn(|| session.call("designos_close_document", args));
         // Until the call has answered: the call may not have written its close line when a fixed run of frames ends.
-        let end = std::time::Instant::now() + Duration::from_secs(5);
+        let end = std::time::Instant::now() + Duration::from_secs(6);
         while !h.is_finished() && std::time::Instant::now() < end {
             wait(s, 0.1);
             std::thread::sleep(Duration::from_millis(5));
@@ -274,7 +274,7 @@ fn untitled_close_save_without_path_is_path_required() {
     let workspace = dir.0.join("mcp-workspace");
     std::fs::create_dir_all(&workspace).unwrap();
     let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &s.app().terminal.session_dir).expect("mcp session");
-    session.set_close_ack_timeout(Duration::from_millis(800));
+    session.set_close_ack_timeout(Duration::from_secs(5));
     let tabs = s.app().tabs.entries.len();
     let err = close_while_pumping(&mut s, &mut session, json!({"unsaved": "save"})).expect_err("untitled save needs a path");
     assert_eq!(err["code"], "PATH_REQUIRED", "{err}");

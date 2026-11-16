@@ -555,16 +555,6 @@ fn common_corners<T: PartialEq>(doc: &Document, ids: &[NodeId], f: impl Fn(&Node
     it.all(|v| v == first).then_some(first)
 }
 
-fn clear_rect_geom(n: &mut Node) {
-    if matches!(
-        n.kind,
-        NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. } | NodeKind::Section | NodeKind::Rectangle
-    ) {
-        n.fill_geometry = None;
-        n.stroke_geometry = None;
-    }
-}
-
 fn remove_field_rect(ctx: &egui::Context, key: &str) {
     let id = egui::Id::new(("field-rect", format!("{key:?}")));
     ctx.data_mut(|d| {
@@ -1333,7 +1323,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
                         n.variables.bindings.remove(k);
                     }
                     n.corner_radii = [v; 4];
-                    clear_rect_geom(n);
+                    crate::canvas::interact::drop_baked_outline_of_parametric_shape(n);
                 });
             }
         } else {
@@ -1375,7 +1365,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
                 app.edit_nodes(&four_corner_nodes, |n| {
                     n.variables.bindings.remove(var_key);
                     n.corner_radii[corner_idx] = v;
-                    clear_rect_geom(n);
+                    crate::canvas::interact::drop_baked_outline_of_parametric_shape(n);
                 });
             }
             if idx == 1 || idx == 3 {
@@ -1419,7 +1409,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
                 let v = (frac * 100.0).round() / 100.0;
                 app.edit_nodes(&four_corner_nodes, |n| {
                     n.corner_smoothing = v;
-                    clear_rect_geom(n);
+                    crate::canvas::interact::drop_baked_outline_of_parametric_shape(n);
                 });
             }
         }
@@ -1436,7 +1426,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
             let v = (pct / 100.0).clamp(0.0, 1.0);
             app.edit_nodes(&four_corner_nodes, |n| {
                 n.corner_smoothing = v;
-                clear_rect_geom(n);
+                crate::canvas::interact::drop_baked_outline_of_parametric_shape(n);
             });
         }
 
@@ -1462,7 +1452,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         if ios_resp.clicked() {
             app.edit_nodes(&four_corner_nodes, |n| {
                 n.corner_smoothing = IOS_SMOOTHING;
-                clear_rect_geom(n);
+                crate::canvas::interact::drop_baked_outline_of_parametric_shape(n);
             });
         }
         row_end(pane);
@@ -1908,9 +1898,9 @@ fn wrap_lines_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a:
     let icon = if a.direction == LayoutDirection::Horizontal { Icon::PaddingV } else { Icon::PaddingH };
     let cgap_r = pane.col(0, 0.0);
     if let Some(v) = var_bind::numeric(app, ui, cgap_r, sel, &["counterAxisSpacing"], |ui, r| {
-        field::num_field(ui, r, "al-counter-gap", Prefix::Icon(icon), Some(a.counter_spacing), "")
+        field::num_field(ui, r, "al-counter-gap", Prefix::Icon(icon), Some(a.line_gap()), "")
     }) {
-        update_al(app, sel, |al| al.counter_spacing = v);
+        update_al(app, sel, |al| al.counter_spacing = Some(v));
     }
     let between = a.counter_align_content == CounterAlignContent::SpaceBetween;
     let options = ["Auto", "Between"].map(String::from);

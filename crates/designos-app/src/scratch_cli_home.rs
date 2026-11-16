@@ -7,6 +7,8 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+use tempfile::TempDir;
+
 /// Every environment variable that moves where an agent CLI keeps its state, paired with the folder under the scratch home it is
 /// pointed at (`""` is the scratch home itself). `HOME` covers the CLIs that name no variable of their own.
 pub const HOME_VARS: &[(&str, &str)] = &[
@@ -20,24 +22,29 @@ pub const HOME_VARS: &[(&str, &str)] = &[
     ("XDG_STATE_HOME", ".local/state"),
 ];
 
-/// Name of a scratch home folder, before the pid of the test process that made it. A run leaves its home behind (a few KB): nothing
-/// here decides which of the others belongs to a finished run.
+/// Prefix for the per-test-thread scratch home.
 const HOME_PREFIX: &str = "designos-scratch-cli-home-";
 
 /// The scratch home of this test process, made on first use. It holds the folders [`HOME_VARS`] name, and the one setting
 /// `gemini mcp list` needs before it lists servers: the auth type. No key or login is stored.
 pub fn scratch_cli_home() -> PathBuf {
-    static HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    HOME.get_or_init(|| {
-        let home = std::env::temp_dir().join(format!("{HOME_PREFIX}{}", std::process::id()));
-        for (_, folder) in HOME_VARS {
-            let _ = std::fs::create_dir_all(home.join(folder));
-        }
-        let _ = std::fs::create_dir_all(home.join(".gemini"));
-        let _ = std::fs::write(home.join(".gemini").join("settings.json"), r#"{"security":{"auth":{"selectedType":"gemini-api-key"}}}"#);
-        home
+    thread_local! {
+        static HOME: std::cell::OnceCell<TempDir> = const { std::cell::OnceCell::new() };
+    }
+    HOME.with(|home| {
+        home.get_or_init(|| {
+            let temp = tempfile::Builder::new().prefix(HOME_PREFIX).tempdir().expect("scratch CLI home");
+            let path = temp.path();
+            for (_, folder) in HOME_VARS {
+                let _ = std::fs::create_dir_all(path.join(folder));
+            }
+            let _ = std::fs::create_dir_all(path.join(".gemini"));
+            let _ = std::fs::write(path.join(".gemini").join("settings.json"), r#"{"security":{"auth":{"selectedType":"gemini-api-key"}}}"#);
+            temp
+        })
+        .path()
+        .to_path_buf()
     })
-    .clone()
 }
 
 /// Points `cmd` (a real agent CLI run by a test) at [`scratch_cli_home`] through every variable in [`HOME_VARS`].
@@ -83,5 +90,11 @@ mod tests {
         assert!(wrong.is_empty(), "these variables do not point inside the scratch home {}:\n{}", scratch.display(), wrong.join("\n"));
         assert!(std::env::var_os("HOME").is_none_or(|real| !scratch.starts_with(real)), "the scratch home sits inside the real one");
         assert!(scratch.join(".gemini").join("settings.json").is_file());
+    }
+
+    #[test]
+    fn scratch_home_is_removed_when_its_owner_thread_exits() {
+        let scratch = std::thread::spawn(scratch_cli_home).join().unwrap();
+        assert!(!scratch.exists(), "scratch CLI home leaked after its owner thread exited: {}", scratch.display());
     }
 }

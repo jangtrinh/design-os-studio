@@ -86,10 +86,12 @@ impl Command {
         Ok(match self {
             Command::Insert { parent, index, nodes } => {
                 let root = nodes.first().map(|n| n.id).ok_or(DocError::NotFound(parent))?;
-                let p = doc.nodes.get_mut(&parent).ok_or(DocError::NotFound(parent))?;
+                let p = doc.nodes.get(&parent).ok_or(DocError::NotFound(parent))?;
                 if !p.kind.can_hold_children() {
                     return Err(DocError::NotAContainer(parent));
                 }
+                validate_insert_nodes(doc, &nodes)?;
+                let p = doc.nodes.get_mut(&parent).ok_or(DocError::NotFound(parent))?;
                 table::check_insert_payload(&p.kind, &nodes)?;
                 let index = index.min(p.children.len());
                 p.children.insert(index, root);
@@ -97,6 +99,9 @@ impl Command {
                 for mut n in nodes {
                     if n.id == root {
                         n.parent = Some(parent);
+                    }
+                    if n.stroke_geometry.is_some() && n.stroke_geometry_for.is_none() {
+                        n.stamp_stroke_geometry();
                     }
                     doc.nodes.insert(n.id, n);
                 }
@@ -140,22 +145,33 @@ impl Command {
                 if !matches!(root.kind, NodeKind::Page { .. }) {
                     return Err(DocError::NotAContainer(root.id));
                 }
+                validate_insert_nodes(doc, &nodes)?;
                 let root = root.id;
+                let stash = nodes.first().and_then(|n| n.component.deferred_page_stash.clone());
                 for mut n in nodes {
                     if n.id == root {
                         n.parent = None;
                     }
+                    if n.stroke_geometry.is_some() && n.stroke_geometry_for.is_none() {
+                        n.stamp_stroke_geometry();
+                    }
+                    n.component.deferred_page_stash = None;
                     doc.nodes.insert(n.id, n);
                 }
                 let index = index.min(doc.pages.len());
                 doc.pages.insert(index, root);
+                doc.on_insert_page(root, stash);
                 doc.bump_ids();
                 doc.mark_tree_full_dirty();
                 Command::RemovePage { id: root }
             }
             Command::RemovePage { id } => {
                 let index = doc.pages.iter().position(|p| *p == id).ok_or(DocError::NotFound(id))?;
-                let nodes = doc.remove(id)?;
+                let mut nodes = doc.remove(id)?;
+                let stash = doc.on_remove_page(id);
+                if let Some(root) = nodes.first_mut() {
+                    root.component.deferred_page_stash = stash;
+                }
                 Command::InsertPage { index, nodes }
             }
             Command::SetFlows { flows } => Command::SetFlows { flows: std::mem::replace(&mut doc.flows, flows) },
@@ -220,7 +236,8 @@ impl Command {
             }
             Command::Batch(cmds) => {
                 let mut inv = Vec::with_capacity(cmds.len());
-                for c in cmds {
+                for mut c in cmds {
+                    transfer_same_page_stash(&mut inv, &mut c);
                     inv.push(c.apply(doc)?);
                 }
                 inv.reverse();
@@ -236,7 +253,8 @@ impl Command {
     pub fn apply_atomic(self, doc: &mut Document) -> Result<Command, DocError> {
         let Command::Batch(cmds) = self else { return self.apply(doc) };
         let mut inv = Vec::with_capacity(cmds.len());
-        for c in cmds {
+        for mut c in cmds {
+            transfer_same_page_stash(&mut inv, &mut c);
             match c.apply_atomic(doc) {
                 Ok(i) => inv.push(i),
                 Err(e) => {
@@ -326,6 +344,30 @@ impl Command {
             | Command::SetCheckDesignsSettings(_) => {}
         }
     }
+}
+
+fn transfer_same_page_stash(inverses: &mut [Command], next: &mut Command) {
+    let Command::InsertPage { nodes, .. } = next else { return };
+    let Some(dst) = nodes.first_mut() else { return };
+    let page_id = dst.id;
+    for inv in inverses.iter_mut().rev() {
+        if let Command::InsertPage { nodes: inv_nodes, .. } = inv {
+            if let Some(src) = inv_nodes.first_mut().filter(|n| n.id == page_id && n.component.deferred_page_stash.is_some()) {
+                dst.component.deferred_page_stash = src.component.deferred_page_stash.take();
+                return;
+            }
+        }
+    }
+}
+
+fn validate_insert_nodes(doc: &Document, nodes: &[Node]) -> Result<(), DocError> {
+    let mut ids = std::collections::BTreeSet::new();
+    for node in nodes {
+        if doc.nodes.contains_key(&node.id) || !ids.insert(node.id) {
+            return Err(DocError::DuplicateNode(node.id));
+        }
+    }
+    Ok(())
 }
 
 fn is_auto_layout_reflow(doc: &Document, before: &Node, after: &Node) -> bool {
@@ -814,7 +856,7 @@ fn layout_inputs_changed(old: &Node, new: &Node) -> bool {
         || !old.variables.bindings.iter().filter(|(k, _)| is_layout_binding_key(k)).eq(new.variables.bindings.iter().filter(|(k, _)| is_layout_binding_key(k)))
 }
 
-fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>) {
+pub(crate) fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>) {
     match cmd {
         Command::Update { node } => {
             let Some(cur) = doc.get(node.id) else { return };
@@ -865,11 +907,13 @@ fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>
 fn apply_with_table_relayout(doc: &mut Document, c: Command) -> Result<Command, DocError> {
     let mut edited = std::collections::BTreeSet::new();
     table::text_edited_tables(doc, &c, &mut edited);
+    let mut edited_cells = std::collections::BTreeMap::new();
+    table::text_edited_cells(doc, &c, &mut edited_cells);
     let prop_scope = prop_resync_scope(doc, &c);
     let inv = c.apply_atomic(doc)?;
     let mut steps = vec![inv];
     if !prop_scope.is_empty() {
-        match apply_prop_resync(doc, &prop_scope) {
+        match apply_prop_resync_and_relayout(doc, &prop_scope) {
             Ok(Some(resync_inv)) => steps.insert(0, resync_inv),
             Ok(None) => {}
             Err(e) => {
@@ -878,7 +922,10 @@ fn apply_with_table_relayout(doc: &mut Document, c: Command) -> Result<Command, 
             }
         }
     }
-    let fix: Vec<Command> = edited.iter().flat_map(|&t| table::relayout(doc, t)).collect();
+    let fix: Vec<Command> = edited
+        .iter()
+        .flat_map(|&t| edited_cells.get(&t).and_then(|cells| table::relayout_text_edit(doc, t, cells)).unwrap_or_else(|| table::relayout(doc, t)))
+        .collect();
     if !fix.is_empty() {
         match Command::Batch(fix).apply_atomic(doc) {
             Ok(fix_inv) => steps.insert(0, fix_inv),
@@ -1953,5 +2000,120 @@ mod style_tests {
         // The folded batch is final: a second fold over the same span finds nothing new.
         assert_eq!(h.fold_since_range(start_depth, "Agent turn (stopped)"), None);
         assert_eq!(h.undo_depth(), start_depth + 2);
+    }
+}
+
+#[cfg(test)]
+mod duplicate_node_id_tests {
+    use super::*;
+
+    #[test]
+    fn insert_with_existing_id_refuses_without_changing_history_or_document() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("P");
+        let id = NodeId(42);
+        let original = Node::rectangle(id, Rect::new(10.0, 20.0, 30.0, 40.0));
+        doc.insert(page, original.clone()).unwrap();
+        let before = doc.clone();
+        let mut history = History::default();
+
+        let duplicate = Node::rectangle(id, Rect::new(90.0, 90.0, 5.0, 5.0));
+        let result = history.exec(&mut doc, Command::Insert { parent: page, index: 0, nodes: vec![duplicate] });
+
+        assert!(result.is_err(), "duplicate node insertion must be refused");
+        assert_eq!(doc.nodes, before.nodes);
+        assert_eq!(doc.pages, before.pages);
+        assert!(history.undo.is_empty());
+    }
+
+    #[test]
+    fn insert_with_duplicate_ids_in_one_payload_refuses_before_mutating() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("P");
+        let id = NodeId(42);
+        let before = doc.clone();
+        let mut history = History::default();
+
+        let result = history.exec(
+            &mut doc,
+            Command::Insert { parent: page, index: 0, nodes: vec![Node::rectangle(id, Rect::default()), Node::rectangle(id, Rect::default())] },
+        );
+
+        assert!(matches!(result, Err(DocError::DuplicateNode(found)) if found == id));
+        assert_eq!(doc.nodes, before.nodes);
+        assert_eq!(doc.pages, before.pages);
+        assert!(history.undo.is_empty());
+    }
+
+    #[test]
+    fn failed_batch_rollback_does_not_remove_a_preexisting_node() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("P");
+        let existing = NodeId(42);
+        doc.insert(page, Node::rectangle(existing, Rect::default())).unwrap();
+        let fresh = NodeId(43);
+        let before = doc.clone();
+        let mut history = History::default();
+
+        let result = history.exec(
+            &mut doc,
+            Command::Batch(vec![
+                Command::Insert { parent: page, index: 1, nodes: vec![Node::rectangle(fresh, Rect::default())] },
+                Command::Insert { parent: page, index: 0, nodes: vec![Node::rectangle(existing, Rect::default())] },
+            ]),
+        );
+
+        assert!(matches!(result, Err(DocError::DuplicateNode(found)) if found == existing));
+        assert_eq!(doc.nodes, before.nodes);
+        assert_eq!(doc.pages, before.pages);
+        assert!(history.undo.is_empty());
+    }
+
+    #[test]
+    fn insert_page_with_existing_id_refuses_without_mutating_pages() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("P");
+        let before = doc.clone();
+        let mut history = History::default();
+        let mut duplicate_page = Node::new(page, NodeKind::Page { background: Color::rgb(1, 2, 3) });
+        duplicate_page.name = "duplicate".into();
+
+        let result = history.exec(&mut doc, Command::InsertPage { index: 0, nodes: vec![duplicate_page] });
+
+        assert!(matches!(result, Err(DocError::DuplicateNode(found)) if found == page));
+        assert_eq!(doc.nodes, before.nodes);
+        assert_eq!(doc.pages, before.pages);
+        assert!(history.undo.is_empty());
+    }
+
+    #[test]
+    fn direct_document_insert_with_existing_id_leaves_the_original_untouched() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("P");
+        let id = NodeId(42);
+        doc.insert(page, Node::rectangle(id, Rect::new(10.0, 20.0, 30.0, 40.0))).unwrap();
+        let before = doc.clone();
+
+        let result = doc.insert(page, Node::rectangle(id, Rect::new(90.0, 90.0, 5.0, 5.0)));
+
+        assert!(matches!(result, Err(DocError::DuplicateNode(found)) if found == id));
+        assert_eq!(doc.nodes, before.nodes);
+        assert_eq!(doc.pages, before.pages);
+    }
+
+    #[test]
+    fn a_fresh_insert_still_undoes_and_redoes_after_the_duplicate_guard() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("P");
+        let id = NodeId(77);
+        let mut history = History::default();
+
+        history.exec(&mut doc, Command::Insert { parent: page, index: 0, nodes: vec![Node::rectangle(id, Rect::default())] }).unwrap();
+        assert!(doc.nodes.contains_key(&id));
+        assert!(history.undo(&mut doc).unwrap());
+        assert!(!doc.nodes.contains_key(&id));
+        assert!(history.redo(&mut doc).unwrap());
+        assert!(doc.nodes.contains_key(&id));
+        assert_eq!(doc.nodes[&page].children.iter().filter(|c| **c == id).count(), 1);
     }
 }

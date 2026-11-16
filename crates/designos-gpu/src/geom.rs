@@ -160,7 +160,7 @@ impl GeomSrc {
             1u8.hash(&mut h);
             hash_path_slice(fg, &mut h);
         }
-        if let Some(sg) = &n.stroke_geometry {
+        if let Some(sg) = n.live_stroke_outline() {
             2u8.hash(&mut h);
             hash_path_slice(sg, &mut h);
         }
@@ -200,7 +200,7 @@ impl GeomSrc {
             radii: n.corner_radii,
             smoothing: n.corner_smoothing,
             fill_geometry: n.fill_geometry.clone(),
-            stroke_geometry: n.stroke_geometry.clone(),
+            stroke_geometry: n.live_stroke_outline().map(<[d::Path]>::to_vec),
             stroke: StrokeKey::of(n),
             font_gen: font_generation(),
             kids,
@@ -213,7 +213,7 @@ impl GeomSrc {
             || self.radii != n.corner_radii
             || self.smoothing != n.corner_smoothing
             || self.fill_geometry != n.fill_geometry
-            || self.stroke_geometry != n.stroke_geometry
+            || self.stroke_geometry.as_deref() != n.live_stroke_outline()
             || !self.stroke.same(n)
             || (matches!(n.kind, NodeKind::Text(_)) && self.font_gen != font_generation())
         {

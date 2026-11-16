@@ -24,7 +24,7 @@ fn grid_document_of(columns: u32, row_anchors: &[Option<u16>], grid_rows: u32, r
         grid_columns: columns,
         grid_rows,
         item_spacing: 10.0,
-        counter_spacing: 10.0,
+        counter_spacing: Some(10.0),
         counter_sizing: Sizing::Hug,
         grid_auto_tracks: auto,
         ..Default::default()
@@ -224,7 +224,7 @@ fn instance_layout_override_writes_only_fixed_row_slots_inside_placed_rows() {
             direction: LayoutDirection::Grid,
             grid_columns: 1,
             item_spacing: 10.0,
-            counter_spacing: 10.0,
+            counter_spacing: Some(10.0),
             counter_sizing: Sizing::Hug,
             ..Default::default()
         }),

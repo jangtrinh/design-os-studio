@@ -60,8 +60,8 @@ fn solve(doc: &Document, fid: NodeId, o: Opts) -> Option<Solved> {
     if root.children.is_empty() {
         return None;
     }
-    if o.counter_gap_from_item && al.wrap && al.counter_spacing == 0.0 {
-        al.counter_spacing = al.item_spacing;
+    if o.counter_gap_from_item && al.wrap && al.line_gap() == 0.0 {
+        al.counter_spacing = Some(al.item_spacing);
     }
     if o.fixed_frame {
         al.primary_sizing = Sizing::Fixed;
@@ -131,6 +131,24 @@ fn moved_direct_aabb(doc: &Document, s: &Solved) -> usize {
 
 fn variant_count(doc: &Document, fid: NodeId, o: Opts) -> usize {
     solve(doc, fid, o).map_or(0, |s| moved_direct(doc, &s).0)
+}
+
+/// Whether the layer, or an ancestor below its page, is hidden. Figma defers building invisible instance subtrees, so the
+/// stored geometry in there is not a layout result: the census reports those layers apart from the visible ones.
+fn in_hidden_subtree(doc: &Document, mut id: NodeId) -> bool {
+    loop {
+        let Some(n) = doc.get(id) else { return false };
+        if matches!(n.kind, NodeKind::Page { .. }) {
+            return false;
+        }
+        if !n.visible {
+            return true;
+        }
+        match n.parent {
+            Some(parent) => id = parent,
+            None => return false,
+        }
+    }
 }
 
 fn kind_label(n: &Node) -> &'static str {
@@ -328,7 +346,7 @@ fn kit_layout_drift_measure() {
             frames,
             "{},{},{},{},{},{},{:?},{},{:?},{:?},{:?},{:?},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1},{:.1},{:.1},{:.1},{},{},{:.2},{},{},{},{},{},{},{},{},{},{},{}",
             fid.0, q(n.source_id.as_deref().unwrap_or("")), q(&n.name), q(&page), ii, kind_label(n), al.direction, al.wrap, al.primary_align, al.counter_align, al.primary_sizing, al.counter_sizing,
-            al.item_spacing, al.counter_spacing, al.padding[0], al.padding[1], al.padding[2], al.padding[3], al.stroke_included, al.layout_version,
+            al.item_spacing, al.line_gap(), al.padding[0], al.padding[1], al.padding[2], al.padding[3], al.stroke_included, al.layout_version,
             own.min_w.is_some() || own.max_w.is_some() || own.min_h.is_some() || own.max_h.is_some(),
             n.children.len(), s.1.len(), n_abs, n_hid, n_text, n_inst, n_frame, n_fm, n_fc, n_lim, n_mar, n_as, n_rot,
             n.size.x, n.size.y, s.0.x, s.0.y, dm, dmp, mx, rc, nearest_count.get(fid).unwrap_or(&0), v1, v2, v3, v4, v5, v6, v7, v8, v9
@@ -472,4 +490,6 @@ fn kit_layout_drift_measure() {
     }
     std::fs::write(out_dir.join("local-movers.csv"), local).unwrap();
     eprintln!("total_page_layers={} moved={} attributed={}", before.len(), moved.len(), summary_total);
+    let moved_in_hidden_subtree = moved.iter().filter(|(id, _)| in_hidden_subtree(&doc, *id)).count();
+    eprintln!("moved_in_hidden_subtree={} moved_visible={}", moved_in_hidden_subtree, moved.len() - moved_in_hidden_subtree);
 }

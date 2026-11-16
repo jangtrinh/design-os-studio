@@ -396,7 +396,7 @@ mod tests {
         let mut shell_copy = src.get(screen_shell).unwrap().clone();
         shell_copy.children.clear();
         shell_copy.fill_geometry = None;
-        shell_copy.stroke_geometry = None;
+        shell_copy.drop_stroke_outline();
         shell_copy.fig_metadata.clear();
         shell_copy.fig_metadata.insert("designos:scoped_shell".into(), "true".into());
         scoped_doc.nodes.insert(screen_shell, shell_copy);

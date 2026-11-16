@@ -57,7 +57,8 @@ pub struct BlitParams {
     pub src_extent: [f32; 2],
     pub dst_extent: [f32; 2],
     pub src_tex: [f32; 2],
-    pub pad: [f32; 2],
+    pub edge_mode: u32,
+    pub pad: u32,
 }
 
 #[repr(C)]

@@ -385,6 +385,53 @@ fn typing_a_width_and_a_height_draws_an_imported_shape_at_its_new_size() {
     }
 }
 
+#[test]
+fn resizing_a_stamped_imported_shape_by_handle_and_by_typing_roundtrips_undo_and_redo_exactly() {
+    let redo = |s: &mut Sim| {
+        let is_mac = s.shell.app.terminal.platform_is_mac_override.unwrap_or(cfg!(target_os = "macos"));
+        s.mods = Modifiers { alt: false, ctrl: !is_mac, shift: true, mac_cmd: is_mac, command: true };
+        s.key(Key::Z);
+        s.mods = Modifiers::NONE;
+    };
+    for (kind, name) in imported_kinds() {
+        // 1. Resize by handle, undo, redo.
+        let mut s = Sim::new();
+        let id = imported(&mut s, kind.clone(), name);
+        s.shell.app.doc.get_mut(id).unwrap().stamp_stroke_geometry();
+        let before = s.app().doc.get(id).unwrap().clone();
+        assert!(before.stroke_geometry.is_some() && before.stroke_geometry_for.is_some());
+
+        drag_bottom_right(&mut s);
+        let after = s.app().doc.get(id).unwrap().clone();
+        assert!(after.stroke_geometry.is_none() && after.stroke_geometry_for.is_none(), "{name} handle resize clears outline and stamp");
+
+        s.cmd_key(Key::Z);
+        assert_eq!(*s.app().doc.get(id).unwrap(), before, "{name} handle resize undo equals before");
+        redo(&mut s);
+        assert_eq!(*s.app().doc.get(id).unwrap(), after, "{name} handle resize redo equals after");
+
+        // 2. Resize by typing W and H, undo, redo.
+        let mut s = Sim::new();
+        let id = imported(&mut s, kind, name);
+        s.shell.app.doc.get_mut(id).unwrap().stamp_stroke_geometry();
+        let before = s.app().doc.get(id).unwrap().clone();
+        assert!(before.stroke_geometry.is_some() && before.stroke_geometry_for.is_some());
+
+        type_into(&mut s, "w", "250");
+        type_into(&mut s, "h", "40");
+        let after = s.app().doc.get(id).unwrap().clone();
+        assert_eq!(after.size, DV::new(250.0, 40.0), "{name}");
+        assert!(after.stroke_geometry.is_none() && after.stroke_geometry_for.is_none(), "{name} typed resize clears outline and stamp");
+
+        s.cmd_key(Key::Z);
+        s.cmd_key(Key::Z);
+        assert_eq!(*s.app().doc.get(id).unwrap(), before, "{name} typed resize undo equals before");
+        redo(&mut s);
+        redo(&mut s);
+        assert_eq!(*s.app().doc.get(id).unwrap(), after, "{name} typed resize redo equals after");
+    }
+}
+
 /// An imported plain line keeps its outlined stroke band: the band stretches to the new length and keeps
 /// its place across the line. A dashed line has no band to stretch, so it is drawn live instead.
 #[test]

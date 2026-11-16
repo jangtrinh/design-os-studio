@@ -510,6 +510,7 @@ pub fn clone_component_children_into_instance(doc: &mut Document, comp_id: NodeI
         n.component.overrides.clear();
         n.component.props.clear();
         n.component.slot_configs.clear();
+        n.component.prop_default_variables.clear();
         let _ = doc.insert(dst_parent_id, n);
         for &ch_id in orig.children.iter().rev() {
             stack.push((ch_id, new_id));
@@ -558,6 +559,21 @@ fn remove_subtree(doc: &mut Document, root_id: NodeId) {
     for id in post_order.into_iter().rev() {
         let _ = doc.remove(id);
     }
+}
+
+/// The arc of a ring after an override entry: startAngle, sweepAngle (or endAngle, an absolute angle) in degrees
+/// and innerRadius replace what the current arc has, and a key the entry does not carry keeps it.
+fn override_arc(entry: &Value, doc: &Document, current: ArcData) -> ArcData {
+    let number = |key: &str| entry.get(key).and_then(|v| resolve_num_or_var(v, doc));
+    let start_deg = number("startAngle");
+    let start = start_deg.map_or(current.start, f32::to_radians);
+    let sweep = match (number("sweepAngle"), number("endAngle")) {
+        (Some(sweep_deg), _) => sweep_deg.to_radians(),
+        (None, Some(end_deg)) => (end_deg - start_deg.unwrap_or_else(|| current.start.to_degrees())).to_radians(),
+        (None, None) => current.end - current.start,
+    };
+    let inner_radius = number("innerRadius").map_or(current.inner_radius, |r| r.clamp(0.0, 1.0));
+    ArcData { start, end: start + sweep, inner_radius }
 }
 
 fn apply_descendant_overrides(
@@ -691,6 +707,22 @@ fn apply_descendant_overrides(
         }
     }
 
+    // 5b. Arc override of a ring: the keys the entry carries replace the arc the clone shows now
+    if ["startAngle", "sweepAngle", "endAngle", "innerRadius"].iter().any(|k| ov_map.contains_key(*k)) {
+        if let Some(n) = doc.get(target_id) {
+            if let NodeKind::Ellipse(current) = &n.kind {
+                let arc = override_arc(&ov_val, doc, *current);
+                if let Some(n) = doc.get_mut(target_id) {
+                    n.kind = NodeKind::Ellipse(arc);
+                    // a baked outline would outrank the arc when drawing
+                    n.fill_geometry = None;
+                    n.drop_stroke_outline();
+                    n.component.overrides.insert(OverrideField::Arc);
+                }
+            }
+        }
+    }
+
     // 6. Corner radius override
     if let Some(cr_val) = ov_map.get("cornerRadius") {
         let (radii, rvar) = parse_corner_radius(Some(cr_val), doc);
@@ -742,7 +774,7 @@ fn apply_descendant_overrides(
                     }
                     if let Some(gap) = gap_opt {
                         al.item_spacing = gap;
-                        al.counter_spacing = gap;
+                        al.counter_spacing = Some(gap);
                     }
                     if let Some(jc) = jc_opt {
                         al.primary_align = jc;

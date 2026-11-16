@@ -33,10 +33,18 @@ mod component_nested_variant_binding_tests;
 mod component_prop_variables;
 #[cfg(test)]
 mod component_prop_variables_tests;
+#[cfg(test)]
+mod component_variant_picks_round_tests;
+#[cfg(test)]
+mod component_variant_picks_tests;
+#[cfg(test)]
+mod component_variant_resync_layout_tests;
 mod components;
 mod connector_home;
 mod connector_index;
 mod connector_route_cache;
+mod copy_layer_links;
+mod cycle_refusal;
 mod dev;
 pub mod diff;
 pub mod find;
@@ -129,6 +137,8 @@ pub use connector_index::*;
 pub use connector_route_cache::{cached_connector_route, connector_route_bounds, ROUTE_CACHE_CAP};
 #[cfg(any(test, feature = "fixtures"))]
 pub use connector_route_cache::{clear_route_cache, perf_whiteboard_2000, route_cache_len, route_cache_stats, PerfWhiteboardScene};
+pub use copy_layer_links::{authored_layer, relink_copy_layers};
+pub use cycle_refusal::*;
 pub use dev::*;
 pub use diff::*;
 pub use geom::*;
@@ -191,6 +201,8 @@ pub struct NodeId(pub u64);
 pub enum DocError {
     #[error("node {0:?} not found")]
     NotFound(NodeId),
+    #[error("node {0:?} already exists")]
+    DuplicateNode(NodeId),
     #[error("cannot move node {0:?} into its own subtree")]
     Cycle(NodeId),
     #[error("node {0:?} cannot have children")]
@@ -222,7 +234,7 @@ impl Clone for DerivedId {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct DirtyLog {
     runtime_id: u64,
     epoch: u64,
@@ -577,6 +589,16 @@ pub trait PageHydrator: Send + Sync + std::fmt::Debug {
     fn hydrate_page(&mut self, doc: &mut Document, page: NodeId) -> bool;
     fn hydrate_all(&mut self, doc: &mut Document) -> bool;
     fn is_hydrated(&self, page: NodeId) -> bool;
+    /// Builds a scratch document holding `component`'s expanded subtree when `component` contains
+    /// deferred nested instances on an unopened page. Only parser caches and any clone-budget
+    /// miss count on the hydrator are updated; `doc` and the hydrator's deferred page state stay untouched.
+    fn expand_component_scratch(&mut self, _doc: &Document, _component: NodeId) -> Option<Document> {
+        None
+    }
+    /// Whether `instance` is a deferred instance on an unopened page that the loader has not expanded yet.
+    fn is_pending_instance(&self, _instance: NodeId) -> bool {
+        false
+    }
     fn unexpanded_instances(&self) -> usize {
         0
     }
@@ -606,6 +628,35 @@ pub trait PageHydrator: Send + Sync + std::fmt::Debug {
     /// writer that finds a digest moved knows the user edited that field. The document does not interpret the digests.
     fn pending_instance_self_digests(&self, _instance: NodeId) -> Option<BTreeMap<OverrideField, u64>> {
         None
+    }
+    /// Stages the `old_id -> new_id` layer mapping produced when duplicating `src_page` into `dst_page`,
+    /// to be activated when `dst_page` is inserted into the document.
+    fn stage_duplicated_page(&mut self, _src_page: NodeId, _dst_page: NodeId, _id_map: BTreeMap<NodeId, NodeId>) {}
+    /// Activates or restores deferred records for `page` when it is inserted into `doc` (either from a staged
+    /// duplicate of an unopened page or from a redo / undo re-insertion of a previously removed page).
+    fn insert_page(&mut self, _doc: &Document, _page: NodeId, _stash: Option<DeferredPageStash>) {}
+    /// Removes active deferred records for `page` when `page` is removed from the document, returning a stash
+    /// owned by the undo/redo command so re-inserting `page` restores them and dropping the command drops them.
+    fn remove_page(&mut self, _page: NodeId) -> Option<DeferredPageStash> {
+        None
+    }
+    /// Number of deferred override records dropped during page duplication because their layer was missing in the copy.
+    fn dropped_duplicate_records(&self) -> usize {
+        0
+    }
+    /// Drains and returns the count of deferred override records dropped during page duplication.
+    fn take_dropped_duplicate_records(&mut self) -> usize {
+        0
+    }
+    /// Total number of pending instance override records currently held by the hydrator
+    /// (across active pending pages and any live undo/redo stashes).
+    fn stored_record_count(&self) -> usize {
+        0
+    }
+    /// Total number of entries held across the shared hydrator maps (`ids`, `overrides`,
+    /// `override_keys`, `path_cache`, `blob_cache`).
+    fn shared_map_entry_count(&self) -> usize {
+        0
     }
 }
 
@@ -812,6 +863,22 @@ impl Document {
         changed
     }
 
+    /// Builds a scratch document holding `component`'s expanded subtree when `component` contains
+    /// deferred nested instances on an unopened page. Only parser caches and any clone-budget
+    /// miss count on the hydrator are updated; `self` and the hydrator's deferred page state stay untouched.
+    pub fn expand_component_scratch(&self, component: NodeId) -> Option<Document> {
+        let h = self.page_hydrator.as_ref()?;
+        let Ok(mut guard) = h.lock() else { return None };
+        guard.expand_component_scratch(self, component)
+    }
+
+    /// Whether `instance` is a deferred instance on an unopened page that the loader has not expanded yet.
+    pub fn is_pending_instance(&self, instance: NodeId) -> bool {
+        let Some(h) = self.page_hydrator.as_ref() else { return false };
+        let guard = h.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.is_pending_instance(instance)
+    }
+
     /// Expands all remaining deferred pages (e.g., before full-document export).
     ///
     /// The loader is dropped once every page is filled into this document. Pages that a copy of this
@@ -888,6 +955,46 @@ impl Document {
         let h = self.page_hydrator.as_ref()?;
         let mut guard = h.lock().ok()?;
         guard.take_last_error()
+    }
+
+    /// Stages the `old_id -> new_id` layer mapping produced when duplicating `src_page` into `dst_page`.
+    pub fn stage_duplicated_page(&mut self, src_page: NodeId, dst_page: NodeId, id_map: BTreeMap<NodeId, NodeId>) {
+        let Some(h) = self.page_hydrator.as_ref() else { return };
+        if let Ok(mut guard) = h.lock() {
+            if !guard.is_hydrated(src_page) {
+                guard.stage_duplicated_page(src_page, dst_page, id_map);
+            }
+        }
+    }
+
+    /// Number of deferred override records dropped during page duplication because their layer was missing in the copy.
+    pub fn dropped_duplicate_page_records(&self) -> usize {
+        let Some(h) = self.page_hydrator.as_ref() else { return 0 };
+        let Ok(guard) = h.lock() else { return 0 };
+        guard.dropped_duplicate_records()
+    }
+
+    /// Drains and returns the count of deferred override records dropped during page duplication.
+    pub fn take_dropped_duplicate_page_records(&self) -> usize {
+        let Some(h) = self.page_hydrator.as_ref() else { return 0 };
+        let Ok(mut guard) = h.lock() else { return 0 };
+        guard.take_dropped_duplicate_records()
+    }
+
+    /// Total number of pending instance override records currently held by the hydrator
+    /// (across active pending pages and any live undo/redo stashes).
+    pub fn deferred_page_record_count(&self) -> usize {
+        let Some(h) = self.page_hydrator.as_ref() else { return 0 };
+        let Ok(guard) = h.lock() else { return 0 };
+        guard.stored_record_count()
+    }
+
+    /// Total number of entries held across the shared hydrator maps (`ids`, `overrides`,
+    /// `override_keys`, `path_cache`, `blob_cache`).
+    pub fn deferred_shared_map_entries(&self) -> usize {
+        let Some(h) = self.page_hydrator.as_ref() else { return 0 };
+        let Ok(guard) = h.lock() else { return 0 };
+        guard.shared_map_entry_count()
     }
 
     /// Hands out a fresh id. The counter never wraps: once it is exhausted (a hostile or
@@ -1231,13 +1338,20 @@ impl Document {
 
     /// Inserts `node` as the last (topmost) child of `parent`.
     pub fn insert(&mut self, parent: NodeId, mut node: Node) -> Result<NodeId, DocError> {
-        let p = self.nodes.get_mut(&parent).ok_or(DocError::NotFound(parent))?;
-        if !p.kind.can_hold_children() {
+        let can_hold = self.nodes.get(&parent).ok_or(DocError::NotFound(parent))?.kind.can_hold_children();
+        if !can_hold {
             return Err(DocError::NotAContainer(parent));
         }
         let id = node.id;
+        if self.nodes.contains_key(&id) {
+            return Err(DocError::DuplicateNode(id));
+        }
+        let p = self.nodes.get_mut(&parent).ok_or(DocError::NotFound(parent))?;
         p.children.push(id);
         node.parent = Some(parent);
+        if node.stroke_geometry.is_some() && node.stroke_geometry_for.is_none() {
+            node.stamp_stroke_geometry();
+        }
         self.next_id = self.next_id.max(id.0);
         self.nodes.insert(id, node);
         self.mark_node_dirty(parent);
@@ -1777,9 +1891,26 @@ impl Document {
         }
         report.non_finite_numbers = non_finite_numbers;
         doc.check_designs.ignored.retain(|k| doc.nodes.contains_key(&k.node));
+        // A file an earlier release saved after reading a Studio-written `.fig` can link nested copy layers past a level.
+        // The pass reads a document whose links are right once and writes nothing, so it runs on every load; a file it
+        // repaired and that was saved reads clean the next time. It runs before the migrations below so that their
+        // full-dirty mark is the last thing the load does, as for any file.
+        report.copy_links_relinked = relink_copy_layers(&mut doc);
         doc.migrate_text();
         doc.normalize_extensions();
+        doc.stamp_loaded_stroke_outlines();
         (doc, report)
+    }
+
+    /// Stamps any stored [`Node::stroke_geometry`] loaded from a document saved before
+    /// `stroke_geometry_for` existed. Parked `Size` overrides keep `stroke_geometry_for: None`
+    /// so they are stamped from the destination child's own stroke when restored.
+    fn stamp_loaded_stroke_outlines(&mut self) {
+        for node in self.nodes.values_mut() {
+            if node.stroke_geometry.is_some() && node.stroke_geometry_for.is_none() {
+                node.stamp_stroke_geometry();
+            }
+        }
     }
 
     /// Converts literal list prefixes of every text node to real lists (see [`migrate_literal_lists`])
@@ -2176,9 +2307,17 @@ mod tests {
         let id = d.alloc_id();
         d.insert(page, Node::rectangle(id, Rect::new(1.0, 2.0, 30.0, 40.0))).unwrap();
         let rect_json = serde_json::to_string(d.get(id).unwrap()).unwrap();
-        for omitted in
-            ["\"source_id\"", "\"children\"", "\"effects\"", "\"style_refs\"", "\"fill_geometry\"", "\"stroke_geometry\"", "\"corner_radii\"", "\"stroke\""]
-        {
+        for omitted in [
+            "\"source_id\"",
+            "\"children\"",
+            "\"effects\"",
+            "\"style_refs\"",
+            "\"fill_geometry\"",
+            "\"stroke_geometry\"",
+            "\"stroke_geometry_for\"",
+            "\"corner_radii\"",
+            "\"stroke\"",
+        ] {
             assert!(!rect_json.contains(omitted), "{omitted} should be omitted on default node: {rect_json}");
         }
         let back = Document::from_json(&d.to_json().unwrap()).unwrap();
@@ -2530,5 +2669,44 @@ mod tests {
             assert_eq!(!is_orphan_style_in(&doc.styles, &doc.style_meta, k), *expected_table);
         }
         assert_eq!(nodes_exclusive.len(), 200_000);
+    }
+
+    #[test]
+    fn document_loaded_without_stroke_stamp_stamps_outline_on_load() {
+        let mut d = Document::new("t");
+        let page = d.add_page("P");
+        let id = d.alloc_id();
+        let mut rect = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 20.0));
+        rect.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        rect.stroke.weight = 2.0;
+        rect.stroke_geometry = Some(vec![Path {
+            cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(40.0, 0.0)), PathCmd::LineTo(Vec2::new(40.0, 20.0)), PathCmd::Close],
+            fill_rule: FillRule::NonZero,
+        }]);
+        rect.stroke_geometry_for = None;
+        d.insert(page, rect).unwrap();
+        // Simulate a legacy native document saved before `stroke_geometry_for` existed.
+        d.nodes.get_mut(&id).unwrap().stroke_geometry_for = None;
+        let json = d.to_json().unwrap();
+        assert!(!json.contains("\"stroke_geometry_for\""), "unstamped node should omit stroke_geometry_for in raw JSON");
+
+        let mut loaded = Document::from_json(&json).unwrap();
+        let n = loaded.get(id).unwrap();
+        assert!(n.stroke_geometry_for.is_some(), "load must stamp a stored stroke outline that lacks a stamp");
+        assert!(n.live_stroke_outline().is_some(), "freshly stamped outline must be live");
+        assert_eq!(
+            d.get(id).unwrap().effective_stroke_geometry_stamp(),
+            n.effective_stroke_geometry_stamp(),
+            "effective stamp is identical whether omitted or present and matching"
+        );
+        assert!(crate::diff3(&d, &loaded, &d).ours.nodes.is_empty(), "branch diff treats omitted and matching stamps as identical");
+        assert_eq!(loaded.to_json().unwrap(), json, "saving a loaded file with no edit is byte-identical");
+
+        // Change stroke weight directly (no setter) and save: the mismatching stamp is written, and reload keeps it stale.
+        loaded.get_mut(id).unwrap().stroke.weight = 6.0;
+        let stale_json = loaded.to_json().unwrap();
+        assert!(stale_json.contains("\"stroke_geometry_for\""), "mismatching stamp must be written on save");
+        let reloaded = Document::from_json(&stale_json).unwrap();
+        assert!(reloaded.get(id).unwrap().live_stroke_outline().is_none(), "reloaded stale outline must still not be drawn");
     }
 }

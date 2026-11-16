@@ -100,6 +100,8 @@ pub struct CornerRadiusDragState {
     pub id: NodeId,
     pub corner: usize,
     pub start_radii: [f32; 4],
+    pub start_page: DV,
+    pub moved: bool,
 }
 
 pub struct AutoLayoutDragState {
@@ -137,6 +139,7 @@ pub struct ShapeControlDragState {
     pub start_count: u32,
     pub start_ratio: f32,
     pub start_end_angle: f32,
+    pub moved: bool,
 }
 
 #[derive(Default)]

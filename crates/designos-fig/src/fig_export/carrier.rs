@@ -12,7 +12,7 @@ use serde_json::Value;
 /// Key prefix of a carrier entry; the rest is the legacy field name.
 pub(crate) const CARRIER_KEY_PREFIX: &str = "field:";
 /// Legacy fields a carrier entry may restore. The importer ignores any other name.
-pub(crate) const CARRIED_FIELDS: [&str; 9] = [
+pub(crate) const CARRIED_FIELDS: [&str; 10] = [
     "gridAutoTracks",
     "gridColumns",
     "gridRows",
@@ -22,6 +22,7 @@ pub(crate) const CARRIED_FIELDS: [&str; 9] = [
     "figMetadata",
     "studioConnector",
     "ownVariantBindings",
+    "variantPicks",
 ];
 
 /// Fields to carry in `pluginData`: (legacy field name, its legacy JSON value).

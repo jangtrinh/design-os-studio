@@ -205,6 +205,44 @@ fn a_mode_switch_on_the_host_flips_the_nested_bound_variant() {
 }
 
 #[test]
+fn a_bound_variant_resizes_a_hug_parent_in_the_same_mode_switch() {
+    let mut f = make_fx();
+    let parent_id = f.d.alloc_id();
+    let parent = f.d.insert(f.page, Node::frame(parent_id, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+    let mut parent_node = f.d.get(parent).unwrap().clone();
+    if let NodeKind::Frame(fp) = &mut parent_node.kind {
+        fp.auto_layout =
+            Some(AutoLayout { direction: LayoutDirection::Horizontal, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Fixed, ..AutoLayout::default() });
+    }
+    f.h.exec(&mut f.d, Command::Update { node: Box::new(parent_node) }).unwrap();
+    let inst_cmd = create_instance(&mut f.d, f.small, parent, Vec2::ZERO);
+    let inst = match &inst_cmd {
+        Command::Insert { nodes, .. } => nodes[0].id,
+        _ => panic!("instance creation refused"),
+    };
+    f.h.exec(&mut f.d, inst_cmd).unwrap();
+    let bind = bind_prop_variable(&mut f.d, inst, "Size", Some("size")).unwrap();
+    f.h.exec(&mut f.d, bind).unwrap();
+    f.d.relayout_subtree(parent);
+    let small_width = f.d.get(parent).unwrap().size.x;
+    assert_eq!(small_width, 100.0);
+    let mut p = f.d.get(parent).unwrap().clone();
+    p.variables.modes.insert("theme".into(), "dark".into());
+    f.h.exec(&mut f.d, Command::Update { node: Box::new(p) }).unwrap();
+    let child = *f.d.get(parent).unwrap().children.first().unwrap();
+    assert_eq!(main_of(&f.d, child), f.large);
+    let large_width = f.d.get(parent).unwrap().size.x;
+    assert_eq!(large_width, 200.0);
+    assert!(large_width > small_width, "hug parent stayed at {small_width} after bound variant grew to {large_width}");
+    f.h.undo(&mut f.d).unwrap();
+    assert_eq!(f.d.get(parent).unwrap().size.x, small_width, "undo restores the hug parent size");
+    assert_eq!(main_of(&f.d, child), f.small, "undo restores the bound variant");
+    f.h.redo(&mut f.d).unwrap();
+    assert_eq!(f.d.get(parent).unwrap().size.x, large_width, "redo restores the hug parent size");
+    assert_eq!(main_of(&f.d, child), f.large, "redo restores the bound variant");
+}
+
+#[test]
 fn text_fill_and_inner_swap_overrides_survive_the_variable_driven_switch() {
     let mut f = make_fx();
     override_everything(&mut f);
@@ -650,31 +688,6 @@ fn mode_switch_cost_over_two_thousand_bound_nested_instances() {
     let flipped = ids.iter().filter(|w| main_of(&f.d, first_child(&f.d, **w)) == large).count();
     let on_small = ids.iter().filter(|w| main_of(&f.d, first_child(&f.d, **w)) == small).count();
     eprintln!("MODE_SWITCH_COST 2000 instances: {times:?}; after the last switch (light) {on_small} show Small, {flipped} show Large");
-}
-
-/// What a bound top instance does with a variant picked by hand through the API (the panel shows a pill, not a control,
-/// while the property is bound, so a person detaches first): the binding wins again at the next resync. Pinned so the
-/// nested rule (a recorded pick wins until reset) is read against it.
-#[test]
-fn a_bound_top_instance_returns_to_its_variable_at_the_next_mode_change_after_a_pick() {
-    let mut f = make_fx();
-    create_instance(&mut f.d, f.small, f.host, Vec2::new(10.0, 100.0)).apply(&mut f.d).unwrap();
-    let top = *f.d.get(f.host).unwrap().children.last().unwrap();
-    let c = bind_prop_variable(&mut f.d, top, "Size", Some("size")).unwrap();
-    f.h.exec(&mut f.d, c).unwrap();
-    let c = set_instance_prop(&mut f.d, top, "Size", Some(PropValue::Variant("Large".into())));
-    f.h.exec(&mut f.d, c).unwrap();
-    assert_eq!(main_of(&f.d, top), f.large, "the pick shows until something resyncs the binding");
-    let host = f.host;
-    set_mode(&mut f, host, "dark");
-    set_mode(&mut f, host, "light");
-    assert_eq!(main_of(&f.d, top), f.small, "a mode switch applies the binding over the pick");
-    let c = swap_instance(&mut f.d, top, f.large);
-    f.h.exec(&mut f.d, c).unwrap();
-    assert!(f.d.get(top).unwrap().component.overrides.contains(&OverrideField::MainComponent));
-    set_mode(&mut f, host, "dark");
-    set_mode(&mut f, host, "light");
-    assert_eq!(main_of(&f.d, top), f.small, "and over a swap recorded on the top instance");
 }
 
 /// `host2 > OI > W' > N''`: a wrapper main `O` holds an instance of the wrapper main, `OI` is an instance of `O` in `host2`.

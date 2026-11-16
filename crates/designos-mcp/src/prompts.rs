@@ -565,7 +565,7 @@ fn derive_spacing_scale(doc: &Document, scope: RulesScope, all_vars: &BTreeMap<S
             _ => None,
         };
         if let Some(al) = fp.and_then(|f| f.auto_layout.as_ref()) {
-            for v in [al.item_spacing, al.counter_spacing, al.padding[0], al.padding[1], al.padding[2], al.padding[3]] {
+            for v in [al.item_spacing, al.line_gap(), al.padding[0], al.padding[1], al.padding[2], al.padding[3]] {
                 if v > 0.0 {
                     values_milli.insert((v * 100.0).round() as i64);
                 }
