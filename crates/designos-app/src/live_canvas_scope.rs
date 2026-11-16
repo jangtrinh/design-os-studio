@@ -50,7 +50,7 @@ pub fn scoped_canvas(doc: &Document, page: NodeId, selection: &[NodeId], name: &
             let mut c = cn.clone();
             c.children.clear();
             c.fill_geometry = None;
-            c.stroke_geometry = None;
+            c.drop_stroke_outline();
             c.fig_metadata.clear();
             c.fig_metadata.insert("designos:scoped_shell".into(), "true".into());
             scoped.nodes.insert(cid, c);

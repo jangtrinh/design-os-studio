@@ -316,7 +316,7 @@ fn write_model(doc: &mut Document, ed: &mut crate::edit::Edit, id: NodeId, net: 
         n.transform = t0 * Affine::translate(origin.x, origin.y);
         n.size = v2(bb.w.max(1.0), bb.h.max(1.0));
         n.fill_geometry = None;
-        n.stroke_geometry = None;
+        n.drop_stroke_outline();
         n.corner_radii = [0.0; 4];
         n.corner_smoothing = 0.0;
     }

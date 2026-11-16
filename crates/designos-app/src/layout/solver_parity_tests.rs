@@ -18,7 +18,7 @@ fn auto(direction: LayoutDirection, primary: LayoutAlign) -> AutoLayout {
         counter_sizing: Sizing::Fixed,
         padding: [0.0; 4],
         item_spacing: 0.0,
-        counter_spacing: 0.0,
+        counter_spacing: Some(0.0),
         ..Default::default()
     }
 }
@@ -100,7 +100,7 @@ fn wrapped_space_between_agrees_with_counter_align_content() {
             let mut al = auto(direction, LayoutAlign::SpaceBetween);
             al.wrap = true;
             al.item_spacing = 4.0;
-            al.counter_spacing = 2.0;
+            al.counter_spacing = Some(2.0);
             al.counter_align_content = content;
             let kids = kids_for(direction, 6, 40.0, 10.0);
             let (editor, spec) = positions_from_both(al, frame_for(direction, 100.0, 100.0), &kids);
@@ -250,7 +250,7 @@ fn wrapped_children_flow_into_lines_in_every_solver() {
     let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
     al.wrap = true;
     al.item_spacing = 4.0;
-    al.counter_spacing = 2.0;
+    al.counter_spacing = Some(2.0);
     let kids = vec![kid(40.0, 10.0); 6];
     let solved = solve_everywhere(al, v2(100.0, 100.0), &kids);
     let xy: Vec<(f32, f32)> = solved.kids.iter().map(|k| (k[0], k[1])).collect();
@@ -260,7 +260,7 @@ fn wrapped_children_flow_into_lines_in_every_solver() {
     let mut al = auto(LayoutDirection::Vertical, LayoutAlign::Start);
     al.wrap = true;
     al.item_spacing = 4.0;
-    al.counter_spacing = 2.0;
+    al.counter_spacing = Some(2.0);
     let kids = vec![kid(10.0, 40.0); 6];
     let solved = solve_everywhere(al, v2(100.0, 100.0), &kids);
     let xy: Vec<(f32, f32)> = solved.kids.iter().map(|k| (k[0], k[1])).collect();
@@ -274,7 +274,7 @@ fn wrapped_hug_cross_and_counter_align_agree() {
     al.counter_align = LayoutAlign::End;
     al.counter_sizing = Sizing::Hug;
     al.item_spacing = 5.0;
-    al.counter_spacing = 3.0;
+    al.counter_spacing = Some(3.0);
     let kids = [kid(30.0, 10.0), kid(30.0, 20.0), kid(60.0, 8.0)];
     let solved = solve_everywhere(al, v2(70.0, 1.0), &kids);
     // line 1 = the two 30s (cross 20, end aligned), line 2 = the 60; hugged cross = 20 + 3 + 8
@@ -1689,7 +1689,7 @@ fn grid_child_aligns_horizontally_and_vertically_within_its_cell() {
     // 2. 2x2 grid of 100x100 cells with 10px gap: Start/Start, Center/Center, End/End, and Fill+Center.
     let mut al = two_fixed_columns();
     al.grid_rows = 2;
-    al.counter_spacing = 10.0;
+    al.counter_spacing = Some(10.0);
     al.grid_row_tracks[0] = GridTrack::Fixed(100.0);
     al.grid_row_tracks[1] = GridTrack::Fixed(100.0);
     let k_start = kid(40.0, 20.0);

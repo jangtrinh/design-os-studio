@@ -387,6 +387,11 @@ pub struct Shell {
     shot: Option<Shot>,
     title: String,
     paste_chord: crate::clipboard::PasteChord,
+    /// Cleanup can be requested by both the close event and eframe's `on_exit` callback.
+    /// Keep the side effects one-shot when both paths observe the same shutdown.
+    quit_finished: bool,
+    #[cfg(test)]
+    quit_cleanup_runs: u8,
     /// Why a `--select` or `--edit-text` named nothing, when it did not.
     select_miss: Option<String>,
     launch_had_panel_or_file: bool,
@@ -970,7 +975,18 @@ impl Shell {
         });
         #[cfg(target_os = "macos")]
         crate::macos_terminate::sync(ctx, &app);
-        Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss, launch_had_panel_or_file, pointer_over_align_row: false }
+        Self {
+            app,
+            shot,
+            title: String::new(),
+            paste_chord: Default::default(),
+            quit_finished: false,
+            #[cfg(test)]
+            quit_cleanup_runs: 0,
+            select_miss,
+            launch_had_panel_or_file,
+            pointer_over_align_row: false,
+        }
     }
 
     fn drive_screenshot(&mut self, ctx: &Context) {
@@ -2298,6 +2314,18 @@ impl Shell {
     }
 
     fn finish_quit(&mut self) {
+        if self.quit_finished {
+            return;
+        }
+        self.quit_finished = true;
+        #[cfg(test)]
+        {
+            self.quit_cleanup_runs += 1;
+        }
+        // A queued operation may be added later in the same frame as the close request, or
+        // the close may come directly from AppKit (Dock Quit/on_exit). Drain here as the
+        // final shutdown boundary so those operations are not silently lost.
+        self.app.finish_queued_work_before_quit();
         if self.shot.is_none() {
             crate::decks::ui::flush_notes(&mut self.app);
             self.app.save_close_version();
@@ -2455,6 +2483,7 @@ impl Shell {
         if !bridge_actions.is_empty() {
             execute_terminal_actions_with_ctx(&mut self.app, bridge_actions, Some(&ctx));
         }
+        self.app.show_terminal_toasts();
         // Agent edits that arrived during a drag or text edit land once it has ended.
         crate::live_patch_apply::apply_pending_live_patches(&mut self.app);
         crate::widgets::set_document_profile(self.app.doc.color_profile);
@@ -3058,7 +3087,7 @@ pub fn apply_micro_interaction_showcase_preset(app: &mut App, preset: &str) {
                     grid_columns: 3,
                     grid_rows: 2,
                     item_spacing: gap,
-                    counter_spacing: gap,
+                    counter_spacing: Some(gap),
                     padding: [pad, pad, pad, pad],
                     grid_col_tracks: col_tracks.into(),
                     grid_row_tracks: row_tracks.into(),
@@ -3196,6 +3225,7 @@ pub fn apply_micro_interaction_showcase_preset(app: &mut App, preset: &str) {
                     start_count: star_cnt,
                     start_ratio: if select_star { star_ratio } else { arc_ratio },
                     start_end_angle: arc_end,
+                    moved: false,
                 });
                 app.startup_zoom = Some(1.50);
             }
@@ -3735,7 +3765,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                     grid_columns: 3,
                     grid_rows: 2,
                     item_spacing: gap,
-                    counter_spacing: gap,
+                    counter_spacing: Some(gap),
                     padding: [pad, pad, pad, pad],
                     grid_col_tracks: col_tracks.into(),
                     grid_row_tracks: row_tracks.into(),
@@ -3943,6 +3973,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                     start_count: star_cnt,
                     start_ratio: if select_star { star_ratio } else { arc_ratio },
                     start_end_angle: arc_end,
+                    moved: false,
                 });
             }
 

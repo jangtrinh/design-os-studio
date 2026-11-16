@@ -317,7 +317,7 @@ mod tests {
         let mut al = AutoLayout {
             direction: LayoutDirection::Grid,
             item_spacing: 16.0,
-            counter_spacing: 24.0,
+            counter_spacing: Some(24.0),
             padding: [12.0, 16.0, 12.0, 16.0],
             primary_sizing: Sizing::Hug,
             counter_sizing: Sizing::Fixed,

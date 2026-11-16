@@ -49,6 +49,20 @@ fn editor_with_library(scratch: &Scratch) -> (App, Library, String) {
     (app, lib, project.id)
 }
 
+fn large_thumbnail_document() -> Document {
+    let mut doc = Document::new("Large");
+    let page = doc.add_page("Page 1");
+    let frame = doc.alloc_id();
+    doc.insert(page, designos_doc::Node::frame(frame, designos_doc::Rect::new(0.0, 0.0, 960.0, 540.0))).unwrap();
+    for i in 0..25_000 {
+        let id = doc.alloc_id();
+        let x = (i % 100) as f32 * 10.0;
+        let y = (i / 100) as f32 * 10.0;
+        doc.insert(page, designos_doc::Node::rectangle(id, designos_doc::Rect::new(x, y, 4.0, 4.0))).unwrap();
+    }
+    doc
+}
+
 /// The `.fig` opened in the editor: its first page loaded, the third waiting.
 fn open_fig(app: &mut App, fig: &Path) {
     app.open_path(fig.to_path_buf());
@@ -85,6 +99,39 @@ fn a_large_fig_opened_in_the_editor_and_saved_to_the_library_keeps_the_instance_
     let saved = app.lib_file.clone().expect("the document is now a library file");
     assert_eq!(deferred_pages_shape(&lib.load_file(&saved.id).unwrap()), DeferredPagesShape::loaded(), "the stored file keeps the children and the overrides");
     assert_eq!(deferred_pages_shape(&app.doc), DeferredPagesShape::loaded(), "the document on screen holds what the file holds");
+}
+
+#[test]
+fn saving_a_large_document_as_library_file_does_not_spawn_a_thumbnail_copy() {
+    let scratch = Scratch::new("large_thumbnail_guard");
+    let (mut app, lib, project) = editor_with_library(&scratch);
+    app.doc = large_thumbnail_document();
+    let node_count = app.doc.nodes.len();
+    assert!(node_count > 25_000, "the fixture exceeds the thumbnail copy budget");
+    crate::home::thumb::take_background_refresh_calls();
+
+    app.save_to_library_as(&project, None, "Large");
+
+    assert_eq!(crate::home::thumb::take_background_refresh_calls(), 0, "large saves must not spawn a thumbnail copy");
+    let saved = app.lib_file.as_ref().expect("the save succeeds");
+    assert_eq!(lib.load_file(&saved.id).unwrap().nodes.len(), node_count, "skipping the thumbnail preserves the saved document");
+}
+
+#[test]
+fn saving_a_small_document_as_library_file_still_spawns_a_thumbnail() {
+    let scratch = Scratch::new("small_thumbnail_guard");
+    let (mut app, lib, project) = editor_with_library(&scratch);
+    let mut doc = Document::new("Small");
+    let page = doc.add_page("Page 1");
+    let id = doc.alloc_id();
+    doc.insert(page, designos_doc::Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+    app.doc = doc;
+    crate::home::thumb::take_background_refresh_calls();
+
+    app.save_to_library_as(&project, None, "Small");
+
+    assert_eq!(crate::home::thumb::take_background_refresh_calls(), 1, "small saves still generate their thumbnail");
+    assert!(lib.file(&app.lib_file.as_ref().expect("the save succeeds").id).is_ok());
 }
 
 #[test]

@@ -57,7 +57,7 @@ fn grid_with_row_gap(row_px: f32, item: bool, counter: bool, bare_tokens: bool) 
     let al = AutoLayout {
         direction: LayoutDirection::Grid,
         item_spacing: 16.0,
-        counter_spacing: row_px,
+        counter_spacing: Some(row_px),
         primary_sizing: Sizing::Fixed,
         counter_sizing: Sizing::Fixed,
         grid_columns: 3,

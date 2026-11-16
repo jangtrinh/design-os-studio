@@ -257,3 +257,51 @@ fn a_created_table_lands_in_the_same_place_among_the_page_children() {
     let table = *agent.get(page).unwrap().children.last().unwrap();
     same(&agent, &editor, table);
 }
+
+/// Replays `cmd`, built on `agent`, onto `editor` the way the reconnect path does.
+fn replay_onto(agent: &Document, editor: &mut Document, cmd: &Command) {
+    let ops = live_ops_for_command(agent, cmd).expect("the op can be mirrored");
+    replay_live_patch(editor, &LivePatch::new(ops), &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+}
+
+fn cell_extents(d: &Document, table: NodeId, row: TrackId, col: TrackId) -> Vec2 {
+    d.get(table)
+        .unwrap()
+        .children
+        .iter()
+        .find_map(|id| match &d.get(*id).unwrap().kind {
+            NodeKind::TableCell(c) if c.row == row && c.col == col => d.get(*id).map(|n| n.size),
+            _ => None,
+        })
+        .expect("the cell exists")
+}
+
+#[test]
+fn an_agent_column_insert_keeps_a_row_height_the_user_set() {
+    let (agent, _, table) = table_doc(2, 2);
+    let mut editor = agent.clone();
+    let row = props(&editor, table).rows[0].id;
+    let col = props(&editor, table).cols[0].id;
+    resize_row(&editor, table, row, 90.0).unwrap().apply(&mut editor).unwrap();
+
+    replay_onto(&agent, &mut editor, &insert_cols(&agent, table, 1, 1).unwrap());
+
+    let after = props(&editor, table);
+    assert_eq!(after.rows[0].size, 90.0, "the user's row height survives the agent's column insert");
+    assert_eq!(after.cols.len(), 3, "the agent's column arrived");
+    assert_eq!(cell_extents(&editor, table, row, col).y, 90.0, "the cells follow the user's row height");
+    check_table_positions(&editor, table).expect("one cell per position");
+}
+
+#[test]
+fn an_agent_cell_text_edit_keeps_a_column_width_the_user_set() {
+    let (agent, _, table) = table_doc(2, 2);
+    let mut editor = agent.clone();
+    let col = props(&editor, table).cols[0].id;
+    resize_col(&editor, table, col, 300.0).unwrap().apply(&mut editor).unwrap();
+
+    replay_onto(&agent, &mut editor, &set_cell_text(&agent, table, 0, 1, "edited").unwrap());
+
+    assert_eq!(props(&editor, table).cols[0].size, 300.0, "a text edit is not a structural change and leaves the user's width alone");
+    check_table_positions(&editor, table).expect("one cell per position");
+}

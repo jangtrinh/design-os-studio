@@ -27,8 +27,8 @@ pub struct LayoutSpec {
     #[serde(default, skip_serializing_if = "NumberOrVar::is_zero")]
     pub gap: NumberOrVar,
     /// Cross-axis spacing between wrapped lines in px (or `"var:..."`).
-    #[serde(default, skip_serializing_if = "NumberOrVar::is_zero")]
-    pub counter_gap: NumberOrVar,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counter_gap: Option<NumberOrVar>,
     /// `[top, right, bottom, left]` padding in px or `"var:..."` references.
     #[serde(default)]
     pub padding: [NumberOrVar; 4],
@@ -291,6 +291,19 @@ pub struct OverrideSpec {
     /// Slot fills `{slot: [NodeSpec...] | false}` on a nested instance.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub slots: BTreeMap<String, SlotFillSpec>,
+    /// Override arc data on a descendant ellipse. `sweep_angle` is added to `start_angle` on apply.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arc: Option<ArcOverrideSpec>,
+}
+
+/// Arc data carried by an instance override in a declarative spec.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ArcOverrideSpec {
+    pub start_angle: f32,
+    pub sweep_angle: f32,
+    pub inner_radius: f32,
 }
 
 fn spec_levenshtein(a: &str, b: &str) -> usize {
@@ -919,8 +932,8 @@ impl Document {
                 if let Some(g) = ls.gap.as_num() {
                     al.item_spacing = g;
                 }
-                if let Some(cg) = ls.counter_gap.as_num() {
-                    al.counter_spacing = cg;
+                if let Some(cg) = ls.counter_gap.as_ref().and_then(NumberOrVar::as_num) {
+                    al.counter_spacing = Some(cg);
                 }
                 let pad_nums = [ls.padding[0].unwrap_or(0.0), ls.padding[1].unwrap_or(0.0), ls.padding[2].unwrap_or(0.0), ls.padding[3].unwrap_or(0.0)];
                 let any_pad_set = ls.padding.iter().any(|p| !p.is_zero());
@@ -1332,11 +1345,11 @@ impl Document {
             if let NumberOrVar::Ref(_) = &ls.gap {
                 let _ = self.bind_or_eval_number(id, &node_kind, &ls.gap, &["itemSpacing"], "gap", format!("{path}.layout.gap"), index, libraries, report)?;
             }
-            if let NumberOrVar::Ref(_) = &ls.counter_gap {
+            if let Some(cg @ NumberOrVar::Ref(_)) = &ls.counter_gap {
                 let _ = self.bind_or_eval_number(
                     id,
                     &node_kind,
-                    &ls.counter_gap,
+                    cg,
                     &["counterAxisSpacing"],
                     "counter_gap",
                     format!("{path}.layout.counter_gap"),
@@ -1831,7 +1844,10 @@ impl Document {
                 .get("counterAxisSpacing")
                 .and_then(|vid| self.export_var_ref(index, vid))
                 .map(NumberOrVar::Ref)
-                .unwrap_or_else(|| NumberOrVar::Num(al.counter_spacing));
+                .or_else(|| al.counter_spacing.map(NumberOrVar::Num));
+            // An omitted counter_gap applies as "follows item spacing", so only a gap that follows item spacing is
+            // left out, plus a zero gap on a frame that does not wrap, where both resolve to no gap.
+            let counter_gap = counter_gap.filter(|g| al.wrap || !g.is_zero());
             let pad_keys = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
             let padding: [NumberOrVar; 4] = std::array::from_fn(|i| {
                 n.variables
@@ -2046,6 +2062,31 @@ pub fn estimate_intrinsic_text_size(tp: &TextProps) -> Vec2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_then_apply_keeps_a_wrapped_line_gap_explicit_or_following_item_spacing() {
+        let mut doc = Document::new("wrap-line-gap");
+        let page = doc.add_page("Page");
+        for (gap, wrap) in [(Some(0.0), true), (Some(24.0), true), (None, true), (None, false), (Some(0.0), false)] {
+            let spec: NodeSpec = serde_json::from_value(serde_json::json!({
+                "kind": "frame",
+                "name": "Row",
+                "layout": { "direction": "row", "wrap": wrap, "gap": 16 }
+            }))
+            .unwrap();
+            let id = doc.apply_spec(page, &spec).unwrap();
+            if let Some(al) = doc.get_mut(id).unwrap().kind.frame_props_mut().unwrap().auto_layout.as_mut() {
+                al.counter_spacing = gap;
+            }
+            let exported = doc.export_spec(id).unwrap();
+            let back = doc.apply_spec(page, &exported).unwrap();
+            let al = doc.get(back).unwrap().kind.frame_props().unwrap().auto_layout.clone().unwrap();
+            let want = if !wrap && gap == Some(0.0) { None } else { gap };
+            assert_eq!(al.counter_spacing, want, "wrap {wrap}, counter spacing {gap:?}");
+            let src = doc.get(id).unwrap().kind.frame_props().unwrap().auto_layout.clone().unwrap();
+            assert_eq!(al.line_gap(), src.line_gap(), "wrap {wrap}, counter spacing {gap:?}");
+        }
+    }
 
     #[test]
     fn hug_text_max_width_wraps_and_grows_height() {

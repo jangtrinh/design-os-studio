@@ -346,10 +346,13 @@ impl SearchIndex {
                 ));
             }
 
-            // 4c. Library variables (hidden_from_publishing variables are excluded per §8.5).
+            // 4c. Library variables (hidden_from_publishing variables and collections are excluded per §8.5).
             let has_var_assets = snap.assets.iter().any(|a| a.kind == LibraryAssetKind::Variable);
             for (var_id, var) in &snap.variables {
-                if var.hidden_from_publishing || var.is_soft_deleted() {
+                if var.hidden_from_publishing
+                    || var.is_soft_deleted()
+                    || snap.variable_collections.get(&var.collection).is_some_and(VariableCollection::is_hidden_from_publishing)
+                {
                     continue;
                 }
                 if has_var_assets && !snap.assets.iter().any(|a| a.kind == LibraryAssetKind::Variable && strip_prefix_or_self(&a.key, "var:") == var_id) {
@@ -1090,7 +1093,10 @@ fn count_system_var_path_matches(candidate_path: &str, doc: &Document, snapshots
     for snap in snapshots {
         let has_var_assets = snap.assets.iter().any(|a| a.kind == LibraryAssetKind::Variable);
         for (vid, v) in &snap.variables {
-            if v.hidden_from_publishing || v.is_soft_deleted() {
+            if v.hidden_from_publishing
+                || v.is_soft_deleted()
+                || snap.variable_collections.get(&v.collection).is_some_and(VariableCollection::is_hidden_from_publishing)
+            {
                 continue;
             }
             if has_var_assets && !snap.assets.iter().any(|a| a.kind == LibraryAssetKind::Variable && strip_prefix_or_self(&a.key, "var:") == vid) {
@@ -2630,5 +2636,82 @@ mod tests {
         assert_eq!(styles.len(), 1, "orphan style must not be listed in get_document: {styles:?}");
         assert_eq!(styles[0]["name"], "Shadow/Card");
         assert_eq!(doc_info["style_count"], 1);
+    }
+
+    #[test]
+    fn library_search_omits_variables_of_a_hidden_collection_bound_by_a_published_component() {
+        clear_snapshot_cache();
+        clear_search_index_cache();
+        let root = make_temp_dir("hidden_collection_bound_var_search");
+        let lib = Library::open(&root).unwrap();
+
+        let mut kit = Document::new("Kit");
+        let kpage = kit.add_page("Components");
+        let mut internal = VariableCollection {
+            id: "c_internal".into(),
+            name: "Internal".into(),
+            modes: vec![VariableMode { id: "m1".into(), name: "Default".into() }],
+            default_mode: "m1".into(),
+            variables: vec!["v_api_key".into()],
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        };
+        internal.set_hidden_from_publishing(true);
+        kit.variable_collections.insert("c_internal".into(), internal);
+        kit.variables.insert(
+            "v_api_key".into(),
+            Variable {
+                id: "v_api_key".into(),
+                name: "apiKey".into(),
+                collection: "c_internal".into(),
+                kind: VariableKind::String,
+                values: BTreeMap::from([("m1".into(), VariableValue::String("secret-token".into()))]),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let card_id = kit.alloc_id();
+        let mut card = Node::new(card_id, NodeKind::Component(FrameProps::default()));
+        card.name = "Card".into();
+        card.size = Vec2::new(120.0, 60.0);
+        let card_id = kit.insert(kpage, card).unwrap();
+        let label_id = kit.alloc_id();
+        let mut label = Node::text(label_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 20.0), "Placeholder", designos_doc::TextStyle::default());
+        label.name = "Label".into();
+        label.variables.bindings.insert("characters".into(), "v_api_key".into());
+        kit.insert(card_id, label).unwrap();
+
+        lib.publish_library("lib-kit", &kit, "v1").unwrap();
+
+        let mut host = Document::new("Consumer");
+        host.add_page("Page 1");
+        host.library.enabled.push(LibraryRef { id: "lib-kit".into(), name: "Kit".into(), version: 1 });
+        let snaps = enabled_snapshots_from_root(&host, &root);
+        assert_eq!(snaps.len(), 1);
+        assert!(snaps[0].variables.contains_key("v_api_key"), "precondition: bound variable is carried in snapshot closure");
+
+        // Compare the whole result list of searching the library: only the published Card component is returned, never apiKey.
+        let all_out = search_design_system_at(&host, json!({"query": "a"}), &root).unwrap();
+        let all_results = all_out["results"].as_array().unwrap();
+        let summary: Vec<(String, String)> =
+            all_results.iter().map(|r| (r["kind"].as_str().unwrap_or("").to_string(), r["name"].as_str().unwrap_or("").to_string())).collect();
+        assert_eq!(summary, vec![("component".to_string(), "Card".to_string())]);
+
+        let var_out = search_design_system_at(&host, json!({"query": "apiKey", "kinds": ["variable"]}), &root).unwrap();
+        assert_eq!(var_out["results"], json!([]));
+
+        // The component instance in the consumer still resolves the bound hidden-collection variable value.
+        let card_key = snaps[0].assets[0].key.clone();
+        let cmd = import_asset(&mut host, &snaps[0], &card_key, None);
+        cmd.apply(&mut host).unwrap();
+        assert_eq!(host.resolve_variable(NodeId(0), "lib-kit/v_api_key"), Some(VariableValue::String("secret-token".into())));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

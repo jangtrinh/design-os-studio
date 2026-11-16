@@ -849,7 +849,7 @@ pub(crate) fn grid_row_gap_px(doc: &Document, n: &Node, al: &AutoLayout) -> f32 
 /// (`counterAxisSpacing`) when that spacing is bound or the stored counter spacing is positive,
 /// and otherwise the row reuses `itemSpacing`.
 pub(crate) fn grid_row_gap_key(doc: &Document, n: &Node, al: &AutoLayout) -> &'static str {
-    if bound(doc, n, "counterAxisSpacing").is_some() || al.counter_spacing > 0.0 {
+    if bound(doc, n, "counterAxisSpacing").is_some() || al.line_gap() > 0.0 {
         "counterAxisSpacing"
     } else {
         "itemSpacing"
@@ -1229,7 +1229,7 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>, 
                     // The column gap is `itemSpacing`, the row gap `counterAxisSpacing`. An unbound row keeps
                     // its own pixel gap; only a row with no spacing of its own (`counterAxisSpacing` unset,
                     // so the solver reuses `itemSpacing`) follows the item variable.
-                    let row_follows_item = al.counter_spacing <= 0.0;
+                    let row_follows_item = al.line_gap() <= 0.0;
                     let col_s = item_v.clone().unwrap_or(col_fb);
                     let row_s = counter_v.or(item_v.filter(|_| row_follows_item)).unwrap_or(row_fb);
                     set_decl(lines, "gap", if row_s == col_s { row_s } else { format!("{row_s} {col_s}") });
@@ -1773,7 +1773,7 @@ mod tests {
             grid_columns: 4,
             grid_rows: 0,
             item_spacing: 12.0,
-            counter_spacing: 16.0,
+            counter_spacing: Some(16.0),
             padding: [12.0, 12.0, 12.0, 12.0],
             primary_sizing: Sizing::Fixed,
             counter_sizing: Sizing::Fixed,
@@ -1856,7 +1856,7 @@ mod tests {
             auto_layout: Some(AutoLayout {
                 direction: LayoutDirection::Grid,
                 item_spacing: 4.0,
-                counter_spacing: 0.0,
+                counter_spacing: Some(0.0),
                 primary_sizing: Sizing::Fixed,
                 counter_sizing: Sizing::Fixed,
                 grid_columns: 2,

@@ -468,7 +468,7 @@ impl App {
         let refused = value.clone();
         let cmd = set_instance_prop(&mut self.doc, inst, name, value);
         if is_noop(&cmd) {
-            let refusal = refused.and_then(|v| crate::comp_cycle_refusal::prop_refusal(&self.doc, inst, name, &v));
+            let refusal = refused.and_then(|v| designos_doc::prop_cycle_refusal(&self.doc, inst, name, &v));
             self.explain_refusal(refusal);
         } else if self.push_cmd(&mut tx, cmd) {
             self.refit_texts(&mut tx, inst);
@@ -483,12 +483,37 @@ impl App {
         let refused = value.clone();
         let cmd = set_nested_instance_prop(&mut self.doc, nested, name, value);
         if is_noop(&cmd) {
-            let refusal = refused.and_then(|v| crate::comp_cycle_refusal::prop_refusal(&self.doc, nested, name, &v));
+            let refusal = refused.and_then(|v| designos_doc::prop_cycle_refusal(&self.doc, nested, name, &v));
             self.explain_refusal(refusal);
         } else if self.push_cmd(&mut tx, cmd) {
             let outer = instance_root_of(&self.doc, nested).unwrap_or(nested);
             self.refit_texts(&mut tx, outer);
             self.run_tx(tx);
+        }
+    }
+
+    /// The property a binding `key` of `node` names when `node` is an instance nested in another (a copy inside an outer
+    /// instance) and the key is a component property binding. Such a binding is made through [`App::bind_nested_prop_in`].
+    pub(crate) fn nested_prop_binding_name<'k>(&self, node: NodeId, key: &'k str) -> Option<&'k str> {
+        let name = prop_binding_name(key)?;
+        let n = self.doc.get(node).filter(|n| matches!(n.kind, NodeKind::Instance { .. }))?;
+        (!is_top_instance(n)).then_some(name)
+    }
+
+    /// Binds component property `name` of the nested copy `inst` to variable `var`, or with `None` unbinds it, in `tx`: the
+    /// command `designos_update_node` with `prop_vars` plans, so a bind made on the outer instance's panel and one made by an
+    /// agent leave the same nodes. The copy's own binding survives a sync of the main, and unbinding what it inherits holds it
+    /// on the variant it shows. A refusal (a bind that would make a component hold itself) says so in a toast.
+    pub(crate) fn bind_nested_prop_in(&mut self, tx: &mut Tx, inst: NodeId, name: &str, var: Option<&str>) {
+        match bind_prop_variables_explained(&mut self.doc, inst, &[(name, var)]) {
+            Ok((cmd, refusal)) => {
+                if is_noop(&cmd) {
+                    self.explain_refusal(refusal);
+                } else if self.push_cmd(tx, cmd) {
+                    layout::relayout_around(&mut self.doc, &mut tx.ed, inst);
+                }
+            }
+            Err(e) => self.show_toast(e.to_string(), true),
         }
     }
 
@@ -531,6 +556,15 @@ impl App {
     pub fn reset_node_overrides(&mut self, node: NodeId, fields: &[OverrideField]) {
         let mut tx = Tx::new();
         let cmd = reset_overrides(&mut self.doc, node, fields);
+        if self.push_cmd(&mut tx, cmd) {
+            self.run_tx(tx);
+        }
+    }
+
+    /// Resets parked overrides of a missing variant layer on `instance`.
+    pub fn reset_parked_overrides(&mut self, instance: NodeId, path: &[(String, usize)], fields: &[OverrideField]) {
+        let mut tx = Tx::new();
+        let cmd = reset_parked_overrides(&mut self.doc, instance, path, fields);
         if self.push_cmd(&mut tx, cmd) {
             self.run_tx(tx);
         }

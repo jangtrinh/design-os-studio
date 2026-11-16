@@ -192,6 +192,9 @@ struct Active {
     node: NodeId,
     when: When,
     undo: Vec<Undo>,
+    /// Variables whose values or modes changed while the gesture was on: ending it re-applies the properties bound to
+    /// them over what the restore brings back.
+    changed_vars: HashSet<String>,
 }
 
 /// Playback state of one video layer. Positions are seconds.
@@ -475,10 +478,16 @@ impl Player {
     /// Schedules the AfterDelay reactions of everything in `frame`.
     fn on_shown(&mut self, frame: NodeId) {
         self.timers.retain(|t| t.frame != frame);
-        let mut stack = vec![frame];
+        self.arm_subtree(frame, frame);
+    }
+
+    fn arm_subtree(&mut self, root: NodeId, frame: NodeId) {
+        let mut subtree = HashSet::new();
+        let mut stack = vec![root];
         let mut found = Vec::new();
         while let Some(id) = stack.pop() {
             let Some(n) = self.doc.get(id) else { continue };
+            subtree.insert(id);
             for r in &n.prototype.reactions {
                 if let Trigger::AfterDelay { delay_ms } = r.trigger {
                     found.push((id, r.clone(), delay_ms));
@@ -486,10 +495,33 @@ impl Player {
             }
             stack.extend(n.children.iter().copied());
         }
+        self.timers.retain(|t| !subtree.contains(&t.node));
         for (node, reaction, ms) in found {
             self.timers.push(Timer { at: self.now + ms as f64 / 1000.0, node, reaction, frame });
         }
-        self.init_media(frame);
+        self.init_media(root);
+    }
+
+    fn prune_removed_nodes(&mut self) {
+        self.timers.retain(|t| self.doc.get(t.node).is_some());
+        self.hover.retain(|id| self.doc.get(*id).is_some());
+        self.actives.retain(|a| self.doc.get(a.node).is_some());
+        if self.press_target.is_some_and(|id| self.doc.get(id).is_none()) {
+            self.press_target = None;
+        }
+        self.media.retain(|id, _| self.doc.get(*id).is_some());
+    }
+
+    fn sync_variant_reactions(&mut self, inst: NodeId, old_comp: NodeId, new_comp: NodeId) {
+        let old_own = self.doc.get(old_comp).map(|c| &c.prototype.reactions);
+        let inst_own = self.doc.get(inst).map(|i| &i.prototype.reactions);
+        if old_own == inst_own {
+            if let Some(new_rs) = self.doc.get(new_comp).map(|c| c.prototype.reactions.clone()) {
+                if let Some(i) = self.doc.get_mut(inst) {
+                    i.prototype.reactions = new_rs;
+                }
+            }
+        }
     }
 
     /// Creates the playback state of video layers in `frame` the first time it is shown.
@@ -608,7 +640,7 @@ impl Player {
             // hover ended: undo while-hovering effects, then Leave
             if let Some(i) = self.actives.iter().position(|a| a.node == *n && a.when == When::HoverOn) {
                 let a = self.actives.remove(i);
-                self.undo(a.undo);
+                self.end_active(a);
             }
             self.fire(*n, When::Leave, None);
         }
@@ -617,7 +649,7 @@ impl Player {
             if !self.reactions_on(*n, When::HoverOn).is_empty() {
                 let mut u = Vec::new();
                 self.fire(*n, When::HoverOn, Some(&mut u));
-                self.actives.push(Active { node: *n, when: When::HoverOn, undo: u });
+                self.actives.push(Active { node: *n, when: When::HoverOn, undo: u, changed_vars: HashSet::new() });
             }
         }
     }
@@ -632,7 +664,7 @@ impl Player {
         if let Some(n) = self.find_reactive(t, When::PressOn) {
             let mut u = Vec::new();
             self.fire(n, When::PressOn, Some(&mut u));
-            self.actives.push(Active { node: n, when: When::PressOn, undo: u });
+            self.actives.push(Active { node: n, when: When::PressOn, undo: u, changed_vars: HashSet::new() });
         }
     }
 
@@ -642,7 +674,7 @@ impl Player {
         self.drag_end();
         while let Some(i) = self.actives.iter().position(|a| a.when == When::PressOn) {
             let a = self.actives.remove(i);
-            self.undo(a.undo);
+            self.end_active(a);
         }
         self.press_target = None;
         if let Some(t) = target {
@@ -776,6 +808,18 @@ impl Player {
         }
         for (id, r) in hits {
             self.run(id, &r, None);
+        }
+    }
+
+    /// Ends a While hovering / While pressing gesture. Its restores bring back the variants the instances had when it
+    /// began, which may predate a variable change made since: the properties bound to the variables changed meanwhile
+    /// are re-applied on top, so an axis whose variable changed keeps the new value and the others are restored.
+    fn end_active(&mut self, a: Active) {
+        let restored = a.undo.iter().any(|u| matches!(u, Undo::RestoreComponent { .. }));
+        self.undo(a.undo);
+        if restored && !a.changed_vars.is_empty() {
+            let switched = self.resync_bound_variants(&a.changed_vars);
+            self.bump_frames_of(switched.iter().map(|(inst, _)| *inst));
         }
     }
 
@@ -925,7 +969,8 @@ impl Player {
     /// Re-resolves the layers bound to `vars` (and to variables aliasing them), re-fits auto-sized
     /// text, re-runs auto layout and invalidates the frames' textures.
     fn refresh_bound(&mut self, vars: &[String]) {
-        let mut set: HashSet<String> = vars.iter().cloned().collect();
+        let direct: HashSet<String> = vars.iter().cloned().collect();
+        let mut set = direct.clone();
         loop {
             let more: Vec<String> = self
                 .doc
@@ -939,12 +984,52 @@ impl Player {
             }
             set.extend(more);
         }
+        // Prototype variable and mode changes bypass History: the gestures on screen learn which variables changed (their
+        // restores run over the new values when they end), and bound component properties are resynced.
+        for a in &mut self.actives {
+            a.changed_vars.extend(direct.iter().cloned());
+        }
+        let switched = self.resync_bound_variants(&direct);
         let nodes = crate::variables::bound_nodes(&self.doc, &set);
-        if nodes.is_empty() {
+        if nodes.is_empty() && switched.is_empty() {
             return;
         }
-        crate::variables::reflow_bound(&mut self.doc, &set, &nodes);
-        let mut frames: Vec<NodeId> = nodes.iter().filter_map(|n| self.top_frame_of(*n)).collect();
+        if !nodes.is_empty() {
+            crate::variables::reflow_bound(&mut self.doc, &set, &nodes);
+        }
+        self.bump_frames_of(nodes.iter().copied().chain(switched.iter().map(|(inst, _)| *inst)));
+    }
+
+    /// Re-applies the component properties bound to `vars` (variant, boolean and text) and the auto-layout chains their
+    /// instances feed, then keeps what hangs off a switched instance in step with the variant it now shows: the
+    /// reactions, timers and media. Returns each switched `(instance, variant it showed before)`.
+    fn resync_bound_variants(&mut self, vars: &HashSet<String>) -> Vec<(NodeId, NodeId)> {
+        let switched = match designos_doc::resync_bound_properties(&mut self.doc, vars) {
+            Ok(switched) => switched,
+            Err(e) => {
+                self.error(format!("Resync bound properties: {e}"));
+                Vec::new()
+            }
+        };
+        if !switched.is_empty() {
+            for &(inst, old_comp) in &switched {
+                if let Some(new_comp) = self.doc.get(inst).and_then(instance_component) {
+                    self.sync_variant_reactions(inst, old_comp, new_comp);
+                }
+            }
+            self.prune_removed_nodes();
+            for &(inst, _) in &switched {
+                if let Some(frame) = self.top_frame_of(inst).filter(|f| self.frame_visible(*f)) {
+                    self.arm_subtree(inst, frame);
+                }
+            }
+        }
+        switched
+    }
+
+    /// Invalidates the frames that hold `nodes`.
+    fn bump_frames_of(&mut self, nodes: impl Iterator<Item = NodeId>) {
+        let mut frames: Vec<NodeId> = nodes.filter_map(|n| self.top_frame_of(n)).collect();
         frames.sort();
         frames.dedup();
         for f in frames {
@@ -1193,22 +1278,14 @@ impl Player {
             });
         // Interactions live in the variants: when the instance still carries its variant's own
         // reactions (no override of its own), it takes the new variant's.
-        let old_own = self.doc.get(prev).map(|c| c.prototype.reactions.clone());
-        let inst_own = self.doc.get(inst).map(|i| i.prototype.reactions.clone());
-        let cmd = swap_instance(&mut self.doc, inst, dest);
+        let cmd = swap_instance_without_pick(&mut self.doc, inst, dest);
         if cmd.apply(&mut self.doc).is_err() {
             return;
         }
         if self.doc.get(inst).and_then(instance_component) == Some(prev) {
             return;
         }
-        if old_own == inst_own {
-            if let Some(new_rs) = self.doc.get(dest).map(|c| c.prototype.reactions.clone()) {
-                if let Some(i) = self.doc.get_mut(inst) {
-                    i.prototype.reactions = new_rs;
-                }
-            }
-        }
+        self.sync_variant_reactions(inst, prev, dest);
         self.bump(frame);
         if let Some(u) = undo {
             u.push(Undo::RestoreComponent { inst, comp: prev, transition: transition.map(|t| Transition { kind: geom::reverse(t.kind), ..t }) });
@@ -2145,6 +2222,550 @@ mod tests {
         q.pointer_up(Some(f.btn_b), false);
         assert_eq!(q.errors.len(), 1);
         assert!(q.errors[0].contains("unknown mode"));
+    }
+
+    struct BoundVariantPlayerFx {
+        doc: Document,
+        h: History,
+        screen: NodeId,
+        hug_top: NodeId,
+        top: NodeId,
+        hug_nested: NodeId,
+        w: NodeId,
+        copy: NodeId,
+        btn_dark: NodeId,
+        btn_light: NodeId,
+        btn_set: NodeId,
+    }
+
+    fn bound_variant_player_fixture() -> BoundVariantPlayerFx {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("P");
+        let s = |v: &str| VariableValue::String(v.into());
+        doc.variable_collections.insert(
+            "theme".into(),
+            VariableCollection {
+                id: "theme".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "light".into(),
+                variables: vec!["size".into(), "state".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        for (id, light, dark) in [("size", "Small", "Large"), ("state", "Default", "Hover")] {
+            doc.variables.insert(
+                id.into(),
+                Variable {
+                    id: id.into(),
+                    name: id.into(),
+                    collection: "theme".into(),
+                    kind: VariableKind::String,
+                    values: [("light".to_string(), s(light)), ("dark".to_string(), s(dark))].into_iter().collect(),
+                    description: String::new(),
+                    scopes: vec![],
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: Default::default(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
+                },
+            );
+        }
+        let mut mains = Vec::new();
+        for (name, wd) in
+            [("Size=Small, State=Default", 100.0), ("Size=Large, State=Default", 200.0), ("Size=Small, State=Hover", 110.0), ("Size=Large, State=Hover", 210.0)]
+        {
+            let id = doc.alloc_id();
+            let mut v = Node::frame(id, Rect::new(1000.0, 0.0, wd, 40.0));
+            v.name = name.into();
+            let v = doc.insert(page, v).unwrap();
+            let id = doc.alloc_id();
+            let mut t = Node::text(id, Rect::new(10.0, 10.0, 60.0, 20.0), "Label", TextStyle::default());
+            t.name = "label".into();
+            doc.insert(v, t).unwrap();
+            create_component(&mut doc, v).apply(&mut doc).unwrap();
+            mains.push(v);
+        }
+        combine_as_variants(&mut doc, &mains).apply(&mut doc).unwrap();
+
+        let hugging_frame = |d: &mut Document, parent: NodeId, y: f32, padding: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(10.0, y, 10.0, 10.0));
+            if let NodeKind::Frame(fp) = &mut f.kind {
+                fp.auto_layout = Some(AutoLayout {
+                    direction: LayoutDirection::Horizontal,
+                    primary_sizing: Sizing::Hug,
+                    counter_sizing: Sizing::Hug,
+                    padding: [padding; 4],
+                    layout_version: 1,
+                    ..AutoLayout::default()
+                });
+            }
+            d.insert(parent, f).unwrap()
+        };
+
+        let wmain = hugging_frame(&mut doc, page, 300.0, 0.0);
+        create_instance(&mut doc, mains[0], wmain, Vec2::ZERO).apply(&mut doc).unwrap();
+        let n_main = *doc.get(wmain).unwrap().children.last().unwrap();
+        create_component(&mut doc, wmain).apply(&mut doc).unwrap();
+        let mut h = History::default();
+        for (prop, var) in [("Size", "size"), ("State", "state")] {
+            let c = bind_prop_variable(&mut doc, n_main, prop, Some(var)).unwrap();
+            h.exec(&mut doc, c).unwrap();
+        }
+
+        let id = doc.alloc_id();
+        let screen = doc.insert(page, Node::frame(id, Rect::new(0.0, 0.0, 400.0, 800.0))).unwrap();
+        let hug_top = hugging_frame(&mut doc, screen, 10.0, 4.0);
+        create_instance(&mut doc, mains[0], hug_top, Vec2::ZERO).apply(&mut doc).unwrap();
+        let top = *doc.get(hug_top).unwrap().children.last().unwrap();
+        for (prop, var) in [("Size", "size"), ("State", "state")] {
+            let c = bind_prop_variable(&mut doc, top, prop, Some(var)).unwrap();
+            h.exec(&mut doc, c).unwrap();
+        }
+
+        let hug_nested = hugging_frame(&mut doc, screen, 100.0, 4.0);
+        create_instance(&mut doc, wmain, hug_nested, Vec2::ZERO).apply(&mut doc).unwrap();
+        let w = *doc.get(hug_nested).unwrap().children.last().unwrap();
+        let copy = *doc.get(w).unwrap().children.first().unwrap();
+
+        let make_btn = |d: &mut Document, y: f32, action: Action| -> NodeId {
+            let id = d.alloc_id();
+            let b = d.insert(screen, Node::rectangle(id, Rect::new(10.0, y, 80.0, 30.0))).unwrap();
+            add(d, b, react(Trigger::OnClick, action, None));
+            b
+        };
+        let btn_dark = make_btn(&mut doc, 600.0, Action::SetVariableMode { collection: "theme".into(), mode: "dark".into() });
+        let btn_light = make_btn(&mut doc, 640.0, Action::SetVariableMode { collection: "theme".into(), mode: "light".into() });
+        let btn_set = make_btn(&mut doc, 680.0, Action::SetVariable { variable: "size".into(), value: Expression::text("Large") });
+
+        doc.relayout_subtree(screen);
+        BoundVariantPlayerFx { doc, h, screen, hug_top, top, hug_nested, w, copy, btn_dark, btn_light, btn_set }
+    }
+
+    fn shown_variant_name(doc: &Document, inst: NodeId) -> String {
+        doc.get(instance_component(doc.get(inst).unwrap()).unwrap()).unwrap().name.clone()
+    }
+
+    #[test]
+    fn set_variable_mode_switches_a_bound_top_level_variant() {
+        let f = bound_variant_player_fixture();
+        let mut p = Player::new(&f.doc, f.screen);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Default");
+        assert_eq!(p.doc.get(f.hug_top).unwrap().size.x, 108.0);
+        let rev = p.frame_rev(f.screen);
+        p.pointer_up(Some(f.btn_dark), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Hover");
+        assert_eq!(p.doc.get(f.top).unwrap().size.x, 210.0);
+        assert_eq!(p.doc.get(f.hug_top).unwrap().size.x, 218.0, "hug host resizes in the same step as the switch");
+        assert!(p.frame_rev(f.screen) > rev);
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
+    }
+
+    #[test]
+    fn set_variable_mode_switches_a_bound_nested_variant_and_keeps_its_text_override() {
+        let mut f = bound_variant_player_fixture();
+        let label = *f.doc.get(f.copy).unwrap().children.first().unwrap();
+        let before = f.doc.get(label).unwrap().clone();
+        let mut edited = before.clone();
+        if let NodeKind::Text(tp) = &mut edited.kind {
+            tp.content = "Keep me".into();
+        }
+        // an edit inside an instance is recorded as an override, as the editor does
+        edited.component.overrides = record_override(&before, &edited);
+        f.h.exec(&mut f.doc, Command::Update { node: Box::new(edited) }).unwrap();
+
+        let mut p = Player::new(&f.doc, f.screen);
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Small, State=Default");
+        assert_eq!(p.doc.get(f.hug_nested).unwrap().size.x, 108.0);
+        p.pointer_up(Some(f.btn_dark), false);
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Large, State=Hover");
+        let new_label = *p.doc.get(f.copy).unwrap().children.first().unwrap();
+        assert_eq!(content_of(&p, new_label), "Keep me", "nested copy keeps its text override across the switch");
+        assert_eq!(p.doc.get(f.w).unwrap().size.x, 210.0);
+        assert_eq!(p.doc.get(f.hug_nested).unwrap().size.x, 218.0, "hug host around the nested copy resizes too");
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
+    }
+
+    #[test]
+    fn set_variable_switches_a_variant_bound_to_that_variable() {
+        let f = bound_variant_player_fixture();
+        let mut p = Player::new(&f.doc, f.screen);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Default");
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Small, State=Default");
+        let rev = p.frame_rev(f.screen);
+        p.pointer_up(Some(f.btn_set), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Default");
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Large, State=Default");
+        assert_eq!(p.doc.get(f.hug_top).unwrap().size.x, 208.0);
+        assert_eq!(p.doc.get(f.hug_nested).unwrap().size.x, 208.0);
+        assert!(p.frame_rev(f.screen) > rev);
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
+    }
+
+    #[test]
+    fn a_picked_property_stays_held_in_the_player() {
+        let mut f = bound_variant_player_fixture();
+        let c_top = set_instance_prop(&mut f.doc, f.top, "Size", Some(PropValue::Variant("Large".into())));
+        f.h.exec(&mut f.doc, c_top).unwrap();
+        let c_nested = set_nested_instance_prop(&mut f.doc, f.copy, "Size", Some(PropValue::Variant("Large".into())));
+        f.h.exec(&mut f.doc, c_nested).unwrap();
+
+        let mut p = Player::new(&f.doc, f.screen);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Default");
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Large, State=Default");
+        p.pointer_up(Some(f.btn_dark), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Hover", "State follows, picked Size holds");
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Large, State=Hover", "nested State follows, picked Size holds");
+        p.pointer_up(Some(f.btn_light), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Default", "picked Size stays held when mode returns to light");
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Large, State=Default", "nested picked Size stays held when mode returns to light");
+    }
+
+    #[test]
+    fn the_editor_document_is_unchanged_after_the_player_runs() {
+        let f = bound_variant_player_fixture();
+        let before_json = f.doc.to_json().unwrap();
+        let before = f.doc.clone();
+        let mut p = Player::new(&f.doc, f.screen);
+        p.pointer_up(Some(f.btn_dark), false);
+        p.pointer_up(Some(f.btn_light), false);
+        p.pointer_up(Some(f.btn_set), false);
+        assert_eq!(f.doc.nodes, before.nodes);
+        assert_eq!(f.doc.variables, before.variables);
+        assert_eq!(f.doc.variable_collections, before.variable_collections);
+        assert_eq!(f.doc.to_json().unwrap(), before_json);
+    }
+
+    #[test]
+    fn switched_instance_adopts_new_variant_reactions() {
+        let mut f = bound_variant_player_fixture();
+        let dest_id = f.doc.alloc_id();
+        let page = f.doc.get(f.screen).unwrap().parent.unwrap();
+        let dest_screen = f.doc.insert(page, Node::frame(dest_id, Rect::new(600.0, 0.0, 400.0, 800.0))).unwrap();
+        let default_comp = instance_component(f.doc.get(f.top).unwrap()).unwrap();
+        add(&mut f.doc, default_comp, react(Trigger::OnClick, Action::Navigate { dest: dest_screen, preserve_scroll: false }, None));
+
+        let mut p = Player::new(&f.doc, f.screen);
+        p.pointer_up(Some(f.btn_dark), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Hover");
+        p.pointer_up(Some(f.top), false);
+        assert_eq!(p.current, f.screen, "switched variant has no click reaction, so clicking navigates nowhere");
+
+        p.pointer_up(Some(f.btn_light), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Default");
+        p.pointer_up(Some(f.top), false);
+        assert_eq!(p.current, dest_screen, "switching back to the first mode restores its click reaction");
+    }
+
+    #[test]
+    fn switched_instance_arms_after_delay_of_new_variant_children() {
+        let mut f = bound_variant_player_fixture();
+        let dest_id = f.doc.alloc_id();
+        let page = f.doc.get(f.screen).unwrap().parent.unwrap();
+        let dest_screen = f.doc.insert(page, Node::frame(dest_id, Rect::new(600.0, 0.0, 400.0, 800.0))).unwrap();
+        let dark_comp = f.doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Size=Large, State=Hover").unwrap().id;
+        let dark_child = *f.doc.get(dark_comp).unwrap().children.first().unwrap();
+        add(&mut f.doc, dark_child, react(Trigger::AfterDelay { delay_ms: 300 }, Action::Navigate { dest: dest_screen, preserve_scroll: false }, None));
+
+        let mut p = Player::new(&f.doc, f.screen);
+        p.tick(0.0);
+        assert!(!p.is_animating());
+        p.pointer_up(Some(f.btn_dark), false);
+        assert!(p.is_animating(), "new variant child's AfterDelay timer is armed");
+        p.tick(0.2);
+        assert_eq!(p.current, f.screen);
+        p.tick(0.35);
+        assert_eq!(p.current, dest_screen, "armed AfterDelay on new variant child fires after its delay");
+    }
+
+    #[test]
+    fn switched_instance_drops_removed_timers_and_media_so_player_stops_animating() {
+        let mut f = bound_variant_player_fixture();
+        let dest_id = f.doc.alloc_id();
+        let page = f.doc.get(f.screen).unwrap().parent.unwrap();
+        let dest_screen = f.doc.insert(page, Node::frame(dest_id, Rect::new(600.0, 0.0, 400.0, 800.0))).unwrap();
+        let default_comp = instance_component(f.doc.get(f.top).unwrap()).unwrap();
+        let default_child = *f.doc.get(default_comp).unwrap().children.first().unwrap();
+        add(&mut f.doc, default_child, react(Trigger::AfterDelay { delay_ms: 500 }, Action::Navigate { dest: dest_screen, preserve_scroll: false }, None));
+        for id in [f.top, f.copy] {
+            let child = *f.doc.get(id).unwrap().children.first().unwrap();
+            f.doc.get_mut(child).unwrap().prototype.videos = vec![VideoFill { paint: 0, source: "clip".into(), autoplay: true, looping: true, muted: true }];
+        }
+
+        let mut p = Player::new(&f.doc, f.screen);
+        p.tick(0.0);
+        assert!(p.is_animating(), "initial variant child timer and autoplay video are active");
+        p.pointer_up(Some(f.btn_dark), false);
+        assert!(!p.is_animating(), "removed variant child timers and media are dropped on switch");
+        p.tick(1.0);
+        assert_eq!(p.current, f.screen);
+    }
+
+    #[test]
+    fn while_hovering_change_to_on_bound_instance_still_follows_later_mode_switch() {
+        let mut f = bound_variant_player_fixture();
+        let default_comp = instance_component(f.doc.get(f.top).unwrap()).unwrap();
+        let hover_comp = f.doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Size=Small, State=Hover").unwrap().id;
+        add(&mut f.doc, default_comp, react(Trigger::WhileHovering, Action::ChangeTo { dest: hover_comp }, None));
+
+        let mut p = Player::new(&f.doc, f.screen);
+        p.pointer_move(Some(f.top));
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Hover");
+        p.pointer_move(None);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Default");
+        p.pointer_up(Some(f.btn_dark), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Hover", "bound State follows the mode switch after While hovering ends");
+    }
+
+    #[test]
+    fn change_to_on_bound_instance_holds_across_unrelated_set_variable() {
+        let mut f = bound_variant_player_fixture();
+        f.doc.variable_collections.get_mut("theme").unwrap().variables.push("other".into());
+        f.doc.variables.insert(
+            "other".into(),
+            Variable {
+                id: "other".into(),
+                name: "other".into(),
+                collection: "theme".into(),
+                kind: VariableKind::String,
+                values: [("light".into(), VariableValue::String("a".into())), ("dark".into(), VariableValue::String("b".into()))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let default_comp = instance_component(f.doc.get(f.top).unwrap()).unwrap();
+        let hover_comp = f.doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Size=Small, State=Hover").unwrap().id;
+        add(&mut f.doc, default_comp, react(Trigger::OnClick, Action::ChangeTo { dest: hover_comp }, None));
+        let btn_other_id = f.doc.alloc_id();
+        let btn_other = f.doc.insert(f.screen, Node::rectangle(btn_other_id, Rect::new(10.0, 720.0, 80.0, 30.0))).unwrap();
+        add(&mut f.doc, btn_other, react(Trigger::OnClick, Action::SetVariable { variable: "other".into(), value: Expression::text("z") }, None));
+
+        let mut p = Player::new(&f.doc, f.screen);
+        p.pointer_up(Some(f.top), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Hover");
+        p.pointer_up(Some(btn_other), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Hover", "unrelated SetVariable leaves ChangeTo state in place");
+    }
+
+    #[test]
+    fn change_to_on_bound_instance_re_resolves_when_its_variable_changes() {
+        let mut f = bound_variant_player_fixture();
+        let default_comp = instance_component(f.doc.get(f.top).unwrap()).unwrap();
+        let hover_comp = f.doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Size=Small, State=Hover").unwrap().id;
+        add(&mut f.doc, default_comp, react(Trigger::OnClick, Action::ChangeTo { dest: hover_comp }, None));
+        let btn_state_id = f.doc.alloc_id();
+        let btn_state = f.doc.insert(f.screen, Node::rectangle(btn_state_id, Rect::new(10.0, 720.0, 80.0, 30.0))).unwrap();
+        add(&mut f.doc, btn_state, react(Trigger::OnClick, Action::SetVariable { variable: "state".into(), value: Expression::text("Default") }, None));
+
+        let mut p = Player::new(&f.doc, f.screen);
+        p.pointer_up(Some(f.top), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Hover");
+        p.pointer_up(Some(btn_state), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Default", "changing the bound variable re-resolves the instance");
+    }
+
+    #[test]
+    fn nested_bound_instance_change_to_holds_unchanged_axis_across_set_variable_and_mode_switch() {
+        let mut f = bound_variant_player_fixture();
+        let hover_comp = f.doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Size=Small, State=Hover").unwrap().id;
+        add(&mut f.doc, f.copy, react(Trigger::OnClick, Action::ChangeTo { dest: hover_comp }, None));
+
+        // 1. SetVariable on `size` = Large keeps the nested copy's State=Hover from ChangeTo.
+        let mut p = Player::new(&f.doc, f.screen);
+        p.pointer_up(Some(f.copy), false);
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Small, State=Hover");
+        p.pointer_up(Some(f.btn_set), false);
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Large, State=Hover", "SetVariable on size keeps the nested copy's State=Hover from ChangeTo");
+
+        // 2. SetVariableMode on a collection holding only `size` also keeps State=Hover.
+        f.doc.variable_collections.get_mut("theme").unwrap().variables.retain(|v| v == "size");
+        f.doc.variable_collections.insert(
+            "state_coll".into(),
+            VariableCollection {
+                id: "state_coll".into(),
+                name: "StateColl".into(),
+                modes: vec![VariableMode { id: "m1".into(), name: "M1".into() }],
+                default_mode: "m1".into(),
+                variables: vec!["state".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        let state_var = f.doc.variables.get_mut("state").unwrap();
+        state_var.collection = "state_coll".into();
+        state_var.values = [("m1".to_string(), VariableValue::String("Default".into()))].into_iter().collect();
+
+        let mut p2 = Player::new(&f.doc, f.screen);
+        p2.pointer_up(Some(f.copy), false);
+        assert_eq!(shown_variant_name(&p2.doc, f.copy), "Size=Small, State=Hover");
+        p2.pointer_up(Some(f.btn_dark), false);
+        assert_eq!(
+            shown_variant_name(&p2.doc, f.copy),
+            "Size=Large, State=Hover",
+            "SetVariableMode on size's collection keeps the nested copy's State=Hover from ChangeTo"
+        );
+    }
+
+    #[test]
+    fn mode_switch_during_while_hovering_is_not_reverted_when_pointer_leaves() {
+        let mut f = bound_variant_player_fixture();
+        let default_comp = instance_component(f.doc.get(f.top).unwrap()).unwrap();
+        let hover_comp = f.doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Size=Small, State=Hover").unwrap().id;
+        add(&mut f.doc, default_comp, react(Trigger::WhileHovering, Action::ChangeTo { dest: hover_comp }, None));
+        add(
+            &mut f.doc,
+            f.screen,
+            react(Trigger::KeyPress { keys: "M".into() }, Action::SetVariableMode { collection: "theme".into(), mode: "dark".into() }, None),
+        );
+
+        let mut p = Player::new(&f.doc, f.screen);
+        p.pointer_move(Some(f.top));
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Hover");
+        p.key("M");
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Hover");
+        p.pointer_move(None);
+        assert_eq!(
+            shown_variant_name(&p.doc, f.top),
+            "Size=Large, State=Hover",
+            "leaving after a mode switch during While hovering keeps the new mode's variant"
+        );
+    }
+
+    /// While hovering / pressing `Change to` Size=Small, State=Hover on the bound instance, then `Set variable` on `size`
+    /// only: the gesture's restore still has to run, and State goes back to what its (unchanged) variable gives.
+    fn gesture_then_size_only_variable_change(trigger: Trigger, start: impl Fn(&mut Player, NodeId), end: impl Fn(&mut Player)) {
+        let mut f = bound_variant_player_fixture();
+        let default_comp = instance_component(f.doc.get(f.top).unwrap()).unwrap();
+        let hover_comp = f.doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Size=Small, State=Hover").unwrap().id;
+        add(&mut f.doc, default_comp, react(trigger, Action::ChangeTo { dest: hover_comp }, None));
+        add(
+            &mut f.doc,
+            f.screen,
+            react(Trigger::KeyPress { keys: "S".into() }, Action::SetVariable { variable: "size".into(), value: Expression::text("Large") }, None),
+        );
+
+        let mut p = Player::new(&f.doc, f.screen);
+        start(&mut p, f.top);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Hover");
+        p.key("S");
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Hover", "size follows its variable, the gesture's State stays");
+        end(&mut p);
+        assert_eq!(
+            shown_variant_name(&p.doc, f.top),
+            "Size=Large, State=Default",
+            "the gesture ends: size keeps its new value and State, whose variable did not change, is restored"
+        );
+    }
+
+    #[test]
+    fn size_variable_change_during_while_hovering_still_restores_state_when_pointer_leaves() {
+        gesture_then_size_only_variable_change(Trigger::WhileHovering, |p, top| p.pointer_move(Some(top)), |p| p.pointer_move(None));
+    }
+
+    #[test]
+    fn size_variable_change_during_while_pressing_still_restores_state_on_release() {
+        gesture_then_size_only_variable_change(Trigger::WhilePressing, |p, top| p.pointer_down(Some(top)), |p| p.pointer_up(None, false));
+    }
+
+    #[test]
+    fn inactive_mode_alias_does_not_re_resolve_change_to_when_target_variable_changes() {
+        let mut f = bound_variant_player_fixture();
+        f.doc.variable_collections.get_mut("theme").unwrap().variables.push("other".into());
+        f.doc.variables.insert(
+            "other".into(),
+            Variable {
+                id: "other".into(),
+                name: "other".into(),
+                collection: "theme".into(),
+                kind: VariableKind::String,
+                values: [("light".into(), VariableValue::String("Default".into())), ("dark".into(), VariableValue::Alias("size".into()))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let unbind_size = bind_prop_variable(&mut f.doc, f.top, "Size", None).unwrap();
+        f.h.exec(&mut f.doc, unbind_size).unwrap();
+        let bind_other = bind_prop_variable(&mut f.doc, f.top, "State", Some("other")).unwrap();
+        f.h.exec(&mut f.doc, bind_other).unwrap();
+
+        let default_comp = instance_component(f.doc.get(f.top).unwrap()).unwrap();
+        let hover_comp = f.doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Size=Small, State=Hover").unwrap().id;
+        add(&mut f.doc, default_comp, react(Trigger::OnClick, Action::ChangeTo { dest: hover_comp }, None));
+
+        let mut p = Player::new(&f.doc, f.screen);
+        p.pointer_up(Some(f.top), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Hover");
+        p.pointer_up(Some(f.btn_set), false);
+        assert_eq!(
+            shown_variant_name(&p.doc, f.top),
+            "Size=Small, State=Hover",
+            "an alias in an inactive mode does not re-resolve a bound property in the active mode"
+        );
+    }
+
+    #[test]
+    fn set_variable_mode_resyncs_bound_variant_properties() {
+        let (mut doc, screen, inst, small, large) = variant_fixture();
+        doc.variable_collections.insert(
+            "theme".into(),
+            VariableCollection {
+                id: "theme".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "light".into(),
+                variables: vec!["size".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        doc.variables.insert(
+            "size".into(),
+            Variable {
+                id: "size".into(),
+                name: "size".into(),
+                collection: "theme".into(),
+                kind: VariableKind::String,
+                values: [("light".into(), VariableValue::String("0".into())), ("dark".into(), VariableValue::String("1".into()))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        doc.get_mut(inst).unwrap().variables.bindings.insert(prop_binding_key("State"), "size".into());
+        let btn = doc.alloc_id();
+        let button = doc.insert(screen, Node::rectangle(btn, Rect::new(20.0, 700.0, 100.0, 40.0))).unwrap();
+        doc.get_mut(button).unwrap().prototype.reactions.push(Reaction {
+            trigger: Trigger::OnClick,
+            actions: vec![Action::SetVariableMode { collection: "theme".into(), mode: "dark".into() }],
+            transition: None,
+        });
+        let mut p = Player::new(&doc, screen);
+        assert_eq!(p.doc.get(inst).and_then(instance_component), Some(small));
+        let rev = p.frame_rev(screen);
+        p.pointer_up(Some(button), false);
+        assert_eq!(p.doc.get(inst).and_then(instance_component), Some(large));
+        assert!(p.frame_rev(screen) > rev, "mode switch invalidates the rendered frame");
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
     }
 
     #[test]

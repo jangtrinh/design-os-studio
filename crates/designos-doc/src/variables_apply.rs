@@ -657,17 +657,29 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
     );
     match key {
         "width" => {
-            n.size.x = x.max(0.0);
+            let mut new_size = n.size;
+            new_size.x = x.max(0.0);
+            if matches!(n.kind, NodeKind::Line) {
+                crate::apply_constrained_geometry(n, n.transform, new_size);
+            } else {
+                n.size = new_size;
+            }
             if is_rect_like {
                 n.fill_geometry = None;
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
         }
         "height" => {
-            n.size.y = x.max(0.0);
+            let mut new_size = n.size;
+            new_size.y = x.max(0.0);
+            if matches!(n.kind, NodeKind::Line) {
+                crate::apply_constrained_geometry(n, n.transform, new_size);
+            } else {
+                n.size = new_size;
+            }
             if is_rect_like {
                 n.fill_geometry = None;
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
         }
         "minWidth" => n.layout_child.min_w = Some(x.max(0.0)),
@@ -683,14 +695,11 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
                 _ => 3,
             };
             n.corner_radii[i] = x.max(0.0);
-            if is_rect_like {
-                n.fill_geometry = None;
-                n.stroke_geometry = None;
-            }
+            crate::drop_baked_outline_of_parametric_shape(n);
         }
         "strokeWeight" => {
             n.stroke.weight = x.max(0.0);
-            n.stroke_geometry = None;
+            n.drop_stroke_outline();
         }
         "strokeTopWeight" | "strokeRightWeight" | "strokeBottomWeight" | "strokeLeftWeight" => {
             let w = n.stroke.weight;
@@ -702,14 +711,14 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
                 _ => 3,
             };
             sw[i] = x.max(0.0);
-            n.stroke_geometry = None;
+            n.drop_stroke_outline();
         }
         "itemSpacing" | "counterAxisSpacing" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft" => {
             if let Some(al) = n.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
                 let x = x.max(0.0);
                 match key {
                     "itemSpacing" => al.item_spacing = x,
-                    "counterAxisSpacing" => al.counter_spacing = x,
+                    "counterAxisSpacing" => al.counter_spacing = Some(x),
                     "paddingTop" => al.padding[0] = x,
                     "paddingRight" => al.padding[1] = x,
                     "paddingBottom" => al.padding[2] = x,
@@ -973,6 +982,44 @@ mod tests {
             tx.variables.bindings.insert(k.into(), v.into());
         }
         (d, page, frame, text)
+    }
+
+    #[test]
+    fn individual_corner_radius_binding_drops_baked_outline_for_parametric_shapes() {
+        let mut d = Document::new("radius-binding");
+        let page = d.add_page("P");
+        d.variable_collections.insert(
+            "c".into(),
+            VariableCollection {
+                id: "c".into(),
+                name: "C".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }],
+                default_mode: "light".into(),
+                variables: vec!["radius".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert("radius".into(), var("radius", VariableKind::Number, VariableValue::Number(12.0), VariableValue::Number(12.0)));
+
+        let keys = ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"];
+        for kind in [NodeKind::Ellipse(ArcData::default()), NodeKind::Polygon { count: 5 }, NodeKind::Star { count: 5, inner_ratio: 0.5 }] {
+            for (i, key) in keys.into_iter().enumerate() {
+                let id = d.alloc_id();
+                let mut node = Node::new(id, kind.clone());
+                node.size = Vec2::new(100.0, 100.0);
+                node.fill_geometry = Some(vec![Path::default()]);
+                node.stroke_geometry = Some(vec![Path::default()]);
+                node.variables.bindings.insert(key.into(), "radius".into());
+                let id = d.insert(page, node).unwrap();
+
+                let resolved = resolved_node(&d, id).unwrap();
+                assert_eq!(resolved.corner_radii[i], 12.0, "{key} binding did not update the radius");
+                assert!(resolved.fill_geometry.is_none(), "{key} binding left a stale fill outline for {:?}", resolved.kind);
+                assert!(resolved.stroke_geometry.is_none(), "{key} binding left a stale stroke outline for {:?}", resolved.kind);
+            }
+        }
     }
 
     #[test]
@@ -1638,5 +1685,81 @@ mod tests {
 
         d.get_mut(fid).unwrap().variables.bindings.insert("easingData".into(), "good-ease".into());
         assert_eq!(easing_binding_problem(&d, fid, "easingData"), None);
+    }
+
+    #[test]
+    fn width_binding_scales_an_imported_line_outline() {
+        let mut n = Node::new(NodeId(1), NodeKind::Line);
+        n.size = Vec2::new(100.0, 0.0);
+        n.stroke.weight = 10.0;
+        n.stroke_geometry = Some(vec![Path {
+            cmds: vec![
+                PathCmd::MoveTo(Vec2::new(-5.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(105.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(105.0, 0.0)),
+                PathCmd::LineTo(Vec2::new(-5.0, 0.0)),
+                PathCmd::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+        }]);
+        let mut expected = n.clone();
+        let tf = expected.transform;
+        crate::apply_constrained_geometry(&mut expected, tf, Vec2::new(200.0, 0.0));
+
+        set_bound_property(&mut n, "width", &VariableValue::Number(200.0));
+
+        assert_eq!(
+            n.stroke_geometry,
+            Some(vec![Path {
+                cmds: vec![
+                    PathCmd::MoveTo(Vec2::new(-5.0, -10.0)),
+                    PathCmd::LineTo(Vec2::new(205.0, -10.0)),
+                    PathCmd::LineTo(Vec2::new(205.0, 0.0)),
+                    PathCmd::LineTo(Vec2::new(-5.0, 0.0)),
+                    PathCmd::Close,
+                ],
+                fill_rule: FillRule::NonZero,
+            }])
+        );
+        assert_eq!(n, expected);
+    }
+
+    #[test]
+    fn height_binding_clears_a_dashed_line_band_and_keeps_a_solid_line_band_unchanged() {
+        let band = vec![Path {
+            cmds: vec![
+                PathCmd::MoveTo(Vec2::new(-5.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(105.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(105.0, 0.0)),
+                PathCmd::LineTo(Vec2::new(-5.0, 0.0)),
+                PathCmd::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+        }];
+
+        let mut solid = Node::new(NodeId(1), NodeKind::Line);
+        solid.size = Vec2::new(100.0, 0.0);
+        solid.stroke.weight = 10.0;
+        solid.stroke_geometry = Some(band.clone());
+        let mut expected_solid = solid.clone();
+        let tf_solid = expected_solid.transform;
+        crate::apply_constrained_geometry(&mut expected_solid, tf_solid, Vec2::new(100.0, 10.0));
+
+        set_bound_property(&mut solid, "height", &VariableValue::Number(10.0));
+        assert_eq!(solid.stroke_geometry.as_ref(), Some(&band));
+        assert_eq!(solid, expected_solid);
+
+        let mut dashed = Node::new(NodeId(2), NodeKind::Line);
+        dashed.size = Vec2::new(100.0, 0.0);
+        dashed.stroke.weight = 10.0;
+        dashed.stroke.dashes = vec![4.0, 2.0];
+        dashed.stroke_geometry = Some(band);
+        let mut expected_dashed = dashed.clone();
+        let tf_dashed = expected_dashed.transform;
+        crate::apply_constrained_geometry(&mut expected_dashed, tf_dashed, Vec2::new(100.0, 10.0));
+
+        set_bound_property(&mut dashed, "height", &VariableValue::Number(10.0));
+        assert!(dashed.stroke_geometry.is_none());
+        assert_eq!(dashed, expected_dashed);
     }
 }

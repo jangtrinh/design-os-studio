@@ -871,7 +871,8 @@ fn try_start_special_handle(app: &mut App, rect: ERect, pos: Pos2, page: DV, id:
     let corners = super::fast_world_corners(&app.doc, id).map(|c| dv(app.view.to_screen(rect.min, c)));
     if handles::supports_corner_radius_handles(&n.kind) {
         if let Some(corner) = handles::hit_corner_radius_handle(&corners, n.corner_radii, z, dv(pos), 4.5) {
-            app.canvas.inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner, start_radii: n.corner_radii });
+            app.canvas.inter =
+                Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner, start_radii: n.corner_radii, start_page: page, moved: false });
             return true;
         }
     }
@@ -902,8 +903,16 @@ fn try_start_special_handle(app: &mut App, rect: ERect, pos: Pos2, page: DV, id:
             NodeKind::Star { count, inner_ratio } => (*count, *inner_ratio, 0.0),
             _ => (0, 0.0, 0.0),
         };
-        app.canvas.inter =
-            Interaction::ShapeControl(ShapeControlDragState { tx: Tx::new(), id, kind, start_page: page, start_count, start_ratio, start_end_angle });
+        app.canvas.inter = Interaction::ShapeControl(ShapeControlDragState {
+            tx: Tx::new(),
+            id,
+            kind,
+            start_page: page,
+            start_count,
+            start_ratio,
+            start_end_angle,
+            moved: false,
+        });
         return true;
     }
     false
@@ -997,13 +1006,11 @@ pub fn update_shape_control(app: &mut App, s: &mut ShapeControlDragState, cur: D
 }
 
 /// A baked outline (imported from a file) is drawn in preference to the shape's own parameters, so an edit of a ring's
-/// arc or of a star's or polygon's points would not show. The outline is dropped and the shape is drawn from its
-/// parameters again. No override is recorded for it: overrides compare the parameters, not the outline.
-fn drop_baked_outline_of_parametric_shape(n: &mut designos_doc::Node) {
-    if matches!(n.kind, NodeKind::Ellipse(_) | NodeKind::Polygon { .. } | NodeKind::Star { .. }) {
-        n.fill_geometry = None;
-        n.stroke_geometry = None;
-    }
+/// arc, of a star's or polygon's points, or of the corner radius of a rectangle or frame would not show. The outline is
+/// dropped and the shape is drawn from its parameters again. No override is recorded for it: overrides compare the
+/// parameters, not the outline. The canvas handles and the inspector fields both call this.
+pub(crate) fn drop_baked_outline_of_parametric_shape(n: &mut designos_doc::Node) {
+    designos_doc::drop_baked_outline_of_parametric_shape(n);
 }
 
 fn label_hit(app: &App, ctx: &egui::Context, rect: ERect, pos: Pos2) -> Option<NodeId> {
@@ -1243,24 +1250,38 @@ fn follow_pointer(app: &mut App, rect: ERect, inter: &mut Interaction, pos: Pos2
         Interaction::Resize(r) => update_resize(app, r, cur, inp),
         Interaction::Rotate(r) => update_rotate(app, r, cur, inp),
         Interaction::CornerRadius(cr) => {
+            if !cr.moved && dist(cr.start_page, cur) * app.view.zoom <= theme::DRAG_THRESHOLD_PX {
+                return;
+            }
+            cr.moved = true;
+            let before = app.doc.get(cr.id).map(|n| n.corner_radii);
             cr.tx.ed.revert(&mut app.doc);
             let inv = app.doc.world_transform(cr.id).invert().unwrap_or(Affine::IDENTITY);
             let ml = inv.apply(cur);
-            if let Some(n) = cr.tx.ed.node(&mut app.doc, cr.id) {
+            let mut changed = false;
+            if let Some(n) = app.doc.get(cr.id) {
                 let dx = if matches!(cr.corner, 0 | 3) { ml.x } else { n.size.x - ml.x };
                 let dy = if matches!(cr.corner, 0 | 1) { ml.y } else { n.size.y - ml.y };
                 let max_r = (n.size.x.min(n.size.y) * 0.5).max(0.0);
                 let new_r = dx.min(dy).clamp(0.0, max_r).round();
-                if inp.mods.alt {
+                let radii = if inp.mods.alt {
                     let mut r = cr.start_radii;
                     r[cr.corner] = new_r;
-                    n.corner_radii = r;
+                    r
                 } else {
-                    n.corner_radii = [new_r; 4];
+                    [new_r; 4]
+                };
+                changed = Some(radii) != before;
+                if radii == cr.start_radii {
+                    cr.tx.ed.forget(cr.id);
+                } else if let Some(n) = cr.tx.ed.node(&mut app.doc, cr.id) {
+                    n.corner_radii = radii;
+                    drop_baked_outline_of_parametric_shape(n);
                 }
-                drop_baked_outline_of_parametric_shape(n);
             }
-            app.changed();
+            if changed {
+                app.changed();
+            }
         }
         Interaction::AutoLayoutDrag(ad) => {
             if dist(ad.start_page, cur) * app.view.zoom > theme::DRAG_THRESHOLD_PX {
@@ -1322,6 +1343,10 @@ fn follow_pointer(app: &mut App, rect: ERect, inter: &mut Interaction, pos: Pos2
         }
         Interaction::SmartSelectionDrag(sd) => update_smart_selection_drag(app, sd, cur),
         Interaction::ShapeControl(sc) => {
+            if !sc.moved && dist(sc.start_page, cur) * app.view.zoom <= theme::DRAG_THRESHOLD_PX {
+                return;
+            }
+            sc.moved = true;
             update_shape_control(app, sc, cur, inp.mods.shift);
         }
         Interaction::Guide(g) => rulers::drag(app, g, rect, pos),
@@ -1738,7 +1763,9 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp, end: Option<Pos2>) {
             app.run_tx(r.tx);
         }
         Interaction::CornerRadius(c) => {
-            app.run_tx(c.tx);
+            if !c.moved || c.tx.ed.touched().is_empty() || !app.run_tx(c.tx) {
+                return;
+            }
         }
         Interaction::AutoLayoutDrag(a) => {
             if a.moved {
@@ -1776,6 +1803,10 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp, end: Option<Pos2>) {
             return;
         }
         Interaction::ShapeControl(s) => {
+            // A click, or a move below the drag threshold, changed nothing: no undo step and no canvas change.
+            if !s.moved {
+                return;
+            }
             app.run_tx(s.tx);
         }
         Interaction::Draw(mut d) => {
@@ -3482,6 +3513,7 @@ mod tests {
             start_count: 0,
             start_ratio: 0.0,
             start_end_angle: std::f32::consts::TAU,
+            moved: false,
         };
         update_shape_control(&mut app, &mut sc_ell, v2(50.0, 100.0), true);
         app.run_tx(sc_ell.tx);
@@ -3511,6 +3543,7 @@ mod tests {
             start_count: 5,
             start_ratio: 0.382,
             start_end_angle: 0.0,
+            moved: false,
         };
         update_shape_control(&mut app, &mut sc_star_cnt, v2(50.0, 12.0 - 24.0), false);
         app.run_tx(sc_star_cnt.tx);
@@ -3525,6 +3558,7 @@ mod tests {
             start_count: 8,
             start_ratio: 0.382,
             start_end_angle: 0.0,
+            moved: false,
         };
         update_shape_control(&mut app, &mut sc_star_ratio, v2(50.0 + 30.0, 50.0), false);
         app.run_tx(sc_star_ratio.tx);
@@ -3578,6 +3612,7 @@ mod tests {
             start_count: 0,
             start_ratio: 0.0,
             start_end_angle: std::f32::consts::TAU,
+            moved: false,
         };
         update_shape_control(app, &mut drag, to, false);
         app.run_tx(drag.tx);
@@ -3674,6 +3709,7 @@ mod tests {
             start_count,
             start_ratio: 0.0,
             start_end_angle: std::f32::consts::TAU,
+            moved: false,
         };
         update_shape_control(app, &mut drag, to, false);
         app.run_tx(drag.tx);
@@ -3750,17 +3786,51 @@ mod tests {
         );
     }
 
+    /// Drags the radius handle of `corner` of `id` to `local` (a point in the node's own space), with Alt held for one
+    /// corner alone, and ends the drag.
+    fn drag_corner_radius(app: &mut App, id: NodeId, corner: usize, local: DV, alt: bool) {
+        let mut inter = Interaction::CornerRadius(CornerRadiusDragState {
+            tx: Tx::new(),
+            id,
+            corner,
+            start_radii: app.doc.get(id).unwrap().corner_radii,
+            start_page: DV::ZERO,
+            moved: false,
+        });
+        let inp = Inp {
+            pos: None,
+            press_pos: None,
+            release_pos: None,
+            prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
+            pressed: false,
+            down: true,
+            released: false,
+            mid_pressed: false,
+            mid_down: false,
+            mods: Modifiers { alt, ..Modifiers::NONE },
+            space: false,
+            z_down: false,
+        };
+        let at = app.doc.world_transform(id).apply(local);
+        follow_pointer(app, ERect::NOTHING, &mut inter, Pos2::ZERO, at, &inp);
+        let Interaction::CornerRadius(cr) = inter else { panic!("still a corner radius drag") };
+        app.run_tx(cr.tx);
+    }
+
     #[test]
-    fn a_corner_radius_drag_on_a_polygon_with_a_baked_outline_redraws_it() {
-        let (mut app, _, _) = app_with_two();
-        let id = app.doc.alloc_id();
-        let mut n = designos_doc::Node::new(id, NodeKind::Polygon { count: 5 });
-        n.size = v2(100.0, 100.0);
-        n.fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(255, 0, 0))];
-        n.fill_geometry = Some(baked_square());
-        let id = app.doc.insert(app.page, n).unwrap();
-        let before = pixels_of(&app, id);
-        let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner: 0, start_radii: [0.0; 4] });
+    fn an_unchanged_corner_radius_drag_does_not_dirty_the_canvas() {
+        let (mut app, id, _) = app_with_two();
+        app.doc.get_mut(id).unwrap().corner_radii = [50.0; 4];
+        let mut inter = Interaction::CornerRadius(CornerRadiusDragState {
+            tx: Tx::new(),
+            id,
+            corner: 0,
+            start_radii: app.doc.get(id).unwrap().corner_radii,
+            start_page: DV::ZERO,
+            moved: false,
+        });
         let inp = Inp {
             pos: None,
             press_pos: None,
@@ -3777,14 +3847,161 @@ mod tests {
             space: false,
             z_down: false,
         };
+
+        // The pointer is beyond the maximum radius, so clamping keeps the existing 50px value.
+        let at = app.doc.world_transform(id).apply(v2(100.0, 100.0));
+        follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, at, &inp);
+        assert!(!app.canvas.dirty, "an unchanged radius must not dirty the canvas");
+
+        let (mut app, id, _) = app_with_two();
+        let mut inter = Interaction::CornerRadius(CornerRadiusDragState {
+            tx: Tx::new(),
+            id,
+            corner: 0,
+            start_radii: app.doc.get(id).unwrap().corner_radii,
+            start_page: DV::ZERO,
+            moved: false,
+        });
         let at = app.doc.world_transform(id).apply(v2(20.0, 20.0));
         follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, at, &inp);
-        let Interaction::CornerRadius(cr) = inter else { panic!("still a corner radius drag") };
-        app.run_tx(cr.tx);
+        assert!(app.canvas.dirty, "a changed radius must dirty the canvas");
+    }
+
+    #[test]
+    fn a_second_move_at_the_clamp_or_back_to_start_in_a_corner_radius_drag_tracks_the_previous_move() {
+        let (mut app, _, _) = app_with_two();
+        let id = baked_shape(&mut app, NodeKind::Rectangle);
+        let mut inter = Interaction::CornerRadius(CornerRadiusDragState {
+            tx: Tx::new(),
+            id,
+            corner: 0,
+            start_radii: app.doc.get(id).unwrap().corner_radii,
+            start_page: DV::ZERO,
+            moved: false,
+        });
+        let inp = Inp {
+            pos: None,
+            press_pos: None,
+            release_pos: None,
+            prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
+            pressed: false,
+            down: true,
+            released: false,
+            mid_pressed: false,
+            mid_down: false,
+            mods: Modifiers::NONE,
+            space: false,
+            z_down: false,
+        };
+
+        // First move reaches the 50px clamp from 0px: marks changed and drops the baked outline.
+        let at_clamp = app.doc.world_transform(id).apply(v2(60.0, 60.0));
+        follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, at_clamp, &inp);
+        assert!(app.canvas.dirty, "first move to clamp changes radius from 0 to 50");
+        assert!(app.doc.get(id).unwrap().fill_geometry.is_none(), "baked outline dropped on first move");
+        app.canvas.dirty = false;
+
+        // Second move stays beyond the clamp (still 50px): must not dirty the canvas again, and outline stays dropped.
+        let past_clamp = app.doc.world_transform(id).apply(v2(100.0, 100.0));
+        follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, past_clamp, &inp);
+        assert!(!app.canvas.dirty, "a second move at the clamp must not dirty the canvas");
+        assert!(app.doc.get(id).unwrap().fill_geometry.is_none(), "baked outline stays dropped at the clamp");
+
+        // Dragging back to 0px (the starting radius) changes from 50px to 0px: must dirty the canvas.
+        let at_zero = app.doc.world_transform(id).apply(v2(0.0, 0.0));
+        follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, at_zero, &inp);
+        assert!(app.canvas.dirty, "dragging back to the starting radius changes the live radius and must dirty the canvas");
+        assert_eq!(app.doc.get(id).unwrap().corner_radii, [0.0; 4]);
+    }
+
+    #[test]
+    fn corner_radius_drag_returning_to_start_keeps_baked_outline_and_adds_no_undo_step() {
+        for (alt, start_radii, back_local) in [(false, [0.0; 4], v2(0.0, 0.0)), (true, [12.0, 8.0, 4.0, 0.0], v2(12.0, 12.0))] {
+            let (mut app, _, _) = app_with_two();
+            let id = baked_shape(&mut app, NodeKind::Rectangle);
+            app.doc.get_mut(id).unwrap().corner_radii = start_radii;
+            let original = app.doc.get(id).unwrap().clone();
+            let undo_before = app.hist.undo_depth();
+            let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner: 0, start_radii, start_page: DV::ZERO, moved: false });
+            let drag_inp = Inp {
+                pos: None,
+                press_pos: None,
+                release_pos: None,
+                prior_release_pos: None,
+                release_mods: None,
+                prior_release_mods: None,
+                pressed: false,
+                down: true,
+                released: false,
+                mid_pressed: false,
+                mid_down: false,
+                mods: Modifiers { alt, ..Modifiers::NONE },
+                space: false,
+                z_down: false,
+            };
+
+            let out = app.doc.world_transform(id).apply(v2(50.0, 50.0));
+            follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, out, &drag_inp);
+            assert!(app.doc.get(id).unwrap().fill_geometry.is_none(), "outline dropped while radius differs from start (alt={alt})");
+
+            let back = app.doc.world_transform(id).apply(back_local);
+            follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, back, &drag_inp);
+            assert!(app.canvas.dirty, "canvas repaints when returning to start radius (alt={alt})");
+            app.canvas.dirty = false;
+
+            app.canvas.inter = inter;
+            release_without_an_end(&mut app);
+            assert_eq!(app.doc.get(id).unwrap(), &original, "shape must equal original on release at start radius (alt={alt})");
+            assert_eq!(app.hist.undo_depth(), undo_before, "no undo step when radius returns to start (alt={alt})");
+            assert!(!app.canvas.dirty, "release at start radius must not mark document changed (alt={alt})");
+        }
+    }
+
+    /// A 100 x 100 shape of `kind` that carries the baked fill and stroke outline a `.fig` import leaves.
+    fn baked_shape(app: &mut App, kind: NodeKind) -> NodeId {
+        let id = app.doc.alloc_id();
+        let mut n = designos_doc::Node::new(id, kind);
+        n.size = v2(100.0, 100.0);
+        n.fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(255, 0, 0))];
+        n.stroke.paints = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(0, 0, 255))];
+        n.stroke.weight = 4.0;
+        n.fill_geometry = Some(baked_square());
+        n.stroke_geometry = Some(baked_square());
+        app.doc.insert(app.page, n).unwrap()
+    }
+
+    #[test]
+    fn a_corner_radius_drag_on_a_polygon_with_a_baked_outline_redraws_it() {
+        let (mut app, _, _) = app_with_two();
+        let id = baked_shape(&mut app, NodeKind::Polygon { count: 5 });
+        let before = pixels_of(&app, id);
+        drag_corner_radius(&mut app, id, 0, v2(20.0, 20.0), false);
         let n = app.doc.get(id).unwrap();
         assert_eq!(n.corner_radii, [20.0; 4], "the radius was set");
         assert!(n.fill_geometry.is_none(), "the old outline is gone");
         assert_ne!(pixels_of(&app, id), before, "the drag shows at once");
+    }
+
+    #[test]
+    fn a_corner_radius_drag_on_a_rectangle_or_frame_with_a_baked_outline_redraws_it() {
+        for (what, kind) in [("rectangle", NodeKind::Rectangle), ("frame", NodeKind::Frame(designos_doc::FrameProps::default()))] {
+            // every corner at once, and bottom-right alone with Alt held
+            for (corner, local, alt, want) in
+                [(0, v2(20.0, 20.0), false, [20.0; 4]), (2, v2(80.0, 80.0), true, [0.0, 0.0, 20.0, 0.0]), (1, v2(70.0, 30.0), true, [0.0, 30.0, 0.0, 0.0])]
+            {
+                let (mut app, _, _) = app_with_two();
+                let id = baked_shape(&mut app, kind.clone());
+                let before = pixels_of(&app, id);
+                drag_corner_radius(&mut app, id, corner, local, alt);
+                let n = app.doc.get(id).unwrap();
+                let case = format!("{what}, corner {corner}, alt {alt}");
+                assert_eq!(n.corner_radii, want, "the radius was set ({case})");
+                assert!(pixels_of(&app, id) != before, "the drag shows at once ({case})");
+                assert!(n.fill_geometry.is_none() && n.stroke_geometry.is_none(), "the old outline is gone, so the new radius is what draws ({case})");
+            }
+        }
     }
 
     #[test]

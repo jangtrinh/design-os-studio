@@ -466,9 +466,8 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>, fmt: ColorFormat) -> Ve
             // layout: a counter spacing of 0 reuses the column gap, including when the column gap
             // is a variable whose stored number is 0. The pixel a row writes for itself is the
             // solver's row gap.
-            let one_gap = (al.counter_spacing <= 0.0 || (al.counter_spacing - al.item_spacing).abs() < 1e-4)
-                && row_var.is_none()
-                && (col_var.is_none() || al.counter_spacing <= 0.0);
+            let line_gap = al.line_gap();
+            let one_gap = (line_gap <= 0.0 || (line_gap - al.item_spacing).abs() < 1e-4) && row_var.is_none() && (col_var.is_none() || line_gap <= 0.0);
             if one_gap {
                 if col_gap > 0.0 || col_var.is_some() {
                     c.push(spaced("gap", col_gap, col_var));
@@ -1002,7 +1001,7 @@ mod tests {
         let mut al = AutoLayout {
             direction: LayoutDirection::Grid,
             item_spacing: 16.0,
-            counter_spacing: 24.0,
+            counter_spacing: Some(24.0),
             padding: [12.0, 16.0, 12.0, 16.0],
             primary_sizing: Sizing::Hug,
             counter_sizing: Sizing::Fixed,

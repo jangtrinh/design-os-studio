@@ -225,8 +225,12 @@ fn match_root_style(root: &mut Node, target: &Node, painted_fills: &[Paint], tar
     root.effects = target.effects.clone();
     root.opacity = target.opacity;
     root.blend = target.blend;
+    let radii_changed = root.corner_radii != target.corner_radii || root.corner_smoothing != target.corner_smoothing;
     root.corner_radii = target.corner_radii;
     root.corner_smoothing = target.corner_smoothing;
+    if radii_changed {
+        crate::canvas::interact::drop_baked_outline_of_parametric_shape(root);
+    }
     root.fills = if matches!(root.kind, NodeKind::Text(_)) { Vec::new() } else { painted_fills.to_vec() };
     match_style_links(root, target, &["fill", "stroke", "effect"]);
     let typography = target_is_text && root.kind.any_text().is_some();
@@ -1129,8 +1133,12 @@ impl App {
                 n.effects = snap.effects.clone();
                 n.opacity = snap.opacity;
                 n.blend = snap.blend_mode;
+                let radii_changed = n.corner_radii != snap.corner_radii || n.corner_smoothing != snap.corner_smoothing;
                 n.corner_radii = snap.corner_radii;
                 n.corner_smoothing = snap.corner_smoothing;
+                if radii_changed {
+                    crate::canvas::interact::drop_baked_outline_of_parametric_shape(n);
+                }
                 if let Some(style) = snap.text_style.clone() {
                     if n.kind.any_text().is_some() {
                         let is_text = matches!(n.kind, NodeKind::Text(_));
@@ -2674,12 +2682,37 @@ impl App {
         };
         let Some(path) = target else { return };
         if status_first && io::uses_native_serializer(&path) && self.doc.has_pending_pages() {
+            let tab_id = self.tabs.entries.get(self.tabs.active_idx).map(|tab| tab.id);
             self.run_after_status_paint("Saving\u{2026} loading all pages", move |app| {
-                let _ = app.persist_document_to(&path);
+                app.persist_document_for_tab(tab_id, &path);
             });
             return;
         }
         let _ = self.persist_document_to(&path);
+    }
+
+    /// Completes a deferred save against the tab that requested it. The user can switch tabs while
+    /// the status frame is being painted; saving the live `app.doc` at that point would write the
+    /// newly active tab to the original path.
+    pub(crate) fn persist_document_for_tab(&mut self, tab_id: Option<u64>, path: &std::path::Path) {
+        let Some(tab_id) = tab_id else {
+            let _ = self.persist_document_to(path);
+            return;
+        };
+        let Some(target_idx) = self.tabs.entries.iter().position(|tab| tab.id == tab_id) else {
+            self.show_toast("Cannot save: the tab is no longer open", true);
+            return;
+        };
+        let current_id = self.tabs.entries.get(self.tabs.active_idx).map(|tab| tab.id);
+        if current_id == Some(tab_id) {
+            let _ = self.persist_document_to(path);
+            return;
+        }
+        self.switch_tab(target_idx);
+        let _ = self.persist_document_to(path);
+        if let Some(return_id) = current_id.and_then(|id| self.tabs.entries.iter().position(|tab| tab.id == id)) {
+            self.switch_tab(return_id);
+        }
     }
 
     pub(crate) fn persist_document_to(&mut self, path: &std::path::Path) -> Result<std::path::PathBuf, std::io::Error> {
@@ -3513,6 +3546,142 @@ mod tests {
         let NodeKind::Text(tp) = &restored.kind else { panic!("restored target text") };
         assert_eq!(tp.style.font_size, 10.0);
         assert_eq!(tp.style.font_weight, 400);
+    }
+
+    fn add_baked_rectangle(doc: &mut Document, parent: NodeId, x: f32, y: f32) -> NodeId {
+        let id = doc.alloc_id();
+        let mut node = Node::rectangle(id, Rect::new(x, y, 50.0, 50.0));
+        let path = Path {
+            cmds: vec![
+                PathCmd::MoveTo(v2(0.0, 0.0)),
+                PathCmd::LineTo(v2(50.0, 0.0)),
+                PathCmd::LineTo(v2(50.0, 50.0)),
+                PathCmd::LineTo(v2(0.0, 50.0)),
+                PathCmd::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+        };
+        node.fill_geometry = Some(vec![path.clone()]);
+        node.stroke_geometry = Some(vec![path]);
+        doc.insert(parent, node).unwrap()
+    }
+
+    #[test]
+    fn paste_properties_drops_a_stale_baked_outline_when_corner_radius_changes() {
+        let mut d = Document::new("paste-radius-outline");
+        let page = d.add_page("p");
+        let source = d.alloc_id();
+        let mut source_node = Node::rectangle(source, Rect::new(0.0, 0.0, 50.0, 50.0));
+        source_node.corner_radii = [24.0; 4];
+        d.insert(page, source_node).unwrap();
+        let target = add_baked_rectangle(&mut d, page, 100.0, 0.0);
+
+        let mut app = App::new(d);
+        app.selection = vec![source];
+        app.copy_properties();
+        app.selection = vec![target];
+        app.paste_properties();
+
+        let node = app.doc.get(target).unwrap();
+        assert_eq!(node.corner_radii, [24.0; 4]);
+        assert!(node.fill_geometry.is_none() && node.stroke_geometry.is_none(), "pasting a radius must drop imported geometry");
+    }
+
+    #[test]
+    fn paste_and_match_style_drops_a_stale_baked_outline_when_target_radius_applies() {
+        let mut d = Document::new("match-radius-outline");
+        let page = d.add_page("p");
+        let source = add_baked_rectangle(&mut d, page, 0.0, 0.0);
+        let target = d.alloc_id();
+        let mut target_node = Node::rectangle(target, Rect::new(100.0, 0.0, 50.0, 50.0));
+        target_node.corner_radii = [24.0; 4];
+        d.insert(page, target_node).unwrap();
+
+        let mut app = App::new(d);
+        app.selection = vec![source];
+        app.copy_selection();
+        app.selection = vec![target];
+        app.paste_and_match_style();
+
+        let pasted = app.doc.get(app.selection[0]).unwrap();
+        assert_eq!(pasted.corner_radii, [24.0; 4]);
+        assert!(pasted.fill_geometry.is_none() && pasted.stroke_geometry.is_none(), "matching a radius must drop imported geometry");
+    }
+
+    #[test]
+    fn paste_properties_and_match_style_keep_baked_outline_when_corner_radius_is_unchanged() {
+        let mut d = Document::new("paste-same-radius-outline");
+        let page = d.add_page("p");
+        let source = d.alloc_id();
+        let mut source_node = Node::rectangle(source, Rect::new(0.0, 0.0, 50.0, 50.0));
+        source_node.corner_radii = [8.0; 4];
+        d.insert(page, source_node).unwrap();
+        let target_a = add_baked_rectangle(&mut d, page, 100.0, 0.0);
+        let target_b = add_baked_rectangle(&mut d, page, 220.0, 0.0);
+        let target_diff_corner = add_baked_rectangle(&mut d, page, 340.0, 0.0);
+        d.get_mut(target_a).unwrap().corner_radii = [8.0; 4];
+        d.get_mut(target_b).unwrap().corner_radii = [8.0; 4];
+        d.get_mut(target_diff_corner).unwrap().corner_radii = [8.0, 8.0, 8.0, 4.0];
+
+        let mut app = App::new(d);
+        app.selection = vec![source];
+        app.copy_properties();
+        app.selection = vec![target_a, target_b, target_diff_corner];
+        app.paste_properties();
+        for id in [target_a, target_b] {
+            let node = app.doc.get(id).unwrap();
+            assert_eq!(node.corner_radii, [8.0; 4]);
+            assert!(node.fill_geometry.is_some() && node.stroke_geometry.is_some(), "same corner radii must keep imported geometry on paste_properties");
+        }
+        let diff_node = app.doc.get(target_diff_corner).unwrap();
+        assert_eq!(diff_node.corner_radii, [8.0; 4]);
+        assert!(diff_node.fill_geometry.is_none() && diff_node.stroke_geometry.is_none(), "different corner radius on one corner must drop imported geometry");
+
+        app.selection = vec![target_a];
+        app.copy_selection();
+        app.selection = vec![source];
+        app.paste_and_match_style();
+        let pasted = app.doc.get(app.selection[0]).unwrap();
+        assert_eq!(pasted.corner_radii, [8.0; 4]);
+        assert!(pasted.fill_geometry.is_some() && pasted.stroke_geometry.is_some(), "same corner radii must keep imported geometry on paste_and_match_style");
+    }
+
+    #[test]
+    fn paste_properties_and_match_style_drop_baked_outline_when_only_corner_smoothing_changes() {
+        let mut d = Document::new("paste-smoothing-outline");
+        let page = d.add_page("p");
+        let source = d.alloc_id();
+        let mut source_node = Node::rectangle(source, Rect::new(0.0, 0.0, 50.0, 50.0));
+        source_node.corner_radii = [8.0; 4];
+        source_node.corner_smoothing = 0.6;
+        d.insert(page, source_node).unwrap();
+        let pasted_onto = add_baked_rectangle(&mut d, page, 100.0, 0.0);
+        let copied = add_baked_rectangle(&mut d, page, 220.0, 0.0);
+        d.get_mut(pasted_onto).unwrap().corner_radii = [8.0; 4];
+        d.get_mut(copied).unwrap().corner_radii = [8.0; 4];
+
+        let mut app = App::new(d);
+        app.selection = vec![source];
+        app.copy_properties();
+        app.selection = vec![pasted_onto];
+        app.paste_properties();
+        let node = app.doc.get(pasted_onto).unwrap();
+        assert_eq!((node.corner_radii, node.corner_smoothing), ([8.0; 4], 0.6));
+        assert!(
+            node.fill_geometry.is_none() && node.stroke_geometry.is_none(),
+            "new smoothing redraws the corners: paste_properties must drop imported geometry"
+        );
+
+        app.selection = vec![copied];
+        app.copy_selection();
+        app.selection = vec![source];
+        app.paste_and_match_style();
+        let pasted = app.doc.get(app.selection[0]).unwrap();
+        assert_eq!((pasted.corner_radii, pasted.corner_smoothing), ([8.0; 4], 0.6));
+        assert!(
+            pasted.fill_geometry.is_none() && pasted.stroke_geometry.is_none(),
+            "new smoothing redraws the corners: paste_and_match_style must drop imported geometry"
+        );
     }
 
     #[test]
@@ -4437,5 +4606,324 @@ mod tests {
 
         app.doc.relayout_subtree(p);
         assert_eq!(app.doc.get(f).unwrap().size, Vec2::new(80.0, 50.0));
+    }
+
+    #[test]
+    fn duplicate_page_with_identical_unopened_sibling_page_keeps_its_own_child_overrides_across_20_runs() {
+        use designos_fig::container::Compression;
+        use designos_fig::kiwi::KiwiValue as V;
+        use designos_fig::testkit::{color, en, figma_like_schema, fl, guid, matrix, msg, node, vec2};
+
+        let solid_paint = |r: f32, g: f32, b: f32| -> V {
+            msg(vec![("type", en("SOLID")), ("color", color(r, g, b, 1.0)), ("opacity", fl(1.0)), ("visible", V::Bool(true)), ("blendMode", en("NORMAL"))])
+        };
+        let nc = |id: (u32, u32), parent: (u32, u32), pos: &str, ty: &str, name: &str, size: (f32, f32), mut extra: Vec<(&str, V)>| -> V {
+            let mut fields = vec![
+                ("visible", V::Bool(true)),
+                ("opacity", fl(1.0)),
+                ("phase", en("CREATED")),
+                ("size", vec2(size.0, size.1)),
+                ("transform", matrix(0.0, 0.0)),
+                ("blendMode", en("PASS_THROUGH")),
+            ];
+            fields.append(&mut extra);
+            node(id, parent, pos, ty, name, fields)
+        };
+        let inst_with_label = |id: (u32, u32), parent: (u32, u32), label_text: &str| -> V {
+            nc(
+                id,
+                parent,
+                "!",
+                "INSTANCE",
+                "Hero button",
+                (120.0, 48.0),
+                vec![(
+                    "symbolData",
+                    msg(vec![
+                        ("symbolID", guid(1, 10)),
+                        (
+                            "symbolOverrides",
+                            V::Array(vec![msg(vec![
+                                ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 11)]))])),
+                                ("textData", msg(vec![("characters", V::String(label_text.into()))])),
+                            ])]),
+                        ),
+                    ]),
+                )],
+            )
+        };
+        let mut changes = vec![
+            nc((0, 0), (0, 0), "", "DOCUMENT", "Document", (0.0, 0.0), vec![]),
+            nc((0, 1), (0, 0), "!", "CANVAS", "Cover", (0.0, 0.0), vec![]),
+            nc((0, 2), (0, 0), "\"", "CANVAS", "Page P", (0.0, 0.0), vec![]),
+            nc((0, 3), (0, 0), "#", "CANVAS", "Page Q", (0.0, 0.0), vec![]),
+            nc((1, 10), (0, 1), "!", "SYMBOL", "Buttons/Button", (120.0, 48.0), vec![("fillPaints", V::Array(vec![solid_paint(0.9, 0.9, 0.9)]))]),
+            nc(
+                (1, 11),
+                (1, 10),
+                "!",
+                "TEXT",
+                "Label",
+                (80.0, 20.0),
+                vec![("textData", msg(vec![("characters", V::String("Button CTA".into()))])), ("fontSize", fl(14.0))],
+            ),
+            inst_with_label((1, 21), (0, 2), "From Page P"),
+            inst_with_label((1, 22), (0, 3), "From Page Q"),
+        ];
+        for i in 0..25_000u32 {
+            changes.push(nc((9, i + 1), (0, 1), "!", "ROUNDED_RECTANGLE", "F", (4.0, 4.0), vec![]));
+        }
+        let schema = figma_like_schema();
+        let root = schema.find("Message").expect("Message in schema");
+        let body = schema.encode_message(root, &msg(vec![("nodeChanges", V::Array(changes))])).expect("encode");
+        let fig = designos_fig::container::write_container(&schema.encode(), &body, Compression::Zstd, 106);
+
+        let label_on_page = |doc: &Document, page: NodeId| -> String {
+            let inst = doc.get(page).expect("page").children[0];
+            let label = doc.get(inst).expect("inst").children[0];
+            match &doc.get(label).expect("label").kind {
+                NodeKind::Text(t) => t.content.clone(),
+                other => panic!("expected text child, got {other:?}"),
+            }
+        };
+
+        for run in 0..20 {
+            let mut app = App::new(designos_fig::import_fig(&fig).expect("import"));
+            let page_p = app.doc.pages.iter().copied().find(|&p| app.doc.get(p).is_some_and(|n| n.name == "Page P")).expect("Page P");
+            let copy_p = app.duplicate_page(page_p).expect("duplicate Page P");
+            assert_eq!(label_on_page(&app.doc, copy_p), "From Page P", "run {run}: hydrated copy of Page P must never receive Page Q's overrides");
+
+            let saved = designos_fig::export_fig(&app.doc).expect("save");
+            let mut reopened = designos_fig::import_fig(&saved).expect("reopen");
+            let r_p = reopened.pages.iter().copied().find(|&p| reopened.get(p).is_some_and(|n| n.name == "Page P")).expect("reopened Page P");
+            let r_q = reopened.pages.iter().copied().find(|&p| reopened.get(p).is_some_and(|n| n.name == "Page Q")).expect("reopened Page Q");
+            let r_copy = reopened.pages.iter().copied().find(|&p| reopened.get(p).is_some_and(|n| n.name == "Page P copy")).expect("reopened Page P copy");
+            reopened.ensure_page_hydrated(r_p);
+            reopened.ensure_page_hydrated(r_q);
+            reopened.ensure_page_hydrated(r_copy);
+            assert_eq!(label_on_page(&reopened, r_copy), "From Page P", "run {run}: saved copy of Page P must keep Page P's overrides");
+            assert_eq!(label_on_page(&reopened, r_p), "From Page P", "run {run}: original Page P must keep Page P's overrides");
+            assert_eq!(label_on_page(&reopened, r_q), "From Page Q", "run {run}: sibling Page Q must keep Page Q's overrides");
+        }
+    }
+
+    fn deferred_reorder_fixture() -> Vec<u8> {
+        use designos_fig::container::Compression;
+        use designos_fig::kiwi::KiwiValue as V;
+        use designos_fig::testkit::{color, en, figma_like_schema, fl, guid, matrix, msg, node, vec2};
+
+        let solid_paint = |r: f32, g: f32, b: f32| -> V {
+            msg(vec![("type", en("SOLID")), ("color", color(r, g, b, 1.0)), ("opacity", fl(1.0)), ("visible", V::Bool(true)), ("blendMode", en("NORMAL"))])
+        };
+        let nc = |id: (u32, u32), parent: (u32, u32), pos: &str, ty: &str, name: &str, size: (f32, f32), mut extra: Vec<(&str, V)>| -> V {
+            let mut fields = vec![
+                ("visible", V::Bool(true)),
+                ("opacity", fl(1.0)),
+                ("phase", en("CREATED")),
+                ("size", vec2(size.0, size.1)),
+                ("transform", matrix(0.0, 0.0)),
+                ("blendMode", en("PASS_THROUGH")),
+            ];
+            fields.append(&mut extra);
+            node(id, parent, pos, ty, name, fields)
+        };
+        let mut changes = vec![
+            nc((0, 0), (0, 0), "", "DOCUMENT", "Document", (0.0, 0.0), vec![]),
+            nc((0, 1), (0, 0), "!", "CANVAS", "Cover", (0.0, 0.0), vec![]),
+            nc((0, 2), (0, 0), "\"", "CANVAS", "404 pages", (0.0, 0.0), vec![]),
+            nc((0, 3), (0, 0), "#", "CANVAS", "About", (0.0, 0.0), vec![]),
+            nc((1, 10), (0, 1), "!", "SYMBOL", "Buttons/Button", (120.0, 48.0), vec![("fillPaints", V::Array(vec![solid_paint(0.9, 0.9, 0.9)]))]),
+            nc(
+                (1, 11),
+                (1, 10),
+                "!",
+                "TEXT",
+                "Label",
+                (80.0, 20.0),
+                vec![("textData", msg(vec![("characters", V::String("Button CTA".into()))])), ("fontSize", fl(14.0))],
+            ),
+            nc((1, 20), (0, 2), "!", "FRAME", "Hero", (1440.0, 900.0), vec![("fillPaints", V::Array(vec![solid_paint(1.0, 1.0, 1.0)]))]),
+            nc(
+                (1, 21),
+                (1, 20),
+                "!",
+                "INSTANCE",
+                "Hero button",
+                (120.0, 48.0),
+                vec![(
+                    "symbolData",
+                    msg(vec![
+                        ("symbolID", guid(1, 10)),
+                        (
+                            "symbolOverrides",
+                            V::Array(vec![msg(vec![
+                                ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 11)]))])),
+                                ("textData", msg(vec![("characters", V::String("Go back".into()))])),
+                                ("fillPaints", V::Array(vec![solid_paint(0.1, 0.2, 0.8)])),
+                            ])]),
+                        ),
+                    ]),
+                )],
+            ),
+        ];
+        for i in 0..25_000u32 {
+            changes.push(nc((9, i + 1), (0, 1), "!", "ROUNDED_RECTANGLE", "F", (4.0, 4.0), vec![]));
+        }
+        let schema = figma_like_schema();
+        let root = schema.find("Message").expect("Message in schema");
+        let body = schema.encode_message(root, &msg(vec![("nodeChanges", V::Array(changes))])).expect("encode");
+        designos_fig::container::write_container(&schema.encode(), &body, Compression::Zstd, 106)
+    }
+
+    fn page_subtree_entries_in(fig_bytes: &[u8], page_name: &str) -> (serde_json::Value, Vec<serde_json::Value>) {
+        let all = designos_fig::decode_fig_to_json(fig_bytes).expect("decode")["message"]["nodeChanges"].as_array().cloned().unwrap_or_default();
+        let canvas =
+            all.iter().find(|nc| nc["type"] == "CANVAS" && nc["name"] == page_name).unwrap_or_else(|| panic!("missing CANVAS named {page_name:?}")).clone();
+        let mut owned = vec![canvas["guid"].clone()];
+        let mut entries = Vec::new();
+        loop {
+            let mut grew = false;
+            for nc in &all {
+                let g = &nc["guid"];
+                let pg = &nc["parentIndex"]["guid"];
+                if !owned.contains(g) && owned.contains(pg) {
+                    owned.push(g.clone());
+                    entries.push(nc.clone());
+                    grew = true;
+                }
+            }
+            if !grew {
+                break;
+            }
+        }
+        (canvas, entries)
+    }
+
+    fn page_hydrated_in(doc: &Document, page: NodeId) -> bool {
+        doc.page_hydrator.as_ref().is_none_or(|h| h.lock().expect("lock").is_hydrated(page))
+    }
+
+    #[test]
+    fn reordering_an_unopened_page_preserves_instance_child_overrides_on_save() {
+        let fig = deferred_reorder_fixture();
+        let baseline = designos_fig::export_fig(&designos_fig::import_fig(&fig).expect("import baseline")).expect("baseline save");
+        let (_, baseline_entries) = page_subtree_entries_in(&baseline, "404 pages");
+
+        let mut app = App::new(designos_fig::import_fig(&fig).expect("import"));
+        let page_404 = app.doc.pages.iter().copied().find(|&p| app.doc.get(p).is_some_and(|n| n.name == "404 pages")).expect("404 pages");
+        assert!(!page_hydrated_in(&app.doc, page_404));
+
+        app.move_page(page_404, 2);
+        assert_eq!(app.doc.pages[2], page_404);
+        assert!(!page_hydrated_in(&app.doc, page_404), "reordering a never-opened page keeps it unhydrated");
+
+        let saved = designos_fig::export_fig(&app.doc).expect("save after move");
+        let (_, moved_entries) = page_subtree_entries_in(&saved, "404 pages");
+        assert_eq!(moved_entries, baseline_entries, "reordered unopened page saved entries must match a save without the move whole");
+    }
+
+    #[test]
+    fn reordering_an_unopened_page_then_undo_and_redo_preserves_instance_child_overrides_on_save() {
+        let fig = deferred_reorder_fixture();
+        let baseline = designos_fig::export_fig(&designos_fig::import_fig(&fig).expect("import baseline")).expect("baseline save");
+        let baseline_changes = designos_fig::decode_fig_to_json(&baseline).expect("decode baseline")["message"]["nodeChanges"].clone();
+
+        let mut app = App::new(designos_fig::import_fig(&fig).expect("import"));
+        let page_404 = app.doc.pages.iter().copied().find(|&p| app.doc.get(p).is_some_and(|n| n.name == "404 pages")).expect("404 pages");
+        app.move_page(page_404, 2);
+        let saved_moved = designos_fig::export_fig(&app.doc).expect("save after move");
+        let moved_changes = designos_fig::decode_fig_to_json(&saved_moved).expect("decode moved")["message"]["nodeChanges"].clone();
+
+        app.undo();
+        assert_eq!(app.doc.pages[1], page_404);
+        let saved_undone = designos_fig::export_fig(&app.doc).expect("save after undo");
+        let undone_changes = designos_fig::decode_fig_to_json(&saved_undone).expect("decode undone")["message"]["nodeChanges"].clone();
+        assert_eq!(undone_changes, baseline_changes, "reorder then undo then save must equal a save without the move");
+
+        app.redo();
+        assert_eq!(app.doc.pages[2], page_404);
+        let saved_redone = designos_fig::export_fig(&app.doc).expect("save after redo");
+        let redone_changes = designos_fig::decode_fig_to_json(&saved_redone).expect("decode redone")["message"]["nodeChanges"].clone();
+        assert_eq!(redone_changes, moved_changes, "reorder then undo then redo then save must equal the save after reorder");
+    }
+
+    #[test]
+    fn deleting_an_unopened_page_then_undoing_preserves_instance_child_overrides_on_save() {
+        let fig = deferred_reorder_fixture();
+        let baseline = designos_fig::export_fig(&designos_fig::import_fig(&fig).expect("import baseline")).expect("baseline save");
+        let baseline_changes = designos_fig::decode_fig_to_json(&baseline).expect("decode baseline")["message"]["nodeChanges"].clone();
+
+        let mut app = App::new(designos_fig::import_fig(&fig).expect("import"));
+        let page_404 = app.doc.pages.iter().copied().find(|&p| app.doc.get(p).is_some_and(|n| n.name == "404 pages")).expect("404 pages");
+        assert!(app.delete_page(page_404));
+        let stored_undo_cmd = app.hist.peek_undo().cloned().expect("stored InsertPage on undo stack");
+
+        app.undo();
+        let saved_after_undo = designos_fig::export_fig(&app.doc).expect("save after undo of delete");
+        let after_undo_changes = designos_fig::decode_fig_to_json(&saved_after_undo).expect("decode after undo")["message"]["nodeChanges"].clone();
+        assert_eq!(after_undo_changes, baseline_changes, "delete then undo then save must equal a save without the delete");
+
+        // Applying an InsertPage must not consume the payload on a cloned/stored command.
+        Command::RemovePage { id: page_404 }.apply(&mut app.doc).expect("remove page again");
+        stored_undo_cmd.apply(&mut app.doc).expect("reapply stored InsertPage command");
+        let saved_after_reapply = designos_fig::export_fig(&app.doc).expect("save after reapplying stored InsertPage");
+        let after_reapply_changes = designos_fig::decode_fig_to_json(&saved_after_reapply).expect("decode after reapply")["message"]["nodeChanges"].clone();
+        assert_eq!(after_reapply_changes, baseline_changes, "applying InsertPage must not consume the payload on a stored command");
+    }
+
+    #[test]
+    fn duplicating_an_unopened_page_then_reordering_the_copy_preserves_child_overrides_on_save() {
+        let fig = deferred_reorder_fixture();
+        let mut app = App::new(designos_fig::import_fig(&fig).expect("import"));
+        let page_404 = app.doc.pages.iter().copied().find(|&p| app.doc.get(p).is_some_and(|n| n.name == "404 pages")).expect("404 pages");
+        let pos = app.doc.pages.iter().position(|&p| p == page_404).expect("pos");
+
+        // Duplicate without switching so the copy remains a never-opened deferred page when reordered.
+        let mut copy_nodes = clipboard::clone_subtree(&mut app.doc, page_404);
+        let copy_page = copy_nodes[0].id;
+        copy_nodes[0].name = "404 pages copy".into();
+        let mut tx = Tx::new();
+        tx.cmd(&mut app.doc, Command::InsertPage { index: pos + 1, nodes: copy_nodes }).expect("insert duplicated page");
+        app.run_tx(tx);
+        assert!(!page_hydrated_in(&app.doc, copy_page));
+
+        app.move_page(copy_page, 3);
+        assert_eq!(app.doc.pages[3], copy_page);
+        assert!(!page_hydrated_in(&app.doc, copy_page));
+
+        let saved = designos_fig::export_fig(&app.doc).expect("save after duplicate and reorder");
+        let (orig_canvas, orig_entries) = page_subtree_entries_in(&saved, "404 pages");
+        let (copy_canvas, mut copy_entries) = page_subtree_entries_in(&saved, "404 pages copy");
+        assert_eq!(copy_entries.len(), orig_entries.len());
+
+        let mut guid_map: Vec<(serde_json::Value, serde_json::Value)> = vec![(copy_canvas["guid"].clone(), orig_canvas["guid"].clone())];
+        for (ce, oe) in copy_entries.iter().zip(orig_entries.iter()) {
+            guid_map.push((ce["guid"].clone(), oe["guid"].clone()));
+        }
+        fn remap_guids(v: &mut serde_json::Value, map: &[(serde_json::Value, serde_json::Value)]) {
+            for (from, to) in map {
+                if v == from {
+                    *v = to.clone();
+                    return;
+                }
+            }
+            match v {
+                serde_json::Value::Array(arr) => {
+                    for item in arr {
+                        remap_guids(item, map);
+                    }
+                }
+                serde_json::Value::Object(obj) => {
+                    for val in obj.values_mut() {
+                        remap_guids(val, map);
+                    }
+                }
+                _ => {}
+            }
+        }
+        for ce in &mut copy_entries {
+            remap_guids(ce, &guid_map);
+        }
+        assert_eq!(copy_entries, orig_entries, "duplicated then reordered unopened page must keep its child override records whole");
     }
 }

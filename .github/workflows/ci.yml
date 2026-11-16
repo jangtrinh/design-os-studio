@@ -9,9 +9,13 @@ on:
   merge_group:
     types: [checks_requested]
 
+# A run on main is never cancelled: it can hold the macOS cache seed, and a cancelled seed saves nothing. Runs
+# on main still share one group, so at most one more waits (a newer pending run replaces an older pending one,
+# it never queues behind a growing line) and the push of a quick series of merges does not start several
+# identical dependency compiles at once.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   RUST_VERSION: "1.93.1"
@@ -145,11 +149,30 @@ jobs:
       - name: Check workspace
         run: cargo check --workspace --all-targets --locked
 
+  # The macOS jobs (this one, lint-budget and the swiftc leg of native-export-compile) skip a push to main:
+  # main requires an up-to-date branch, so the tree on main is the tree the pull request's own macOS checks
+  # just passed, and the repeat would hold all 5 macOS runners of the account for about 20 minutes while the
+  # next pull request queues. That holds only while the rule is on: the train goes live with the rule turned
+  # OFF (docs/releasing.md), so vars.TRAIN_LIVE == 'true' brings the macOS jobs back on main and turns the
+  # seed off. Pull requests, train/** pushes, merge_group and v* tags always run them. The macOS job that
+  # does run on main is cache-seed-macos below: a pull request can only restore caches saved on its own ref
+  # or on main, so main has to keep the dependency caches of the shards and of lint-budget warm. Keep the
+  # `github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.TRAIN_LIVE != 'true'` predicate
+  # identical in the `if` of test-macos and lint-budget (negated), in the native-export-compile matrix
+  # (negated), in cache-seed-macos (as is) and in the "Test (macos-15)" aggregate
+  # (scripts/tests/test_ci_macos_on_main.py checks them).
   test-macos:
     name: Test (macos-15, ${{ matrix.partition }}/3)
     needs: changes
-    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft) && needs.changes.outputs.rust == 'true'
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft) && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.TRAIN_LIVE != 'true') && needs.changes.outputs.rust == 'true'
     runs-on: macos-15
+    # Debug info off, as the Linux leg of the cross-OS "Test" job does: the shards compile the same test
+    # binaries and only need pass/fail. This is a job-level env, not a $GITHUB_ENV step after rust-cache,
+    # because Swatinem/rust-cache hashes CARGO* variables into its key: set late, the key would stay the
+    # same and every run would restore dependencies built with debug info, rebuild them and never save.
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
     strategy:
       fail-fast: false
       matrix:
@@ -161,7 +184,11 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
+      # shared-key replaces the job id in the cache key so cache-seed-macos can write the very key these
+      # shards read: v0-rust-<shared-key>-<OS>-<arch>-<digest of rustc and CARGO*/RUST* env>-<lockfile hash>.
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-test
 
       - name: Validate packaging scripts syntax
         shell: bash
@@ -217,6 +244,8 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref }}
+          TRAIN_LIVE: ${{ vars.TRAIN_LIVE }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
           CHANGES_RESULT: ${{ needs.changes.result }}
           RUST_CHANGED: ${{ needs.changes.outputs.rust }}
@@ -224,18 +253,25 @@ jobs:
           LINT_RESULT: ${{ needs.lint-budget.result }}
         run: |
           set -euo pipefail
+          # A draft never ends green: marking it ready starts a new run on the same commit, and until that run's
+          # aggregate finishes this draft run's green check would stand for the macOS tests that did not run.
           if [ "$EVENT_NAME" = "pull_request" ] && [ "$PR_DRAFT" = "true" ]; then
-            if { [ "$SHARDS_RESULT" = "skipped" ] || [ "$SHARDS_RESULT" = "success" ]; } && { [ "$LINT_RESULT" = "skipped" ] || [ "$LINT_RESULT" = "success" ]; }; then
-              echo "skipped: draft"
-              echo "::notice::skipped: draft"
-              exit 0
-            fi
-            echo "::error::Draft PR shard matrix ended with unexpected result '$SHARDS_RESULT'"
+            echo "::error::The macOS tests did not run because this pull request is a draft. Mark it ready for review to run them."
+            echo "The macOS tests did not run because this pull request is a draft. Mark it ready for review to run them."
             exit 1
           fi
           if [ "$CHANGES_RESULT" != "success" ]; then
             echo "::error::Path filter job 'changes' did not succeed (result: '$CHANGES_RESULT')"
             exit 1
+          fi
+          # A push to main does not run the macOS jobs unless vars.TRAIN_LIVE is 'true' (see the note above
+          # test-macos; GitHub compares strings case-insensitively, so lower-case it here too). If they ran
+          # anyway, fall through so their results are still checked below.
+          train_live="$(printf '%s' "${TRAIN_LIVE:-}" | tr '[:upper:]' '[:lower:]')"
+          if [ "$EVENT_NAME" = "push" ] && [ "$REF_NAME" = "refs/heads/main" ] && [ "$train_live" != "true" ] && [ "$SHARDS_RESULT" = "skipped" ] && [ "$LINT_RESULT" = "skipped" ]; then
+            echo "skipped on main: the pull request's checks covered this tree"
+            echo "::notice::skipped on main: the pull request's checks covered this tree"
+            exit 0
           fi
           if [ "$RUST_CHANGED" = "false" ]; then
             if { [ "$SHARDS_RESULT" = "skipped" ] || [ "$SHARDS_RESULT" = "success" ]; } && { [ "$LINT_RESULT" = "skipped" ] || [ "$LINT_RESULT" = "success" ]; }; then
@@ -259,8 +295,14 @@ jobs:
   lint-budget:
     name: Lint budget (macos-15)
     needs: changes
-    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft) && needs.changes.outputs.rust == 'true'
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft) && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.TRAIN_LIVE != 'true') && needs.changes.outputs.rust == 'true'
     runs-on: macos-15
+    # Same job env as the shards and the cache seed: rust-cache hashes CARGO* variables into its key, and the
+    # seed job's lint leg can only write the key this job reads when both see the same variables. The two
+    # variables set the dev and test profiles only; this job builds with --release, so its artifacts do not change.
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
     steps:
       - uses: actions/checkout@v4
 
@@ -268,11 +310,70 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
+      # shared-key replaces the job id in the key so the lint leg of cache-seed-macos can write it.
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-lint-budget
 
       # The large-fixture lint wall-time budget is bounded in release builds only (debug builds skip it).
       - name: Lint budget on a release build (large fixture)
         run: cargo test -p designos-render --release --locked --test lint_rules large_fixture_off_thread_budget
+
+  # Not a test job and not part of the "Test (macos-15)" aggregate or any required check: a red run here only
+  # means a cache could not be refreshed. It exists because the macOS shards and lint-budget read a rust-cache
+  # that a pull request can only restore from its own ref or from main, and neither runs on main. On a push to
+  # main each leg checks whether the exact key of the job it serves exists (lookup-only: no download, a few
+  # seconds); only on a miss (Cargo.lock, manifests, .cargo/config.toml, toolchain or the CARGO*/RUST* env
+  # changed) does it restore the nearest older cache, compile the dependencies the way that job does, and save
+  # under the exact key. One leg per job because each leg saves the whole target directory: legs in one job
+  # would each write the other's artifacts into their cache. Everything that feeds a key (runner, toolchain
+  # step, job env, shared-key) must stay equal to the job a leg serves (the test file checks it).
+  cache-seed-macos:
+    name: Cache seed (macos-15, ${{ matrix.leg }})
+    needs: changes
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.TRAIN_LIVE != 'true' && needs.changes.outputs.rust == 'true'
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: shards
+            shared-key: macos-test
+            # The build plan of `cargo nextest run --workspace --locked`, which builds with `cargo test --no-run`.
+            compile: cargo test --workspace --locked --no-run
+          - leg: lint budget
+            shared-key: macos-lint-budget
+            # What the lint-budget job runs, without running it.
+            compile: cargo test -p designos-render --release --locked --test lint_rules --no-run
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      # save-if "false" keeps this step's post action from saving: on a miss it still records state for it.
+      - name: Look up the dependency cache
+        id: lookup
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.shared-key }}
+          lookup-only: true
+          save-if: "false"
+
+      - name: Restore the nearest older dependency cache (miss only)
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.shared-key }}
+
+      - name: Compile the dependencies (miss only)
+        if: steps.lookup.outputs.cache-hit != 'true'
+        run: ${{ matrix.compile }}
 
   test:
     name: Test (${{ matrix.os }})
@@ -317,6 +418,12 @@ jobs:
           python3 -B scripts/check_vendor_skills.py extract
           python3 -B scripts/check_vendor_skills.py map-coverage
           python3 -B -m unittest scripts/test_check_vendor_skills.py
+
+      # Guards the macOS-on-main rules of this workflow (skip on push to main, cache seed job, aggregate).
+      # Linux only: the test runs the aggregate's script with bash and reads this file as text.
+      - name: Validate the macOS CI rules of this workflow
+        if: runner.os == 'Linux'
+        run: python3 -B -m unittest scripts/tests/test_ci_macos_on_main.py scripts/tests/test_ci_cache_seed_job.py
 
       - name: Configure Linux swap and debuginfo
         if: runner.os == 'Linux'
@@ -471,13 +578,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-15
-            label: swiftc · macos-15
-            targets: --target swift
-          - os: ubuntu-latest
-            label: kotlinc + aapt2 · ubuntu-latest
-            targets: --target kotlin --target android
+        # A job-level `if` cannot read the matrix, so the swiftc leg is left out of the matrix itself on a
+        # push to main (see the note above test-macos). Both legs: swift on macos-15, kotlin + android on ubuntu-latest.
+        include: ${{ fromJSON((github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.TRAIN_LIVE != 'true') && '[{"os":"ubuntu-latest","label":"kotlinc + aapt2 · ubuntu-latest","targets":"--target kotlin --target android"}]' || '[{"os":"macos-15","label":"swiftc · macos-15","targets":"--target swift"},{"os":"ubuntu-latest","label":"kotlinc + aapt2 · ubuntu-latest","targets":"--target kotlin --target android"}]') }}
     steps:
       - uses: actions/checkout@v4
 

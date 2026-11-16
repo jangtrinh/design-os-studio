@@ -123,6 +123,11 @@ fn update_node_unbinds_with_null_and_refuses_a_wrong_variable() {
     assert_eq!(missing.to_json_value()["error"]["code"], "UNKNOWN_COMPONENT_PROPERTY");
     let not_instance = s.e.call("designos_update_node", json!({"node_id": s.comp.0, "prop_vars": {"Label": "var:Theme/title"}})).unwrap_err();
     assert_eq!(not_instance.to_json_value()["error"]["code"], "OVERRIDE_FIELD_NOT_APPLICABLE");
+    let documented = designos_mcp::rules::tool_error_codes("designos_update_node");
+    for returned in [&missing, &not_instance] {
+        let code = returned.to_json_value()["error"]["code"].as_str().unwrap().to_string();
+        assert!(documented.contains(&format!("`{code}`").as_str()), "designos_update_node error list must include {code}: {documented:?}");
+    }
     assert!(s.e.doc.get(s.inst).unwrap().variables.bindings.is_empty(), "a refused call changes nothing");
 }
 
@@ -313,4 +318,47 @@ fn update_node_refuses_mismatched_library_prop_var_without_importing_then_binds_
     assert_eq!(s.e.history.undo_depth(), orig_depth);
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn apply_spec_reports_property_binding_errors_with_documented_codes() {
+    let mut s = setup();
+    let page = s.e.resolve_default_page().unwrap();
+    let apply_spec_line = designos_mcp::rules::GENERATED_RULES_MD
+        .split("### `designos_apply_spec`\n")
+        .nth(1)
+        .and_then(|rest| rest.lines().find(|line| line.starts_with("- **Errors:** ")))
+        .expect("designos_apply_spec error line");
+
+    let unknown =
+        s.e.call(
+            "designos_apply_spec",
+            json!({"parent_id": page.0, "spec": {"kind": "instance", "component": format!("node:{}", s.comp.0), "props": {"Nope": "var:Theme/show"}}}),
+        )
+        .unwrap_err();
+    let unknown_json = unknown.to_json_value();
+    assert_eq!(unknown_json["error"]["code"], "UNKNOWN_COMPONENT_PROPERTY", "{unknown_json}");
+
+    let not_instance =
+        s.e.call(
+            "designos_apply_spec",
+            json!({
+                "parent_id": page.0,
+                "spec": {
+                    "kind": "instance",
+                    "component": format!("node:{}", s.comp.0),
+                    "overrides": [{"path": "label", "props": {"Label": "var:Theme/title"}}],
+                },
+            }),
+        )
+        .unwrap_err();
+    let not_instance_json = not_instance.to_json_value();
+    assert_eq!(not_instance_json["error"]["code"], "OVERRIDE_FIELD_NOT_APPLICABLE", "{not_instance_json}");
+
+    let documented = designos_mcp::rules::tool_error_codes("designos_apply_spec");
+    for returned in [&unknown, &not_instance] {
+        let code = returned.to_json_value()["error"]["code"].as_str().unwrap().to_string();
+        assert!(documented.contains(&format!("`{code}`").as_str()), "designos_apply_spec error list must include {code}: {documented:?}");
+        assert!(apply_spec_line.contains(&format!("`{code}`")), "{apply_spec_line}");
+    }
 }

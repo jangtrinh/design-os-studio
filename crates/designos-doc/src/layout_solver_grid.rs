@@ -221,8 +221,9 @@ fn column_widths(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]
 /// reuses the column gap, and a negative column gap is 0.
 pub fn grid_row_gap(al: &AutoLayout) -> f32 {
     let col_gap = al.item_spacing.max(0.0);
-    if al.counter_spacing > 0.0 {
-        al.counter_spacing
+    let row_gap = al.line_gap();
+    if row_gap > 0.0 {
+        row_gap
     } else {
         col_gap
     }
@@ -386,7 +387,7 @@ mod tests {
         assert_eq!(placed_grid_rows(&al, &[child(10.0, 10.0), pinned]), 5);
         assert_eq!(placed_grid_rows(&al, &[tall]), 3);
         // the same rows the solver lays out: the frame grows by one gap per row that `grid_rows` does not add
-        let out = compute_grid(&AutoLayout { counter_spacing: 5.0, ..al.clone() }, Vec2::new(100.0, 10.0), SizeLimits::default(), &five);
+        let out = compute_grid(&AutoLayout { counter_spacing: Some(5.0), ..al.clone() }, Vec2::new(100.0, 10.0), SizeLimits::default(), &five);
         assert_eq!(out.frame.y, 3.0 * 10.0 + 2.0 * 5.0);
     }
 
@@ -552,7 +553,7 @@ mod tests {
         al.grid_rows = 1;
         al.grid_row_tracks[0] = GridTrack::Fixed(40.0);
         al.grid_auto_tracks = GridAutoTracks::Track(GridTrack::Flex(1.0));
-        al.counter_spacing = 10.0;
+        al.counter_spacing = Some(10.0);
         let kids = [
             ChildIn { cross_fill: true, ..child(40.0, 20.0) },
             ChildIn { cross_fill: true, ..child(40.0, 20.0) },
@@ -629,7 +630,7 @@ mod tests {
         let mut fixed_first = AutoLayout {
             grid_columns: 3,
             item_spacing: 10.0,
-            counter_spacing: 10.0,
+            counter_spacing: Some(10.0),
             primary_sizing: Sizing::Fixed,
             counter_sizing: Sizing::Fixed,
             ..grid(3, Sizing::Fixed, Sizing::Fixed)
@@ -642,7 +643,7 @@ mod tests {
                 AutoLayout {
                     grid_columns: 3,
                     item_spacing: 12.0,
-                    counter_spacing: 12.0,
+                    counter_spacing: Some(12.0),
                     padding: [12.0, 12.0, 12.0, 12.0],
                     ..grid(3, Sizing::Fixed, Sizing::Fixed)
                 },
@@ -658,7 +659,7 @@ mod tests {
             ),
             (
                 "unequal_tracks",
-                AutoLayout { grid_columns: 3, item_spacing: 0.0, counter_spacing: 10.0, ..grid(3, Sizing::Hug, Sizing::Fixed) },
+                AutoLayout { grid_columns: 3, item_spacing: 0.0, counter_spacing: Some(10.0), ..grid(3, Sizing::Hug, Sizing::Fixed) },
                 Vec2::new(500.0, 140.0),
                 vec![
                     child(100.0, 30.0),
@@ -677,7 +678,13 @@ mod tests {
             ),
             (
                 "hugging_grid",
-                AutoLayout { grid_columns: 3, item_spacing: 8.0, counter_spacing: 8.0, padding: [8.0, 8.0, 8.0, 8.0], ..grid(3, Sizing::Hug, Sizing::Hug) },
+                AutoLayout {
+                    grid_columns: 3,
+                    item_spacing: 8.0,
+                    counter_spacing: Some(8.0),
+                    padding: [8.0, 8.0, 8.0, 8.0],
+                    ..grid(3, Sizing::Hug, Sizing::Hug)
+                },
                 Vec2::new(500.0, 500.0),
                 vec![
                     child(100.0, 28.0),
@@ -693,7 +700,7 @@ mod tests {
                 AutoLayout {
                     grid_columns: 2,
                     item_spacing: 12.0,
-                    counter_spacing: 16.0,
+                    counter_spacing: Some(16.0),
                     padding: [16.0, 16.0, 16.0, 16.0],
                     ..grid(2, Sizing::Fixed, Sizing::Fixed)
                 },
@@ -712,7 +719,7 @@ mod tests {
                 AutoLayout {
                     grid_columns: 4,
                     item_spacing: 12.0,
-                    counter_spacing: 12.0,
+                    counter_spacing: Some(12.0),
                     padding: [12.0, 12.0, 12.0, 12.0],
                     ..grid(4, Sizing::Fixed, Sizing::Fixed)
                 },
@@ -765,7 +772,7 @@ mod tests {
 
     #[test]
     fn grid_row_heights_honors_explicit_grid_rows_beyond_placed_children() {
-        let mut al = AutoLayout { grid_columns: 2, grid_rows: 3, item_spacing: 10.0, counter_spacing: 10.0, ..grid(2, Sizing::Fixed, Sizing::Fixed) };
+        let mut al = AutoLayout { grid_columns: 2, grid_rows: 3, item_spacing: 10.0, counter_spacing: Some(10.0), ..grid(2, Sizing::Fixed, Sizing::Fixed) };
         al.grid_row_tracks[0] = GridTrack::Fixed(30.0);
         al.grid_row_tracks[1] = GridTrack::Fixed(40.0);
         al.grid_row_tracks[2] = GridTrack::Fixed(50.0);
@@ -776,7 +783,7 @@ mod tests {
 
     #[test]
     fn grid_row_gap_uses_a_positive_counter_spacing_and_clamps_a_negative_column_gap() {
-        let gap = |item: f32, counter: f32| grid_row_gap(&AutoLayout { item_spacing: item, counter_spacing: counter, ..Default::default() });
+        let gap = |item: f32, counter: f32| grid_row_gap(&AutoLayout { item_spacing: item, counter_spacing: Some(counter), ..Default::default() });
         assert_eq!(gap(4.0, 0.0), 4.0);
         assert_eq!(gap(4.0, 12.0), 12.0);
         assert_eq!(gap(-3.0, 0.0), 0.0);

@@ -96,7 +96,7 @@ fn wrap_screen() -> WrapScreen {
     let mut row_kind = auto_layout(LayoutDirection::Horizontal, Sizing::Fixed, Sizing::Hug, LayoutAlign::Start, 10.0);
     if let Some(al) = row_kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
         al.wrap = true;
-        al.counter_spacing = 10.0;
+        al.counter_spacing = Some(10.0);
     }
     let row = add_frame(&mut e, screen, Rect::new(0.0, 0.0, 100.0, 40.0), row_kind, "wrap row");
     let a = add_rect(&mut e, row, Rect::new(0.0, 0.0, 40.0, 40.0), "a");

@@ -632,3 +632,72 @@ fn all_four_corner_fields_have_equal_label_to_value_gaps() {
         assert!((gap - gaps[0].1).abs() < 1e-2, "gap for {field_key} ({gap}) differs from {} ({})", gaps[0].0, gaps[0].1);
     }
 }
+
+/// A 100 x 100 shape of `kind` that carries the baked fill and stroke outline a `.fig` import leaves.
+fn add_baked_shape(s: &mut Sim, kind: NodeKind, name: &str) -> NodeId {
+    let page = s.app().page;
+    let id = s.shell.app.doc.alloc_id();
+    let mut n = Node::new(id, kind);
+    n.name = name.into();
+    n.size = DocVec2::new(100.0, 100.0);
+    n.fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(255, 0, 0))];
+    n.stroke.paints = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(0, 0, 255))];
+    n.stroke.weight = 4.0;
+    let square = Path {
+        cmds: vec![
+            PathCmd::MoveTo(DocVec2::new(0.0, 0.0)),
+            PathCmd::LineTo(DocVec2::new(100.0, 0.0)),
+            PathCmd::LineTo(DocVec2::new(100.0, 100.0)),
+            PathCmd::LineTo(DocVec2::new(0.0, 100.0)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    };
+    n.fill_geometry = Some(vec![square.clone()]);
+    n.stroke_geometry = Some(vec![square]);
+    s.shell.app.doc.insert(page, n).unwrap()
+}
+
+fn pixels_of(s: &Sim, id: NodeId) -> Vec<u8> {
+    designos_render::render_node(&s.app().doc, id, 1.0).expect("render").data().to_vec()
+}
+
+#[test]
+fn a_radius_edit_redraws_a_shape_that_carries_a_baked_outline() {
+    let shapes = [
+        ("rectangle", NodeKind::Rectangle),
+        ("frame", NodeKind::Frame(FrameProps::default())),
+        ("polygon", NodeKind::Polygon { count: 5 }),
+        ("star", NodeKind::Star { count: 5, inner_ratio: 0.5 }),
+    ];
+    for (what, kind) in shapes {
+        let mut s = Sim::new();
+        let id = add_baked_shape(&mut s, kind, "Baked");
+        s.shell.app.selection = vec![id];
+        s.frame(vec![]);
+        let before = pixels_of(&s, id);
+        edit_num_field(&mut s, "radius", "24");
+        let n = s.app().doc.get(id).unwrap();
+        assert_eq!(n.corner_radii, [24.0; 4], "the radius was set ({what})");
+        assert!(pixels_of(&s, id) != before, "the edit shows at once ({what})");
+        assert!(n.fill_geometry.is_none() && n.stroke_geometry.is_none(), "the old outline is gone ({what})");
+    }
+}
+
+#[test]
+fn an_individual_corner_edit_redraws_a_rectangle_or_frame_that_carries_a_baked_outline() {
+    for (what, kind) in [("rectangle", NodeKind::Rectangle), ("frame", NodeKind::Frame(FrameProps::default()))] {
+        let mut s = Sim::new();
+        let id = add_baked_shape(&mut s, kind, "Baked");
+        s.shell.app.selection = vec![id];
+        s.frame(vec![]);
+        let toggle = s.rect_of("corner-individual");
+        s.click(toggle.center());
+        let before = pixels_of(&s, id);
+        edit_num_field(&mut s, "radius-br", "30");
+        let n = s.app().doc.get(id).unwrap();
+        assert_eq!(n.corner_radii, [0.0, 0.0, 30.0, 0.0], "only the bottom-right corner was set ({what})");
+        assert!(pixels_of(&s, id) != before, "the edit shows at once ({what})");
+        assert!(n.fill_geometry.is_none() && n.stroke_geometry.is_none(), "the old outline is gone ({what})");
+    }
+}

@@ -475,7 +475,7 @@ fn render_tool_section(out: &mut String, tool: &Tool) {
 }
 
 /// Maximum characters kept from a tool description in the rules pack (the budget in [`MAX_RULES_TOKENS`] is shared by every tool).
-const MAX_PURPOSE_CHARS: usize = 92;
+const MAX_PURPOSE_CHARS: usize = 78;
 
 /// First sentence of a tool description, capped at [`MAX_PURPOSE_CHARS`] so the full tool list stays inside the rules budget.
 fn purpose_summary(desc: &str) -> String {
@@ -514,14 +514,18 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`INVALID_ARGUMENTS`",
             "`NODE_NOT_FOUND`",
             "`PAGE_ROOT_PROTECTED`",
-            "`MOVE_CYCLE`",
+            "`INSTANCE_CYCLE`",
             "`UNKNOWN_VARIABLE`",
             "`VARIABLE_TYPE_MISMATCH`",
             "`AMBIGUOUS_VARIABLE`",
+            "`UNKNOWN_COMPONENT_PROPERTY`",
+            "`OVERRIDE_FIELD_NOT_APPLICABLE`",
             "`OUTSIDE_OWNED_FRAMES`",
             "`TOOL_DISABLED`",
         ],
-        "designos_delete_node" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`PAGE_ROOT_PROTECTED`", "`OUTSIDE_OWNED_FRAMES`", "`TOOL_DISABLED`"],
+        "designos_delete_node" => {
+            &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`PAGE_ROOT_PROTECTED`", "`INSTANCE_CHILD`", "`OUTSIDE_OWNED_FRAMES`", "`TOOL_DISABLED`"]
+        }
         "designos_list_comments" => &["`INVALID_ARGUMENTS`", "`TOOL_DISABLED`"],
         "designos_add_comment" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`TEXT_TOO_LONG`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_reply_comment" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`TEXT_TOO_LONG`", "`TOOL_DISABLED`"],
@@ -532,7 +536,10 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`NODE_NOT_FOUND`",
             "`NOT_A_CONTAINER`",
             "`UNKNOWN_COMPONENT`",
+            "`INSTANCE_CYCLE`",
             "`UNKNOWN_VARIABLE`",
+            "`UNKNOWN_COMPONENT_PROPERTY`",
+            "`OVERRIDE_FIELD_NOT_APPLICABLE`",
             "`UNKNOWN_SLOT`",
             "`TOOL_DISABLED`",
         ],
@@ -870,9 +877,26 @@ mod tests {
     fn per_tool_error_lists_name_the_unsupported_codes_the_tool_returns() {
         let has = |tool: &str, code: &str| tool_error_codes(tool).contains(&format!("`{code}`").as_str());
         assert!(has("designos_create_node", "UNSUPPORTED_NODE_KIND"));
+        assert!(has("designos_update_node", "UNKNOWN_COMPONENT_PROPERTY"));
+        assert!(has("designos_update_node", "OVERRIDE_FIELD_NOT_APPLICABLE"));
+        assert!(has("designos_apply_spec", "UNKNOWN_COMPONENT_PROPERTY"));
+        assert!(has("designos_apply_spec", "OVERRIDE_FIELD_NOT_APPLICABLE"));
         for tool in ["designos_save_file", "designos_render_png", "designos_export_fig_file"] {
             assert!(has(tool, "UNSUPPORTED_EXTENSION"), "{tool}");
         }
+    }
+
+    #[test]
+    fn apply_spec_lists_property_binding_errors_it_can_return() {
+        let codes = tool_error_codes("designos_apply_spec");
+        assert!(codes.contains(&"`UNKNOWN_COMPONENT_PROPERTY`"), "{codes:?}");
+        assert!(codes.contains(&"`OVERRIDE_FIELD_NOT_APPLICABLE`"), "{codes:?}");
+    }
+
+    #[test]
+    fn rules_pack_documents_instance_arc_overrides() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        assert!(pack.contains("| `arc` |"), "OverrideSpec in the rules pack must document the supported arc override");
     }
 
     #[test]
@@ -966,6 +990,12 @@ mod tests {
         );
     }
 
+    #[test]
+    fn rules_pack_tells_the_agent_not_to_retry_or_work_around_a_needs_human_error() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        assert!(pack.contains("`needs_human` = stop and ask the user; do not retry or work around"));
+    }
+
     /// The section of the rules pack for `tool`, from its heading to the next one.
     fn pack_section(pack: &str, tool: &str) -> String {
         let start = pack.find(&format!("### `{tool}`")).unwrap_or_else(|| panic!("{tool} is in the pack"));
@@ -990,6 +1020,16 @@ mod tests {
         }
         let update = pack_section(&pack, "designos_update_node");
         assert!(update.contains(r#""fill":"var:"#), "the update_node example shows a var: fill: {update}");
+    }
+
+    #[test]
+    fn every_tool_that_can_return_a_cycle_refusal_lists_the_instance_cycle_error() {
+        // `designos_apply_batch` is not here: it returns BATCH_OP_FAILED and carries the refusal as the `cause`.
+        let pack = generate_default_rules_pack().expect("rules pack");
+        for tool in ["designos_update_node", "designos_apply_spec"] {
+            let section = pack_section(&pack, tool);
+            assert!(section.contains("`INSTANCE_CYCLE`"), "{tool} lists INSTANCE_CYCLE: {section}");
+        }
     }
 
     /// Fails when `args` uses a property the tool's advertised `inputSchema` does not declare,
@@ -1066,6 +1106,20 @@ mod tests {
         assert!(desc.starts_with(body), "{purpose}");
         let next = desc[body.len()..].chars().next().unwrap();
         assert!(next.is_whitespace(), "cut must land on a word boundary: {purpose}");
+    }
+
+    #[test]
+    fn close_document_add_comment_and_generate_code_purposes_stay_whole() {
+        let pack = generate_default_rules_pack().expect("generate default rules pack");
+        for (tool_name, required_word) in
+            [("designos_close_document", "default fail"), ("designos_add_comment", "coordinates"), ("designos_generate_code", "values")]
+        {
+            let section_header = format!("### `{tool_name}`\n- **Purpose:** ");
+            let after_header = pack.split_once(&section_header).unwrap_or_else(|| panic!("missing section header for {tool_name}")).1;
+            let purpose_line = after_header.lines().next().expect("purpose line");
+            assert!(!purpose_line.ends_with("..."), "{tool_name} purpose in rules pack must not be truncated with '...': {purpose_line}");
+            assert!(purpose_line.contains(required_word), "{tool_name} purpose must retain '{required_word}': {purpose_line}");
+        }
     }
 
     fn names(items: &[&str]) -> BTreeSet<String> {
@@ -1387,6 +1441,8 @@ mod tests {
             "`value: false`",
             "`idempotency_key`",
             "re-read",
+            "needs_human",
+            "do not retry or work around",
             "every group in a card",
             "gradients, shadows, and corner radii",
             "never hand-draw logos",

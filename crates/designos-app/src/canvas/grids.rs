@@ -634,7 +634,7 @@ mod tests {
             grid_columns: 3,
             grid_rows: 2,
             item_spacing: 16.0,
-            counter_spacing: 12.0,
+            counter_spacing: Some(12.0),
             padding: [20.0, 24.0, 20.0, 24.0],
             grid_col_tracks: tracks.into(),
             ..AutoLayout::default()
@@ -680,7 +680,7 @@ mod tests {
         let cases: Vec<(AutoLayout, DV, SizeLimits)> = vec![
             // a spanning child over auto rows inside a taller fixed frame levels the rows
             (
-                AutoLayout { direction: LayoutDirection::Grid, grid_columns: 2, item_spacing: 8.0, counter_spacing: 0.0, ..AutoLayout::default() },
+                AutoLayout { direction: LayoutDirection::Grid, grid_columns: 2, item_spacing: 8.0, counter_spacing: Some(0.0), ..AutoLayout::default() },
                 v2(300.0, 400.0),
                 SizeLimits::default(),
             ),
@@ -698,7 +698,7 @@ mod tests {
             ),
             // a frame clamped by its maximum height
             (
-                AutoLayout { direction: LayoutDirection::Grid, grid_columns: 2, item_spacing: 8.0, counter_spacing: 12.0, ..AutoLayout::default() },
+                AutoLayout { direction: LayoutDirection::Grid, grid_columns: 2, item_spacing: 8.0, counter_spacing: Some(12.0), ..AutoLayout::default() },
                 v2(300.0, 900.0),
                 SizeLimits { max_h: Some(250.0), ..Default::default() },
             ),

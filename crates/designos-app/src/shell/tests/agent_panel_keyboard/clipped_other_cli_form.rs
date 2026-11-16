@@ -40,6 +40,81 @@ fn window_with_the_form_open(height: f32) -> Sim {
     s
 }
 
+/// [`window_with_the_form_open`] with the menu scrolled back to its top: opening the form reveals it, so a form that is out of view
+/// has to be put there by scrolling away, as a later wheel turn would.
+fn window_with_the_form_scrolled_out(height: f32) -> Sim {
+    let mut s = window_with_the_form_open(height);
+    s.shell.app.terminal.picker.menu_scroll = 0.0;
+    frames_at(&mut s, height, 2);
+    s
+}
+
+/// Window heights at which the opened form lies below the menu's first screenful (the menu ends above the pill).
+const SHORT_WINDOWS: [f32; 7] = [240.0, 270.0, 300.0, 330.0, 360.0, 420.0, 480.0];
+
+#[test]
+fn opening_other_cli_brings_the_whole_form_into_view() {
+    let mut revealed = 0;
+    for height in SHORT_WINDOWS {
+        let scrolled_out = window_with_the_form_scrolled_out(height);
+        let (menu, form) = (scrolled_out.rect_of("agents-agent-menu"), scrolled_out.rect_of("agents-other-cli-form"));
+        let clipped = form.bottom() > menu.bottom();
+        finish(scrolled_out);
+        if !clipped {
+            continue;
+        }
+        revealed += 1;
+        let s = window_with_the_form_open(height);
+        let (menu, form) = (s.rect_of("agents-agent-menu"), s.rect_of("agents-other-cli-form"));
+        // The reveal aligns the form's 2 px slot, so the card may end up to 3 px past the menu's end; a form taller than the menu shows its top.
+        let fits = form.height() <= menu.height();
+        assert!(
+            form.top() >= menu.top() - 1.0 && (form.bottom() <= menu.bottom() + 3.0 || (!fits && form.top() <= menu.top() + 1.0)),
+            "at {height} px the opened form must be revealed inside the menu: form {form:?}, menu {menu:?}"
+        );
+        finish(s);
+    }
+    assert!(revealed >= 1, "some window height clips the form until the menu is revealed: {revealed}");
+}
+
+/// The window chrome above the Sim's canvas: a live window is this much taller than the Sim window that gives its menu the same room
+/// (QA r3 measured a live 520 px window clipping the form exactly where the Sim does at 460 px).
+const LIVE_CHROME: f32 = 60.0;
+
+fn assert_form_inside_menu(s: &Sim, what: &str) {
+    let (menu, form) = (s.rect_of("agents-agent-menu"), s.rect_of("agents-other-cli-form"));
+    assert!(form.top() >= menu.top() - 1.0 && form.bottom() <= menu.bottom() + 3.0, "{what}: form {form:?}, menu {menu:?}");
+}
+
+#[test]
+fn opening_other_cli_in_a_520_px_live_window_shows_the_whole_form() {
+    let height = 520.0 - LIVE_CHROME;
+    let scrolled_out = window_with_the_form_scrolled_out(height);
+    let (menu, form) = (scrolled_out.rect_of("agents-agent-menu"), scrolled_out.rect_of("agents-other-cli-form"));
+    assert!(form.bottom() > menu.bottom() + 3.0, "a live 520 px window must clip the form until it is revealed: form {form:?}, menu {menu:?}");
+    finish(scrolled_out);
+    let s = window_with_the_form_open(height);
+    assert_form_inside_menu(&s, "at a live 520 px window (Sim 460 px) opening the form reveals it");
+    finish(s);
+}
+
+#[test]
+fn resizing_the_window_with_the_form_open_reveals_it_again() {
+    // Opened in a tall window the form fits with no scroll; every shrink after that has to bring it back into view.
+    let mut s = window_with_the_form_open(700.0);
+    assert_form_inside_menu(&s, "open at 700 px");
+    for height in [460.0, 360.0, 300.0, 360.0, 460.0] {
+        frames_at(&mut s, height, 3);
+        assert_form_inside_menu(&s, &format!("after resizing to {height} px"));
+    }
+    // A wheel turn away from the form is the person's choice and stays put while the window keeps its size.
+    s.shell.app.terminal.picker.menu_scroll = 0.0;
+    frames_at(&mut s, 460.0, 3);
+    let (menu, form) = (s.rect_of("agents-agent-menu"), s.rect_of("agents-other-cli-form"));
+    assert!(form.bottom() > menu.bottom() + 3.0, "a manual scroll away is not undone without a resize: form {form:?}, menu {menu:?}");
+    finish(s);
+}
+
 /// Presses Tab 80 times: the caret never lands in a field of `ids`.
 fn assert_tab_never_reaches(s: &mut Sim, height: f32, ids: &[Id]) {
     for presses in 1..=80 {
@@ -53,7 +128,7 @@ fn assert_tab_never_reaches(s: &mut Sim, height: f32, ids: &[Id]) {
 fn a_form_clipped_out_of_the_menu_holds_no_keys() {
     let mut clipped = 0;
     for height in [240.0, 270.0, 300.0, 330.0, 360.0, 420.0, 480.0] {
-        let mut s = window_with_the_form_open(height);
+        let mut s = window_with_the_form_scrolled_out(height);
         let (menu, form) = (s.rect_of("agents-agent-menu"), s.rect_of("agents-other-cli-form"));
         // The label field starts one pad under the form's top, the command field one field and a gap below that.
         let label_top = form.top() + crate::theme::INSET_FRAME;
@@ -77,7 +152,7 @@ fn a_form_clipped_out_of_the_menu_holds_no_keys() {
 fn the_form_takes_letters_once_the_menu_is_scrolled_to_it() {
     let mut scrolled = 0;
     for height in [300.0, 330.0, 360.0, 420.0] {
-        let mut s = window_with_the_form_open(height);
+        let mut s = window_with_the_form_scrolled_out(height);
         let (menu, form) = (s.rect_of("agents-agent-menu"), s.rect_of("agents-other-cli-form"));
         if form.top() + crate::theme::INSET_FRAME < menu.bottom() {
             finish(s);

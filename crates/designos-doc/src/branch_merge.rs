@@ -238,10 +238,7 @@ pub fn merge(base: &Document, main: &Document, branch: &Document, diff: &Diff3, 
     }
     if let Some((component, cycle_path)) = crate::components::first_new_self_holding_component_cycle(main, &remapped_branch, &working, &commands) {
         let comp_name = crate::cycle_node_label(&working, component);
-        let path_text = cycle_path.join(" -> ");
-        return Err(MergeError::InstanceCycle(format!(
-            "INSTANCE_CYCLE: cannot merge branch because main component '{comp_name}' would hold an instance of itself (cycle path: {path_text})"
-        )));
+        return Err(MergeError::InstanceCycle(crate::cycle_refusal_message(crate::CycleAction::Merge, &comp_name, &cycle_path)));
     }
 
     // 6. Validate all references in the merged document (`T10.3 §2`, `§3.7`, `§8.1`, `§8.2`).
@@ -617,6 +614,10 @@ fn rewrite_node_references(
     let old_bindings = std::mem::take(&mut node.variables.bindings);
     for (prop, var_id) in old_bindings {
         node.variables.bindings.insert(prop, remap_str(&var_id, variable_map));
+    }
+    let old_prop_defaults = std::mem::take(&mut node.component.prop_default_variables);
+    for (prop, var_id) in old_prop_defaults {
+        node.component.prop_default_variables.insert(prop, remap_str(&var_id, variable_map));
     }
     let old_modes = std::mem::take(&mut node.variables.modes);
     for (col_id, mode_id) in old_modes {
@@ -1156,6 +1157,7 @@ fn copy_node_group(dst: &mut Node, src: &Node, group: Group) {
         Group::Vector => {
             dst.fill_geometry = src.fill_geometry.clone();
             dst.stroke_geometry = src.stroke_geometry.clone();
+            dst.stroke_geometry_for = src.stroke_geometry_for.clone();
             if let (NodeKind::Vector { paths: dp, network: dn }, NodeKind::Vector { paths: sp, network: sn }) = (&mut dst.kind, &src.kind) {
                 *dp = sp.clone();
                 *dn = sn.clone();
@@ -2229,6 +2231,67 @@ mod tests {
     }
 
     #[test]
+    fn branch_merge_remaps_colliding_variable_ids_in_prop_default_variables() {
+        let (base, page) = new_doc_with_page();
+        let mut main = base.clone();
+        let mut branch = base.clone();
+
+        let col_id = "col-tokens".to_string();
+        let mode_id = "mode-1".to_string();
+        let var_id = "var-label".to_string();
+
+        for (doc, text_val) in [(&mut main, "Main Label"), (&mut branch, "Branch Label")] {
+            doc.variable_collections.insert(
+                col_id.clone(),
+                VariableCollection {
+                    id: col_id.clone(),
+                    name: "Tokens".into(),
+                    modes: vec![VariableMode { id: mode_id.clone(), name: "Default".into() }],
+                    default_mode: mode_id.clone(),
+                    variables: vec![var_id.clone()],
+                    key: None,
+                    source_library_key: None,
+                    extensions: Default::default(),
+                },
+            );
+            doc.variables.insert(
+                var_id.clone(),
+                Variable {
+                    id: var_id.clone(),
+                    name: text_val.into(),
+                    collection: col_id.clone(),
+                    kind: VariableKind::String,
+                    values: BTreeMap::from([(mode_id.clone(), VariableValue::String(text_val.into()))]),
+                    description: String::new(),
+                    scopes: Vec::new(),
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: BTreeMap::new(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
+                },
+            );
+        }
+
+        let branch_comp = branch.alloc_id();
+        let mut comp_node = Node::new(branch_comp, NodeKind::Component(FrameProps::default()));
+        comp_node.name = "Branch Button".into();
+        comp_node.component.props.push(ComponentPropDef { name: "Label".into(), kind: PropKind::Text, default: PropValue::Text("CTA".into()) });
+        comp_node.component.prop_default_variables.insert("Label".into(), var_id.clone());
+        branch.insert(page, comp_node).unwrap();
+
+        let diff = diff3(&base, &main, &branch);
+        let plan = merge(&base, &main, &branch, &diff, &Resolution::default()).expect("merge succeeds");
+        let merged = &plan.merged_document;
+        let merged_comp = merged.nodes.values().find(|n| n.name == "Branch Button").unwrap();
+        assert_eq!(
+            merged_comp.component.prop_default_variables.get("Label").map(String::as_str),
+            Some("var-label-branch"),
+            "branch merge must remap colliding variable ids in prop_default_variables"
+        );
+    }
+
+    #[test]
     fn chosen_side_applies_per_layer() {
         let (mut base, page) = new_doc_with_page();
         let rect = add_rect(&mut base, page, "Hero", 10.0, 20.0);
@@ -2586,8 +2649,7 @@ mod tests {
         let result = merge_branch(&base, &main, &branch, &Resolution::default());
         let err = result.expect_err("merge must reject the cycle formed after add then move");
         let text = err.to_string();
-        assert!(text.contains("INSTANCE_CYCLE"), "named cycle error: {text}");
-        assert!(text.contains("Component -> Frame -> Component"), "error identifies cycle path: {text}");
+        assert_eq!(text, "Can't merge: Component would contain itself (Component \u{2192} Frame \u{2192} Component)");
         assert!(!text.contains("(id "), "error omits internal ids: {text}");
     }
 
@@ -2618,9 +2680,7 @@ mod tests {
 
         let err_a = merge_branch(&base, &main_a, &branch_a, &Resolution::default()).expect_err("add-then-move cycle must be refused");
         let msg_a = err_a.to_string();
-        assert!(msg_a.contains("INSTANCE_CYCLE"), "{msg_a}");
-        assert!(msg_a.contains("main component 'B'"), "{msg_a}");
-        assert!(msg_a.contains("B -> X -> B"), "{msg_a}");
+        assert_eq!(msg_a, "Can't merge: B would contain itself (B \u{2192} X \u{2192} B)");
         assert_eq!(main_a.nodes, main_a_before.nodes, "whole merge is refused; main is not half-applied");
 
         // Case 2: main puts an instance of B into X; branch moves X into B and adds an unrelated layer.
@@ -2637,9 +2697,7 @@ mod tests {
 
         let err_b = merge_branch(&base, &main_b, &branch_b, &Resolution::default()).expect_err("move-then-add cycle must be refused");
         let msg_b = err_b.to_string();
-        assert!(msg_b.contains("INSTANCE_CYCLE"), "{msg_b}");
-        assert!(msg_b.contains("main component 'B'"), "{msg_b}");
-        assert!(msg_b.contains("B -> X -> B"), "{msg_b}");
+        assert_eq!(msg_b, "Can't merge: B would contain itself (B \u{2192} X \u{2192} B)");
         assert_eq!(main_b.nodes, main_b_before.nodes, "whole merge is refused; main is not half-applied");
 
         // Case 3: base has an instance of B inside X; branch removes the instance and moves X into B (legal).
@@ -2822,5 +2880,38 @@ mod tests {
         let err_ext = merge_branch(&base, &main, &branch_ext, &Resolution::default())
             .expect_err("merge closing an alias cycle through an extended collection override must be refused");
         assert!(err_ext.to_string().to_ascii_lowercase().contains("cycle"), "error should mention cycle: {err_ext}");
+    }
+
+    #[test]
+    fn branch_diff_and_merge_include_stroke_geometry_stamp() {
+        use crate::{FillRule, Path, PathCmd};
+
+        let (mut base, page) = new_doc_with_page();
+        let id = base.alloc_id();
+        let mut rect = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 20.0));
+        rect.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        rect.stroke.weight = 4.0;
+        rect.stroke_geometry = Some(vec![Path {
+            cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(40.0, 0.0)), PathCmd::LineTo(Vec2::new(40.0, 20.0)), PathCmd::Close],
+            fill_rule: FillRule::NonZero,
+        }]);
+        base.insert(page, rect).unwrap();
+        // Make the base stamp stale (weight 1.0 while stroke.weight is 4.0).
+        base.get_mut(id).unwrap().stroke_geometry_for.as_mut().unwrap().weight = 1.0;
+        assert!(base.get(id).unwrap().live_stroke_outline().is_none());
+
+        let main = base.clone();
+        let mut branch = base.clone();
+        // Branch differs ONLY in the stamp (re-stamped to match weight 4.0).
+        branch.get_mut(id).unwrap().stamp_stroke_geometry();
+        assert!(branch.get(id).unwrap().live_stroke_outline().is_some());
+
+        let diff = crate::diff3(&base, &main, &branch);
+        let groups = diff.theirs.nodes.get(&id).and_then(|c| c.groups()).expect("stamp-only difference must be detected by branch diff");
+        assert!(groups.contains(&Group::Vector), "stamp-only difference must mark Group::Vector changed: {groups:?}");
+
+        let (merged, _) = merge_branch(&base, &main, &branch, &Resolution::default()).unwrap();
+        assert_eq!(merged.get(id).unwrap().stroke_geometry_for, branch.get(id).unwrap().stroke_geometry_for, "merge must carry updated stroke_geometry_for");
+        assert!(merged.get(id).unwrap().live_stroke_outline().is_some(), "merged node must have a live stroke outline");
     }
 }

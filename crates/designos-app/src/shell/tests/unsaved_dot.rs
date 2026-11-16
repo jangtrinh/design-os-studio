@@ -197,6 +197,9 @@ fn a_save_that_did_not_happen_keeps_the_dot_and_says_why() {
     s.shell.app.save_with(false, &ScriptedDialogs::answering(DialogOutcome::Picked(blocked.clone())));
     wait(&mut s, SETTLED);
     assert!(!blocked.exists());
+    // the earlier error is still on screen and keeps its time; this one waits behind it
+    assert!(s.app().toast_queue.iter().any(|t| t.error && t.text.starts_with("Cannot write")), "the failure waits its turn");
+    wait(&mut s, crate::theme::TOAST_SECONDS);
     assert!(s.app().toast.as_ref().is_some_and(|t| t.error && t.text.starts_with("Cannot write")), "the failure is shown");
     assert!(dot(&s), "the write failed");
 }
