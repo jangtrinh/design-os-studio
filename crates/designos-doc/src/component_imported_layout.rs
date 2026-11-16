@@ -9,77 +9,17 @@
 //! instance (the sync a record-free instance gets) gives the result it gave right after import.*
 //!
 //! The sync itself always runs unchanged. Around it, [`before_sync`] notes the geometry of each recorded instance the
-//! sync reaches, and [`after_sync`] either writes that geometry back (only the layout fields, see [`hash_layer`]) or
-//! drops the record. The result can therefore differ from a record-free sync only in the layout fields, and only while
-//! Studio's own solve of the instance is unchanged since import. Nothing about the solver's inputs is enumerated: any
-//! input that moves the solve (stroke insets, variable values, modes, nested hug frames, text measure) moves the hash.
+//! sync reaches, and [`after_sync`] either writes that geometry back (only the layout fields, see
+//! [`LayoutFields`]) or drops the record. The result can therefore differ from a record-free sync only in the layout
+//! fields, and only while Studio's own solve of the instance is unchanged since import. Nothing about the solver's
+//! inputs is enumerated: any input that moves the solve (stroke insets, variable values, modes, nested hug frames, text
+//! measure) moves the hash.
 
 use crate::branch_diff::StableHasher;
+use crate::component_imported_layout_fields::{layout_hash, meaning_hash, subtree, LayoutFields};
 use crate::components::{instance_root_of, sync_one, Ctx};
-use std::collections::BTreeSet;
-
-use crate::{Affine, Document, ImportedLayout, Node, NodeId, NodeKind, Path, StretchedAxes, StrokeGeometryStamp, Vec2};
-
-/// Shape layers whose baked outline is drawn for the shape parameters their `kind` holds.
-fn is_parametric_shape(kind: &NodeKind) -> bool {
-    matches!(kind, NodeKind::Rectangle | NodeKind::Ellipse(_) | NodeKind::Star { .. } | NodeKind::Polygon { .. } | NodeKind::Line | NodeKind::BooleanOp(_))
-}
-
-/// Hashes what decides whether the stored geometry of one layer is still right.
-///
-/// The layout fields (the ones [`LayoutFields`] puts back): size, position (not on the instance root, whose position is
-/// its own and never synced), the auto-layout stretch record, the baked fill and stroke outlines, and a vector's paths.
-/// Then what those fields mean: corner radii and a shape's parameters, for which a baked outline was drawn. The layer's
-/// identity is the main layer it mirrors and its child count, so a copy of an instance hashes like the original.
-fn hash_layer(h: &mut StableHasher, n: &Node, is_root: bool) {
-    h.add(&n.component.source);
-    h.add(&(n.children.len() as u64));
-    h.add(&n.size);
-    if !is_root {
-        h.add(&n.transform);
-    }
-    h.add(&n.layout_child.stretched);
-    h.add(&n.fill_geometry);
-    h.add(&n.stroke_geometry);
-    h.add(&n.stroke_geometry_for);
-    if matches!(n.kind, NodeKind::Vector { .. }) {
-        h.add(&n.kind);
-    }
-    h.add(&meaning_hash(n));
-}
-
-/// What the baked outlines of `n` were drawn for, apart from the layout fields themselves: corner radii and the
-/// parameters of a shape. (A vector's paths are a layout field: Figma stores them resized with the instance.)
-fn meaning_hash(n: &Node) -> u64 {
-    let mut h = StableHasher::new();
-    h.add(&n.corner_radii);
-    h.add(&n.corner_smoothing);
-    if is_parametric_shape(&n.kind) {
-        h.add(&n.kind);
-    }
-    h.finish()
-}
-
-/// The layers of the subtree under `root`, parents before children, in child order.
-fn subtree(doc: &Document, root: NodeId) -> Option<Vec<NodeId>> {
-    let mut out = Vec::new();
-    let mut stack = vec![root];
-    while let Some(id) = stack.pop() {
-        let n = doc.get(id)?;
-        out.push(id);
-        stack.extend(n.children.iter().rev().copied());
-    }
-    Some(out)
-}
-
-/// Hash of the layout of the subtree under `root`; `None` when a listed child is missing.
-fn layout_hash(doc: &Document, root: NodeId) -> Option<u64> {
-    let mut h = StableHasher::new();
-    for id in subtree(doc, root)? {
-        hash_layer(&mut h, doc.get(id)?, id == root);
-    }
-    Some(h.finish())
-}
+use crate::{Document, ImportedLayout, NodeId, NodeKind};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Studio's canonical solve of instance `holder` (the sync a record-free instance gets), hashed like [`layout_hash`].
 /// The document is left as it was, id counter included: the trial's inserts and updates are all undone.
@@ -148,73 +88,38 @@ pub fn layout_inputs_outside_layers_hash(doc: &Document) -> u64 {
     h.finish()
 }
 
-/// The layout fields of one layer, as written back when its stored geometry is kept.
-struct LayoutFields {
-    id: NodeId,
-    size: Vec2,
-    transform: Affine,
-    stretched: StretchedAxes,
-    fill_geometry: Option<Vec<Path>>,
-    stroke_geometry: Option<Vec<Path>>,
-    stroke_geometry_for: Option<StrokeGeometryStamp>,
-    vector: Option<NodeKind>,
-    meaning: u64,
-}
-
-impl LayoutFields {
-    fn of(n: &Node) -> Self {
-        Self {
-            id: n.id,
-            size: n.size,
-            transform: n.transform,
-            stretched: n.layout_child.stretched,
-            fill_geometry: n.fill_geometry.clone(),
-            stroke_geometry: n.stroke_geometry.clone(),
-            stroke_geometry_for: n.stroke_geometry_for.clone(),
-            vector: matches!(n.kind, NodeKind::Vector { .. }).then(|| n.kind.clone()),
-            meaning: meaning_hash(n),
-        }
-    }
-
-    fn write_to(&self, n: &mut Node, is_root: bool) {
-        n.size = self.size;
-        if !is_root {
-            n.transform = self.transform;
-        }
-        n.layout_child.stretched = self.stretched;
-        n.fill_geometry.clone_from(&self.fill_geometry);
-        n.stroke_geometry.clone_from(&self.stroke_geometry);
-        n.stroke_geometry_for.clone_from(&self.stroke_geometry_for);
-        if let Some(kind) = &self.vector {
-            n.kind = kind.clone();
-        }
-    }
-}
-
 /// A recorded instance a sync is about to reach.
 pub(crate) struct Held {
     holder: NodeId,
     record: ImportedLayout,
     /// The layout of every layer as it was before the sync, when the instance still held its imported geometry.
     before: Option<Vec<LayoutFields>>,
+    /// The sync runs Studio's canonical solve of this instance itself: it is a target, no other target lies inside
+    /// it, and no target lies inside a main (so nothing it mirrors is written by the sync).
+    solved_by_sync: bool,
 }
 
 /// Notes, before a sync of `targets`, the geometry of every recorded instance the sync reaches. Cheap when no record
 /// is reached: one walk up from each target.
 pub(crate) fn before_sync(doc: &Document, targets: &[NodeId]) -> Vec<Held> {
-    let mut holders: BTreeSet<NodeId> = BTreeSet::new();
-    let mut held: Vec<Held> = Vec::new();
+    let mut targets_in: BTreeMap<NodeId, usize> = BTreeMap::new();
     for &t in targets {
-        let Some(holder) = instance_root_of(doc, t) else { continue };
-        if !holders.insert(holder) {
-            continue;
+        if let Some(holder) = instance_root_of(doc, t) {
+            *targets_in.entry(holder).or_default() += 1;
         }
+    }
+    let target_set: BTreeSet<NodeId> = targets.iter().copied().collect();
+    let any_target_in_a_main = || targets.iter().any(|&t| crate::components::enclosing_component(doc, t).is_some());
+    let mut in_a_main: Option<bool> = None;
+    let mut held = Vec::new();
+    for (&holder, &count) in &targets_in {
         let Some(record) = doc.get(holder).and_then(|n| n.component.imported_layout) else { continue };
         let before = (layout_hash(doc, holder) == Some(record.stored))
             .then(|| subtree(doc, holder))
             .flatten()
             .and_then(|ids| ids.iter().map(|id| doc.get(*id).map(LayoutFields::of)).collect::<Option<Vec<_>>>());
-        held.push(Held { holder, record, before });
+        let solved_by_sync = count == 1 && target_set.contains(&holder) && !*in_a_main.get_or_insert_with(any_target_in_a_main);
+        held.push(Held { holder, record, before, solved_by_sync });
     }
     held
 }
@@ -233,9 +138,10 @@ fn mains_around(doc: &Document, id: NodeId) -> usize {
     n
 }
 
-/// After the sync of `targets`: for each instance [`before_sync`] noted, writes its stored geometry back when the
-/// instance held it before the sync, Studio's canonical solve of it is the one recorded at import, and the sync left
-/// its layers and their shape parameters as they were; otherwise drops the record, and the sync's own layout stands.
+/// After the sync: for each instance [`before_sync`] noted, writes its stored geometry back when the instance held it
+/// before the sync, Studio's canonical solve of it is the one recorded at import, and the sync left its layers, and the
+/// shape parameters of every baked outline, as they were; otherwise drops the record, and the sync's own layout stands.
+/// When the sync wrote no layout field at all, the instance already is the record-free result and keeps its record.
 ///
 /// The solve is checked on the document as the sync left it, so the instance sees its references already synced, as
 /// at import. Instances inside a main go first, so an instance of that main sees them back on their stored geometry.
@@ -245,22 +151,35 @@ pub(crate) fn after_sync(c: &mut Ctx, mut held: Vec<Held>) {
     }
     held.sort_by_key(|h| (std::cmp::Reverse(mains_around(c.s, h.holder)), h.holder.0));
     for h in held {
-        let keep = h.before.as_ref().is_some_and(|before| {
-            canonical_solve_hash(c.s, h.holder) == Some(h.record.solved)
-                && subtree(c.s, h.holder).is_some_and(|ids| {
-                    ids.len() == before.len() && ids.iter().zip(before).all(|(id, b)| *id == b.id && c.s.get(*id).is_some_and(|n| meaning_hash(n) == b.meaning))
-                })
-        });
-        if keep {
-            for b in h.before.iter().flatten() {
-                if let Some(mut n) = c.s.get(b.id).cloned() {
-                    b.write_to(&mut n, b.id == h.holder);
-                    c.update(n);
-                }
-            }
-        } else if let Some(mut n) = c.s.get(h.holder).cloned() {
-            n.component.imported_layout = None;
-            c.update(n);
+        let Some(before) = h.before.as_ref() else {
+            drop_record(c, h.holder);
+            continue;
+        };
+        if layout_hash(c.s, h.holder) == Some(h.record.stored) {
+            continue;
         }
+        let solved = if h.solved_by_sync { layout_hash(c.s, h.holder) } else { canonical_solve_hash(c.s, h.holder) };
+        let keep = solved == Some(h.record.solved)
+            && subtree(c.s, h.holder).is_some_and(|ids| {
+                ids.len() == before.len()
+                    && ids.iter().zip(before).all(|(id, b)| *id == b.id && b.outline_meaning.is_none_or(|m| c.s.get(*id).is_some_and(|n| meaning_hash(n) == m)))
+            });
+        if !keep {
+            drop_record(c, h.holder);
+            continue;
+        }
+        for b in before {
+            if let Some(mut n) = c.s.get(b.id).cloned() {
+                b.write_to(&mut n, b.id == h.holder);
+                c.update(n);
+            }
+        }
+    }
+}
+
+fn drop_record(c: &mut Ctx, holder: NodeId) {
+    if let Some(mut n) = c.s.get(holder).cloned() {
+        n.component.imported_layout = None;
+        c.update(n);
     }
 }
