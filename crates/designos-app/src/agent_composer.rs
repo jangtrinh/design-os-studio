@@ -197,6 +197,8 @@ pub struct ComposerState {
     pub attach_prd: bool,
     /// Fingerprint of a selection chip the user dismissed. `None` shows the chip.
     pub selection_chip_dismissed: Option<u64>,
+    /// The `(at_byte, query)` mention token dismissed in this composer so another tab's draft never clears it.
+    pub dismissed_token: Option<(usize, String)>,
 }
 
 impl ComposerState {
@@ -631,6 +633,23 @@ impl TerminalState {
         }
     }
 
+    /// Stable identifier of the live composer on screen (`Some(0)` in New Chat, `Some(tab.id)` on an agent tab, `None` on a shell tab).
+    pub fn active_composer_id(&self) -> Option<usize> {
+        if self.in_new_chat() {
+            Some(0)
+        } else {
+            self.active_tab().filter(|t| !t.is_shell_process()).map(|t| t.id)
+        }
+    }
+
+    fn composer_by_id_mut(&mut self, id: usize) -> Option<&mut ComposerState> {
+        if id == 0 {
+            Some(&mut self.unattached_composer)
+        } else {
+            self.tabs.iter_mut().find(|t| t.id == id).map(|t| &mut t.composer)
+        }
+    }
+
     /// Current draft text of the composer on screen.
     pub fn composer_draft(&self) -> &str {
         &self.active_composer().draft
@@ -861,8 +880,9 @@ impl TerminalState {
             return self.start_new_chat_session(&payload, trimmed, file_path);
         }
 
+        let in_new_chat = self.in_new_chat();
         let active_idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
-        if !self.in_new_chat() {
+        if system || !in_new_chat {
             if let Some(tab) = self.tabs.get_mut(active_idx) {
                 if let Some(reason) = tab.mode_refusal() {
                     // A prompt entry point's text was never in the composer: put it there, as the shell branch below does.
@@ -900,18 +920,22 @@ impl TerminalState {
                     return SendOutcome::Refused(RefuseReason::NoAgent);
                 }
                 if tab.composer.not_ready_gate {
-                    let msg = RefuseReason::NotReady.message().to_string();
-                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NotReady));
-                    tab.composer.notice = Some(msg.clone());
-                    self.status_msg = Some(msg);
+                    if !(system && in_new_chat) {
+                        let msg = RefuseReason::NotReady.message().to_string();
+                        tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NotReady));
+                        tab.composer.notice = Some(msg.clone());
+                        self.status_msg = Some(msg);
+                    }
                     return SendOutcome::Refused(RefuseReason::NotReady);
                 }
                 // A Gemini dialog on the tab's screen refuses a send whatever the status says: the paste could pick one of its options.
                 if waits_on_the_user(tab) {
-                    let msg = RefuseReason::Permission.message().to_string();
-                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
-                    tab.composer.notice = Some(msg.clone());
-                    self.status_msg = Some(msg);
+                    if !(system && in_new_chat) {
+                        let msg = RefuseReason::Permission.message().to_string();
+                        tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
+                        tab.composer.notice = Some(msg.clone());
+                        self.status_msg = Some(msg);
+                    }
                     return SendOutcome::Refused(RefuseReason::Permission);
                 }
                 if tab.is_alive() {
@@ -1181,6 +1205,22 @@ pub fn show_composer(
     let is_shell_tab = state.active_tab().is_some_and(|t| t.is_shell_process());
     let new_chat = state.in_new_chat();
     let composer_live = !is_shell_tab || new_chat;
+    let now_id = state.active_composer_id();
+    if state.mention_popup.composer_id != now_id {
+        state.mention_popup.dismiss();
+        if let Some(prev_id) = state.mention_popup.composer_id {
+            let tok = state.mention_popup.dismissed_token.take();
+            if let Some(prev_comp) = state.composer_by_id_mut(prev_id) {
+                prev_comp.dismissed_token = tok;
+            }
+        }
+        state.mention_popup.dismissed_token = now_id.and_then(|id| state.composer_by_id_mut(id).and_then(|c| c.dismissed_token.clone()));
+        state.mention_popup.composer_id = now_id;
+    }
+    if !composer_live {
+        // A composer that is not live paints no popup and reads no text, so nothing else would ever close an `@` popup left open.
+        state.mention_popup.dismiss();
+    }
     let (pill_label, pill_preset) = crate::agent_picker::composer_pill(state);
     if state.picker.cache.is_probing() {
         // The pill and the placeholder name the agent a Send would start. Probes finish on another thread and no input follows them, so
@@ -1211,6 +1251,7 @@ pub fn show_composer(
             let _ = with_composer_draft(state, |draft, popup, mentions| popup.handle_keyboard(&ctx, draft, mentions));
             apply_post_pick_cursor(ui, state, input_id);
         }
+        state.active_composer_mut().dismissed_token = state.mention_popup.dismissed_token.clone();
     }
 
     let mut submit_composer = false;
@@ -1359,6 +1400,7 @@ pub fn show_composer(
             let _ = with_composer_draft(state, |draft, popup, mentions| popup.show(ui, panel_rect, composer_rect, draft, mentions));
             apply_post_pick_cursor(ui, state, input_id);
         }
+        state.active_composer_mut().dismissed_token = state.mention_popup.dismissed_token.clone();
     }
     if state.composer_draft() != prev_draft {
         // User typed directly into the field; leave history cursor mode.
@@ -1961,7 +2003,7 @@ mod tests {
 
         assert!(st.tabs.is_empty());
         assert_eq!(st.unattached_composer.draft, "Keep this queued");
-        assert_eq!(st.unattached_composer.notice.as_deref(), Some("Queued message restored after tab close"));
+        assert_eq!(st.unattached_composer.notice.as_deref(), Some("Queued message restored in New chat"));
         assert!(st.unattached_composer.pending_send.is_empty());
 
         st.shutdown();
@@ -1978,7 +2020,7 @@ mod tests {
 
         st.close_tab(0);
 
-        assert_eq!(crate::agent_composer_text::caption(&st).as_deref(), Some("Queued message restored after tab close"));
+        assert_eq!(crate::agent_composer_text::caption(&st).as_deref(), Some("Queued message restored in New chat"));
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
@@ -2028,9 +2070,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Closing a background tab that held waiting text tells the person, in the composer of the tab that stays, where it went.
+    /// Closing a background tab that held waiting text puts it in New chat and leaves the tab that stays with its own notice.
     #[test]
-    fn closing_a_background_tab_with_waiting_text_signals_it_in_the_composer_that_stays() {
+    fn closing_a_background_tab_with_waiting_text_keeps_the_notice_of_the_tab_that_stays() {
         let dir = temp_composer_dir("close-tab-signal");
         let mut st = TerminalState::new_for_session("doc-close-signal", "Close Signal", Some(&dir));
         let _first = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
@@ -2038,15 +2080,207 @@ mod tests {
         assert_eq!(st.tabs.len(), 2);
         st.active_tab = 1;
         st.tabs[0].composer.pending_send.push_back(QueuedSend::new("Keep this queued", false));
+        st.tabs[1].composer.pending_send.extend([QueuedSend::new("existing one", false), QueuedSend::new("existing two", false)]);
+        st.tabs[1].composer.notice = Some("2 messages waiting to send".into());
 
         st.close_tab(0);
 
         assert_eq!(st.tabs.len(), 1);
         assert_eq!(st.unattached_composer.draft, "Keep this queued", "the text waits in New chat");
-        assert_eq!(crate::agent_composer_text::caption(&st).as_deref(), Some("Queued message restored after tab close"));
-        assert_eq!(st.status_msg.as_deref(), Some("Queued message restored after tab close"));
+        assert_eq!(st.active_composer().notice.as_deref(), Some("2 messages waiting to send"));
+        assert_eq!(st.status_msg.as_deref(), Some("Queued message restored in New chat"));
 
         st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two background tabs closed one after the other: their waiting text joins New chat in closing order, and the tab that stays
+    /// keeps its notice and its send receipt.
+    #[test]
+    fn closing_two_background_tabs_in_turn_collects_both_messages_and_spares_the_tab_that_stays() {
+        let dir = temp_composer_dir("close-two-tabs");
+        let mut st = TerminalState::new_for_session("doc-close-two", "Close Two", Some(&dir));
+        let _a = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _b = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _c = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        assert_eq!(st.tabs.len(), 3);
+        st.active_tab = 2;
+        st.tabs[0].composer.pending_send.push_back(QueuedSend::new("from the first tab", false));
+        st.tabs[1].composer.pending_send.push_back(QueuedSend::new("from the second tab", false));
+        st.tabs[2].composer.notice = Some("Starting Claude Code… your message will be sent".into());
+        st.tabs[2].composer.last_outcome = Some(SendOutcome::Queued);
+
+        st.close_tab(0);
+        st.close_tab(0);
+
+        assert_eq!(st.tabs.len(), 1);
+        assert_eq!(st.unattached_composer.draft, "from the first tab\n\nfrom the second tab");
+        assert_eq!(st.unattached_composer.notice.as_deref(), Some("Queued message restored in New chat"));
+        assert_eq!(st.active_composer().notice.as_deref(), Some("Starting Claude Code… your message will be sent"));
+        assert_eq!(st.active_composer().last_outcome, Some(SendOutcome::Queued));
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Closing the active tab hands the screen to another tab, which keeps its own notice and receipt.
+    #[test]
+    fn closing_the_active_tab_with_waiting_text_leaves_the_next_tab_its_notice() {
+        let dir = temp_composer_dir("close-active-tab");
+        let mut st = TerminalState::new_for_session("doc-close-active", "Close Active", Some(&dir));
+        let _a = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _b = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.active_tab = 1;
+        st.tabs[0].composer.notice = Some("2 messages waiting to send".into());
+        st.tabs[0].composer.last_outcome = Some(SendOutcome::Queued);
+        st.tabs[1].composer.pending_send.push_back(QueuedSend::new("from the tab being closed", false));
+
+        st.close_tab(1);
+
+        assert_eq!(st.tabs.len(), 1);
+        assert_eq!(st.active_tab, 0);
+        assert_eq!(st.unattached_composer.draft, "from the tab being closed");
+        assert_eq!(st.active_composer().notice.as_deref(), Some("2 messages waiting to send"));
+        assert_eq!(st.active_composer().last_outcome, Some(SendOutcome::Queued));
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A New chat that already holds a draft keeps it and gets the recovered text after it. The restore notice replaces whatever
+    /// notice New chat had, because it is the news.
+    #[test]
+    fn closing_a_tab_appends_to_a_new_chat_draft_and_replaces_its_notice() {
+        let dir = temp_composer_dir("close-tab-appends");
+        let mut st = TerminalState::new_for_session("doc-close-appends", "Close Appends", Some(&dir));
+        let _a = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _b = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.active_tab = 1;
+        st.unattached_composer.draft = "typed in New chat".into();
+        st.unattached_composer.notice = Some("an older New chat notice".into());
+        st.tabs[0].composer.pending_send.push_back(QueuedSend::new("Keep this queued", false));
+
+        st.close_tab(0);
+
+        assert_eq!(st.unattached_composer.draft, "typed in New chat\n\nKeep this queued");
+        assert_eq!(st.unattached_composer.notice.as_deref(), Some("Queued message restored in New chat"));
+        assert!(st.unattached_composer.pending_send.is_empty());
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn app_with_terminal(st: TerminalState) -> crate::app::App {
+        let mut app = crate::app::App::new(designos_doc::Document::new("Untitled"));
+        app.terminal = st;
+        app
+    }
+
+    /// New chat is off screen while another tab stays, so the move of the waiting text is told once, as an info toast with the
+    /// notice text. Two tabs closed before the next frame give one toast, and nothing is left due after it.
+    #[test]
+    fn closing_tabs_that_move_text_to_new_chat_raises_one_info_toast_while_another_tab_shows() {
+        let dir = temp_composer_dir("close-toast");
+        let mut st = TerminalState::new_for_session("doc-close-toast", "Close Toast", Some(&dir));
+        let _a = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _b = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _c = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.active_tab = 2;
+        st.tabs[0].composer.pending_send.push_back(QueuedSend::new("from the first tab", false));
+        st.tabs[1].composer.pending_send.push_back(QueuedSend::new("from the second tab", false));
+        let mut app = app_with_terminal(st);
+
+        app.terminal.close_tab(0);
+        app.terminal.close_tab(0);
+        app.show_terminal_toasts();
+
+        let toast = app.toast.as_ref().expect("the person is told where the text went");
+        assert_eq!((toast.text.as_str(), toast.error), ("Queued message restored in New chat", false), "an info toast with the notice text");
+        assert!(app.toast_queue.is_empty());
+        app.toast = None;
+        app.show_terminal_toasts();
+        assert!(app.toast.is_none(), "two closes gave one toast, and nothing stays due");
+
+        app.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// When an error toast is on screen with an empty queue and a background tab close raises the queued-text recovery line,
+    /// the error toast stays on screen and the recovery line shows after it.
+    #[test]
+    fn the_queued_text_recovery_toast_waits_behind_an_error_toast_on_screen() {
+        let dir = temp_composer_dir("close-toast-behind-error");
+        let ctx = egui::Context::default();
+        let mut shell = crate::shell::Shell::build(&ctx, crate::cli::Options { fixture: Some("demo".into()), ..Default::default() });
+        let mut st = TerminalState::new_for_session("doc-close-behind-err", "Close Behind Err", Some(&dir));
+        let _a = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _b = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.active_tab = 1;
+        shell.app.terminal = st;
+
+        let run_at = |shell: &mut crate::shell::Shell, t: f64| {
+            let raw = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(1440.0, 900.0))),
+                time: Some(t),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(raw, |ui| shell.draw(ui));
+        };
+
+        shell.app.show_toast("Switch to Ask first to use Codex.", true);
+        run_at(&mut shell, 1.0);
+        assert_eq!(shell.app.toast.as_ref().map(|t| (t.text.as_str(), t.error)), Some(("Switch to Ask first to use Codex.", true)));
+        assert!(shell.app.toast_queue.is_empty());
+
+        shell.app.terminal.tabs[0].composer.pending_send.push_back(QueuedSend::new("from the background tab", false));
+        shell.app.terminal.close_tab(0);
+        run_at(&mut shell, 1.05);
+
+        assert_eq!(
+            shell.app.toast.as_ref().map(|t| (t.text.as_str(), t.error)),
+            Some(("Switch to Ask first to use Codex.", true)),
+            "the error toast stays on screen"
+        );
+        let queued: Vec<(&str, bool)> = shell.app.toast_queue.iter().map(|t| (t.text.as_str(), t.error)).collect();
+        assert_eq!(queued, vec![("Queued message restored in New chat", false)], "the recovery line waits in the queue");
+
+        let expires = 1.0 + crate::theme::TOAST_SECONDS + 0.1;
+        run_at(&mut shell, expires);
+        assert_eq!(
+            shell.app.toast.as_ref().map(|t| (t.text.as_str(), t.error)),
+            Some(("Queued message restored in New chat", false)),
+            "the recovery line shows after the error toast expires"
+        );
+        assert!(shell.app.toast_queue.is_empty());
+
+        shell.app.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// With New chat on screen, its notice is already in front of the person: no toast. Closing the last tab opens New chat too.
+    #[test]
+    fn no_toast_when_new_chat_is_the_composer_on_screen() {
+        let dir = temp_composer_dir("close-no-toast");
+        let mut st = TerminalState::new_for_session("doc-close-no-toast", "Close No Toast", Some(&dir));
+        let _a = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _b = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.picker_open = true;
+        st.tabs[0].composer.pending_send.push_back(QueuedSend::new("from the first tab", false));
+        st.tabs[1].composer.pending_send.push_back(QueuedSend::new("from the second tab", false));
+        let mut app = app_with_terminal(st);
+
+        app.terminal.close_tab(0);
+        app.show_terminal_toasts();
+        assert!(app.toast.is_none(), "New chat was already focused");
+
+        app.terminal.picker_open = false;
+        app.terminal.close_tab(0);
+        assert!(app.terminal.in_new_chat(), "closing the last tab opens New chat");
+        app.show_terminal_toasts();
+        assert!(app.toast.is_none(), "the last tab closed: New chat shows its own notice");
+        assert_eq!(app.terminal.unattached_composer.draft, "from the first tab\n\nfrom the second tab");
+
+        app.terminal.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2441,7 +2675,7 @@ mod tests {
         st.path_prepend.push(bin_dir);
         assert!(st.tabs.is_empty());
 
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 7: Remove background.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 7: Remove background.", None);
 
         assert_eq!(st.tabs.len(), 1, "exactly one tab is opened");
         {
@@ -2454,10 +2688,38 @@ mod tests {
         assert!(received.contains("Image task 7: Remove background."), "the agent CLI must receive the prompt: {received:?}");
 
         // A second job reuses the same agent tab.
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 8: Isolate subject.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 8: Isolate subject.", None);
         assert_eq!(st.tabs.len(), 1, "a ready agent tab of the same CLI is reused");
         let received = wait_for_file_containing(&mut st, &recv, "Image task 8");
         assert!(received.contains("Image task 8: Isolate subject."), "second prompt reaches the same CLI: {received:?}");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A refusal an earlier start left behind says nothing about this send: the image job gets this send's own sentence.
+    #[test]
+    fn a_refused_system_image_prompt_reports_its_own_reason_not_an_earlier_start_refusal() {
+        let dir = temp_composer_dir("system-refusal-stale");
+        let mut st = TerminalState::new_for_session("doc-system-stale", "System Stale", Some(&dir));
+        let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.last_start_refusal = Some("Switch to Ask first to use Codex.");
+        st.tabs[0].composer.not_ready_gate = true;
+
+        let not_ready = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 12: Remove background.", None);
+        assert_eq!(not_ready, Ok(()), "a temporary NotReady refusal does not fail the image job");
+        assert_eq!(st.status_msg.as_deref(), Some(RefuseReason::NotReady.message()));
+
+        st.tabs[0].composer.not_ready_gate = false;
+        st.tabs[0].spawn_preset = AgentCliPreset::Grok;
+        st.tabs[0].preset = AgentCliPreset::Grok;
+        st.tabs[0].permission_mode = crate::agent_permissions::AgentPermissionMode::AskRisky;
+        let expected = crate::agent_permissions::ask_risky_unsupported_reason(AgentCliPreset::Grok).expect("Grok has no approval hook");
+
+        let result = st.submit_system_image_prompt(AgentCliPreset::Grok, "Image task 12: Remove background.", None);
+
+        assert_eq!(result, Err(expected.to_string()));
+        assert_eq!(st.tabs.len(), 1, "the ready tab is reused, not replaced");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
@@ -2478,7 +2740,7 @@ mod tests {
         st.active_tab = 0;
         let before: Vec<(AgentCliPreset, AgentCliPreset, String)> = st.tabs.iter().map(|t| (t.preset, t.spawn_preset, t.title.clone())).collect();
 
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 9: Remove background.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 9: Remove background.", None);
 
         assert_eq!(st.tabs.len(), 3, "a Claude tab is added next to the user's Shell and Codex tabs");
         for (i, (preset, spawn_preset, title)) in before.iter().enumerate() {
@@ -2512,7 +2774,7 @@ mod tests {
         st.active_mentions.push(sample_mention());
         let sends_before = st.active_composer().send_count;
 
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 3: Remove background. Compare @Hero/Title.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 3: Remove background. Compare @Hero/Title.", None);
 
         let comp = st.active_composer();
         assert_eq!(comp.draft, "half typed thought", "a system send must not clear the draft");
@@ -2539,7 +2801,7 @@ mod tests {
         let mut st = TerminalState::new_for_session("doc-system-failed-start", "System Send", Some(&dir));
         st.path_prepend.push(bin_dir);
 
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 5: Remove background.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 5: Remove background.", None);
 
         assert!(st.poll_until_start_failure(crate::test_timing::STUB_WAIT), "the stub CLI fails to start");
         let _ = st.poll_live_agent_bridge();
@@ -3274,7 +3536,12 @@ mod tests {
     fn the_send_button_is_disabled_not_just_red_over_the_skill_limit() {
         let ctx = themed_context();
         let dir = temp_composer_dir("skills-send-disabled");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
         let mut st = TerminalState::new_for_session("doc-skills-send-disabled", "Skill Send", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.picker.cache.refresh_blocking();
+        st.picker.probe_started = true;
         for builtin in ["design-system-rhythm", "accessibility-wcag", "component-craft"] {
             st.skills.toggle_skill(builtin);
         }
@@ -3424,8 +3691,10 @@ mod tests {
         st.active_runtime = AgentCliPreset::Claude;
 
         assert_eq!(st.send_from_composer_box("user entry one", None), SendOutcome::Queued);
-        assert_eq!(st.send_system_prompt("system image task", None), SendOutcome::Queued);
-        assert_eq!(st.send_to_agent("user entry two", None), SendOutcome::Queued);
+        st.tabs[0].last_output_at = std::sync::Arc::new(std::sync::Mutex::new(None));
+        st.tabs[0].composer.flush_paused = true;
+        st.tabs[0].composer.pending_send.push_back(QueuedSend::new("system image task", true));
+        st.tabs[0].composer.pending_send.push_back(QueuedSend::new("user entry two", false));
         assert_eq!(st.composer_draft(), "");
 
         assert!(st.poll_until_start_failure(crate::test_timing::STUB_WAIT), "Start failure must be recorded");
@@ -3574,7 +3843,7 @@ mod tests {
     fn make_tab_ready_for_test(st: &mut TerminalState, idx: usize, old_spawn: bool) {
         let tab = &mut st.tabs[idx];
         tab.parser.lock().unwrap().process(b"\x1b[?2004h");
-        *tab.last_output_at.lock().unwrap() = Some(Instant::now() - READY_QUIET_OUTPUT - Duration::from_millis(50));
+        tab.last_output_at = std::sync::Arc::new(std::sync::Mutex::new(Some(Instant::now() - READY_QUIET_OUTPUT - Duration::from_millis(50))));
         if old_spawn {
             tab.spawned_at = Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - Duration::from_secs(1);
         }
@@ -3757,11 +4026,16 @@ mod tests {
         st.active_runtime = AgentCliPreset::Claude;
 
         assert_eq!(st.send_to_agent("user prompt at start", None), SendOutcome::Queued);
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 7: Remove background.", None);
+        let _ = attach_recording_writer(&mut st.tabs[0]);
+        st.tabs[0].last_output_at = std::sync::Arc::new(std::sync::Mutex::new(None));
+        st.tabs[0].composer.flush_paused = true;
+        st.tabs[0].spawned_at = Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - Duration::from_secs(1);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 7: Remove background.", None);
         assert_eq!(st.tabs.len(), 1);
         assert_eq!(st.tabs[0].composer.pending_send.len(), 2);
 
         // First ready tick flushes the user prompt even when an image job was queued behind it.
+        st.tabs[0].composer.flush_paused = false;
         make_tab_ready_for_test(&mut st, 0, true);
         st.tick_composer();
         st.flush_pending_enter_now();
@@ -3800,7 +4074,7 @@ mod tests {
         *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(Some("Reading the file\u{2026}".into()));
         st.tick_composer();
 
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 8: Upscale.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 8: Upscale.", None);
         assert_eq!(
             *st.tabs[0].agent_status.lock().unwrap(),
             AgentTabStatus::Working(Some("Reading the file\u{2026}".into())),
@@ -3984,7 +4258,7 @@ mod tests {
         *st_img.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
         let written_at_img_hold = tab_written_string(&st_img, 0);
 
-        st_img.submit_system_image_prompt(AgentCliPreset::Gemini, "Image task 9: Upscale.", None);
+        let _ = st_img.submit_system_image_prompt(AgentCliPreset::Gemini, "Image task 9: Upscale.", None);
         assert_eq!(
             st_img.tabs[0].composer.last_outcome,
             Some(SendOutcome::Queued),
@@ -4042,7 +4316,7 @@ mod tests {
         st.tabs[0].composer.enter_written_at = Some(Instant::now());
         assert_eq!(*st.tabs[0].agent_status.lock().unwrap(), AgentTabStatus::Idle);
 
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 10: Remove background.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 10: Remove background.", None);
 
         std::thread::sleep(READY_QUIET_OUTPUT + Duration::from_millis(40));
         st.tick_composer();
@@ -4069,7 +4343,7 @@ mod tests {
         st.tabs[0].composer.output_at_enter = out_at_enter_2;
         st.tabs[0].composer.enter_written_at = Some(Instant::now());
         assert_eq!(*st.tabs[0].agent_status.lock().unwrap(), AgentTabStatus::Idle);
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 11: Relight.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 11: Relight.", None);
         std::thread::sleep(READY_QUIET_OUTPUT + Duration::from_millis(40));
         st.tick_composer();
         st.flush_pending_enter_now();

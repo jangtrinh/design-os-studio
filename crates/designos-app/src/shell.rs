@@ -2483,6 +2483,7 @@ impl Shell {
         if !bridge_actions.is_empty() {
             execute_terminal_actions_with_ctx(&mut self.app, bridge_actions, Some(&ctx));
         }
+        self.app.show_terminal_toasts();
         // Agent edits that arrived during a drag or text edit land once it has ended.
         crate::live_patch_apply::apply_pending_live_patches(&mut self.app);
         crate::widgets::set_document_profile(self.app.doc.color_profile);
@@ -3224,6 +3225,7 @@ pub fn apply_micro_interaction_showcase_preset(app: &mut App, preset: &str) {
                     start_count: star_cnt,
                     start_ratio: if select_star { star_ratio } else { arc_ratio },
                     start_end_angle: arc_end,
+                    moved: false,
                 });
                 app.startup_zoom = Some(1.50);
             }
@@ -3971,6 +3973,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                     start_count: star_cnt,
                     start_ratio: if select_star { star_ratio } else { arc_ratio },
                     start_end_angle: arc_end,
+                    moved: false,
                 });
             }
 

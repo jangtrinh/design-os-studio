@@ -319,3 +319,46 @@ fn update_node_refuses_mismatched_library_prop_var_without_importing_then_binds_
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn apply_spec_reports_property_binding_errors_with_documented_codes() {
+    let mut s = setup();
+    let page = s.e.resolve_default_page().unwrap();
+    let apply_spec_line = designos_mcp::rules::GENERATED_RULES_MD
+        .split("### `designos_apply_spec`\n")
+        .nth(1)
+        .and_then(|rest| rest.lines().find(|line| line.starts_with("- **Errors:** ")))
+        .expect("designos_apply_spec error line");
+
+    let unknown =
+        s.e.call(
+            "designos_apply_spec",
+            json!({"parent_id": page.0, "spec": {"kind": "instance", "component": format!("node:{}", s.comp.0), "props": {"Nope": "var:Theme/show"}}}),
+        )
+        .unwrap_err();
+    let unknown_json = unknown.to_json_value();
+    assert_eq!(unknown_json["error"]["code"], "UNKNOWN_COMPONENT_PROPERTY", "{unknown_json}");
+
+    let not_instance =
+        s.e.call(
+            "designos_apply_spec",
+            json!({
+                "parent_id": page.0,
+                "spec": {
+                    "kind": "instance",
+                    "component": format!("node:{}", s.comp.0),
+                    "overrides": [{"path": "label", "props": {"Label": "var:Theme/title"}}],
+                },
+            }),
+        )
+        .unwrap_err();
+    let not_instance_json = not_instance.to_json_value();
+    assert_eq!(not_instance_json["error"]["code"], "OVERRIDE_FIELD_NOT_APPLICABLE", "{not_instance_json}");
+
+    let documented = designos_mcp::rules::tool_error_codes("designos_apply_spec");
+    for returned in [&unknown, &not_instance] {
+        let code = returned.to_json_value()["error"]["code"].as_str().unwrap().to_string();
+        assert!(documented.contains(&format!("`{code}`").as_str()), "designos_apply_spec error list must include {code}: {documented:?}");
+        assert!(apply_spec_line.contains(&format!("`{code}`")), "{apply_spec_line}");
+    }
+}

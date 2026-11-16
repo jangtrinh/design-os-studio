@@ -226,7 +226,7 @@
   },
   {
     "name": "designos_generate_code",
-    "description": "Generate developer handoff code or SVG for a layer using resolved variable values. Returns source text; writes no files.",
+    "description": "Generate handoff code or SVG for a layer using resolved variable values. Returns source text; writes no files.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -588,7 +588,7 @@
   },
   {
     "name": "designos_add_comment",
-    "description": "Pin a new comment thread to a node (with local offset x/y) or page coordinates. Supports undo.",
+    "description": "Pin a new comment thread to a node (local offset x/y) or page coordinates. Supports undo.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -2237,7 +2237,7 @@
   },
   {
     "name": "designos_close_document",
-    "description": "Close this session document using unsaved save, discard, or fail (default fail). fail returns UNSAVED_CHANGES on a dirty document and never opens a dialog. Static risk tier destructive; treat as modify when unsaved is not discard.",
+    "description": "Close this document using unsaved save, discard, or fail (default fail). fail returns UNSAVED_CHANGES on a dirty document and never opens a dialog. Static risk tier destructive; treat as modify when unsaved is not discard.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

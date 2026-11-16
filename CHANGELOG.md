@@ -2,6 +2,40 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.7.15] - 2026-11-15
+
+A patch release from `main` that carries more fixes from @NamAIEngineer. A nested instance and an instance whose variant is switched keep more of their overrides; a `.fig` file saved with pages that were never opened keeps more of its overrides, resets, moves and variable bindings, and imported lines keep their stroke outline on more kinds of resize.
+
+### Added
+- **Components and Agents panel.** Rows of a nested instance (a copy inside a copy) in the component panel show the variable pill when a variable drives the property and offer the same bind control as top-level rows, for variant, boolean and text properties; a bind or unbind from a nested row writes what `designos_update_node` with `prop_vars` writes, in one undo step. Also, with a running agent tab focused, a click on a row of the Agents composer's mode menu, the attach menu or the @ mention popup now reaches the row instead of the terminal under it; the @ popup also closes on a press outside it, on an agent tab switch and on a shell or Help tab (#1905, #2045, PR #2058).
+
+### Fixed
+- **Components.**
+  - An override on a layer that the other variant lacks comes back when the instance is switched back, as long as the same check a direct switch uses would have carried it; a swap to a component outside the variant set, or a deleted original layer, drops the waiting override and counts it, and the switch report now gives two numbers: dropped, and kept for a return (#1915, PR #2020).
+  - A nested instance (an instance inside an instance) keeps its overrides when its variant is switched by hand and back, and a label override on a nested instance swapped by hand is kept when the main swaps that slot to the same component; an override counts as the user's only if the copy had it before the swap, so a later edit of the main still reaches the copy; by @NamAIEngineer (#1909, #2018, PR #2054).
+  - A waiting override whose target layer links to a main-side layer that no longer exists is dropped and counted on the switch back, instead of being counted as restored without being written; on a damaged file whose parents form a loop, the group refit after a variant switch stops instead of hanging; the cycle refusal sentence is pinned for the editor's variant switch, nested variant, instance-swap property, swap, slot insert and move, and the agent tools' spec swap (#1972, #2014, #2021, PR #2056).
+- **Figma files.**
+  - Duplicating a `.fig` page that was never opened keeps its instances' child overrides on save and reopen, and on undo and redo of the duplicate; before, the copy's instances were saved without them (#2047, PR #2061).
+  - Saving instances on pages that were never opened keeps what the user did: a field reset to the main's value is dropped from the saved entry, a move of the instance is saved, a variable binding is dropped only for the field that was edited (width or height, each border side, each corner), and flags recorded at open are never written to a `.designos` file or the agent tools' JSON; a page duplicated before it was opened, and a copy and paste of such an instance, save the same entries as the original; by @NamAIEngineer (#1696, #1697, #1698, #1700, PR #2052).
+  - A `.fig` variable collection marked not publishable stays that way: the state is read from `.fig` and Figma REST variables and written back, and a hidden collection and its variables stay out of the published assets and out of `designos_search_design_system` results, also when a published component binds one of them. `isPublishable` is written where the opened file had it, with its value, so a save no longer drops the `true` Figma stored; by @NamAIEngineer (#1657, PR #2053).
+- **Lines and boolean shapes.** An imported line resized through `designos_update_node` or a variable-bound width or height keeps a stroke outline stretched as the editor does; a line with a `[0, 0]` dash array counts as solid and keeps its outline on a resize; a `.fig` instance override with a size but no outline keeps and stretches the line's stroke band; and a child with no fill area (a 100% ring, an open line, an empty nested boolean) counts as an empty operand in a boolean operation, so intersect gives nothing and subtract and union keep the other shape; by @NamAIEngineer (#1754, #1756, #1758, PR #2051).
+- **Export.** An ellipse with an inner radius of 1 (a hairline ring) and an Inside or Outside stroke exports to SVG as one ellipse, as the canvas draws it, instead of an Inside stroke that nearly vanished and an Outside stroke of double weight (#2055, PR #2060).
+- **Agents panel.** An image job whose agent start is refused for good (the CLI cannot run in the current permission mode, such as without the Studio approval hook in Ask when risky) fails at once with the agent menu's sentence and one error toast, and so does every job queued behind it on that document; a temporary refusal, such as a permission prompt or an agent still starting, keeps the job running. Queued text restored after a closed tab is announced in New chat, and the line waits behind an error toast on screen; by @NamAIEngineer (PR #2062).
+- **App shell.**
+  - The mode control of the Agents panel shows the mode the next send uses: the focused tab's own mode while its agent runs, and the mode new tabs get in New chat, after the focused agent has exited, or on a shell tab; by @NamAIEngineer. A plain click, or a press that moves less than the drag threshold, on a corner radius or shape control handle (arc, ring, star, polygon) changes nothing, with no undo step; and a panic inside the macOS quit callback no longer aborts the app, which quits without the unsaved-changes question and logs why (#2008, PR #2049).
+  - Quitting stops draining queued work at a bound and logs how many jobs it dropped; a reveal failure or a newer status toast waits behind an error toast on screen instead of replacing it; the toast queue is capped for toasts without a button, and a toast with a button (Show in folder, Enter a path) is always kept and shown; and a cycle refusal from a spec names each layer of the loop in one sentence, without a doubled "Spec error:" prefix; by @NamAIEngineer (#1975, PR #2050).
+- **Agent tools.** The rules pack lists `UNKNOWN_COMPONENT_PROPERTY` and `OVERRIDE_FIELD_NOT_APPLICABLE` among the errors `designos_apply_spec` can return, and documents the nested instance `arc` override; the first sentence of three tool descriptions is reworded with the same meaning; by @NamAIEngineer (#1981, #1985, #1913, #1200, PR #2042).
+
+### Known issues
+- Resetting one override of a nested instance leaves a parked override on its ancestor, which returns on the next switch back (#2048).
+- Imported arrow lines shift by half the stroke weight when resized, a stroke weight edit leaves an imported line's stored outline stale, and per-end arrow caps in line outlines are not covered (#1753, #1755, #1757).
+- An instance override of item spacing on a wrapped frame with an Auto line gap keeps the old line gap on import (#1885).
+- A concurrent agent table edit can lose a column width the user changed in the editor (#2001).
+- A tab's approval script is rewritten on every canvas snapshot and stays after the tab closes (#2009).
+- Re-solving the imported Untitled UI PRO v8.0 kit still moves about 1% of its layers (#1920).
+- A main component sync with no change can resize instances imported from a `.fig` (#1919).
+- In the prototype player, a "Set variable mode" or "Set variable" action does not switch the variants bound to that variable (#1904).
+
 ## [0.7.14] - 2026-11-13
 
 A patch release from `main` that keeps the variable bindings of component property defaults in imported Figma files, makes an instance's variant choices and overrides more reliable, and carries more fixes from @NamAIEngineer. Re-solving the imported Untitled UI PRO v8.0 kit now moves 1,910 layers instead of 2,039 (#1920).

@@ -702,7 +702,7 @@ struct Ctx<'a> {
 
 /// Overrides carried on `.fig` instance JSON as `_overrides` / `_derived`:
 /// `[{"path": ["1:6", ...], "set": {<partial REST node fields>}}]`.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 struct Overrides {
     set: Vec<OverrideEntry>,
     derived: Vec<OverrideEntry>,
@@ -715,7 +715,7 @@ struct Overrides {
     own_keys: Vec<Box<str>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct OverrideEntry {
     path: Vec<String>,
     set: Value,
@@ -940,7 +940,6 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
     crate::variables::import_variables_value(&mut cx.doc, &v);
     designos_doc::settle_bound_props(&mut cx.doc);
     apply_style_node_values(&mut cx.doc, v.get("styles"));
-    refresh_all_derived_layouts(&mut cx.doc);
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
     let missing_variable_bindings = count_missing_variable_bindings(&cx.doc);
     drop(v);
@@ -1087,7 +1086,6 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
     crate::variables::import_variables_value(&mut cx.doc, v);
     designos_doc::settle_bound_props(&mut cx.doc);
     apply_style_node_values(&mut cx.doc, v.get("styles"));
-    refresh_all_derived_layouts(&mut cx.doc);
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
     let missing_variable_bindings = count_missing_variable_bindings(&cx.doc);
     let report = ImportReport {
@@ -1680,7 +1678,7 @@ impl<'a> Ctx<'a> {
         if let Some(carrier) = studio_carrier {
             n.fills.clear();
             n.fill_geometry = None;
-            n.stroke_geometry = None;
+            n.drop_stroke_outline();
             n.stroke.weight = carrier.stroke_weight;
             if !carrier.stroke_paints.is_empty() {
                 n.stroke.paints = carrier.stroke_paints;
@@ -1693,6 +1691,7 @@ impl<'a> Ctx<'a> {
             }
         }
         crate::board::finish_node(&mut n);
+        n.stamp_stroke_geometry();
         (n, my_layout)
     }
 
@@ -2084,7 +2083,25 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
-        let hydrator = DeferredFigHydrator {
+        let mut page_nodes: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
+        for &page in pending_by_page.keys() {
+            let mut nodes = Vec::new();
+            self.doc.walk(page, |n, _| {
+                if self.override_keys.contains_key(&n.id)
+                    || self.col_anchor_guids.contains_key(&n.id)
+                    || self.row_anchor_guids.contains_key(&n.id)
+                    || self.grid_col_track_ids.contains_key(&n.id)
+                    || self.grid_row_track_ids.contains_key(&n.id)
+                    || self.no_auto_layout.contains(&n.id)
+                {
+                    nodes.push(n.id);
+                }
+            });
+            if !nodes.is_empty() {
+                page_nodes.insert(page, nodes);
+            }
+        }
+        let hydrator = std::sync::Arc::new(std::sync::Mutex::new(DeferredFigHydrator {
             pending_by_page,
             hydrated_pages,
             targets,
@@ -2111,8 +2128,17 @@ impl<'a> Ctx<'a> {
             derived_outlines,
             swap_mains_of,
             self_digests,
-        };
-        self.doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
+            staged_copies: HashMap::new(),
+            page_nodes,
+            self_weak: std::sync::Weak::new(),
+            live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            dropped_duplicate_records: 0,
+        }));
+        if let Ok(mut guard) = hydrator.lock() {
+            guard.self_weak = std::sync::Arc::downgrade(&hydrator);
+        }
+        self.doc.page_hydrator = Some(hydrator);
     }
 
     /// Flags on the still childless instance `inst` the fields its file record overrides on the instance itself (the
@@ -2141,11 +2167,16 @@ impl<'a> Ctx<'a> {
         }
         let holds_derived = self.overrides.get(&inst).is_some_and(|o| !o.fast_derived.is_empty());
         let Some(node) = self.doc.get_mut(inst) else { return BTreeMap::new() };
-        node.component.overrides.extend(flagged);
+        for field in flagged {
+            node.component.add_fig_own_entry_flag(field);
+        }
         let mut digests = crate::instance_self_digest::digests(node);
         // The derived data of the instance was computed for the size it has now, flagged or not.
         if holds_derived {
             digests.entry(OverrideField::Size).or_insert_with(|| crate::instance_self_digest::size_digest(node));
+            // A derived self entry can also restate the instance transform. Capture it even when
+            // the own entry did not flag Transform, so a direct move cannot be undone on reopen.
+            digests.entry(OverrideField::Transform).or_insert_with(|| crate::instance_self_digest::transform_digest(node));
         }
         digests
     }
@@ -2481,6 +2512,7 @@ impl<'a> Ctx<'a> {
             for g in n.fill_geometry.iter_mut().chain(n.stroke_geometry.iter_mut()).flatten() {
                 scale_path(g, s);
             }
+            n.stamp_stroke_geometry();
             match &mut n.kind {
                 NodeKind::Text(t) => {
                     t.style.font_size *= s;
@@ -2666,6 +2698,7 @@ impl<'a> Ctx<'a> {
             dn.corner_smoothing = target_node.corner_smoothing;
             dn.fill_geometry = target_node.fill_geometry;
             dn.stroke_geometry = target_node.stroke_geometry;
+            dn.stroke_geometry_for = target_node.stroke_geometry_for;
             dn.style_refs = target_node.style_refs;
             dn.variables.bindings = target_node.variables.bindings;
             dn.component.variant_props = target_node.component.variant_props;
@@ -2920,9 +2953,17 @@ impl<'a> Ctx<'a> {
     }
 
     fn resize_override_node(&mut self, id: NodeId, sz: Vec2, has_fill_geo: bool, has_stroke_geo: bool, skip_geo: bool, explicitly_sized: &mut HashSet<NodeId>) {
+        let keeps_outline = |n: &Node| match n.kind {
+            NodeKind::Vector { .. } | NodeKind::BooleanOp(_) => true,
+            NodeKind::Line => {
+                let dashed = !n.stroke.dashes.is_empty() && n.stroke.dashes.iter().all(|d| *d >= 0.0) && n.stroke.dashes.iter().sum::<f32>() > 0.0;
+                !dashed && n.size.x > 1e-3 && !n.stroke.cap.is_arrow() && !n.fig_metadata.contains_key("strokeCap")
+            }
+            _ => false,
+        };
         explicitly_sized.insert(id);
-        let Some((old_size, old_transform, is_vec_or_bool, is_container)) =
-            self.doc.get(id).map(|n| (n.size, n.transform, matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)), n.kind.is_container()))
+        let Some((old_size, old_transform, preserves_outline, is_container)) =
+            self.doc.get(id).map(|n| (n.size, n.transform, keeps_outline(n), n.kind.is_container()))
         else {
             return;
         };
@@ -2934,12 +2975,12 @@ impl<'a> Ctx<'a> {
             return;
         }
         if let Some(n) = self.doc.get_mut(id) {
-            if !is_vec_or_bool {
+            if !preserves_outline {
                 if !has_fill_geo || skip_geo {
                     n.fill_geometry = None;
                 }
                 if !has_stroke_geo || skip_geo {
-                    n.stroke_geometry = None;
+                    n.drop_stroke_outline();
                 }
             }
             designos_doc::apply_constrained_geometry(n, old_transform, sz);
@@ -2950,13 +2991,12 @@ impl<'a> Ctx<'a> {
                     continue;
                 }
                 if let Some(km) = self.doc.get_mut(c) {
-                    if self.large_file && !matches!(km.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
+                    if self.large_file && !keeps_outline(km) {
                         km.fill_geometry = None;
-                        km.stroke_geometry = None;
+                        km.drop_stroke_outline();
                     }
                     designos_doc::apply_constrained_geometry(km, new_transform, new_size);
                 }
-                mark_derived(&mut self.doc, c);
             }
         }
     }
@@ -2964,18 +3004,7 @@ impl<'a> Ctx<'a> {
     /// Applies `.fig` `symbolOverrides` and then `derivedSymbolData` to the
     /// instance's copied subtree.
     fn apply_overrides(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> Result<(), FigError> {
-        mark_derived(&mut self.doc, inst);
-        let inst_resized = self
-            .doc
-            .get(inst)
-            .and_then(|n| Some((n.size, self.doc.get(n.component.source?)?.size)))
-            .is_some_and(|(a, b)| (a.x - b.x).abs() > 1e-4 || (a.y - b.y).abs() > 1e-4);
-        let Some(mut ov) = self.overrides.remove(&inst) else {
-            if inst_resized {
-                mark_derived_subtree(&mut self.doc, inst);
-            }
-            return Ok(());
-        };
+        let Some(mut ov) = self.overrides.remove(&inst) else { return Ok(()) };
         let mut subtree_maps: HashMap<NodeId, HashMap<String, NodeId>> = HashMap::new();
         let mut explicitly_sized: HashSet<NodeId> = HashSet::new();
         for e in &ov.set {
@@ -2992,7 +3021,6 @@ impl<'a> Ctx<'a> {
         for e in &ov.derived {
             if let Some(t) = self.resolve_path_cached(inst, &e.path, &mut subtree_maps) {
                 let _ = self.apply_override(t, &e.set, true, targets, done, &mut explicitly_sized)?;
-                mark_derived(&mut self.doc, t);
             }
         }
         ov.fast_derived.sort_by_key(|d| d.path.len());
@@ -3000,9 +3028,6 @@ impl<'a> Ctx<'a> {
             if let Some(t) = self.resolve_path_cached(inst, &d.path, &mut subtree_maps) {
                 self.apply_fast_derived(t, d, &mut explicitly_sized);
             }
-        }
-        if inst_resized && ov.derived.is_empty() && ov.fast_derived.is_empty() {
-            mark_derived_subtree(&mut self.doc, inst);
         }
         Ok(())
     }
@@ -3091,8 +3116,8 @@ impl<'a> Ctx<'a> {
                 }
             }
             n.stroke_geometry = Some(g);
+            n.stamp_stroke_geometry();
         }
-        mark_derived(&mut self.doc, id);
     }
 
     fn source_tail_of(&self, mut id: NodeId) -> Option<&str> {
@@ -3298,8 +3323,9 @@ impl<'a> Ctx<'a> {
                     }
                 }
                 n.stroke_geometry = Some(g);
+                n.stamp_stroke_geometry();
             } else {
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
         }
         if derived_only {
@@ -3370,7 +3396,7 @@ impl<'a> Ctx<'a> {
         if let Some(w) = fnum(set, "strokeWeight") {
             n.stroke.weight = w;
             if !has("strokeGeometry") {
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
         }
         if let Some(iw) = set.get("individualStrokeWeights") {
@@ -3402,7 +3428,7 @@ impl<'a> Ctx<'a> {
                 }
             }
             if n.stroke.side_weights != prev && !has("strokeGeometry") {
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
         }
         if let Some(a) = fstr(set, "strokeAlign") {
@@ -3415,7 +3441,7 @@ impl<'a> Ctx<'a> {
         if let Some(c) = fstr(set, "strokeCap") {
             n.stroke.cap = crate::vecnet::cap_from(c).unwrap_or(StrokeCap::None);
             if !has("strokeGeometry") {
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
         }
         if let Some(j) = fstr(set, "strokeJoin") {
@@ -3425,7 +3451,7 @@ impl<'a> Ctx<'a> {
                 _ => StrokeJoin::Miter,
             };
             if !has("strokeGeometry") {
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
         }
         if let Some(m) = fnum(set, "strokeMiterLimit") {
@@ -3439,8 +3465,11 @@ impl<'a> Ctx<'a> {
         if set.get("strokeDashes").is_some() {
             n.stroke.dashes = farr(set, "strokeDashes").iter().filter_map(num).collect();
             if !has("strokeGeometry") {
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
+        }
+        if has("strokeGeometry") && !skip_geo {
+            n.stamp_stroke_geometry();
         }
         if let (NodeKind::Ellipse(arc), Some(a)) = (&mut n.kind, set.get("arcData").filter(|_| keep("arcData"))) {
             // an overridden ring or pie: only the keys the override carries replace the main component's arc
@@ -3451,7 +3480,7 @@ impl<'a> Ctx<'a> {
                 n.fill_geometry = None;
             }
             if !has("strokeGeometry") {
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
         }
         if let Some(r) = set.get("rectangleCornerRadii").and_then(Value::as_array).filter(|a| a.len() == 4) {
@@ -3801,47 +3830,44 @@ impl<'a> Ctx<'a> {
     }
 }
 
-fn mark_derived(doc: &mut Document, id: NodeId) {
-    if let Some(n) = doc.get_mut(id) {
-        n.component.derived.get_or_insert_with(DerivedLayout::default);
-    }
+#[derive(Clone)]
+struct RemovedDeferredPage {
+    insts: Vec<NodeId>,
+    nodes: Vec<NodeId>,
+    targets: BTreeMap<NodeId, NodeId>,
+    done: BTreeSet<NodeId>,
+    overrides: BTreeMap<NodeId, Overrides>,
+    override_keys: HashMap<NodeId, std::sync::Arc<str>>,
+    col_anchor_guids: HashMap<NodeId, String>,
+    row_anchor_guids: HashMap<NodeId, String>,
+    grid_col_track_ids: HashMap<NodeId, Vec<String>>,
+    grid_row_track_ids: HashMap<NodeId, Vec<String>>,
+    no_auto_layout: HashSet<NodeId>,
+    scales: BTreeMap<NodeId, f32>,
+    unexpanded_instances: BTreeSet<NodeId>,
+    instance_fingerprints: HashMap<NodeId, u64>,
+    swap_mains_of: HashMap<NodeId, Vec<NodeId>>,
+    self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>>,
 }
 
-fn mark_derived_subtree(doc: &mut Document, root: NodeId) {
-    let mut stack = vec![root];
-    while let Some(id) = stack.pop() {
-        let Some(children) = doc.get_mut(id).map(|n| {
-            n.component.derived.get_or_insert_with(DerivedLayout::default);
-            n.children.clone()
-        }) else {
-            continue;
-        };
-        stack.extend(children);
-    }
+struct RemovedDeferredPageGuard {
+    data: RemovedDeferredPage,
+    inst_count: usize,
+    live_stash_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    live_stash_records: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    hydrator: std::sync::Weak<std::sync::Mutex<DeferredFigHydrator>>,
 }
 
-fn refresh_existing_derived_in_subtrees(doc: &mut Document, roots: &[NodeId]) {
-    let mut parent_solve_sigs: HashMap<(NodeId, u32, u32), u64> = HashMap::new();
-    let mut stack: Vec<NodeId> = roots.to_vec();
-    while let Some(id) = stack.pop() {
-        let Some((has_derived, children)) = doc.get(id).map(|n| (n.component.derived.is_some(), n.children.clone())) else {
-            continue;
-        };
-        if has_derived {
-            designos_doc::record_derived_layout_with_cache(doc, id, &mut parent_solve_sigs);
+impl Drop for RemovedDeferredPageGuard {
+    fn drop(&mut self) {
+        self.live_stash_records.fetch_sub(self.inst_count, std::sync::atomic::Ordering::AcqRel);
+        if self.live_stash_count.fetch_sub(1, std::sync::atomic::Ordering::AcqRel) == 1 {
+            if let Some(h) = self.hydrator.upgrade() {
+                if let Ok(mut guard) = h.lock() {
+                    guard.release_shared_if_idle();
+                }
+            }
         }
-        stack.extend(children);
-    }
-}
-
-fn refresh_all_derived_layouts(doc: &mut Document) {
-    let derived_ids: Vec<NodeId> = doc.nodes.values().filter(|n| n.component.derived.is_some()).map(|n| n.id).collect();
-    if derived_ids.is_empty() {
-        return;
-    }
-    let mut parent_solve_sigs: HashMap<(NodeId, u32, u32), u64> = HashMap::new();
-    for id in derived_ids {
-        designos_doc::record_derived_layout_with_cache(doc, id, &mut parent_solve_sigs);
     }
 }
 
@@ -3877,6 +3903,39 @@ struct DeferredFigHydrator {
     swap_mains_of: HashMap<NodeId, Vec<NodeId>>,
     /// Instance -> digest of each field it overrides on itself, as the file was opened.
     self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>>,
+    /// `dst_page -> (src_page, old_id -> new_id)` staged by `duplicate_subtree` / `clone_subtree` before `InsertPage` lands.
+    staged_copies: HashMap<NodeId, (NodeId, BTreeMap<NodeId, NodeId>)>,
+    /// `page -> nodes` whose per-node hydrator metadata was copied for `page`, so `remove_page` can stash them.
+    page_nodes: HashMap<NodeId, Vec<NodeId>>,
+    /// Weak handle to this hydrator so a dropped [`RemovedDeferredPageGuard`] can release shared maps if idle.
+    self_weak: std::sync::Weak<std::sync::Mutex<DeferredFigHydrator>>,
+    /// Number of live [`RemovedDeferredPageGuard`] handles held by undo/redo commands.
+    live_stash_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// Total number of pending instance records currently held inside live [`RemovedDeferredPageGuard`] handles.
+    live_stash_records: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// Count of override records dropped during page duplication because their layer was missing in the copy.
+    dropped_duplicate_records: usize,
+}
+
+impl DeferredFigHydrator {
+    fn release_shared_if_idle(&mut self) {
+        if self.pending_by_page.is_empty() && self.unexpanded_instances.is_empty() && self.live_stash_count.load(std::sync::atomic::Ordering::Acquire) == 0 {
+            self.targets.clear();
+            self.done.clear();
+            self.ids.clear();
+            self.overrides.clear();
+            self.override_keys.clear();
+            self.col_anchor_guids.clear();
+            self.row_anchor_guids.clear();
+            self.grid_col_track_ids.clear();
+            self.grid_row_track_ids.clear();
+            self.no_auto_layout.clear();
+            self.scales.clear();
+            self.path_cache.clear();
+            self.blob_cache.clear();
+            self.expanded_comps.clear();
+        }
+    }
 }
 
 impl std::fmt::Debug for DeferredFigHydrator {
@@ -3890,6 +3949,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         if !self.hydrated_pages.insert(page) {
             return false;
         }
+        self.page_nodes.remove(&page);
         let Some(insts) = self.pending_by_page.remove(&page) else {
             return false;
         };
@@ -4013,8 +4073,19 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
                 }
             }
         }
+        // The flags captured from an unopened `.fig` own entry are only a
+        // guard for the pre-hydration sync pass. Once the instance has its
+        // subtree and overrides materialized, its persistent override set is
+        // authoritative again; keeping the transient set would leak stale
+        // runtime state into later copies and reset operations.
+        for &inst in &insts {
+            if !cx.unexpanded_instances.contains(&inst) {
+                if let Some(node) = cx.doc.get_mut(inst) {
+                    node.component.clear_fig_own_entry_flags();
+                }
+            }
+        }
         cx.mark_custom_instance_slots();
-        refresh_existing_derived_in_subtrees(&mut cx.doc, &insts);
         if cx.next_clone > 1 {
             cx.doc.reserve_ids(NodeId(cx.next_clone - 1));
         }
@@ -4023,23 +4094,19 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         self.budget_exhausted = cx.budget_exhausted;
         self.unexpanded_instances.extend(cx.unexpanded_instances);
         *doc = cx.doc;
-        if !self.pending_by_page.is_empty() || !self.unexpanded_instances.is_empty() {
-            self.ids = cx.ids;
-            self.overrides = cx.overrides;
-            self.override_keys = cx.override_keys;
-            self.col_anchor_guids = cx.col_anchor_guids;
-            self.row_anchor_guids = cx.row_anchor_guids;
-            self.grid_col_track_ids = cx.grid_col_track_ids;
-            self.grid_row_track_ids = cx.grid_row_track_ids;
-            self.no_auto_layout = cx.no_auto_layout;
-            self.scales = cx.scales;
-            self.path_cache = cx.path_cache;
-            self.blob_cache = cx.blob_cache;
-            self.expanded_comps = cx.expanded_comps;
-        } else {
-            self.targets.clear();
-            self.done.clear();
-        }
+        self.ids = cx.ids;
+        self.overrides = cx.overrides;
+        self.override_keys = cx.override_keys;
+        self.col_anchor_guids = cx.col_anchor_guids;
+        self.row_anchor_guids = cx.row_anchor_guids;
+        self.grid_col_track_ids = cx.grid_col_track_ids;
+        self.grid_row_track_ids = cx.grid_row_track_ids;
+        self.no_auto_layout = cx.no_auto_layout;
+        self.scales = cx.scales;
+        self.path_cache = cx.path_cache;
+        self.blob_cache = cx.blob_cache;
+        self.expanded_comps = cx.expanded_comps;
+        self.release_shared_if_idle();
         true
     }
 
@@ -4057,6 +4124,216 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
 
     fn is_hydrated(&self, page: NodeId) -> bool {
         self.hydrated_pages.contains(&page) || !self.pending_by_page.contains_key(&page)
+    }
+
+    fn expand_component_scratch(&mut self, doc: &Document, component: NodeId) -> Option<Document> {
+        if self.expanded_comps.contains(&component) || self.pending_by_page.is_empty() {
+            return None;
+        }
+        let mut has_direct_pending = false;
+        doc.walk(component, |n, _| {
+            if n.id != component && self.targets.contains_key(&n.id) && !self.done.contains(&n.id) {
+                has_direct_pending = true;
+            }
+        });
+        if !has_direct_pending {
+            return None;
+        }
+        let mut comp_queue = vec![component];
+        let mut visited_comps = HashSet::new();
+        let mut all_insts = BTreeSet::new();
+        let mut pending_insts = BTreeSet::new();
+        let mut has_instance_swap_values = false;
+        while let Some(c) = comp_queue.pop() {
+            if !visited_comps.insert(c) {
+                continue;
+            }
+            if c != component {
+                if let Some(parent_id) = doc.get(c).and_then(|n| n.parent) {
+                    if let Some(parent) = doc.get(parent_id) {
+                        if matches!(parent.kind, NodeKind::ComponentSet(_)) {
+                            for &sibling in &parent.children {
+                                if doc.get(sibling).is_some_and(|s| matches!(s.kind, NodeKind::Component(_))) && !visited_comps.contains(&sibling) {
+                                    comp_queue.push(sibling);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            doc.walk(c, |n, _| {
+                if n.component.values.values().any(|v| matches!(v, PropValue::Instance(t) if t.0 != 0)) {
+                    has_instance_swap_values = true;
+                }
+                if n.id != c {
+                    if let Some(&target) = self.targets.get(&n.id) {
+                        all_insts.insert(n.id);
+                        if !self.done.contains(&n.id) {
+                            pending_insts.insert(n.id);
+                            if !visited_comps.contains(&target) {
+                                comp_queue.push(target);
+                            }
+                            if let Some(swaps) = self.swap_mains_of.get(&n.id) {
+                                for &s in swaps {
+                                    if !visited_comps.contains(&s) {
+                                        comp_queue.push(s);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                for v in n.component.values.values() {
+                    if let PropValue::Instance(t) = v {
+                        if t.0 != 0 && !visited_comps.contains(t) {
+                            comp_queue.push(*t);
+                        }
+                    }
+                }
+            });
+        }
+        if pending_insts.is_empty() {
+            return None;
+        }
+
+        let mut scratch_doc = Document::new(&doc.name);
+        for &c in &visited_comps {
+            if let Some(parent_id) = doc.get(c).and_then(|n| n.parent) {
+                if let Some(parent) = doc.get(parent_id) {
+                    if matches!(parent.kind, NodeKind::ComponentSet(_)) && !scratch_doc.nodes.contains_key(&parent_id) {
+                        scratch_doc.nodes.insert(parent_id, parent.clone());
+                    }
+                }
+            }
+            doc.walk(c, |n, _| {
+                scratch_doc.nodes.insert(n.id, n.clone());
+            });
+        }
+
+        let mut scratch_targets = BTreeMap::new();
+        let mut scratch_done = BTreeSet::new();
+        for &inst in &all_insts {
+            if let Some(&target) = self.targets.get(&inst) {
+                scratch_targets.insert(inst, target);
+            }
+            if self.done.contains(&inst) {
+                scratch_done.insert(inst);
+            }
+        }
+
+        let mut fingerprints = crate::component_fingerprint::Fingerprints::default();
+        let mut scratch_overrides = BTreeMap::new();
+        for &inst in &pending_insts {
+            let Some(mut ov) = self.overrides.get(&inst).cloned() else { continue };
+            if let (Some(&main), Some(&stored)) = (self.targets.get(&inst), self.instance_fingerprints.get(&inst)) {
+                let swaps = self.swap_mains_of.get(&inst).map(Vec::as_slice).unwrap_or(&[]);
+                let mains = crate::component_fingerprint::instance_mains(doc, inst, main, swaps);
+                if fingerprints.of_mains(doc, &mains) != stored {
+                    ov.fast_derived.clear();
+                }
+            }
+            scratch_overrides.insert(inst, ov);
+        }
+        drop(fingerprints);
+
+        let mut scratch_override_keys = HashMap::new();
+        let mut scratch_col_anchors = HashMap::new();
+        let mut scratch_row_anchors = HashMap::new();
+        let mut scratch_col_tracks = HashMap::new();
+        let mut scratch_row_tracks = HashMap::new();
+        let mut scratch_no_auto_layout = HashSet::new();
+        let mut scratch_scales = BTreeMap::new();
+        for (&id, node) in &scratch_doc.nodes {
+            if let Some(v) = self.override_keys.get(&id).cloned() {
+                scratch_override_keys.insert(id, v);
+            }
+            if !has_instance_swap_values {
+                has_instance_swap_values = node.component.values.values().any(|v| matches!(v, PropValue::Instance(t) if t.0 != 0));
+            }
+            if let Some(v) = self.col_anchor_guids.get(&id).cloned() {
+                scratch_col_anchors.insert(id, v);
+            }
+            if let Some(v) = self.row_anchor_guids.get(&id).cloned() {
+                scratch_row_anchors.insert(id, v);
+            }
+            if let Some(v) = self.grid_col_track_ids.get(&id).cloned() {
+                scratch_col_tracks.insert(id, v);
+            }
+            if let Some(v) = self.grid_row_track_ids.get(&id).cloned() {
+                scratch_row_tracks.insert(id, v);
+            }
+            if self.no_auto_layout.contains(&id) {
+                scratch_no_auto_layout.insert(id);
+            }
+            if let Some(&v) = self.scales.get(&id) {
+                scratch_scales.insert(id, v);
+            }
+        }
+
+        let next_clone = self.next_clone.max(doc.peek_next_id().0);
+        let mut cx = Ctx {
+            doc: scratch_doc,
+            ids: std::mem::take(&mut self.ids),
+            instances: Vec::new(),
+            unresolved: Vec::new(),
+            overrides: scratch_overrides,
+            rest_overrides: Vec::new(),
+            node_lock_fields: HashSet::new(),
+            override_keys: scratch_override_keys,
+            col_anchor_guids: scratch_col_anchors,
+            row_anchor_guids: scratch_row_anchors,
+            grid_col_track_ids: scratch_col_tracks,
+            grid_row_track_ids: scratch_row_tracks,
+            no_auto_layout: scratch_no_auto_layout,
+            scales: scratch_scales,
+            pending_swaps: Vec::new(),
+            component_keys: BTreeMap::new(),
+            library_keys: BTreeMap::new(),
+            proto: Vec::new(),
+            overlay_props: BTreeMap::new(),
+            flow_pages: Vec::new(),
+            path_cache: std::mem::take(&mut self.path_cache),
+            blob_cache: std::mem::take(&mut self.blob_cache),
+            blobs: &[],
+            fast_derived_map: None,
+            large_file: true,
+            expanded_comps: self.expanded_comps.clone(),
+            next_clone,
+            clone_budget_total: self.clone_budget_total,
+            cloned_nodes: self.cloned_nodes,
+            budget_exhausted: self.budget_exhausted,
+            unexpanded_instances: BTreeSet::new(),
+            has_instance_swap_values,
+            has_connectors: false,
+            connectors: Vec::new(),
+            deferred_pending: None,
+        };
+        let res = cx.expand_nested(component, &scratch_targets, &mut scratch_done);
+        if res.is_ok() && !cx.budget_exhausted && cx.unexpanded_instances.is_empty() {
+            cx.mark_custom_instance_slots();
+        }
+        self.ids = cx.ids;
+        self.path_cache = cx.path_cache;
+        self.blob_cache = cx.blob_cache;
+        if let Err(err) = res {
+            self.unexpanded_instances.extend(pending_insts);
+            eprintln!("designos-fig: scratch component expansion of {component:?} failed: {err}");
+            return None;
+        }
+        if cx.budget_exhausted || !cx.unexpanded_instances.is_empty() {
+            self.unexpanded_instances.extend(pending_insts);
+            eprintln!(
+                "designos-fig: clone budget ({}) reached while expanding component {component:?}; {} nested instance(s) left unexpanded",
+                self.clone_budget_total,
+                self.unexpanded_instances.len()
+            );
+            return None;
+        }
+        Some(cx.doc)
+    }
+
+    fn is_pending_instance(&self, instance: NodeId) -> bool {
+        self.targets.contains_key(&instance) && !self.done.contains(&instance)
     }
 
     fn unexpanded_instances(&self) -> usize {
@@ -4107,6 +4384,245 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
 
     fn pending_instance_self_digests(&self, instance: NodeId) -> Option<BTreeMap<OverrideField, u64>> {
         self.self_digests.get(&instance).cloned()
+    }
+
+    fn stage_duplicated_page(&mut self, src_page: NodeId, dst_page: NodeId, id_map: BTreeMap<NodeId, NodeId>) {
+        if !self.hydrated_pages.contains(&src_page) && self.pending_by_page.contains_key(&src_page) {
+            self.staged_copies.insert(dst_page, (src_page, id_map));
+        }
+    }
+
+    fn insert_page(&mut self, doc: &Document, page: NodeId, stash: Option<designos_doc::DeferredPageStash>) {
+        if let Some(stash) = stash {
+            if let Some(guard) = stash.0.downcast_ref::<RemovedDeferredPageGuard>() {
+                let removed = guard.data.clone();
+                self.targets.extend(removed.targets);
+                self.done.extend(removed.done);
+                self.overrides.extend(removed.overrides);
+                self.override_keys.extend(removed.override_keys);
+                self.col_anchor_guids.extend(removed.col_anchor_guids);
+                self.row_anchor_guids.extend(removed.row_anchor_guids);
+                self.grid_col_track_ids.extend(removed.grid_col_track_ids);
+                self.grid_row_track_ids.extend(removed.grid_row_track_ids);
+                self.no_auto_layout.extend(removed.no_auto_layout);
+                self.scales.extend(removed.scales);
+                self.unexpanded_instances.extend(removed.unexpanded_instances);
+                self.instance_fingerprints.extend(removed.instance_fingerprints);
+                self.swap_mains_of.extend(removed.swap_mains_of);
+                self.self_digests.extend(removed.self_digests);
+                self.pending_by_page.insert(page, removed.insts);
+                if !removed.nodes.is_empty() {
+                    self.page_nodes.insert(page, removed.nodes);
+                }
+                self.hydrated_pages.remove(&page);
+            }
+            return;
+        }
+        let Some((src_page, id_map)) = self.staged_copies.remove(&page) else {
+            if !self.hydrated_pages.contains(&page) && !self.pending_by_page.contains_key(&page) {
+                let mut unstaged_insts = 0usize;
+                doc.walk(page, |n, _| {
+                    if matches!(n.kind, NodeKind::Instance { .. })
+                        && n.children.is_empty()
+                        && !self.targets.contains_key(&n.id)
+                        && !self.overrides.contains_key(&n.id)
+                    {
+                        unstaged_insts += 1;
+                    }
+                });
+                if unstaged_insts > 0 {
+                    self.dropped_duplicate_records += unstaged_insts;
+                    eprintln!(
+                        "designos-fig: inserted page {page:?} was not staged as a duplicate; dropped {unstaged_insts} unhydrated instance override record(s)"
+                    );
+                }
+            }
+            return;
+        };
+        if self.hydrated_pages.contains(&src_page) {
+            return;
+        }
+        let Some(src_insts) = self.pending_by_page.get(&src_page).cloned() else {
+            return;
+        };
+        let mut dst_insts = Vec::with_capacity(src_insts.len());
+        let mut dropped = 0usize;
+        for old_inst in src_insts {
+            let Some(new_inst) = id_map.get(&old_inst).copied().filter(|&id| doc.get(id).is_some() && doc.is_ancestor(page, id)) else {
+                dropped += 1;
+                continue;
+            };
+            dst_insts.push(new_inst);
+            if let Some(&target) = self.targets.get(&old_inst) {
+                self.targets.insert(new_inst, target);
+            }
+            if self.done.contains(&old_inst) {
+                self.done.insert(new_inst);
+            }
+            if let Some(ov) = self.overrides.get(&old_inst).cloned() {
+                self.overrides.insert(new_inst, ov);
+            }
+            if let Some(&scale) = self.scales.get(&old_inst) {
+                self.scales.insert(new_inst, scale);
+            }
+            if self.unexpanded_instances.contains(&old_inst) {
+                self.unexpanded_instances.insert(new_inst);
+            }
+            if let Some(&fp) = self.instance_fingerprints.get(&old_inst) {
+                self.instance_fingerprints.insert(new_inst, fp);
+            }
+            if let Some(swaps) = self.swap_mains_of.get(&old_inst).cloned() {
+                self.swap_mains_of.insert(new_inst, swaps);
+            }
+            if let Some(digests) = self.self_digests.get(&old_inst).cloned() {
+                self.self_digests.insert(new_inst, digests);
+            }
+        }
+        let mut dst_nodes = Vec::new();
+        for (&old_id, &new_id) in &id_map {
+            if doc.get(new_id).is_none() || !doc.is_ancestor(page, new_id) {
+                continue;
+            }
+            let mut has_meta = false;
+            if let Some(v) = self.override_keys.get(&old_id).cloned() {
+                self.override_keys.insert(new_id, v);
+                has_meta = true;
+            }
+            if let Some(v) = self.col_anchor_guids.get(&old_id).cloned() {
+                self.col_anchor_guids.insert(new_id, v);
+                has_meta = true;
+            }
+            if let Some(v) = self.row_anchor_guids.get(&old_id).cloned() {
+                self.row_anchor_guids.insert(new_id, v);
+                has_meta = true;
+            }
+            if let Some(v) = self.grid_col_track_ids.get(&old_id).cloned() {
+                self.grid_col_track_ids.insert(new_id, v);
+                has_meta = true;
+            }
+            if let Some(v) = self.grid_row_track_ids.get(&old_id).cloned() {
+                self.grid_row_track_ids.insert(new_id, v);
+                has_meta = true;
+            }
+            if self.no_auto_layout.contains(&old_id) {
+                self.no_auto_layout.insert(new_id);
+                has_meta = true;
+            }
+            if has_meta {
+                dst_nodes.push(new_id);
+            }
+        }
+        if dropped > 0 {
+            self.dropped_duplicate_records += dropped;
+            eprintln!(
+                "designos-fig: duplicating deferred page {src_page:?} -> {page:?} dropped {dropped} override record(s) whose layer is missing in the copy"
+            );
+        }
+        if !dst_insts.is_empty() {
+            self.pending_by_page.insert(page, dst_insts);
+            if !dst_nodes.is_empty() {
+                self.page_nodes.insert(page, dst_nodes);
+            }
+            self.hydrated_pages.remove(&page);
+        }
+    }
+
+    fn remove_page(&mut self, page: NodeId) -> Option<designos_doc::DeferredPageStash> {
+        self.staged_copies.remove(&page);
+        let insts = self.pending_by_page.remove(&page)?;
+        let nodes = self.page_nodes.remove(&page).unwrap_or_default();
+        let mut removed = RemovedDeferredPage {
+            insts: Vec::with_capacity(insts.len()),
+            nodes: Vec::with_capacity(nodes.len()),
+            targets: BTreeMap::new(),
+            done: BTreeSet::new(),
+            overrides: BTreeMap::new(),
+            override_keys: HashMap::new(),
+            col_anchor_guids: HashMap::new(),
+            row_anchor_guids: HashMap::new(),
+            grid_col_track_ids: HashMap::new(),
+            grid_row_track_ids: HashMap::new(),
+            no_auto_layout: HashSet::new(),
+            scales: BTreeMap::new(),
+            unexpanded_instances: BTreeSet::new(),
+            instance_fingerprints: HashMap::new(),
+            swap_mains_of: HashMap::new(),
+            self_digests: HashMap::new(),
+        };
+        for inst in insts {
+            if let Some(v) = self.targets.remove(&inst) {
+                removed.targets.insert(inst, v);
+            }
+            if self.done.remove(&inst) {
+                removed.done.insert(inst);
+            }
+            if let Some(v) = self.overrides.remove(&inst) {
+                removed.overrides.insert(inst, v);
+            }
+            if let Some(v) = self.scales.remove(&inst) {
+                removed.scales.insert(inst, v);
+            }
+            if self.unexpanded_instances.remove(&inst) {
+                removed.unexpanded_instances.insert(inst);
+            }
+            if let Some(v) = self.instance_fingerprints.remove(&inst) {
+                removed.instance_fingerprints.insert(inst, v);
+            }
+            if let Some(v) = self.swap_mains_of.remove(&inst) {
+                removed.swap_mains_of.insert(inst, v);
+            }
+            if let Some(v) = self.self_digests.remove(&inst) {
+                removed.self_digests.insert(inst, v);
+            }
+            removed.insts.push(inst);
+        }
+        for node in nodes {
+            if let Some(v) = self.override_keys.remove(&node) {
+                removed.override_keys.insert(node, v);
+            }
+            if let Some(v) = self.col_anchor_guids.remove(&node) {
+                removed.col_anchor_guids.insert(node, v);
+            }
+            if let Some(v) = self.row_anchor_guids.remove(&node) {
+                removed.row_anchor_guids.insert(node, v);
+            }
+            if let Some(v) = self.grid_col_track_ids.remove(&node) {
+                removed.grid_col_track_ids.insert(node, v);
+            }
+            if let Some(v) = self.grid_row_track_ids.remove(&node) {
+                removed.grid_row_track_ids.insert(node, v);
+            }
+            if self.no_auto_layout.remove(&node) {
+                removed.no_auto_layout.insert(node);
+            }
+            removed.nodes.push(node);
+        }
+        let inst_count = removed.insts.len();
+        self.live_stash_count.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        self.live_stash_records.fetch_add(inst_count, std::sync::atomic::Ordering::AcqRel);
+        Some(designos_doc::DeferredPageStash(std::sync::Arc::new(RemovedDeferredPageGuard {
+            data: removed,
+            inst_count,
+            live_stash_count: self.live_stash_count.clone(),
+            live_stash_records: self.live_stash_records.clone(),
+            hydrator: self.self_weak.clone(),
+        })))
+    }
+
+    fn dropped_duplicate_records(&self) -> usize {
+        self.dropped_duplicate_records
+    }
+
+    fn take_dropped_duplicate_records(&mut self) -> usize {
+        std::mem::take(&mut self.dropped_duplicate_records)
+    }
+
+    fn stored_record_count(&self) -> usize {
+        self.pending_by_page.values().map(Vec::len).sum::<usize>() + self.live_stash_records.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    fn shared_map_entry_count(&self) -> usize {
+        self.ids.len() + self.overrides.len() + self.override_keys.len() + self.path_cache.len() + self.blob_cache.len()
     }
 }
 
@@ -5167,6 +5683,12 @@ mod expand_depth_tests {
             derived_outlines: HashMap::new(),
             swap_mains_of: HashMap::new(),
             self_digests: HashMap::new(),
+            staged_copies: HashMap::new(),
+            page_nodes: HashMap::new(),
+            self_weak: std::sync::Weak::new(),
+            live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            dropped_duplicate_records: 0,
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
         assert!(!doc_h.ensure_page_hydrated(p2), "hydration that hits u64::MAX must fail cleanly");
@@ -5211,6 +5733,12 @@ mod expand_depth_tests {
             derived_outlines: HashMap::new(),
             swap_mains_of: HashMap::new(),
             self_digests: HashMap::new(),
+            staged_copies: HashMap::new(),
+            page_nodes: HashMap::new(),
+            self_weak: std::sync::Weak::new(),
+            live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            dropped_duplicate_records: 0,
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator_b)));
         assert!(doc_h.ensure_page_hydrated(p2));
@@ -5219,6 +5747,146 @@ mod expand_depth_tests {
         assert_eq!(doc_h.hydration_unexpanded_instances(), 1);
         assert_eq!(doc_h.take_hydration_unexpanded_instances(), 1);
         assert_eq!(doc_h.hydration_unexpanded_instances(), 0);
+    }
+
+    fn scratch_nested_instance_doc(
+        next_clone: u64,
+        clone_budget_total: usize,
+    ) -> (Document, std::sync::Arc<std::sync::Mutex<DeferredFigHydrator>>, NodeId, NodeId, NodeId, NodeId) {
+        let mut doc = Document::new("scratch_miss_ids");
+        let p1 = doc.add_page("Page 1");
+        let p2 = doc.add_page("Page 2");
+        let leaf_comp = NodeId(10);
+        let mut c_leaf = Node::new(leaf_comp, NodeKind::Component(FrameProps::default()));
+        let leaf_rect = NodeId(11);
+        let mut r_leaf = Node::new(leaf_rect, NodeKind::Rectangle);
+        r_leaf.parent = Some(leaf_comp);
+        c_leaf.children.push(leaf_rect);
+        c_leaf.parent = Some(p1);
+
+        let inner_comp = NodeId(12);
+        let mut c_inner = Node::new(inner_comp, NodeKind::Component(FrameProps::default()));
+        let staged_inst_src = NodeId(13);
+        let mut i_staged = Node::new(staged_inst_src, NodeKind::Instance { frame: FrameProps::default(), component: Some(leaf_comp), component_key: None });
+        let staged_inst_child = NodeId(14);
+        let mut r_staged = Node::new(staged_inst_child, NodeKind::Rectangle);
+        r_staged.parent = Some(staged_inst_src);
+        r_staged.component.source = Some(leaf_rect);
+        i_staged.children.push(staged_inst_child);
+        i_staged.parent = Some(inner_comp);
+        c_inner.children.push(staged_inst_src);
+        c_inner.parent = Some(p1);
+
+        let outer_comp = NodeId(20);
+        let mut c_outer = Node::new(outer_comp, NodeKind::Component(FrameProps::default()));
+        let nested_inst = NodeId(21);
+        let mut i_nested = Node::new(nested_inst, NodeKind::Instance { frame: FrameProps::default(), component: Some(inner_comp), component_key: None });
+        i_nested.parent = Some(outer_comp);
+        c_outer.children.push(nested_inst);
+        c_outer.parent = Some(p2);
+
+        doc.get_mut(p1).unwrap().children.extend([leaf_comp, inner_comp]);
+        doc.get_mut(p2).unwrap().children.push(outer_comp);
+        doc.nodes.insert(leaf_comp, c_leaf);
+        doc.nodes.insert(leaf_rect, r_leaf);
+        doc.nodes.insert(inner_comp, c_inner);
+        doc.nodes.insert(staged_inst_src, i_staged);
+        doc.nodes.insert(staged_inst_child, r_staged);
+        doc.nodes.insert(outer_comp, c_outer);
+        doc.nodes.insert(nested_inst, i_nested);
+        doc.reserve_ids(nested_inst);
+
+        let mut pending_by_page = HashMap::new();
+        pending_by_page.insert(p2, vec![nested_inst]);
+        let mut hydrated_pages = HashSet::new();
+        hydrated_pages.insert(p1);
+        let mut targets = BTreeMap::new();
+        targets.insert(nested_inst, inner_comp);
+        let mut expanded_comps = HashSet::new();
+        expanded_comps.insert(leaf_comp);
+        expanded_comps.insert(inner_comp);
+        let hydrator = std::sync::Arc::new(std::sync::Mutex::new(DeferredFigHydrator {
+            pending_by_page,
+            hydrated_pages,
+            targets,
+            done: BTreeSet::new(),
+            ids: BTreeMap::new(),
+            overrides: BTreeMap::new(),
+            override_keys: HashMap::new(),
+            col_anchor_guids: HashMap::new(),
+            row_anchor_guids: HashMap::new(),
+            grid_col_track_ids: HashMap::new(),
+            grid_row_track_ids: HashMap::new(),
+            no_auto_layout: HashSet::new(),
+            scales: BTreeMap::new(),
+            path_cache: HashMap::new(),
+            blob_cache: HashMap::new(),
+            expanded_comps,
+            next_clone,
+            clone_budget_total,
+            cloned_nodes: 0,
+            budget_exhausted: false,
+            unexpanded_instances: BTreeSet::new(),
+            last_error: None,
+            instance_fingerprints: HashMap::new(),
+            derived_outlines: HashMap::new(),
+            swap_mains_of: HashMap::new(),
+            self_digests: HashMap::new(),
+            staged_copies: HashMap::new(),
+            page_nodes: HashMap::new(),
+            self_weak: std::sync::Weak::new(),
+            live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            dropped_duplicate_records: 0,
+        }));
+        doc.page_hydrator = Some(hydrator.clone());
+        (doc, hydrator, p1, p2, outer_comp, nested_inst)
+    }
+
+    #[test]
+    fn scratch_budget_stop_after_staging_instance_records_live_id_without_alloc_collision() {
+        // Budget 1 clones `staged_inst_src` into `staged[0]` (allocating scratch id 22) and then trips
+        // when popping `staged_inst_child` (`parent_idx = Some(0)`), which inserts the staged scratch
+        // instance id into `cx.unexpanded_instances`. Because the scratch document is discarded, the
+        // hydrator must record the live pending instance id (`nested_inst`, 21) so a following `alloc_id`
+        // does not collide with the miss set.
+        let (mut doc, hydrator, p1, _p2, outer_comp, nested_inst) = scratch_nested_instance_doc(22, 1);
+        let cmd = designos_doc::create_instance(&mut doc, outer_comp, p1, Vec2::ZERO);
+        let inserted_ids: Vec<NodeId> = match &cmd {
+            designos_doc::Command::Insert { nodes, .. } => nodes.iter().map(|n| n.id).collect(),
+            _ => panic!("expected Insert"),
+        };
+        cmd.apply(&mut doc).unwrap();
+        let next_id = doc.alloc_id();
+
+        let recorded = hydrator.lock().unwrap().unexpanded_instances.clone();
+        assert_eq!(recorded, BTreeSet::from([nested_inst]), "recorded miss ids must be the live pending instance ids");
+        for id in inserted_ids.iter().copied().chain(std::iter::once(next_id)) {
+            assert!(!recorded.contains(&id), "allocated id {id:?} collided with recorded miss set {recorded:?}");
+        }
+        assert_eq!(doc.hydration_unexpanded_instances(), 1);
+        assert!(doc.hydration_error().is_none());
+
+        let cmd2 = designos_doc::create_instance(&mut doc, outer_comp, p1, Vec2::ZERO);
+        cmd2.apply(&mut doc).unwrap();
+        assert_eq!(
+            hydrator.lock().unwrap().unexpanded_instances,
+            BTreeSet::from([nested_inst]),
+            "repeated scratch budget stops must deduplicate on the live pending instance id"
+        );
+        assert_eq!(doc.hydration_unexpanded_instances(), 1);
+    }
+
+    #[test]
+    fn scratch_id_exhaustion_counts_miss_with_live_id() {
+        let (mut doc, hydrator, p1, _p2, outer_comp, nested_inst) = scratch_nested_instance_doc(u64::MAX, MAX_IMPORT_CLONES);
+        let cmd = designos_doc::create_instance(&mut doc, outer_comp, p1, Vec2::ZERO);
+        cmd.apply(&mut doc).unwrap();
+
+        let recorded = hydrator.lock().unwrap().unexpanded_instances.clone();
+        assert_eq!(recorded, BTreeSet::from([nested_inst]), "id-space exhaustion during scratch expansion must record the live pending instance id");
+        assert_eq!(doc.hydration_unexpanded_instances(), 1);
+        assert!(doc.hydration_error().is_none());
     }
 
     #[test]
@@ -5482,1105 +6150,5 @@ mod grid_sizing_tests {
                 GridTrack::Flex(1.0),
             ]
         );
-    }
-}
-
-#[cfg(test)]
-mod derived_layout_sync_tests {
-    use crate::container::{self, Compression};
-    use crate::kiwi::KiwiValue as V;
-    use crate::testkit::{en, figma_like_schema, fl, guid, matrix, msg, node, solid, st, vec2};
-    use designos_doc::{
-        record_derived_layout, reset_instance, sync_instances, Affine, AutoLayout, BlendMode, Color, Command, Constraint, Document, Effect, GridTrack,
-        LayoutDirection, Node, NodeId, NodeKind, OverrideField, Paint, Sizing, StrokeAlign, TextAutoResize, TextProps, TextStyle, Variable, VariableCollection,
-        VariableKind, VariableMode, VariableValue, Vec2, VectorNetwork, DERIVED_SOLVER_VERSION,
-    };
-
-    fn rect_blob(w: f32, h: f32) -> Vec<u8> {
-        let mut b = Vec::new();
-        for (op, pts) in [(1u8, &[0.0f32, 0.0][..]), (2, &[w, 0.0]), (2, &[w, h]), (2, &[0.0, h])] {
-            b.push(op);
-            for p in pts {
-                b.extend(p.to_le_bytes());
-            }
-        }
-        b.push(0);
-        b
-    }
-
-    fn resized_icon_instance_fig() -> Vec<u8> {
-        let changes = vec![
-            node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
-            node((0, 1), (0, 0), "a", "CANVAS", "Page 1", vec![]),
-            node((1, 1), (0, 1), "a", "SYMBOL", "Icon", vec![("size", vec2(16.0, 16.0)), ("transform", matrix(0.0, 0.0))]),
-            node(
-                (1, 2),
-                (1, 1),
-                "a",
-                "VECTOR",
-                "Glyph",
-                vec![
-                    ("size", vec2(16.0, 16.0)),
-                    ("transform", matrix(0.0, 0.0)),
-                    ("horizontalConstraint", en("SCALE")),
-                    ("verticalConstraint", en("SCALE")),
-                    ("fillPaints", V::Array(vec![solid(0.1, 0.2, 0.3)])),
-                    ("fillGeometry", V::Array(vec![msg(vec![("windingRule", en("NONZERO")), ("commandsBlob", V::Uint(0))])])),
-                ],
-            ),
-            node(
-                (2, 1),
-                (0, 1),
-                "b",
-                "INSTANCE",
-                "Icon instance",
-                vec![
-                    ("size", vec2(24.0, 24.0)),
-                    ("transform", matrix(40.0, 10.0)),
-                    ("symbolData", msg(vec![("symbolID", guid(1, 1))])),
-                    (
-                        "derivedSymbolData",
-                        V::Array(vec![msg(vec![
-                            ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 2)]))])),
-                            ("size", vec2(24.0, 24.0)),
-                            ("transform", matrix(0.0, 0.0)),
-                            ("fillGeometry", V::Array(vec![msg(vec![("windingRule", en("NONZERO")), ("commandsBlob", V::Uint(1))])])),
-                        ])]),
-                    ),
-                ],
-            ),
-        ];
-        let schema = figma_like_schema();
-        let root = schema.find("Message").expect("Message in schema");
-        let body = schema
-            .encode_message(
-                root,
-                &msg(vec![
-                    ("nodeChanges", V::Array(changes)),
-                    ("blobs", V::Array(vec![st(vec![("bytes", V::Bytes(rect_blob(16.0, 16.0)))]), st(vec![("bytes", V::Bytes(rect_blob(24.0, 24.0)))])])),
-                ]),
-            )
-            .expect("encode fig message");
-        container::write_container(&schema.encode(), &body, Compression::Zstd, 106)
-    }
-
-    fn resized_auto_layout_instance_fig() -> Vec<u8> {
-        let changes = vec![
-            node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
-            node((0, 1), (0, 0), "a", "CANVAS", "Page 1", vec![]),
-            node(
-                (1, 1),
-                (0, 1),
-                "a",
-                "SYMBOL",
-                "Row",
-                vec![
-                    ("size", vec2(100.0, 40.0)),
-                    ("transform", matrix(0.0, 0.0)),
-                    ("stackMode", en("HORIZONTAL")),
-                    ("stackSpacing", fl(8.0)),
-                    ("stackHorizontalPadding", fl(10.0)),
-                    ("stackPaddingRight", fl(10.0)),
-                    ("stackVerticalPadding", fl(8.0)),
-                    ("stackPaddingBottom", fl(8.0)),
-                ],
-            ),
-            node((1, 2), (1, 1), "a", "RECTANGLE", "Badge", vec![("size", vec2(20.0, 24.0)), ("transform", matrix(10.0, 8.0))]),
-            node((1, 3), (1, 1), "b", "FRAME", "Inner", vec![("size", vec2(52.0, 24.0)), ("transform", matrix(38.0, 8.0)), ("stackChildPrimaryGrow", fl(1.0))]),
-            node(
-                (2, 1),
-                (0, 1),
-                "b",
-                "INSTANCE",
-                "Row instance",
-                vec![
-                    ("size", vec2(160.0, 40.0)),
-                    ("transform", matrix(24.0, 32.0)),
-                    ("stackMode", en("HORIZONTAL")),
-                    ("stackSpacing", fl(8.0)),
-                    ("stackHorizontalPadding", fl(10.0)),
-                    ("stackPaddingRight", fl(10.0)),
-                    ("stackVerticalPadding", fl(8.0)),
-                    ("stackPaddingBottom", fl(8.0)),
-                    ("symbolData", msg(vec![("symbolID", guid(1, 1))])),
-                    (
-                        "derivedSymbolData",
-                        V::Array(vec![
-                            msg(vec![
-                                ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 2)]))])),
-                                ("size", vec2(20.0, 24.0)),
-                                ("transform", matrix(10.0, 8.0)),
-                            ]),
-                            msg(vec![
-                                ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 3)]))])),
-                                ("size", vec2(112.0, 24.0)),
-                                ("transform", matrix(38.0, 8.0)),
-                            ]),
-                        ]),
-                    ),
-                ],
-            ),
-        ];
-        let schema = figma_like_schema();
-        let root = schema.find("Message").expect("Message in schema");
-        let body = schema.encode_message(root, &msg(vec![("nodeChanges", V::Array(changes))])).expect("encode fig message");
-        container::write_container(&schema.encode(), &body, Compression::Zstd, 106)
-    }
-
-    fn resized_variant_instance_fig() -> Vec<u8> {
-        let changes = vec![
-            node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
-            node((0, 1), (0, 0), "a", "CANVAS", "Page 1", vec![]),
-            node((1, 1), (0, 1), "a", "FRAME", "Button", vec![("size", vec2(200.0, 100.0)), ("transform", matrix(0.0, 0.0)), ("isStateGroup", V::Bool(true))]),
-            node((1, 2), (1, 1), "a", "SYMBOL", "Size=md", vec![("size", vec2(100.0, 40.0)), ("transform", matrix(0.0, 0.0))]),
-            node(
-                (1, 3),
-                (1, 2),
-                "a",
-                "FRAME",
-                "Inner",
-                vec![
-                    ("size", vec2(80.0, 24.0)),
-                    ("transform", matrix(10.0, 8.0)),
-                    ("horizontalConstraint", en("STRETCH")),
-                    ("verticalConstraint", en("CENTER")),
-                ],
-            ),
-            node(
-                (1, 4),
-                (1, 3),
-                "a",
-                "TEXT",
-                "Label",
-                vec![
-                    ("size", vec2(60.0, 16.0)),
-                    ("transform", matrix(10.0, 4.0)),
-                    ("horizontalConstraint", en("STRETCH")),
-                    ("textAutoResize", en("HEIGHT")),
-                    ("textData", msg(vec![("characters", V::String("Hello".into()))])),
-                    ("fontSize", fl(14.0)),
-                ],
-            ),
-            node(
-                (2, 1),
-                (0, 1),
-                "b",
-                "INSTANCE",
-                "Button instance",
-                vec![
-                    ("size", vec2(160.0, 40.0)),
-                    ("transform", matrix(24.0, 32.0)),
-                    ("symbolData", msg(vec![("symbolID", guid(1, 2))])),
-                    (
-                        "derivedSymbolData",
-                        V::Array(vec![
-                            msg(vec![
-                                ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 3)]))])),
-                                ("size", vec2(140.0, 24.0)),
-                                ("transform", matrix(10.0, 8.0)),
-                            ]),
-                            msg(vec![
-                                ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 3), guid(1, 4)]))])),
-                                ("size", vec2(120.0, 20.0)),
-                                ("transform", matrix(10.0, 2.0)),
-                            ]),
-                        ]),
-                    ),
-                ],
-            ),
-        ];
-        let schema = figma_like_schema();
-        let root = schema.find("Message").expect("Message in schema");
-        let body = schema.encode_message(root, &msg(vec![("nodeChanges", V::Array(changes))])).expect("encode fig message");
-        container::write_container(&schema.encode(), &body, Compression::Zstd, 106)
-    }
-
-    fn ids(doc: &Document) -> (NodeId, NodeId, NodeId, NodeId) {
-        let set = doc.nodes.values().find(|n| n.name == "Button" && matches!(n.kind, NodeKind::ComponentSet(_))).expect("Button component set").id;
-        let inst = doc.nodes.values().find(|n| n.name == "Button instance" && matches!(n.kind, NodeKind::Instance { .. })).expect("Button instance").id;
-        let inner = doc.get(inst).unwrap().children[0];
-        let text = doc.get(inner).unwrap().children[0];
-        (set, inst, inner, text)
-    }
-
-    #[test]
-    fn no_change_sync_keeps_imported_instance_sizes_and_transforms() {
-        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
-        let (set, inst, inner, text) = ids(&doc);
-        let layers_before = doc.nodes.len();
-        let before = (doc.get(inst).unwrap().clone(), doc.get(inner).unwrap().clone(), doc.get(text).unwrap().clone());
-        assert_eq!(before.0.size, Vec2::new(160.0, 40.0));
-        assert_eq!(before.0.transform, Affine::translate(24.0, 32.0));
-        assert_eq!(before.1.size, Vec2::new(140.0, 24.0));
-        assert_eq!(before.1.transform, Affine::translate(10.0, 8.0));
-        assert_eq!(before.2.size, Vec2::new(120.0, 20.0));
-        assert_eq!(before.2.transform, Affine::translate(10.0, 2.0));
-
-        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
-
-        let after = (doc.get(inst).unwrap().clone(), doc.get(inner).unwrap().clone(), doc.get(text).unwrap().clone());
-        assert_eq!(doc.nodes.len(), layers_before);
-        assert_eq!(after, before);
-
-        let mut icon_doc = crate::import_fig(&resized_icon_instance_fig()).expect("import icon fig");
-        let comp = icon_doc.nodes.values().find(|n| n.name == "Icon" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let icon_inst = icon_doc.nodes.values().find(|n| n.name == "Icon instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let glyph = icon_doc.get(icon_inst).unwrap().children[0];
-        let icon_before = (icon_doc.get(icon_inst).unwrap().clone(), icon_doc.get(glyph).unwrap().clone());
-        sync_instances(&mut icon_doc, comp).apply(&mut icon_doc).unwrap();
-        let icon_after = (icon_doc.get(icon_inst).unwrap().clone(), icon_doc.get(glyph).unwrap().clone());
-        assert_eq!(icon_after, icon_before);
-    }
-
-    #[test]
-    fn imported_icon_instance_keeps_vector_paths_filling_imported_box_after_main_fill_edit_and_no_change_sync() {
-        let mut doc = crate::import_fig(&resized_icon_instance_fig()).expect("import icon fig");
-        let comp = doc.nodes.values().find(|n| n.name == "Icon" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let main_glyph = doc.get(comp).unwrap().children[0];
-        let inst = doc.nodes.values().find(|n| n.name == "Icon instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let glyph = doc.get(inst).unwrap().children[0];
-        let imported_kind = doc.get(glyph).unwrap().kind.clone();
-        let path_bounds = |kind: &NodeKind| -> Option<Vec2> {
-            let NodeKind::Vector { paths, .. } = kind else { return None };
-            let mut max = Vec2::ZERO;
-            for p in paths {
-                for cmd in &p.cmds {
-                    if let designos_doc::PathCmd::MoveTo(v) | designos_doc::PathCmd::LineTo(v) = *cmd {
-                        max.x = max.x.max(v.x);
-                        max.y = max.y.max(v.y);
-                    }
-                }
-            }
-            Some(max)
-        };
-        assert_eq!(doc.get(glyph).unwrap().size, Vec2::new(24.0, 24.0));
-        assert_eq!(path_bounds(&imported_kind), Some(Vec2::new(24.0, 24.0)));
-
-        let new_fill = vec![Paint::solid(Color::rgba(25, 204, 77, 255))];
-        doc.get_mut(main_glyph).unwrap().fills = new_fill.clone();
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-
-        assert_eq!(doc.get(glyph).unwrap().fills, new_fill);
-        assert_eq!(doc.get(glyph).unwrap().size, Vec2::new(24.0, 24.0));
-        assert_eq!(doc.get(glyph).unwrap().kind, imported_kind);
-        assert_eq!(path_bounds(&doc.get(glyph).unwrap().kind), Some(Vec2::new(24.0, 24.0)));
-
-        let before_noop = doc.get(glyph).unwrap().clone();
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-        assert_eq!(doc.get(glyph).unwrap(), &before_noop);
-    }
-
-    #[test]
-    fn switching_main_child_from_fill_to_fixed_with_unchanged_box_updates_instance_on_sync() {
-        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
-        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let inner = doc.get(inst).unwrap().children[1];
-        let main_inner = doc.get(inner).unwrap().component.source.unwrap();
-        assert_eq!(doc.get(main_inner).unwrap().size, Vec2::new(52.0, 24.0));
-        assert_eq!(doc.get(main_inner).unwrap().layout_child.horizontal, Sizing::Fill);
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
-
-        let main_node = doc.get_mut(main_inner).unwrap();
-        main_node.layout_child.horizontal = Sizing::Fixed;
-        main_node.layout_child.grow = 0.0;
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(52.0, 24.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn switching_main_child_constraint_from_stretch_to_left_with_unchanged_box_updates_instance_on_sync() {
-        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
-        let (set, _inst, inner, _text) = ids(&doc);
-        let main_inner = doc.get(inner).unwrap().component.source.unwrap();
-        assert_eq!(doc.get(main_inner).unwrap().size, Vec2::new(80.0, 24.0));
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(140.0, 24.0));
-
-        doc.get_mut(main_inner).unwrap().constraints.horizontal = Constraint::Min;
-        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
-
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(80.0, 24.0));
-        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(10.0, 8.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn changing_main_auto_layout_padding_updates_instance_child_on_sync() {
-        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
-        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let badge = doc.get(inst).unwrap().children[0];
-        let inner = doc.get(inst).unwrap().children[1];
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
-        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(38.0, 8.0));
-
-        doc.get_mut(comp).unwrap().kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().padding = [8.0, 20.0, 8.0, 20.0];
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-
-        assert_eq!(doc.get(badge).unwrap().transform, Affine::translate(20.0, 8.0));
-        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(48.0, 8.0));
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(92.0, 24.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn changing_main_auto_layout_gap_updates_instance_children_on_sync() {
-        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
-        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let inner = doc.get(inst).unwrap().children[1];
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
-        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(38.0, 8.0));
-
-        doc.get_mut(comp).unwrap().kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().item_spacing = 20.0;
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-
-        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(50.0, 8.0));
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(100.0, 24.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn reset_instance_drops_derived_layout_and_returns_sizes_to_main() {
-        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
-        let (_set, inst, inner, text) = ids(&doc);
-        doc.get_mut(inst).unwrap().size = Vec2::new(160.0, 40.0);
-        doc.get_mut(inst).unwrap().component.overrides.insert(OverrideField::Size);
-
-        reset_instance(&mut doc, inst).apply(&mut doc).unwrap();
-
-        assert_eq!(doc.get(inst).unwrap().size, Vec2::new(100.0, 40.0));
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(80.0, 24.0));
-        assert_eq!(doc.get(text).unwrap().size, Vec2::new(60.0, 16.0));
-        assert!(doc.get(inst).unwrap().component.derived.is_none());
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-        assert!(doc.get(text).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn changing_main_fill_updates_instance_fill_without_changing_derived_sizes_or_transforms() {
-        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
-        let (set, inst, inner, text) = ids(&doc);
-        let main_inner = doc.get(inner).unwrap().component.source.expect("main inner source");
-        let new_fill = vec![Paint::solid(Color::rgba(25, 204, 77, 255))];
-        doc.get_mut(main_inner).unwrap().fills = new_fill.clone();
-
-        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
-
-        assert_eq!(doc.get(inner).unwrap().fills, new_fill);
-        assert_eq!(doc.get(inst).unwrap().size, Vec2::new(160.0, 40.0));
-        assert_eq!(doc.get(inst).unwrap().transform, Affine::translate(24.0, 32.0));
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(140.0, 24.0));
-        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(10.0, 8.0));
-        assert_eq!(doc.get(text).unwrap().size, Vec2::new(120.0, 20.0));
-        assert_eq!(doc.get(text).unwrap().transform, Affine::translate(10.0, 2.0));
-    }
-
-    #[test]
-    fn resizing_outer_instance_re_derives_children_on_sync() {
-        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
-        let (set, inst, inner, text) = ids(&doc);
-        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(140.0, 24.0));
-        assert_eq!(doc.get(text).unwrap().size, Vec2::new(120.0, 20.0));
-
-        let inst_node = doc.get_mut(inst).unwrap();
-        inst_node.size = Vec2::new(200.0, 40.0);
-        inst_node.component.overrides.insert(OverrideField::Size);
-
-        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
-
-        assert_eq!(doc.get(inst).unwrap().size, Vec2::new(200.0, 40.0));
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(180.0, 24.0));
-        assert_eq!(doc.get(text).unwrap().size.x, 160.0);
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-        assert!(doc.get(text).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn resizing_main_child_re_derives_instance_child_on_sync() {
-        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
-        let (set, _inst, inner, text) = ids(&doc);
-        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(140.0, 24.0));
-        assert_eq!(doc.get(text).unwrap().size, Vec2::new(120.0, 20.0));
-
-        let main_inner = doc.get(inner).unwrap().component.source.expect("main inner source");
-        doc.get_mut(main_inner).unwrap().size = Vec2::new(90.0, 24.0);
-
-        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
-
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(150.0, 24.0));
-        assert_eq!(doc.get(text).unwrap().size, Vec2::new(120.0, 16.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-        assert!(doc.get(text).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn changing_main_sibling_size_with_unchanged_box_updates_instance_on_sync() {
-        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
-        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let badge = doc.get(inst).unwrap().children[0];
-        let inner = doc.get(inst).unwrap().children[1];
-        let main_badge = doc.get(badge).unwrap().component.source.unwrap();
-        let main_inner = doc.get(inner).unwrap().component.source.unwrap();
-        assert_eq!(doc.get(main_inner).unwrap().size, Vec2::new(52.0, 24.0));
-        assert_eq!(doc.get(main_inner).unwrap().transform, Affine::translate(38.0, 8.0));
-
-        // Change sibling `main_badge` width from 20 to 40 while leaving `main_inner` box untouched.
-        doc.get_mut(main_badge).unwrap().size.x = 40.0;
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-
-        assert_eq!(doc.get(badge).unwrap().size, Vec2::new(40.0, 24.0));
-        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(58.0, 8.0));
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(92.0, 24.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn hiding_main_sibling_with_unchanged_box_updates_instance_on_sync() {
-        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
-        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let badge = doc.get(inst).unwrap().children[0];
-        let inner = doc.get(inst).unwrap().children[1];
-        let main_badge = doc.get(badge).unwrap().component.source.unwrap();
-        let main_inner = doc.get(inner).unwrap().component.source.unwrap();
-        assert_eq!(doc.get(main_inner).unwrap().size, Vec2::new(52.0, 24.0));
-        assert_eq!(doc.get(main_inner).unwrap().transform, Affine::translate(38.0, 8.0));
-
-        // Hide sibling `main_badge` while leaving `main_inner` box untouched.
-        doc.get_mut(main_badge).unwrap().visible = false;
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-
-        assert!(!doc.get(badge).unwrap().visible);
-        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(10.0, 8.0));
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(140.0, 24.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn swapping_main_sibling_order_with_unchanged_boxes_updates_instance_on_sync() {
-        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
-        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let badge = doc.get(inst).unwrap().children[0];
-        let inner = doc.get(inst).unwrap().children[1];
-
-        // Reverse `comp.children` without changing either child's stored box on `comp`.
-        doc.get_mut(comp).unwrap().children.reverse();
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-
-        assert_eq!(doc.get(inst).unwrap().children, vec![inner, badge]);
-        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(10.0, 8.0));
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
-        assert_eq!(doc.get(badge).unwrap().transform, Affine::translate(130.0, 8.0));
-        assert_eq!(doc.get(badge).unwrap().size, Vec2::new(20.0, 24.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-        assert!(doc.get(badge).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn changing_main_grid_column_track_from_flex_to_fixed_updates_instance_on_sync() {
-        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
-        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let badge = doc.get(inst).unwrap().children[0];
-        let inner = doc.get(inst).unwrap().children[1];
-        let main_badge = doc.get(badge).unwrap().component.source.unwrap();
-        let main_inner = doc.get(inner).unwrap().component.source.unwrap();
-
-        for container in [comp, inst] {
-            let al = doc.get_mut(container).unwrap().kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap();
-            al.direction = LayoutDirection::Grid;
-            al.padding = [0.0; 4];
-            al.item_spacing = 0.0;
-            al.counter_spacing = 0.0;
-            al.grid_columns = 2;
-            al.grid_rows = 1;
-            al.grid_col_tracks = [GridTrack::Flex(1.0), GridTrack::Flex(1.0)].into();
-            al.grid_row_tracks = [GridTrack::Flex(1.0)].into();
-        }
-        for (col, id, w, x) in [(0u16, main_badge, 50.0, 0.0), (1, main_inner, 50.0, 50.0), (0, badge, 80.0, 0.0), (1, inner, 80.0, 80.0)] {
-            let n = doc.get_mut(id).unwrap();
-            n.size = Vec2::new(w, 40.0);
-            n.transform = Affine::translate(x, 0.0);
-            n.layout_child.horizontal = Sizing::Fill;
-            n.layout_child.vertical = Sizing::Fill;
-            n.layout_child.grid_column = Some(col);
-            n.layout_child.grid_row = Some(0);
-        }
-        record_derived_layout(&mut doc, badge);
-        record_derived_layout(&mut doc, inner);
-
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-        assert_eq!(doc.get(badge).unwrap().size, Vec2::new(80.0, 40.0));
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(80.0, 40.0));
-        assert!(doc.get(badge).unwrap().component.derived.is_some());
-
-        // Change column 0 track on `comp` from 1fr to 40px while leaving `main_badge` and `main_inner` boxes untouched.
-        doc.get_mut(comp).unwrap().kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().grid_col_tracks[0] = GridTrack::Fixed(40.0);
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-
-        assert_eq!(doc.get(badge).unwrap().size, Vec2::new(40.0, 40.0));
-        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(40.0, 0.0));
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(120.0, 40.0));
-        assert!(doc.get(badge).unwrap().component.derived.is_none());
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn changing_main_parent_stroke_weight_when_stroke_takes_space_updates_instance_on_sync() {
-        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
-        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let badge = doc.get(inst).unwrap().children[0];
-        let inner = doc.get(inst).unwrap().children[1];
-
-        for container in [comp, inst] {
-            let n = doc.get_mut(container).unwrap();
-            n.stroke.paints = vec![Paint::solid(Color::BLACK)];
-            n.stroke.weight = 1.0;
-            n.stroke.align = StrokeAlign::Inside;
-            let al = n.kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap();
-            al.stroke_included = true;
-            al.layout_version = 0;
-        }
-        record_derived_layout(&mut doc, badge);
-        record_derived_layout(&mut doc, inner);
-
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_some());
-
-        // Increase `comp` stroke weight from 1px to 8px while leaving `main_badge` and `main_inner` boxes untouched.
-        doc.get_mut(comp).unwrap().stroke.weight = 8.0;
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-
-        assert_eq!(doc.get(badge).unwrap().transform, Affine::translate(18.0, 16.0));
-        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(46.0, 16.0));
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(96.0, 24.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn changing_main_text_auto_resize_or_font_size_with_unchanged_box_keeps_instance_derived_layout_on_sync() {
-        // Case 1: `auto_resize` changed on `main_text` with `main_text.size` left at 60x16 inside a non-auto-layout frame.
-        // Our constraint solver's output for `Inner`'s children is unchanged, so Figma's derived box (120x20) is kept.
-        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
-        let (set, _inst, _inner, text) = ids(&doc);
-        let main_text = doc.get(text).unwrap().component.source.unwrap();
-        assert_eq!(doc.get(main_text).unwrap().size, Vec2::new(60.0, 16.0));
-        assert_eq!(doc.get(text).unwrap().size, Vec2::new(120.0, 20.0));
-
-        if let NodeKind::Text(tp) = &mut doc.get_mut(main_text).unwrap().kind {
-            tp.auto_resize = TextAutoResize::WidthAndHeight;
-        }
-        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
-        assert_eq!(doc.get(text).unwrap().size, Vec2::new(120.0, 20.0));
-        assert!(doc.get(text).unwrap().component.derived.is_some());
-
-        // Case 2: `style.font_size` changed on `main_text` with `main_text.size` left at 60x16 inside a non-auto-layout frame.
-        let mut doc2 = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
-        let (set2, _inst2, _inner2, text2) = ids(&doc2);
-        let main_text2 = doc2.get(text2).unwrap().component.source.unwrap();
-        if let NodeKind::Text(tp) = &mut doc2.get_mut(main_text2).unwrap().kind {
-            tp.style.font_size = 24.0;
-        }
-        sync_instances(&mut doc2, set2).apply(&mut doc2).unwrap();
-        assert_eq!(doc2.get(text2).unwrap().size, Vec2::new(120.0, 20.0));
-        assert!(doc2.get(text2).unwrap().component.derived.is_some());
-    }
-
-    #[test]
-    fn moving_main_vector_network_tangent_without_changing_path_cmds_keeps_instance_derived_layout_on_sync() {
-        let mut doc = crate::import_fig(&resized_icon_instance_fig()).expect("import icon fig");
-        let comp = doc.nodes.values().find(|n| n.name == "Icon" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let main_glyph = doc.get(comp).unwrap().children[0];
-        let inst = doc.nodes.values().find(|n| n.name == "Icon instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let glyph = doc.get(inst).unwrap().children[0];
-
-        for id in [main_glyph, glyph] {
-            if let NodeKind::Vector { paths, network } = &mut doc.get_mut(id).unwrap().kind {
-                *network = Some(VectorNetwork::from_paths(paths));
-            }
-        }
-        record_derived_layout(&mut doc, glyph);
-
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-        assert!(doc.get(glyph).unwrap().component.derived.is_some());
-
-        // Move a segment tangent on `main_glyph.network` without changing `main_glyph.size` or constraints.
-        // Our solver's output for `Icon instance`'s child box (24x24 at (0, 0)) is unchanged, so derived layout is kept.
-        if let NodeKind::Vector { network: Some(net), .. } = &mut doc.get_mut(main_glyph).unwrap().kind {
-            net.segments[0].ta = Vec2::new(4.0, 2.0);
-        }
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-
-        assert!(doc.get(glyph).unwrap().component.derived.is_some());
-        assert_eq!(doc.get(glyph).unwrap().size, Vec2::new(24.0, 24.0));
-    }
-
-    #[test]
-    fn switching_instance_variable_mode_for_bound_gap_updates_instance_on_sync() {
-        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
-        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let badge = doc.get(inst).unwrap().children[0];
-        let inner = doc.get(inst).unwrap().children[1];
-
-        doc.variable_collections.insert(
-            "c1".into(),
-            VariableCollection {
-                id: "c1".into(),
-                name: "Spacing".into(),
-                modes: vec![VariableMode { id: "m1".into(), name: "Compact".into() }, VariableMode { id: "m2".into(), name: "Spacious".into() }],
-                default_mode: "m1".into(),
-                variables: vec!["v_gap".into()],
-                key: None,
-                source_library_key: None,
-                extensions: Default::default(),
-            },
-        );
-        doc.variables.insert(
-            "v_gap".into(),
-            Variable {
-                id: "v_gap".into(),
-                name: "gap".into(),
-                collection: "c1".into(),
-                kind: VariableKind::Number,
-                values: [("m1".to_string(), VariableValue::Number(8.0)), ("m2".to_string(), VariableValue::Number(20.0))].into_iter().collect(),
-                description: String::new(),
-                scopes: Vec::new(),
-                hidden_from_publishing: false,
-                key: None,
-                code_syntax: Default::default(),
-                extensions: Default::default(),
-                mode_extensions: Default::default(),
-            },
-        );
-        doc.get_mut(comp).unwrap().variables.bindings.insert("itemSpacing".into(), "v_gap".into());
-        doc.get_mut(inst).unwrap().variables.bindings.insert("itemSpacing".into(), "v_gap".into());
-        record_derived_layout(&mut doc, badge);
-        record_derived_layout(&mut doc, inner);
-
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
-        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(38.0, 8.0));
-
-        // Switch mode on `inst` from m1 (8px) to m2 (20px) without editing `comp`.
-        doc.get_mut(inst).unwrap().variables.modes.insert("c1".into(), "m2".into());
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-
-        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(50.0, 8.0));
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(100.0, 24.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn setting_hug_layout_override_on_instance_layer_updates_instance_on_sync() {
-        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
-        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let inner = doc.get(inst).unwrap().children[1];
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
-
-        // Override `inner` from Fill to Hug on the instance while its stored box is still 112x24.
-        let inner_node = doc.get_mut(inner).unwrap();
-        inner_node.layout_child.horizontal = Sizing::Hug;
-        inner_node.layout_child.grow = 0.0;
-        inner_node.component.overrides.insert(OverrideField::Layout);
-
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(52.0, 24.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn main_fill_rename_effect_and_opacity_edits_preserve_imported_instance_whole_nodes_on_sync() {
-        let mut doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
-        let (set, inst, inner, text) = ids(&doc);
-        let main_inner = doc.get(inner).unwrap().component.source.unwrap();
-        let expected_inst = doc.get(inst).unwrap().clone();
-        let mut expected_inner = doc.get(inner).unwrap().clone();
-        let expected_text = doc.get(text).unwrap().clone();
-
-        let new_fill = vec![Paint::solid(Color::rgba(25, 204, 77, 255))];
-        doc.get_mut(main_inner).unwrap().fills = new_fill.clone();
-        expected_inner.fills = new_fill;
-        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
-        assert_eq!(doc.get(inst).unwrap(), &expected_inst);
-        assert_eq!(doc.get(inner).unwrap(), &expected_inner);
-        assert_eq!(doc.get(text).unwrap(), &expected_text);
-
-        doc.get_mut(main_inner).unwrap().name = "Inner renamed".into();
-        expected_inner.name = "Inner renamed".into();
-        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
-        assert_eq!(doc.get(inst).unwrap(), &expected_inst);
-        assert_eq!(doc.get(inner).unwrap(), &expected_inner);
-        assert_eq!(doc.get(text).unwrap(), &expected_text);
-
-        let new_effects = vec![Effect::DropShadow {
-            color: Color::rgba(0, 0, 0, 64),
-            offset: Vec2::new(0.0, 2.0),
-            radius: 4.0,
-            spread: 0.0,
-            visible: true,
-            show_behind: false,
-            blend: BlendMode::Normal,
-        }];
-        doc.get_mut(main_inner).unwrap().effects = new_effects.clone();
-        expected_inner.effects = new_effects;
-        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
-        assert_eq!(doc.get(inst).unwrap(), &expected_inst);
-        assert_eq!(doc.get(inner).unwrap(), &expected_inner);
-        assert_eq!(doc.get(text).unwrap(), &expected_text);
-
-        doc.get_mut(main_inner).unwrap().opacity = 0.75;
-        expected_inner.opacity = 0.75;
-        sync_instances(&mut doc, set).apply(&mut doc).unwrap();
-        assert_eq!(doc.get(inst).unwrap(), &expected_inst);
-        assert_eq!(doc.get(inner).unwrap(), &expected_inner);
-        assert_eq!(doc.get(text).unwrap(), &expected_text);
-    }
-
-    #[test]
-    fn native_save_and_reopen_with_derived_records_keeps_everything_on_no_change_sync() {
-        let doc = crate::import_fig(&resized_variant_instance_fig()).expect("import fig");
-        let json = doc.to_json().expect("serialize native json");
-        let mut reopened = Document::from_json(&json).expect("deserialize native json");
-        let (set, inst, inner, text) = ids(&reopened);
-        let before = (reopened.get(inst).unwrap().clone(), reopened.get(inner).unwrap().clone(), reopened.get(text).unwrap().clone());
-        assert!(before.1.component.derived.is_some());
-        assert!(before.2.component.derived.is_some());
-        assert_eq!(before.1.component.derived.unwrap().solver_version, DERIVED_SOLVER_VERSION);
-        assert_eq!(before.2.component.derived.unwrap().solver_version, DERIVED_SOLVER_VERSION);
-
-        sync_instances(&mut reopened, set).apply(&mut reopened).unwrap();
-        let after = (reopened.get(inst).unwrap().clone(), reopened.get(inner).unwrap().clone(), reopened.get(text).unwrap().clone());
-        assert_eq!(after, before);
-
-        // A file saved under a different `solver_version` keeps its valid records on sync and upgrades
-        // `solver_version` + `fingerprint` in place rather than dropping every derived record on upgrade.
-        let expected_inner_fp = reopened.get(inner).unwrap().component.derived.unwrap().fingerprint;
-        let expected_text_fp = reopened.get(text).unwrap().component.derived.unwrap().fingerprint;
-        for id in [inner, text] {
-            let dl = reopened.get_mut(id).unwrap().component.derived.as_mut().unwrap();
-            dl.fingerprint = 0xfeed_face_cafe_beef;
-            dl.solver_version = DERIVED_SOLVER_VERSION + 1;
-        }
-        let older_json = reopened.to_json().expect("serialize older-version json");
-        let mut upgraded = Document::from_json(&older_json).expect("deserialize older-version json");
-        sync_instances(&mut upgraded, set).apply(&mut upgraded).unwrap();
-        assert_eq!(upgraded.get(inner).unwrap().size, Vec2::new(140.0, 24.0));
-        assert_eq!(upgraded.get(text).unwrap().size, Vec2::new(120.0, 20.0));
-        assert_eq!(upgraded.get(inner).unwrap().component.derived.unwrap().solver_version, DERIVED_SOLVER_VERSION);
-        assert_eq!(upgraded.get(text).unwrap().component.derived.unwrap().solver_version, DERIVED_SOLVER_VERSION);
-        assert_eq!(upgraded.get(inner).unwrap().component.derived.unwrap().fingerprint, expected_inner_fp);
-        assert_eq!(upgraded.get(text).unwrap().component.derived.unwrap().fingerprint, expected_text_fp);
-
-        // An unreleased-branch record with fingerprint == 0 is treated as invalid so the solver runs.
-        reopened.get_mut(inner).unwrap().component.derived.as_mut().unwrap().fingerprint = 0;
-        reopened.get_mut(text).unwrap().component.derived.as_mut().unwrap().fingerprint = 0;
-        sync_instances(&mut reopened, set).apply(&mut reopened).unwrap();
-        assert!(reopened.get(inner).unwrap().component.derived.is_none());
-        assert!(reopened.get(text).unwrap().component.derived.is_none());
-        assert_eq!(reopened.get(text).unwrap().size, Vec2::new(120.0, 16.0));
-    }
-
-    #[test]
-    fn undo_and_redo_of_sync_that_dropped_derived_record_restores_whole_node() {
-        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
-        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let badge = doc.get(inst).unwrap().children[0];
-        let inner = doc.get(inst).unwrap().children[1];
-        let main_badge = doc.get(badge).unwrap().component.source.unwrap();
-
-        let inner_before = doc.get(inner).unwrap().clone();
-        assert!(inner_before.component.derived.is_some());
-
-        doc.get_mut(main_badge).unwrap().size.x = 40.0;
-        let undo_cmd = sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-        let inner_after = doc.get(inner).unwrap().clone();
-        assert!(inner_after.component.derived.is_none());
-        assert_eq!(inner_after.size, Vec2::new(92.0, 24.0));
-
-        let redo_cmd = undo_cmd.apply(&mut doc).unwrap();
-        assert_eq!(doc.get(inner).unwrap(), &inner_before);
-
-        redo_cmd.apply(&mut doc).unwrap();
-        assert_eq!(doc.get(inner).unwrap(), &inner_after);
-    }
-
-    #[test]
-    fn changing_main_parent_stroke_paint_opacity_or_visibility_when_stroke_takes_space_updates_instance_on_sync() {
-        // Case 1: stroke paint opacity 1.0 -> 0.0 with weight 8 Inside and `stroke_included = true`.
-        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
-        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let badge = doc.get(inst).unwrap().children[0];
-        let inner = doc.get(inst).unwrap().children[1];
-
-        for container in [comp, inst] {
-            let n = doc.get_mut(container).unwrap();
-            n.stroke.paints = vec![Paint::solid(Color::BLACK)];
-            n.stroke.weight = 8.0;
-            n.stroke.align = StrokeAlign::Inside;
-            let al = n.kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap();
-            al.stroke_included = true;
-            al.layout_version = 0;
-        }
-        doc.get_mut(badge).unwrap().transform = Affine::translate(18.0, 16.0);
-        doc.get_mut(inner).unwrap().transform = Affine::translate(46.0, 16.0);
-        doc.get_mut(inner).unwrap().size = Vec2::new(98.0, 24.0);
-        record_derived_layout(&mut doc, badge);
-        record_derived_layout(&mut doc, inner);
-
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(98.0, 24.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_some());
-
-        // Setting stroke paint opacity to 0.0 makes `has_visible_paint()` false and collapses the 8px stroke inset.
-        doc.get_mut(comp).unwrap().stroke.paints[0].opacity = 0.0;
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-
-        assert_eq!(doc.get(badge).unwrap().transform, Affine::translate(10.0, 8.0));
-        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(38.0, 8.0));
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-
-        // Case 2: stroke paint `visible` true -> false with weight 8 Inside and `stroke_included = true`.
-        let mut doc2 = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
-        let comp2 = doc2.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let inst2 = doc2.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let badge2 = doc2.get(inst2).unwrap().children[0];
-        let inner2 = doc2.get(inst2).unwrap().children[1];
-
-        for container in [comp2, inst2] {
-            let n = doc2.get_mut(container).unwrap();
-            n.stroke.paints = vec![Paint::solid(Color::BLACK)];
-            n.stroke.weight = 8.0;
-            n.stroke.align = StrokeAlign::Inside;
-            let al = n.kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap();
-            al.stroke_included = true;
-            al.layout_version = 0;
-        }
-        doc2.get_mut(badge2).unwrap().transform = Affine::translate(18.0, 16.0);
-        doc2.get_mut(inner2).unwrap().transform = Affine::translate(46.0, 16.0);
-        doc2.get_mut(inner2).unwrap().size = Vec2::new(98.0, 24.0);
-        record_derived_layout(&mut doc2, badge2);
-        record_derived_layout(&mut doc2, inner2);
-
-        doc2.get_mut(comp2).unwrap().stroke.paints[0].visible = false;
-        sync_instances(&mut doc2, comp2).apply(&mut doc2).unwrap();
-
-        assert_eq!(doc2.get(badge2).unwrap().transform, Affine::translate(10.0, 8.0));
-        assert_eq!(doc2.get(inner2).unwrap().transform, Affine::translate(38.0, 8.0));
-        assert_eq!(doc2.get(inner2).unwrap().size, Vec2::new(112.0, 24.0));
-        assert!(doc2.get(inner2).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn changing_variable_value_in_same_mode_or_collection_default_mode_updates_instance_on_sync() {
-        let setup = || {
-            let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
-            let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-            let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-            let badge = doc.get(inst).unwrap().children[0];
-            let inner = doc.get(inst).unwrap().children[1];
-
-            doc.variable_collections.insert(
-                "c1".into(),
-                VariableCollection {
-                    id: "c1".into(),
-                    name: "Spacing".into(),
-                    modes: vec![VariableMode { id: "m1".into(), name: "Compact".into() }, VariableMode { id: "m2".into(), name: "Spacious".into() }],
-                    default_mode: "m1".into(),
-                    variables: vec!["v_gap".into()],
-                    key: None,
-                    source_library_key: None,
-                    extensions: Default::default(),
-                },
-            );
-            doc.variables.insert(
-                "v_gap".into(),
-                Variable {
-                    id: "v_gap".into(),
-                    name: "gap".into(),
-                    collection: "c1".into(),
-                    kind: VariableKind::Number,
-                    values: [("m1".to_string(), VariableValue::Number(8.0)), ("m2".to_string(), VariableValue::Number(20.0))].into_iter().collect(),
-                    description: String::new(),
-                    scopes: Vec::new(),
-                    hidden_from_publishing: false,
-                    key: None,
-                    code_syntax: Default::default(),
-                    extensions: Default::default(),
-                    mode_extensions: Default::default(),
-                },
-            );
-            doc.get_mut(comp).unwrap().variables.bindings.insert("itemSpacing".into(), "v_gap".into());
-            doc.get_mut(inst).unwrap().variables.bindings.insert("itemSpacing".into(), "v_gap".into());
-            record_derived_layout(&mut doc, badge);
-            record_derived_layout(&mut doc, inner);
-            (doc, comp, inst, badge, inner)
-        };
-
-        // Case 1: variable value in the active mode ("m1") changes from 8.0 to 20.0 without touching any node or mode map.
-        let (mut doc, comp, _inst, _badge, inner) = setup();
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(112.0, 24.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_some());
-
-        doc.variables.get_mut("v_gap").unwrap().values.insert("m1".into(), VariableValue::Number(20.0));
-        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
-        assert_eq!(doc.get(inner).unwrap().transform, Affine::translate(50.0, 8.0));
-        assert_eq!(doc.get(inner).unwrap().size, Vec2::new(100.0, 24.0));
-        assert!(doc.get(inner).unwrap().component.derived.is_none());
-
-        // Case 2: collection `default_mode` changes from "m1" (8.0) to "m2" (20.0) without editing node mode maps.
-        let (mut doc2, comp2, _inst2, _badge2, inner2) = setup();
-        doc2.variable_collections.get_mut("c1").unwrap().default_mode = "m2".into();
-        sync_instances(&mut doc2, comp2).apply(&mut doc2).unwrap();
-        assert_eq!(doc2.get(inner2).unwrap().transform, Affine::translate(50.0, 8.0));
-        assert_eq!(doc2.get(inner2).unwrap().size, Vec2::new(100.0, 24.0));
-        assert!(doc2.get(inner2).unwrap().component.derived.is_none());
-    }
-
-    #[test]
-    fn nested_hug_frame_inner_text_font_size_sync_matches_sync_without_derived_except_where_solve_output_is_unchanged() {
-        // Pre-existing solver gap (see V1/V2 in report):
-        // - `Document::flow_child_input` (`crates/designos-doc/src/layout_apply.rs:102-119`) only re-measures
-        //   `TextAutoResize::WidthAndHeight` text when `c.size.x <= 1.0 && c.size.y <= 1.0` and `layout_measurer()`
-        //   is installed, and `sync_pair` (`crates/designos-doc/src/components.rs:3018-3048`) solves top-down
-        //   without refitting nested `Hug` frames before their parent's auto-layout pass.
-        // This test pins the output-signature model's exact guarantee: after a sync, the instance equals,
-        // node for node, the result of the same sync with derived records removed beforehand, except where
-        // our solver's own output is unchanged and Figma's derived numbers are kept.
-        let mut doc = crate::import_fig(&resized_auto_layout_instance_fig()).expect("import auto-layout fig");
-        let comp = doc.nodes.values().find(|n| n.name == "Row" && matches!(n.kind, NodeKind::Component(_))).unwrap().id;
-        let inst = doc.nodes.values().find(|n| n.name == "Row instance" && matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
-        let badge = doc.get(inst).unwrap().children[0];
-        let inner = doc.get(inst).unwrap().children[1];
-        let main_inner = doc.get(inner).unwrap().component.source.unwrap();
-
-        // Configure `main_inner` / `inner` as a nested Hug auto-layout frame containing a text node,
-        // and add a trailing Fill sibling (`main_tail` / `inst_tail`) in `Row`.
-        for id in [main_inner, inner] {
-            let n = doc.get_mut(id).unwrap();
-            n.layout_child.horizontal = Sizing::Hug;
-            n.layout_child.grow = 0.0;
-            n.kind.frame_props_mut().unwrap().auto_layout = Some(AutoLayout {
-                direction: LayoutDirection::Horizontal,
-                primary_sizing: Sizing::Hug,
-                counter_sizing: Sizing::Hug,
-                padding: [4.0, 6.0, 4.0, 6.0],
-                item_spacing: 4.0,
-                ..Default::default()
-            });
-        }
-        doc.get_mut(inner).unwrap().size = Vec2::new(56.0, 24.0);
-        doc.get_mut(inner).unwrap().transform = Affine::translate(38.0, 8.0);
-
-        let main_label = doc.alloc_id();
-        let mut main_label_node = Node::new(
-            main_label,
-            NodeKind::Text(TextProps {
-                content: "Label".into(),
-                style: TextStyle { font_size: 14.0, ..Default::default() },
-                auto_resize: TextAutoResize::WidthAndHeight,
-                ..Default::default()
-            }),
-        );
-        main_label_node.name = "Label".into();
-        main_label_node.size = Vec2::new(40.0, 16.0);
-        main_label_node.transform = Affine::translate(6.0, 4.0);
-        Command::Insert { parent: main_inner, index: 0, nodes: vec![main_label_node] }.apply(&mut doc).unwrap();
-
-        let inst_label = doc.alloc_id();
-        let mut inst_label_node = doc.get(main_label).unwrap().clone();
-        inst_label_node.id = inst_label;
-        inst_label_node.parent = Some(inner);
-        inst_label_node.component.source = Some(main_label);
-        inst_label_node.size = Vec2::new(44.0, 16.0);
-        inst_label_node.transform = Affine::translate(6.0, 4.0);
-        Command::Insert { parent: inner, index: 0, nodes: vec![inst_label_node] }.apply(&mut doc).unwrap();
-
-        let main_tail = doc.alloc_id();
-        let mut main_tail_node = Node::new(main_tail, NodeKind::Rectangle);
-        main_tail_node.name = "Tail".into();
-        main_tail_node.size = Vec2::new(12.0, 24.0);
-        main_tail_node.transform = Affine::translate(98.0, 8.0);
-        main_tail_node.layout_child.horizontal = Sizing::Fill;
-        main_tail_node.layout_child.grow = 1.0;
-        Command::Insert { parent: comp, index: 2, nodes: vec![main_tail_node] }.apply(&mut doc).unwrap();
-
-        let inst_tail = doc.alloc_id();
-        let mut inst_tail_node = doc.get(main_tail).unwrap().clone();
-        inst_tail_node.id = inst_tail;
-        inst_tail_node.parent = Some(inst);
-        inst_tail_node.component.source = Some(main_tail);
-        inst_tail_node.size = Vec2::new(48.0, 24.0);
-        inst_tail_node.transform = Affine::translate(102.0, 8.0);
-        Command::Insert { parent: inst, index: 2, nodes: vec![inst_tail_node] }.apply(&mut doc).unwrap();
-
-        doc.get_mut(inst).unwrap().component.overrides.insert(OverrideField::Size);
-        for id in [inst, badge, inner, inst_label, inst_tail] {
-            record_derived_layout(&mut doc, id);
-        }
-
-        let imported_snapshot: std::collections::BTreeMap<NodeId, (Vec2, Affine)> =
-            [inst, badge, inner, inst_label, inst_tail].into_iter().map(|id| (id, (doc.get(id).unwrap().size, doc.get(id).unwrap().transform))).collect();
-
-        // Baseline document with all derived records removed beforehand.
-        let mut without_derived = doc.clone();
-        for n in without_derived.nodes.values_mut() {
-            n.component.derived = None;
-        }
-        let mut without_derived_noop = without_derived.clone();
-        sync_instances(&mut without_derived_noop, comp).apply(&mut without_derived_noop).unwrap();
-
-        // Phase 1: change only `main_label` font size (14.0 -> 24.0) inside the nested hug frame.
-        for d in [&mut doc, &mut without_derived] {
-            if let NodeKind::Text(tp) = &mut d.get_mut(main_label).unwrap().kind {
-                tp.style.font_size = 24.0;
-            }
-            sync_instances(d, comp).apply(d).unwrap();
-        }
-
-        for id in [inst, badge, inner, inst_label, inst_tail] {
-            let with_dl = doc.get(id).unwrap();
-            let no_dl = without_derived.get(id).unwrap();
-            let no_dl_noop = without_derived_noop.get(id).unwrap();
-            let solve_output_unchanged = no_dl.size == no_dl_noop.size && no_dl.transform == no_dl_noop.transform;
-            if solve_output_unchanged {
-                assert!(with_dl.component.derived.is_some());
-                assert_eq!((with_dl.size, with_dl.transform), imported_snapshot[&id]);
-            }
-            let mut normalized = with_dl.clone();
-            normalized.component.derived = None;
-            if solve_output_unchanged {
-                normalized.size = no_dl.size;
-                normalized.transform = no_dl.transform;
-                normalized.layout_child.stretched = no_dl.layout_child.stretched;
-            }
-            assert_eq!(&normalized, no_dl);
-        }
-
-        // Phase 2: also change `comp` item_spacing (8.0 -> 16.0), which changes our solver's output for `Row`
-        // (and drops `Inner`'s derived size from 56x24 to 52x24, cascading to `inst_label`), so every child
-        // drops its derived record and matches `without_derived` node for node.
-        for d in [&mut doc, &mut without_derived] {
-            d.get_mut(comp).unwrap().kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().item_spacing = 16.0;
-            sync_instances(d, comp).apply(d).unwrap();
-        }
-        for id in [badge, inner, inst_label, inst_tail] {
-            assert!(doc.get(id).unwrap().component.derived.is_none());
-            assert_eq!(doc.get(id).unwrap(), without_derived.get(id).unwrap());
-        }
     }
 }

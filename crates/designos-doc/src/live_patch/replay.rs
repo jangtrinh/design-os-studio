@@ -883,6 +883,21 @@ fn merge_fields(cur: &Node, set: &Map<String, Value>, unset: &[String]) -> Resul
         }
     }
     let mut merged: Node = serde_json::from_value(Value::Object(fields)).map_err(|e| e.to_string())?;
+    if !set.contains_key("stroke_geometry_for") && !unset.iter().any(|k| k == "stroke_geometry_for") {
+        if merged.stroke_geometry.as_ref().is_none_or(|g| g.is_empty()) {
+            merged.stroke_geometry_for = None;
+        } else if set.contains_key("stroke_geometry") {
+            merged.stamp_stroke_geometry();
+        } else {
+            merged.stroke_geometry_for = cur.stroke_geometry_for.clone();
+        }
+    } else if unset.iter().any(|k| k == "stroke_geometry_for") {
+        if merged.stroke_geometry.as_ref().is_some_and(|g| !g.is_empty()) {
+            merged.stamp_stroke_geometry();
+        } else {
+            merged.stroke_geometry_for = None;
+        }
+    }
     merged.id = cur.id;
     merged.parent = cur.parent;
     merged.children = cur.children.clone();

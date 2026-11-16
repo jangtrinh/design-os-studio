@@ -535,6 +535,7 @@ fn outside_stroke_with_imported_outer_disc_keeps_fill_in_centre() {
         cmds: vec![PathCmd::MoveTo(v(-1.5, -1.5)), PathCmd::LineTo(v(9.5, -1.5)), PathCmd::LineTo(v(9.5, 9.5)), PathCmd::LineTo(v(-1.5, 9.5)), PathCmd::Close],
         fill_rule: FillRule::NonZero,
     }]);
+    n.stamp_stroke_geometry();
     let c = compare(&mut g, "outside_stroke_imported_disc", &t.doc, t.page, Viewport::default(), (20, 20), 8);
     let center_cpu = c.cpu.pixel(10, 10).unwrap();
     let center_gpu = c.gpu.pixel(10, 10).unwrap();
@@ -544,6 +545,40 @@ fn outside_stroke_with_imported_outer_disc_keeps_fill_in_centre() {
     assert!(ring_gpu.red() > 240 && ring_gpu.green() > 240 && ring_gpu.blue() > 240, "GPU outside ring must be white, got {ring_gpu:?}");
     assert_eq!(c.report_aa.mismatched, 0, "{:?}", c.report_aa);
     assert!(c.report.ssim > 0.99, "{:?}", c.report);
+}
+
+#[test]
+fn stale_stroke_outline_matches_cpu_live_stroke_on_gpu() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    let r = t.rect(None, Rect::new(10.0, 10.0, 40.0, 40.0), Color::WHITE);
+    let n = t.node(r);
+    n.fills.clear();
+    n.stroke.paints = vec![Paint::solid(Color::rgb(0x00, 0x44, 0xFF))];
+    n.stroke.weight = 2.0;
+    n.stroke.align = StrokeAlign::Inside;
+    let v = Vec2::new;
+    // Stored outline is a horizontal bar across the centre, distinct from the perimeter stroke.
+    n.stroke_geometry = Some(vec![Path {
+        cmds: vec![
+            PathCmd::MoveTo(v(0.0, 17.0)),
+            PathCmd::LineTo(v(40.0, 17.0)),
+            PathCmd::LineTo(v(40.0, 23.0)),
+            PathCmd::LineTo(v(0.0, 23.0)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    }]);
+    n.stamp_stroke_geometry();
+    // Mutate stroke weight directly without a setter so the stored outline becomes stale.
+    n.stroke.weight = 6.0;
+
+    let c = compare(&mut g, "stale_stroke_outline_live_stroke", &t.doc, t.page, Viewport::default(), (60, 60), 8);
+    let centre_gpu = c.gpu.pixel(30, 30).unwrap();
+    assert_eq!([centre_gpu.red(), centre_gpu.green(), centre_gpu.blue()], [255, 255, 255], "GPU must not draw stale centre bar");
+    let top_edge_gpu = c.gpu.pixel(30, 12).unwrap();
+    assert!(top_edge_gpu.blue() > 200 && top_edge_gpu.red() < 40, "GPU must draw live perimeter stroke, got {top_edge_gpu:?}");
+    assert_eq!(c.report_aa.mismatched, 0, "{:?}", c.report_aa);
 }
 
 #[test]

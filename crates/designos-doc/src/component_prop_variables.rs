@@ -468,11 +468,17 @@ fn has_auto_layout(doc: &Document, id: NodeId) -> bool {
 /// each `NodeKind::Group` is fitted to its children and each auto-layout frame is solved, so
 /// alternating groups and auto-layout frames each read the updated size of the level below.
 /// Stops on any branch where a container's bounds did not change.
-fn climb_groups_and_relayout(doc: &mut Document, changed: &[NodeId], initial_seeds: &[NodeId]) -> BTreeMap<NodeId, Node> {
+pub(crate) fn climb_groups_and_relayout(doc: &mut Document, changed: &[NodeId], initial_seeds: &[NodeId]) -> BTreeMap<NodeId, Node> {
+    let cap = doc.nodes.len();
     let mut groups = BTreeSet::new();
     for &id in changed {
         let mut cur = doc.get(id).and_then(|n| n.parent);
+        let mut steps = 0usize;
         while let Some(parent) = cur {
+            if steps >= cap {
+                break;
+            }
+            steps += 1;
             if doc.get(parent).is_some_and(|n| matches!(n.kind, NodeKind::Group)) {
                 groups.insert(parent);
             }
@@ -505,7 +511,12 @@ fn climb_groups_and_relayout(doc: &mut Document, changed: &[NodeId], initial_see
     }
     let mut old_nodes = BTreeMap::new();
     let mut final_al_seeds = Vec::new();
+    let mut climb_steps = 0usize;
     while let Some((_depth, cur)) = worklist.pop_last() {
+        if climb_steps >= cap {
+            break;
+        }
+        climb_steps += 1;
         if doc.get(cur).is_some_and(|n| matches!(n.kind, NodeKind::Group)) {
             let before_rect = doc.get(cur).map(|n| (n.size, n.transform));
             let _ = apply_resize_to_fit_one(doc, cur, |d, touched| {
@@ -521,7 +532,12 @@ fn climb_groups_and_relayout(doc: &mut Document, changed: &[NodeId], initial_see
             }
         } else if has_auto_layout(doc, cur) {
             let mut top_al = cur;
+            let mut al_steps = 0usize;
             while let Some(p) = doc.get(top_al).and_then(|n| n.parent) {
+                if al_steps >= cap {
+                    break;
+                }
+                al_steps += 1;
                 if has_auto_layout(doc, p) {
                     top_al = p;
                 } else {
@@ -559,10 +575,14 @@ fn collect_update_ids(doc: &Document, cmd: &Command, out: &mut Vec<NodeId>) {
         _ => {}
     }
 }
-fn group_depth(doc: &Document, id: NodeId) -> usize {
+pub(crate) fn group_depth(doc: &Document, id: NodeId) -> usize {
+    let cap = doc.nodes.len();
     let mut d = 0;
     let mut cur = doc.get(id).and_then(|n| n.parent);
     while let Some(p) = cur {
+        if d >= cap {
+            break;
+        }
         d += 1;
         cur = doc.get(p).and_then(|n| n.parent);
     }

@@ -329,7 +329,11 @@ impl App {
         let mut pre = Vec::new();
         for id in nodes {
             for k in keys {
-                if let Some(v) = self.doc.resolve_variable(*id, var) {
+                // A component property of a nested copy is bound the way the agent tools bind it (the copy's own binding,
+                // kept through a sync of the main), not as a plain node field.
+                if let Some(name) = self.nested_prop_binding_name(*id, k) {
+                    self.bind_nested_prop_in(tx, *id, name, Some(var));
+                } else if let Some(v) = self.doc.resolve_variable(*id, var) {
                     pre.push((*id, k.to_string(), v));
                 }
             }
@@ -347,9 +351,26 @@ impl App {
 
     /// Removes the bindings of `keys`, keeping the values they currently resolve to.
     pub fn detach_variable(&mut self, nodes: &[NodeId], keys: &[&str]) {
-        let mut pre = Vec::new();
+        let mut tx = Tx::new();
+        // The component properties of a nested copy are unbound the way the agent tools unbind them: the copy keeps the variant
+        // it shows and stops following, where a plain removal of the key would be put back by the next sync of the main.
+        let mut plain_keys: Vec<(NodeId, Vec<&str>)> = Vec::new();
         for id in nodes {
+            let mut kept = Vec::new();
             for k in keys {
+                match self.nested_prop_binding_name(*id, k) {
+                    Some(name) if self.doc.get(*id).is_some_and(|n| n.variables.bindings.contains_key(*k)) => {
+                        self.bind_nested_prop_in(&mut tx, *id, name, None)
+                    }
+                    Some(_) => {}
+                    None => kept.push(*k),
+                }
+            }
+            plain_keys.push((*id, kept));
+        }
+        let mut pre = Vec::new();
+        for (id, ks) in &plain_keys {
+            for k in ks {
                 if self.doc.get(*id).is_some_and(|n| n.variables.bindings.contains_key(*k)) {
                     if let Some(v) = self.doc.bound_value(*id, k) {
                         pre.push((*id, k.to_string(), v));
@@ -357,12 +378,11 @@ impl App {
                 }
             }
         }
-        let mut tx = Tx::new();
         let mut touched_ids = Vec::new();
-        for id in nodes {
-            if self.doc.get(*id).is_some_and(|n| keys.iter().any(|k| n.variables.bindings.contains_key(*k))) {
+        for (id, ks) in &plain_keys {
+            if self.doc.get(*id).is_some_and(|n| ks.iter().any(|k| n.variables.bindings.contains_key(*k))) {
                 if let Some(n) = tx.ed.node(&mut self.doc, *id) {
-                    for k in keys {
+                    for k in ks {
                         n.variables.bindings.remove(*k);
                     }
                     touched_ids.push(*id);

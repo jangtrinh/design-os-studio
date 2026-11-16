@@ -10,6 +10,14 @@ use std::collections::BTreeMap;
 /// Minimum axis extent (`2^-12`) below which per-axis scale falls back to `1.0`.
 const MIN_EXTENT: f64 = 1.0 / 4096.0;
 
+/// Figma treats an all-zero dash pattern as a solid stroke. Keep the resize
+/// path aligned with the renderer's effective dash semantics instead of using
+/// raw vector presence as a signal.
+#[inline]
+fn has_effective_dashes(dashes: &[f32]) -> bool {
+    !dashes.is_empty() && dashes.iter().all(|d| *d >= 0.0) && dashes.iter().sum::<f32>() > 0.0
+}
+
 /// Rounds `x` to the nearest integer, ties rounding half away from zero.
 #[inline]
 pub fn round_half_away_from_zero(x: f64) -> f64 {
@@ -246,6 +254,11 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
     node.transform = new_transform;
     node.size = new_size;
     if !size_changed {
+        if let Some(stamp) = &mut node.stroke_geometry_for {
+            if (stamp.size.x - old_size.x).abs() <= crate::STROKE_GEOMETRY_STAMP_TOL && (stamp.size.y - old_size.y).abs() <= crate::STROKE_GEOMETRY_STAMP_TOL {
+                stamp.size = new_size;
+            }
+        }
         return;
     }
     let kx = if old_size.x.abs() > 1e-6 { new_size.x / old_size.x } else { 1.0 };
@@ -272,9 +285,14 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
                 scale_paths(fg, kx, ky);
             }
             if drop_bake {
-                node.stroke_geometry = None;
+                node.drop_stroke_outline();
             } else if let Some(sg) = &mut node.stroke_geometry {
                 scale_paths(sg, kx, ky);
+                if let Some(stamp) = &mut node.stroke_geometry_for {
+                    stamp.size = new_size;
+                } else {
+                    node.stamp_stroke_geometry();
+                }
             }
         }
         NodeKind::BooleanOp(_) => {
@@ -283,6 +301,11 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
             }
             if let Some(sg) = &mut node.stroke_geometry {
                 scale_paths(sg, kx, ky);
+                if let Some(stamp) = &mut node.stroke_geometry_for {
+                    stamp.size = new_size;
+                } else {
+                    node.stamp_stroke_geometry();
+                }
             }
         }
         NodeKind::Line => {
@@ -295,7 +318,8 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
             // no name for, such as a REST arrow spelling or a decorative cap, is recorded by the importers
             // in `fig_metadata["strokeCap"]` for lines), and a line with no length has no extent to scale.
             // A line has one cap for both ends (`Stroke::cap`).
-            let stretchable = node.stroke.dashes.is_empty() && old_size.x > 1e-3 && !node.stroke.cap.is_arrow() && !node.fig_metadata.contains_key("strokeCap");
+            let stretchable =
+                !has_effective_dashes(&node.stroke.dashes) && old_size.x > 1e-3 && !node.stroke.cap.is_arrow() && !node.fig_metadata.contains_key("strokeCap");
             if stretchable {
                 let old_w = old_size.x;
                 let stretch = |paths: &mut [Path]| stretch_along_line(paths, old_w, kx, new_size.x - old_w);
@@ -304,15 +328,20 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
                 }
                 if let Some(sg) = &mut node.stroke_geometry {
                     stretch(sg);
+                    if let Some(stamp) = &mut node.stroke_geometry_for {
+                        stamp.size = new_size;
+                    } else {
+                        node.stamp_stroke_geometry();
+                    }
                 }
             } else {
                 node.fill_geometry = None;
-                node.stroke_geometry = None;
+                node.drop_stroke_outline();
             }
         }
         _ => {
             node.fill_geometry = None;
-            node.stroke_geometry = None;
+            node.drop_stroke_outline();
         }
     }
 }
@@ -454,7 +483,7 @@ pub fn apply_resize_to_fit_one(doc: &mut Document, id: NodeId, mut touch: impl F
             let new_size = Vec2::new(bb.w, bb.h);
             if (n.size.x - new_size.x).abs() > 1e-5 || (n.size.y - new_size.y).abs() > 1e-5 {
                 n.fill_geometry = None;
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
             n.transform = n.transform * Affine::translate(bb.x, bb.y);
             n.size = new_size;

@@ -98,6 +98,15 @@ fn transform_shapes(shapes: &mut Shapes, a: &d::Affine) {
     }
 }
 
+fn overlay_rule(op: d::BooleanOp) -> OverlayRule {
+    match op {
+        d::BooleanOp::Union => OverlayRule::Union,
+        d::BooleanOp::Subtract => OverlayRule::Difference,
+        d::BooleanOp::Intersect => OverlayRule::Intersect,
+        d::BooleanOp::Exclude => OverlayRule::Xor,
+    }
+}
+
 /// Normalised geometry of `child` in its parent's coordinate space.
 fn child_shapes(doc: &Document, child: &Node, tol: f32) -> Option<Shapes> {
     let resolved = resolve_node(doc, child);
@@ -107,6 +116,8 @@ fn child_shapes(doc: &Document, child: &Node, tol: f32) -> Option<Shapes> {
     }
     let mut shapes: Shapes = if matches!(child.kind, NodeKind::Group) {
         combine(doc, child, OverlayRule::Union, tol)?
+    } else if let (NodeKind::BooleanOp(op), None) = (&child.kind, child.fill_geometry.as_deref().filter(|g| !g.is_empty())) {
+        combine(doc, child, overlay_rule(*op), tol)?
     } else {
         // a ring as wide as its disc is an operand with no area, not a missing one
         if matches!(&child.kind, NodeKind::Ellipse(arc) if crate::geom::is_hairline_ring(arc)) {
@@ -114,7 +125,11 @@ fn child_shapes(doc: &Document, child: &Node, tol: f32) -> Option<Shapes> {
         }
         let shape: Shape = node_shape(doc, child, tol)?;
         if !shape.fillable {
-            return None;
+            // A valid non-fillable shape (for example a line or a closed
+            // hairline ring) is a zero-area operand, not a missing operand.
+            // Keeping it in the fold preserves boolean identities such as
+            // intersecting with an empty operand yielding an empty result.
+            return Some(Shapes::new());
         }
         let mut acc: Option<Shapes> = None;
         for (path, rule) in &shape.paths {
@@ -128,7 +143,10 @@ fn child_shapes(doc: &Document, child: &Node, tol: f32) -> Option<Shapes> {
                 Some(a) => a.overlay(&s, OverlayRule::Union, FillRule::NonZero),
             });
         }
-        acc?
+        // A valid shape with no filled contours is still a zero-area operand.
+        // Keep it distinct from `None`, which means the node had no usable
+        // geometry at all.
+        acc.unwrap_or_default()
     };
     transform_shapes(&mut shapes, &child.transform);
     Some(shapes)
@@ -148,13 +166,7 @@ fn combine(doc: &Document, parent: &Node, rule: OverlayRule, tol: f32) -> Option
 }
 
 pub fn boolean_shape(doc: &Document, node: &Node, op: d::BooleanOp, tol: f32) -> Option<Shape> {
-    let rule = match op {
-        d::BooleanOp::Union => OverlayRule::Union,
-        d::BooleanOp::Subtract => OverlayRule::Difference,
-        d::BooleanOp::Intersect => OverlayRule::Intersect,
-        d::BooleanOp::Exclude => OverlayRule::Xor,
-    };
-    let shapes = combine(doc, node, rule, tol.max(0.01))?;
+    let shapes = combine(doc, node, overlay_rule(op), tol.max(0.01))?;
     let mut pb = sk::PathBuilder::new();
     for sh in &shapes {
         for c in sh {

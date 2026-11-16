@@ -473,7 +473,7 @@ fn turning_truncation_off_keeps_max_lines_and_turning_it_on_shows_the_old_limit(
     assert!(texts_in_rect(&s, r).iter().any(|t| t == "3"), "the field shows the old limit again");
 }
 
-fn apply_textures_delta(atlas: &mut std::collections::HashMap<egui::TextureId, image::RgbaImage>, delta: &egui::TexturesDelta) {
+pub(super) fn apply_textures_delta(atlas: &mut std::collections::HashMap<egui::TextureId, image::RgbaImage>, delta: &egui::TexturesDelta) {
     for (tid, d) in &delta.set {
         let [w, h] = d.image.size();
         let src: Vec<[u8; 4]> = match &d.image {
@@ -502,7 +502,7 @@ fn apply_textures_delta(atlas: &mut std::collections::HashMap<egui::TextureId, i
     }
 }
 
-fn rasterize_shapes(
+pub(super) fn rasterize_shapes(
     ctx: &egui::Context,
     shapes: Vec<egui::epaint::ClippedShape>,
     atlas: &std::collections::HashMap<egui::TextureId, image::RgbaImage>,

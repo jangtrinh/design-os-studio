@@ -17,13 +17,13 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 ## Enabled MCP Tools
 
 ### `designos_get_document`
-- **Purpose:** Summarize the current in-memory document: pages, counts, shared styles (fill,...
+- **Purpose:** Summarize the current in-memory document: pages, counts, shared styles...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`
 - **Example:** `{}`
 
 ### `designos_get_libraries`
-- **Purpose:** List this file's local publishable assets, enabled libraries (with pinned and...
+- **Purpose:** List this file's local publishable assets, enabled libraries (with pinned...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`
 - **Example:** `{}`
@@ -35,7 +35,7 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"node_id":1,"depth":3}`
 
 ### `designos_search_design_system`
-- **Purpose:** Search components, component sets, shared styles, and variables across this...
+- **Purpose:** Search components, component sets, shared styles, and variables across...
 - **Args:** required: `query` (optional: `kinds`, `limit`, `property`)
 - **Errors:** `INVALID_ARGUMENTS`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"query":"button","kinds":["component"],"limit":10}`
@@ -59,7 +59,7 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"node_id":2}`
 
 ### `designos_generate_code`
-- **Purpose:** Generate developer handoff code or SVG for a layer using resolved variable values.
+- **Purpose:** Generate handoff code or SVG for a layer using resolved variable values.
 - **Args:** required: `node_id`, `language` (optional: `fragment`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `UNKNOWN_LANGUAGE`
 - **Example:** `{"node_id":2,"language":"react"}`
@@ -83,13 +83,13 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"node_id":3}`
 
 ### `designos_list_comments`
-- **Purpose:** List canvas comment threads enriched with resolved world coordinates, target...
+- **Purpose:** List canvas comment threads enriched with resolved world coordinates,...
 - **Args:** required: none (optional: `node_id`, `page_id`, `resolved`)
 - **Errors:** `INVALID_ARGUMENTS`
 - **Example:** `{"resolved":false}`
 
 ### `designos_add_comment`
-- **Purpose:** Pin a new comment thread to a node (with local offset x/y) or page coordinates.
+- **Purpose:** Pin a new comment thread to a node (local offset x/y) or page coordinates.
 - **Args:** required: `text` (optional: `author`, `idempotency_key`, `node_id`, `page_id`, `x`, `y`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `TEXT_TOO_LONG`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"node_id":2,"x":24,"y":16,"text":"Increase subtitle contrast"}`
@@ -109,7 +109,7 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 ### `designos_apply_spec`
 - **Purpose:** Build a complete UI subtree from a declarative NodeSpec (supports EaseUI...
 - **Args:** required: `spec` (optional: `diff_image`, `idempotency_key`, `lint`, `parent_id`)
-- **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_FIELD`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `UNKNOWN_COMPONENT`, `INSTANCE_CYCLE`, `UNKNOWN_VARIABLE`, `UNKNOWN_SLOT`
+- **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_FIELD`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `UNKNOWN_COMPONENT`, `INSTANCE_CYCLE`, `UNKNOWN_VARIABLE`, `UNKNOWN_COMPONENT_PROPERTY`, `OVERRIDE_FIELD_NOT_APPLICABLE`, `UNKNOWN_SLOT`
 - **Example:** `{"parent_id":1,"spec":{"kind":"frame","name":"Metric Card","preset":"easeui-card","children":[{"kind":"text","name":"Label","text":"Net Revenue"},{"kind":"text","name":"Value","text":"$148,920"}]}}`
 
 ### `designos_export_spec`
@@ -137,49 +137,49 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"selector":"//FRAME[@name='Metric Card']"}`
 
 ### `designos_lint`
-- **Purpose:** Run the unified solver-backed geometric, text, token, and structural design...
+- **Purpose:** Run the unified solver-backed geometric, text, token, and structural...
 - **Args:** required: none (optional: `cursor`, `include_ignored`, `limit`, `node_ids`, `page_id`, `preset`, `rules`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"preset":"agent","limit":100}`
 
 ### `designos_get_guidelines`
-- **Purpose:** List available design guideline topics or return the guideline document for a...
+- **Purpose:** List available design guideline topics or return the guideline document...
 - **Args:** required: none (optional: `max_tokens`, `platform`, `topic`)
 - **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_TOPIC`, `TOPIC_NOT_AVAILABLE`
 - **Example:** `{"topic":"design-system","platform":"web"}`
 
 ### `designos_import_web_capture`
-- **Purpose:** Import a .webcapture.json / .capture.json bundle (or inline capture JSON) into...
+- **Purpose:** Import a .webcapture.json / .capture.json bundle (or inline capture JSON)...
 - **Args:** required: none (optional: `capture`, `infer_block_auto_layout`, `page_id`, `path`, `x`, `y`)
 - **Errors:** `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `FILE_TOO_LARGE`, `NODE_NOT_FOUND`
 - **Example:** `{"path":"capture.webcapture.json","page_id":1}`
 
 ### `designos_undo`
-- **Purpose:** Undo the latest successful edit in this session; returns changed=false if the...
+- **Purpose:** Undo the latest successful edit in this session; returns changed=false if...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`, `HISTORY_DROPPED`
 - **Example:** `{}`
 
 ### `designos_lint_fix`
-- **Purpose:** Apply deterministic fixes for auto-fixable lint findings on a page, specific...
+- **Purpose:** Apply deterministic fixes for auto-fixable lint findings on a page,...
 - **Args:** required: none (optional: `node_id`, `node_ids`, `page_id`, `preset`, `rules`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"page_id":1,"rules":["default-layer-name"]}`
 
 ### `designos_redo`
-- **Purpose:** Redo the most recently undone edit in this session; returns changed=false if...
+- **Purpose:** Redo the most recently undone edit in this session; returns changed=false...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`, `HISTORY_DROPPED`
 - **Example:** `{}`
 
 ### `designos_get_screenshot`
-- **Purpose:** Render a node, a set of nodes on the same page, or a page-space rectangular...
+- **Purpose:** Render a node, a set of nodes on the same page, or a page-space...
 - **Args:** required: none (optional: `format`, `max_long_edge`, `node_id`, `node_ids`, `quality`, `region`, `scale`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"node_id":2,"scale":2.0}`
 
 ### `designos_set_in_progress`
-- **Purpose:** Flag or clear root frames as in progress while an agent works on them (work...
+- **Purpose:** Flag or clear root frames as in progress while an agent works on them...
 - **Args:** required: `node_ids`, `value` (optional: `force`, `idempotency_key`, `stale_after_s`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `IN_PROGRESS_TARGET_NOT_ROOT`, `NODE_IN_PROGRESS_BY_OTHER_RUN`
 - **Example:** `{"node_ids":[2],"value":true}`
@@ -191,13 +191,13 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"ops":[{"op":"insert","as":"card","parent_id":1,"kind":"frame","name":"Card","width":360,"height":180},{"op":"insert","parent_id":"@card","kind":"text","name":"Title","text":"Q3 Overview"}]}`
 
 ### `designos_get_design_context`
-- **Purpose:** Return generated code in the target language, Dev Mode hints (variables with...
+- **Purpose:** Return generated code in the target language, Dev Mode hints (variables...
 - **Args:** required: `node_id` (optional: `include_screenshot`, `language`, `react_tailwind`, `response_format`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`
 - **Example:** `{"node_id":2,"language":"css"}`
 
 ### `designos_configure_session`
-- **Purpose:** Configure per-session MCP options for the automatic mutating-call lint issues...
+- **Purpose:** Configure per-session MCP options for the automatic mutating-call lint...
 - **Args:** required: none (optional: `auto_fix`, `issues`)
 - **Errors:** `INVALID_ARGUMENTS`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"issues":{"mode":"preset","preset":"agent","max_items":25}}`
@@ -220,19 +220,19 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"page":"spec/checkout.md"}`
 
 ### `designos_open_file`
-- **Purpose:** Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the...
+- **Purpose:** Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside...
 - **Args:** required: `path` (optional: `discard_changes`)
 - **Errors:** `INVALID_ARGUMENTS`, `UNSAVED_CHANGES`, `PATH_OUTSIDE_WORKSPACE`, `FILE_TOO_LARGE`, `DOCUMENT_INVALID`
 - **Example:** `{"path":"design.designos","discard_changes":false}`
 
 ### `designos_save_file`
-- **Purpose:** Save this session to a .designos file inside the workspace, or in place when...
+- **Purpose:** Save this session to a .designos file inside the workspace, or in place...
 - **Args:** required: none (optional: `overwrite`, `path`)
 - **Errors:** `INVALID_ARGUMENTS`, `PATH_REQUIRED`, `INVALID_NAME`, `NAME_TOO_LONG`, `UNSUPPORTED_EXTENSION`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`
 - **Example:** `{"path":"design.designos","overwrite":true}`
 
 ### `designos_close_document`
-- **Purpose:** Close this session document using unsaved save, discard, or fail (default fail).
+- **Purpose:** Close this document using unsaved save, discard, or fail (default fail).
 - **Args:** required: none (optional: `path`, `unsaved`)
 - **Errors:** `INVALID_ARGUMENTS`, `PATH_REQUIRED`, `UNSAVED_CHANGES`
 - **Example:** `{"unsaved":"save"}`
@@ -326,6 +326,7 @@ Descendant override inside an `"instance"` node.
 
 | Field | Type | Description |
 | --- | --- | --- |
+| `arc` | `ArcOverrideSpec` | Override arc data on a descendant ellipse. `sweep_angle` is added to `start_angle` on apply. |
 | `fill` | `string` | Override fill (`"#RRGGBB"`, `"var:&lt;collection&gt;/&lt;name&gt;"`, or `"style:&lt;name&gt;"`). |
 | `id` | `integer` | Numeric descendant node ID (alternative to `path`). |
 | `opacity` | `number` | Override descendant opacity (`0.0..=1.0`). |

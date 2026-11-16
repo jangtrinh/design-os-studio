@@ -181,6 +181,8 @@ pub struct Toast {
     /// When the toast leaves. Armed on the first paint (`armed`), so a blocked frame before that paint does not spend it.
     pub until: f64,
     pub error: bool,
+    /// True for transient progress/status notices that must survive until their first paint.
+    pub(crate) status: bool,
     /// A file this toast can show in its folder (the toast then carries a "Show in folder" action).
     pub reveal: Option<PathBuf>,
     /// True when no file dialog could open and the toast carries an "Enter a path…" fallback action.
@@ -426,6 +428,13 @@ impl App {
         self.raise_toast(text, error);
     }
 
+    /// Raises the toasts the Agents terminal has due: an info toast when a tab close moved waiting text into New chat that is not on screen.
+    pub fn show_terminal_toasts(&mut self) {
+        if let Some(text) = self.terminal.take_restore_toast() {
+            self.queue_toast(text, false);
+        }
+    }
+
     /// Raises a toast like [`App::show_toast`] and returns it where it landed, on screen or in the queue.
     pub(crate) fn raise_toast(&mut self, text: impl Into<String>, error: bool) -> &mut Toast {
         let mut text = text.into();
@@ -440,6 +449,7 @@ impl App {
             text,
             until: self.now + theme::TOAST_SECONDS,
             error,
+            status: false,
             reveal: None,
             enter_path: false,
             duration: theme::TOAST_SECONDS,
@@ -475,6 +485,38 @@ impl App {
         self.toast.insert(next)
     }
 
+    /// Queues `text` behind any live toast already on screen instead of replacing a plain toast (such as a job's
+    /// completion notice when the next queued job is refused in the same poll).
+    pub(crate) fn queue_toast(&mut self, text: impl Into<String>, error: bool) -> &mut Toast {
+        let next = Toast {
+            text: text.into(),
+            until: self.now + theme::TOAST_SECONDS,
+            error,
+            status: false,
+            reveal: None,
+            enter_path: false,
+            duration: theme::TOAST_SECONDS,
+            armed: false,
+        };
+        if next.error {
+            self.error_toast_seq += 1;
+            self.last_error_toast = next.text.clone();
+            let shown = self.toast.as_ref().is_some_and(|t| t.error && t.text == next.text);
+            let queued = self.toast_queue.iter().position(|t| t.error && t.text == next.text);
+            if shown {
+                return self.toast.as_mut().unwrap_or_else(|| unreachable!("checked just above"));
+            }
+            if let Some(i) = queued {
+                return &mut self.toast_queue[i];
+            }
+        }
+        let live = |t: &Toast| !t.armed || self.now < t.until;
+        if self.toast.as_ref().is_some_and(live) || !self.toast_queue.is_empty() {
+            return self.enqueue_toast(next);
+        }
+        self.toast.insert(next)
+    }
+
     /// The error for a Show in folder that did not work for `file`. It is about what the user just did, so it does not
     /// wait behind other toasts: it replaces the toast of `file` when that is on screen, otherwise it goes to the
     /// front of the queue when a toast with an action for another file is on screen, otherwise it takes the slot.
@@ -489,32 +531,53 @@ impl App {
         if repeated {
             return;
         }
-        let error =
-            Toast { until: self.now + theme::TOAST_SECONDS, text, error: true, reveal: None, enter_path: false, duration: theme::TOAST_SECONDS, armed: false };
-        let other_action_live = self.toast.as_ref().is_some_and(|t| t.has_action() && (!t.armed || self.now < t.until));
+        let error = Toast {
+            until: self.now + theme::TOAST_SECONDS,
+            text,
+            error: true,
+            status: false,
+            reveal: None,
+            enter_path: false,
+            duration: theme::TOAST_SECONDS,
+            armed: false,
+        };
+        let live = |t: &Toast| !t.armed || self.now < t.until;
+        let other_action_live = self.toast.as_ref().is_some_and(|t| t.has_action() && live(t));
         if other_action_live {
-            self.toast_queue.push_front(error);
+            self.enqueue_toast_at(error, true);
+        } else if self.toast.as_ref().is_some_and(|t| t.error && live(t)) {
+            self.enqueue_toast(error);
         } else {
             self.toast = Some(error);
         }
     }
 
-    /// Adds `next` at the back of the queue. The queue keeps only the latest plain notice (a newer progress or
-    /// info toast replaces an older queued one) and holds at most [`TOAST_QUEUE_CAP`] toasts by dropping the oldest
-    /// plain notice. An error toast or a toast with an action is never merged away or dropped.
+    /// Adds `next` at the back of the queue (or at the front when `front` is true). The queue keeps only the latest
+    /// plain notice (a newer progress or info toast replaces an older queued one) and holds at most [`TOAST_QUEUE_CAP`]
+    /// toasts by dropping the oldest queued toast without an action when a burst fills the queue. Toasts with an action
+    /// are never dropped and are always queued, even past the cap.
     fn enqueue_toast(&mut self, next: Toast) -> &mut Toast {
+        self.enqueue_toast_at(next, false)
+    }
+
+    fn enqueue_toast_at(&mut self, next: Toast, front: bool) -> &mut Toast {
         let is_plain = |t: &Toast| !t.error && !t.has_action();
         if is_plain(&next) {
             self.toast_queue.retain(|t| !is_plain(t));
         }
         if self.toast_queue.len() >= TOAST_QUEUE_CAP {
-            if let Some(i) = self.toast_queue.iter().position(is_plain) {
+            if let Some(i) = self.toast_queue.iter().position(is_plain).or_else(|| self.toast_queue.iter().position(|t| t.error && !t.has_action())) {
                 self.toast_queue.remove(i);
             }
         }
-        self.toast_queue.push_back(next);
-        let last = self.toast_queue.len() - 1;
-        &mut self.toast_queue[last]
+        if front {
+            self.toast_queue.push_front(next);
+            &mut self.toast_queue[0]
+        } else {
+            self.toast_queue.push_back(next);
+            let last = self.toast_queue.len() - 1;
+            &mut self.toast_queue[last]
+        }
     }
 
     /// The status of work that is about to block the UI ("Saving… loading all pages"). It is on screen for the next
@@ -522,14 +585,28 @@ impl App {
     /// its full time, once the status is gone.
     pub(crate) fn show_status_toast(&mut self, text: impl Into<String>) {
         let now = self.now;
+        let text = text.into();
+        if self.toast.as_ref().is_some_and(|t| t.status && !t.armed) {
+            self.enqueue_toast(Toast {
+                until: now + theme::TOAST_SECONDS,
+                text,
+                error: false,
+                status: true,
+                reveal: None,
+                enter_path: false,
+                duration: theme::TOAST_SECONDS,
+                armed: false,
+            });
+            return;
+        }
         if let Some(displaced) = self.toast.take_if(|t| t.has_action() && (!t.armed || now < t.until)) {
             self.toast_queue.push_front(displaced);
         }
-        let text = text.into();
         self.toast = Some(Toast {
             until: now + theme::TOAST_SECONDS,
             text,
             error: false,
+            status: true,
             reveal: None,
             enter_path: false,
             duration: theme::TOAST_SECONDS,
@@ -548,6 +625,7 @@ impl App {
             text: text.into(),
             until: self.now + theme::TOAST_REVEAL_SECONDS,
             error,
+            status: false,
             reveal: Some(path),
             enter_path: false,
             duration: theme::TOAST_REVEAL_SECONDS,

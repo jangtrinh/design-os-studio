@@ -232,7 +232,9 @@ pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
 /// collection `extensions` / `mode_extensions` that `.fig` `VARIABLE_SET` / `VARIABLE` nodes do not carry (`E1-9` §4, §10).
 pub fn export_fig_with_report(doc: &Document) -> Result<(Vec<u8>, Vec<crate::variables_dtcg::SkippedVariable>), FigError> {
     let bytes = export_fig(doc)?;
-    let omitted = crate::variables_dtcg::collect_omitted_extensions(doc);
+    let mut omitted = crate::variables_dtcg::collect_omitted_extensions(doc);
+    let publish_marker = format!("'{}'", designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY);
+    omitted.retain(|s| !s.reason.contains(&publish_marker));
     Ok((bytes, omitted))
 }
 
@@ -1050,6 +1052,12 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         if let Some(lib) = &c.source_library_key {
             fields.push(("sourceLibraryKey", V::String(lib.clone())));
         }
+        // Write the collection's publish switch when the opened file had it or when the user changed the state.
+        if c.is_hidden_from_publishing() {
+            fields.push(("isPublishable", V::Bool(false)));
+        } else if c.extensions.get(designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY).and_then(serde_json::Value::as_bool) == Some(false) {
+            fields.push(("isPublishable", V::Bool(true)));
+        }
         if c.is_extendable() {
             fields.push(("isCollectionExtendable", V::Bool(true)));
         }
@@ -1145,9 +1153,11 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         if let Some(k) = &v.key {
             fields.push(("key", V::String(k.clone())));
         }
-        // The file's own publish switch: only a variable hidden from publishing writes it.
+        // Write the variable's publish switch when the opened file had it or when the user changed the state.
         if v.hidden_from_publishing {
             fields.push(("isPublishable", V::Bool(false)));
+        } else if v.extensions.contains_key(designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY) {
+            fields.push(("isPublishable", V::Bool(true)));
         }
         // A deleted variable the file still uses stays in the file as deleted; it must not come back as a live one.
         if v.is_soft_deleted() {
@@ -2993,8 +3003,13 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
 
         // The instance's own bindings, override level and detached id are fields of its node change already, so
         // only a flagged field makes an entry for it; they are left out of it below.
+        let combined_ovs;
         let ovs = match own_fields {
             Some(fields) if own => fields,
+            _ if own && !n.component.fig_own_entry_flags.is_empty() => {
+                combined_ovs = n.component.override_fields();
+                &combined_ovs
+            }
             _ => &n.component.overrides,
         };
         // The instance keeps the effects Figma cached for it under a link it inherits. Figma's file states that as the
