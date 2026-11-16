@@ -2,9 +2,31 @@
 
 use designos_doc::{front_to_back, Affine, Document, Node, NodeId, NodeKind, Rect, Vec2};
 
+/// Whether `local` (the layer's own space) is on `n`. A Line follows the band it is drawn on.
+fn node_local_hit(n: &Node, local: Vec2, tol: f32) -> bool {
+    if matches!(n.kind, NodeKind::Line) {
+        return line_hit(n, local, tol);
+    }
+    local_hit(&n.kind, n.size, local, tol)
+}
+
+/// A centred line is drawn in the band y in [-weight, 0] (`Node::line_centerline`), so a click inside the
+/// band, or within `tol` of it, hits. A line drawn on its own axis (inside or outside alignment, no weight)
+/// keeps the axis rule.
+fn line_hit(n: &Node, local: Vec2, tol: f32) -> bool {
+    let along = local.x >= -tol && local.x <= n.size.x + tol;
+    let across = match n.line_centerline() {
+        Some(c) if c.y != 0.0 => {
+            let half = n.stroke.weight / 2.0;
+            local.y >= c.y - half - tol && local.y <= c.y + half + tol
+        }
+        _ => local.y.abs() <= tol.max(n.size.y / 2.0 + tol),
+    };
+    along && across
+}
+
 fn local_hit(kind: &NodeKind, size: Vec2, local: Vec2, tol: f32) -> bool {
     match kind {
-        NodeKind::Line => local.x >= -tol && local.x <= size.x + tol && local.y.abs() <= tol.max(size.y / 2.0 + tol),
         NodeKind::Ellipse(_) | NodeKind::Stamp { .. } => {
             let rx = size.x / 2.0 + tol;
             let ry = size.y / 2.0 + tol;
@@ -234,7 +256,7 @@ fn hit_in(
         let inside = match &n.kind {
             // a connector is its line, not its bounding box
             NodeKind::Connector(_) => parent_world.invert().is_some_and(|pi| connector_hit(doc, cid, pi.apply(p), tol)),
-            k => local_hit(k, n.size, local, tol),
+            _ => node_local_hit(n, local, tol),
         };
         if n.kind.is_container() {
             let transparent = selects_through(doc, n, through_nested_frames);
@@ -319,7 +341,7 @@ fn hit_all_parents_first_in(
         let local = inv.apply(p);
         let inside = match &n.kind {
             NodeKind::Connector(_) => parent_world.invert().is_some_and(|pi| connector_hit(doc, cid, pi.apply(p), tol)),
-            k => local_hit(k, n.size, local, tol),
+            _ => node_local_hit(n, local, tol),
         };
         if n.kind.is_container() {
             if inside {
@@ -372,7 +394,7 @@ fn hit_all_in(
         let local = inv.apply(p);
         let inside = match &n.kind {
             NodeKind::Connector(_) => parent_world.invert().is_some_and(|pi| connector_hit(doc, cid, pi.apply(p), tol)),
-            k => local_hit(k, n.size, local, tol),
+            _ => node_local_hit(n, local, tol),
         };
         if n.kind.is_container() {
             let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
@@ -509,7 +531,7 @@ fn marquee_in(doc: &Document, parent: NodeId, r: &Rect, index: Option<&designos_
 mod tests {
     use super::*;
     use crate::util::v2;
-    use designos_doc::{FrameProps, Node};
+    use designos_doc::{FillRule, FrameProps, Node, Path, PathCmd, StrokeAlign};
 
     fn sample() -> (Document, NodeId, NodeId, NodeId, NodeId, NodeId) {
         let mut d = Document::new("t");
@@ -526,6 +548,68 @@ mod tests {
         let r2 = d.alloc_id();
         let rect = d.insert(frame, Node::rectangle(r2, Rect::new(10.0, 10.0, 30.0, 30.0))).unwrap();
         (d, page, frame, group, rect_in_group, rect)
+    }
+
+    fn hit_line(align: StrokeAlign, rot: f32) -> (Document, NodeId, NodeId) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let mut n = Node::new(id, NodeKind::Line);
+        n.transform = Affine { tx: 20.0, ty: 40.0, ..Affine::rotate(rot) };
+        n.size = v2(100.0, 0.0);
+        n.stroke.weight = 10.0;
+        n.stroke.align = align;
+        d.insert(page, n).unwrap();
+        (d, page, id)
+    }
+
+    fn at(d: &Document, id: NodeId, x: f32, y: f32) -> Vec2 {
+        d.get(id).unwrap().transform.apply(v2(x, y))
+    }
+
+    #[test]
+    fn a_centred_line_is_hit_anywhere_in_its_drawn_band() {
+        let (d, page, id) = hit_line(StrokeAlign::Center, 0.0);
+        for y in [-8.0, -5.0, -1.0, 1.0] {
+            assert_eq!(hit_test(&d, page, at(&d, id, 50.0, y), 2.0, false, &[]), Some(id), "local y {y}");
+        }
+        // just past the band follows the plain tolerance, on both sides
+        assert_eq!(hit_test(&d, page, at(&d, id, 50.0, -11.5), 2.0, false, &[]), Some(id));
+        assert_eq!(hit_test(&d, page, at(&d, id, 50.0, -13.0), 2.0, false, &[]), None);
+        assert_eq!(hit_test(&d, page, at(&d, id, 50.0, 8.0), 2.0, false, &[]), None, "the old axis side below the band is empty");
+        assert_eq!(hit_test(&d, page, at(&d, id, 105.0, -5.0), 2.0, false, &[]), None, "past the end");
+    }
+
+    #[test]
+    fn a_rotated_centred_line_is_hit_in_its_local_band() {
+        let (d, page, id) = hit_line(StrokeAlign::Center, 30.0f32.to_radians());
+        assert_eq!(hit_test(&d, page, at(&d, id, 50.0, -8.0), 2.0, false, &[]), Some(id));
+        assert_eq!(hit_test(&d, page, at(&d, id, 50.0, 8.0), 2.0, false, &[]), None);
+        assert_eq!(hit_test(&d, page, at(&d, id, 50.0, -13.0), 2.0, false, &[]), None);
+    }
+
+    #[test]
+    fn an_inside_aligned_line_keeps_the_axis_hit_rule() {
+        let (d, page, id) = hit_line(StrokeAlign::Inside, 0.0);
+        assert_eq!(hit_test(&d, page, at(&d, id, 50.0, 1.0), 2.0, false, &[]), Some(id));
+        assert_eq!(hit_test(&d, page, at(&d, id, 50.0, -1.0), 2.0, false, &[]), Some(id));
+        assert_eq!(hit_test(&d, page, at(&d, id, 50.0, -8.0), 2.0, false, &[]), None);
+    }
+
+    #[test]
+    fn a_flat_vector_keeps_the_box_hit_rule() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let path = Path { cmds: vec![PathCmd::MoveTo(v2(0.0, 0.0)), PathCmd::LineTo(v2(100.0, 0.0))], fill_rule: FillRule::NonZero };
+        let mut n = Node::new(id, NodeKind::Vector { paths: vec![path], network: None });
+        n.transform = Affine::translate(20.0, 40.0);
+        n.size = v2(100.0, 0.0);
+        n.stroke.weight = 10.0;
+        n.stroke.align = StrokeAlign::Center;
+        d.insert(page, n).unwrap();
+        assert_eq!(hit_test(&d, page, v2(70.0, 40.0), 2.0, false, &[]), Some(id));
+        assert_eq!(hit_test(&d, page, v2(70.0, 32.0), 2.0, false, &[]), None);
     }
 
     #[test]

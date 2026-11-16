@@ -374,10 +374,22 @@ pub fn text_aligned_stroke_layers(doc: &Document, n: &Node) -> Vec<AlignedTextLa
     layers
 }
 
+/// The path a `Line` becomes when it turns into a vector: point editing, Flatten and Outline stroke all
+/// start from it. Today it is the centreline the line is drawn on (shifted half a weight above the axis
+/// for a centred line, inset for a round cap), so the vector draws exactly what the line drew. To start
+/// from the layer's axis instead, return the segment `(0, 0)` to `(size.x, 0)` here; nothing else changes.
+fn line_vector_paths(doc: &Document, n: &Node) -> Option<Vec<d::Path>> {
+    let shape = node_shape(doc, n, 0.05)?;
+    Some(shape.paths.iter().map(|(p, r)| sk_to_doc(p, rule_of(*r))).collect())
+}
+
 /// Geometry of a shape or text node in its own coordinate space as document paths
 /// (rectangles, ellipses, polygons, stars, lines, vectors, boolean groups, text).
 /// Containers have none.
 pub fn node_paths(doc: &Document, n: &Node) -> Option<Vec<d::Path>> {
+    if matches!(n.kind, NodeKind::Line) {
+        return line_vector_paths(doc, n);
+    }
     if matches!(n.kind, NodeKind::Text(_)) {
         let runs = text_flatten_runs(doc, n);
         let mut cmds = Vec::new();
