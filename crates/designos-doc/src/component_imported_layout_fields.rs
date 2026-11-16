@@ -84,40 +84,74 @@ fn add_vector(h: &mut StableHasher, paths: &[Path], network: &Option<VectorNetwo
     }
 }
 
+/// Four mixing chains for a long run of words (an outline's points), folded into the hasher at the end. One chain waits
+/// on a multiply per word; four independent ones keep the CPU busy.
+struct Lanes {
+    state: [u64; 4],
+    count: u64,
+}
+
+impl Lanes {
+    const SEED: u64 = 0x9e37_79b9_7f4a_7c15;
+
+    fn new() -> Self {
+        Self { state: [0x243f_6a88_85a3_08d3, 0x1319_8a2e_0370_7344, 0xa409_3822_299f_31d0, 0x082e_fa98_ec4e_6c89], count: 0 }
+    }
+
+    fn push(&mut self, word: u64) {
+        let lane = &mut self.state[(self.count & 3) as usize];
+        *lane = (lane.rotate_left(5) ^ word).wrapping_mul(Self::SEED);
+        self.count += 1;
+    }
+
+    fn point(&mut self, v: Vec2) {
+        self.push(u64::from(v.x.to_bits()) << 32 | u64::from(v.y.to_bits()));
+    }
+
+    fn fold_into(self, h: &mut StableHasher) {
+        h.word(self.count);
+        for s in self.state {
+            h.word(s);
+        }
+    }
+}
+
 /// Hashes an outline list directly (the serde path mixes a field or variant name into every point).
 fn add_path_list(h: &mut StableHasher, paths: &[Path]) {
-    h.word(1 + paths.len() as u64);
+    let mut l = Lanes::new();
+    l.push(1 + paths.len() as u64);
     for p in paths {
-        h.word(match p.fill_rule {
+        l.push(match p.fill_rule {
             FillRule::NonZero => 0,
             FillRule::EvenOdd => 1,
         });
-        h.word(p.cmds.len() as u64);
+        l.push(p.cmds.len() as u64);
         for cmd in &p.cmds {
             match *cmd {
                 PathCmd::MoveTo(a) => {
-                    h.word(1);
-                    add_vec2(h, a);
+                    l.push(1);
+                    l.point(a);
                 }
                 PathCmd::LineTo(a) => {
-                    h.word(2);
-                    add_vec2(h, a);
+                    l.push(2);
+                    l.point(a);
                 }
                 PathCmd::QuadTo(a, b) => {
-                    h.word(3);
-                    add_vec2(h, a);
-                    add_vec2(h, b);
+                    l.push(3);
+                    l.point(a);
+                    l.point(b);
                 }
                 PathCmd::CubicTo(a, b, c) => {
-                    h.word(4);
-                    add_vec2(h, a);
-                    add_vec2(h, b);
-                    add_vec2(h, c);
+                    l.push(4);
+                    l.point(a);
+                    l.point(b);
+                    l.point(c);
                 }
-                PathCmd::Close => h.word(5),
+                PathCmd::Close => l.push(5),
             }
         }
     }
+    l.fold_into(h);
 }
 
 /// Hashes what decides whether the stored geometry of one layer is still right.

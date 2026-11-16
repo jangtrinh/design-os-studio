@@ -4,7 +4,7 @@
 use crate::component_imported_layout::{canonical_solve_hash, trial};
 use crate::component_imported_layout_fields::{layout_hash, noted_if_stored, same_layers, LayoutFields};
 use crate::components::{instance_root_of, sync_one, Ctx};
-use crate::{Document, ImportedLayout, NodeId, NodeKind};
+use crate::{Document, ImportedLayout, Node, NodeId, NodeKind};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// A recorded instance a sync is about to reach.
@@ -125,25 +125,36 @@ pub(crate) fn after_sync(c: &mut Ctx, held: Vec<Held>) {
         if holds(c.s, h.holder, before) {
             continue;
         }
-        let keep = same_layers(c.s, h.holder, before, |b, n| b.outline_meaning.as_ref().is_none_or(|m| m.held_by(n)))
-            && if h.solved_by_sync {
-                layout_hash(c.s, h.holder) == Some(h.record.solved)
-            } else {
-                !mirrors_dropped(c.s, &h.inner, &dropped)
-                    && (resync_holds(c.s, h.holder, &h.inner, before) || canonical_solve_hash(c.s, h.holder) == Some(h.record.solved))
-            };
-        if !keep {
-            drop_record(c, &mut dropped, h.holder);
-            continue;
-        }
-        for b in before {
-            if let Some(n) = c.s.get(b.id).filter(|n| !b.held_by(n, b.id == h.holder)) {
-                let mut n = n.clone();
-                b.write_to(&mut n, b.id == h.holder);
-                c.update(n);
-            }
+        let solve_kept = if h.solved_by_sync {
+            layout_hash(c.s, h.holder) == Some(h.record.solved)
+        } else {
+            !mirrors_dropped(c.s, &h.inner, &dropped)
+                && (resync_holds(c.s, h.holder, &h.inner, before) || canonical_solve_hash(c.s, h.holder) == Some(h.record.solved))
+        };
+        match solve_kept.then(|| written_back(c.s, h.holder, before)).flatten() {
+            Some(layers) => layers.into_iter().for_each(|n| c.update(n)),
+            None => drop_record(c, &mut dropped, h.holder),
         }
     }
+}
+
+/// The layers of `holder` that no longer hold their noted layout fields, with those fields written back. `None` when
+/// the layers are not the noted ones, or a baked outline would go back on corner radii or a shape it was not drawn for.
+fn written_back(doc: &Document, holder: NodeId, before: &[LayoutFields]) -> Option<Vec<Node>> {
+    let mut out = Vec::new();
+    let same = same_layers(doc, holder, before, |b, n| {
+        if !b.outline_meaning.as_ref().is_none_or(|m| m.held_by(n)) {
+            return false;
+        }
+        let is_root = n.id == holder;
+        if !b.held_by(n, is_root) {
+            let mut n = n.clone();
+            b.write_to(&mut n, is_root);
+            out.push(n);
+        }
+        true
+    });
+    same.then_some(out)
 }
 
 /// Whether a synced copy in `inner` mirrors a layer of a recorded instance this sync dropped.
