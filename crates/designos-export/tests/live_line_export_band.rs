@@ -37,3 +37,19 @@ fn an_inside_line_exports_unchanged() {
     let s = svg(100.0, 10.0, StrokeAlign::Inside, StrokeCap::None);
     assert!(s.contains("d=\"M0 0 L100 0\""), "{s}");
 }
+
+#[test]
+fn square_arrow_and_dashed_lines_export_with_the_centred_padding() {
+    // unmeasured cases keep the centred stroke, so the export keeps half a weight of room on every side
+    let s = svg(100.0, 10.0, StrokeAlign::Center, StrokeCap::Square);
+    assert!(s.contains("viewBox=\"-5 -5 110 10\"") && s.contains("d=\"M0 0 L100 0\""), "square: {s}");
+    // arrow caps are written as outlines drawn about the axis: heads at y = 0, not at -w/2
+    let s = svg(100.0, 10.0, StrokeAlign::Center, StrokeCap::ArrowLines);
+    assert!(s.contains("viewBox=\"-5 -5 110 10\"") && s.contains("M0 -5 L100 -5 L100 5 L0 5"), "ArrowLines: {s}");
+    let s = svg(100.0, 10.0, StrokeAlign::Center, StrokeCap::ArrowEquilateral);
+    assert!(s.contains("viewBox=\"-5 -5 110 10\"") && s.contains("L0 0 L50 -28.868"), "ArrowEquilateral: {s}");
+    let (mut doc, id) = line_doc(100.0, 10.0, StrokeAlign::Center, StrokeCap::None);
+    doc.get_mut(id).unwrap().stroke.dashes = vec![10.0, 6.0];
+    let s = export_svg(&doc, id, &SvgOptions::default());
+    assert!(s.contains("viewBox=\"-5 -5 110 10\"") && s.contains("d=\"M0 0 L100 0\""), "dashed: {s}");
+}

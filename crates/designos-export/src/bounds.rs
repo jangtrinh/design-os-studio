@@ -93,8 +93,9 @@ pub fn own_overflow(n: &Node) -> (f32, f32, f32, f32) {
         }
     }
 
-    // a centred line is stroked in the band y in [-weight, 0] (see `Node::line_centerline`): it hangs
-    // a full weight above the box and nothing below it
+    // a measured centred line (solid, butt or round cap) is stroked in the band y in [-weight, 0] (see
+    // `Node::line_centerline`): it hangs a full weight above the box and nothing below it. Square, arrow
+    // and dashed lines stay on the axis and keep the symmetric padding
     let (line_top, line_bottom) = match n.line_centerline() {
         Some(c) if has_stroke && c.y < 0.0 => (-2.0 * c.y, 0.0),
         _ => (stroke_outset, stroke_outset),

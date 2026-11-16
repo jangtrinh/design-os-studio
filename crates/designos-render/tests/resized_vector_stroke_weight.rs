@@ -806,9 +806,7 @@ fn all_five_arrow_caps_draw_outward_heads_on_lines_and_open_vectors() {
             };
             let mut n = Node::new(id, kind);
             if as_line {
-                // a centred Line is stroked half its weight above its own axis (Figma's band), so sit the
-                // axis half a weight (2) lower to put the stroke centre on y = 50 like the vector twins
-                n.transform = Affine::translate(20.0, 52.0);
+                n.transform = Affine::translate(20.0, 50.0);
                 n.size = Vec2::new(60.0, 0.0);
             } else {
                 n.size = Vec2::new(100.0, 100.0);

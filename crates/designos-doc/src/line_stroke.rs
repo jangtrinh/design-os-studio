@@ -6,13 +6,13 @@
 //! x in [0, L]; its semicircles of radius w/2 are centred w/2 in from each end.
 //!
 //! Every other case is unmeasured and keeps the plain centreline `(0, 0)-(L, 0)`: INSIDE and OUTSIDE
-//! alignment, SQUARE caps, arrow and marker caps (so an arrow on a LINE rides the shifted axis but
-//! is not inset), and weights other than 1 and 2 (the rule is applied linearly in w).
+//! alignment, SQUARE caps, arrow and marker caps, and any dash pattern. Weights other than 1 and 2
+//! take the rule linearly in w.
 //!
 //! The CPU renderer, the GPU tessellator, SVG and PDF export all take the line from here so they
 //! cannot disagree.
 
-use crate::{Node, NodeKind, StrokeAlign, StrokeCap};
+use crate::{Node, NodeKind, Stroke, StrokeAlign, StrokeCap};
 
 /// The straight segment a `Line` is stroked along, in the layer's local space.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -24,18 +24,34 @@ pub struct LineCenterline {
 
 impl Node {
     /// The centreline the live stroke of this `Line` follows, or `None` when the node is not a line.
+    ///
+    /// Only what the Untitled UI kit measured moves: a solid CENTER line with a NONE or ROUND cap (7,219
+    /// stored bands, weights 1 and 2, rotated ones included) is stroked at y = -w/2, and a ROUND cap is
+    /// also inset by w/2 at each end. Every other case is unmeasured, so it keeps the plain centred
+    /// stroke `(0, 0)-(L, 0)` exactly as before: INSIDE and OUTSIDE alignment, SQUARE caps, arrow and
+    /// marker caps, and any dash pattern.
     pub fn line_centerline(&self) -> Option<LineCenterline> {
         if !matches!(self.kind, NodeKind::Line) {
             return None;
         }
         let len = self.size.x;
         let w = self.stroke.weight;
-        if self.stroke.align != StrokeAlign::Center || !w.is_finite() || w <= 0.0 {
+        let measured = self.stroke.align == StrokeAlign::Center
+            && matches!(self.stroke.cap, StrokeCap::None | StrokeCap::Round)
+            && !draws_dashes(&self.stroke)
+            && w.is_finite()
+            && w > 0.0;
+        if !measured {
             return Some(LineCenterline { x0: 0.0, x1: len, y: 0.0 });
         }
         let inset = if self.stroke.cap == StrokeCap::Round { (w / 2.0).min(len.max(0.0) / 2.0) } else { 0.0 };
         Some(LineCenterline { x0: inset, x1: len - inset, y: -w / 2.0 })
     }
+}
+
+/// Same test the renderers use: a pattern of non-negative lengths with a positive sum dashes the stroke.
+fn draws_dashes(s: &Stroke) -> bool {
+    !s.dashes.is_empty() && s.dashes.iter().all(|d| *d >= 0.0) && s.dashes.iter().sum::<f32>() > 0.0
 }
 
 #[cfg(test)]
@@ -71,10 +87,18 @@ mod tests {
     }
 
     #[test]
-    fn square_and_arrow_caps_keep_their_x_extent() {
+    fn square_arrow_and_dashed_lines_stay_on_the_axis() {
         for cap in [StrokeCap::Square, StrokeCap::ArrowLines, StrokeCap::TriangleFilled] {
             let c = line(100.0, 4.0, StrokeAlign::Center, cap).line_centerline().unwrap();
-            assert_eq!(c, LineCenterline { x0: 0.0, x1: 100.0, y: -2.0 });
+            assert_eq!(c, LineCenterline { x0: 0.0, x1: 100.0, y: 0.0 }, "{cap:?}");
+        }
+        for cap in [StrokeCap::None, StrokeCap::Round] {
+            let mut n = line(100.0, 4.0, StrokeAlign::Center, cap);
+            n.stroke.dashes = vec![10.0, 6.0];
+            assert_eq!(n.line_centerline().unwrap(), LineCenterline { x0: 0.0, x1: 100.0, y: 0.0 }, "dashed {cap:?}");
+            // a pattern that draws nothing different from solid is still solid
+            n.stroke.dashes = vec![0.0, 0.0];
+            assert_ne!(n.line_centerline().unwrap().y, 0.0, "a [0, 0] pattern is solid, {cap:?}");
         }
     }
 

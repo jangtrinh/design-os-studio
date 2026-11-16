@@ -76,11 +76,18 @@ fn a_live_center_line_has_the_rows_of_figmas_stored_band_at_every_weight() {
 }
 
 #[test]
-fn a_live_center_line_with_a_square_cap_keeps_its_x_extent_and_shifts_up() {
+fn square_and_dashed_center_lines_keep_the_centred_stroke() {
+    // only a solid CENTER line with a butt or round cap was measured in the kit; the rest stays as on main
     let mut t = T::new();
     live_line(&mut t, 100.0, 10.0, StrokeCap::Square);
-    // the square cap is unmeasured, so it still overhangs w/2; only the band moved
-    assert_eq!(ink(&t.render(VIEW.0, VIEW.1)), (30, 39, 15, 124));
+    assert_eq!(ink(&t.render(VIEW.0, VIEW.1)), (35, 44, 15, 124), "square cap");
+    for cap in [StrokeCap::None, StrokeCap::Round] {
+        let mut t = T::new();
+        let id = live_line(&mut t, 100.0, 10.0, cap);
+        t.node(id).stroke.dashes = vec![20.0, 10.0];
+        let (y0, y1, ..) = ink(&t.render(VIEW.0, VIEW.1));
+        assert_eq!((y0, y1), (35, 44), "dashed {cap:?}");
+    }
 }
 
 #[test]

@@ -10,19 +10,22 @@ fn node_local_hit(n: &Node, local: Vec2, tol: f32) -> bool {
     local_hit(&n.kind, n.size, local, tol)
 }
 
-/// A centred line is drawn in the band y in [-weight, 0] (`Node::line_centerline`), so a click inside the
-/// band, or within `tol` of it, hits. A line drawn on its own axis (inside or outside alignment, no weight)
-/// keeps the axis rule.
+/// A measured centred line is drawn in the band y in [-weight, 0] (`Node::line_centerline`), so a click
+/// inside the band, or within `tol` of it, hits. A round cap ends in a half circle, so it hits the stadium
+/// around the inset centreline; a butt end keeps the rectangle. A line drawn on its own axis (inside or
+/// outside alignment, square or arrow caps, dashes, no weight) keeps the axis rule.
 fn line_hit(n: &Node, local: Vec2, tol: f32) -> bool {
-    let along = local.x >= -tol && local.x <= n.size.x + tol;
-    let across = match n.line_centerline() {
-        Some(c) if c.y != 0.0 => {
-            let half = n.stroke.weight / 2.0;
-            local.y >= c.y - half - tol && local.y <= c.y + half + tol
-        }
-        _ => local.y.abs() <= tol.max(n.size.y / 2.0 + tol),
+    let Some(c) = n.line_centerline().filter(|c| c.y != 0.0) else {
+        let along = local.x >= -tol && local.x <= n.size.x + tol;
+        return along && local.y.abs() <= tol.max(n.size.y / 2.0 + tol);
     };
-    along && across
+    let half = n.stroke.weight / 2.0;
+    if n.stroke.cap == designos_doc::StrokeCap::Round {
+        // distance to the inset segment (x0, y)-(x1, y)
+        let dx = (c.x0 - local.x).max(local.x - c.x1).max(0.0);
+        return dx.hypot(local.y - c.y) <= half + tol;
+    }
+    local.x >= -tol && local.x <= n.size.x + tol && local.y >= c.y - half - tol && local.y <= c.y + half + tol
 }
 
 fn local_hit(kind: &NodeKind, size: Vec2, local: Vec2, tol: f32) -> bool {
@@ -531,7 +534,7 @@ fn marquee_in(doc: &Document, parent: NodeId, r: &Rect, index: Option<&designos_
 mod tests {
     use super::*;
     use crate::util::v2;
-    use designos_doc::{FillRule, FrameProps, Node, Path, PathCmd, StrokeAlign};
+    use designos_doc::{FillRule, FrameProps, Node, Path, PathCmd, StrokeAlign, StrokeCap};
 
     fn sample() -> (Document, NodeId, NodeId, NodeId, NodeId, NodeId) {
         let mut d = Document::new("t");
@@ -586,6 +589,29 @@ mod tests {
         assert_eq!(hit_test(&d, page, at(&d, id, 50.0, -8.0), 2.0, false, &[]), Some(id));
         assert_eq!(hit_test(&d, page, at(&d, id, 50.0, 8.0), 2.0, false, &[]), None);
         assert_eq!(hit_test(&d, page, at(&d, id, 50.0, -13.0), 2.0, false, &[]), None);
+    }
+
+    #[test]
+    fn a_round_cap_line_is_hit_on_its_stadium_not_its_corners() {
+        let (mut d, page, id) = hit_line(StrokeAlign::Center, 0.0);
+        d.get_mut(id).unwrap().stroke.cap = StrokeCap::Round;
+        // the cap centres are (5, -5) and (95, -5), radius 5
+        assert_eq!(hit_test(&d, page, at(&d, id, 5.0, -5.0), 0.0, false, &[]), Some(id));
+        assert_eq!(hit_test(&d, page, at(&d, id, 1.5, -5.0), 0.0, false, &[]), Some(id), "inside the round end");
+        assert_eq!(hit_test(&d, page, at(&d, id, 0.0, 0.0), 0.0, false, &[]), None, "the corner the pixels do not cover");
+        assert_eq!(hit_test(&d, page, at(&d, id, 100.0, -10.0), 0.0, false, &[]), None);
+        assert_eq!(hit_test(&d, page, at(&d, id, 50.0, -9.5), 0.0, false, &[]), Some(id));
+        // a click within the tolerance of the stadium still hits
+        assert_eq!(hit_test(&d, page, at(&d, id, 0.0, -5.0), 0.0, false, &[]), Some(id));
+        assert_eq!(hit_test(&d, page, at(&d, id, -1.5, -5.0), 2.0, false, &[]), Some(id));
+        assert_eq!(hit_test(&d, page, at(&d, id, -4.0, -5.0), 2.0, false, &[]), None);
+    }
+
+    #[test]
+    fn a_butt_cap_line_keeps_the_band_rectangle() {
+        let (d, page, id) = hit_line(StrokeAlign::Center, 0.0);
+        assert_eq!(hit_test(&d, page, at(&d, id, 0.0, 0.0), 0.0, false, &[]), Some(id));
+        assert_eq!(hit_test(&d, page, at(&d, id, 100.0, -10.0), 0.0, false, &[]), Some(id));
     }
 
     #[test]
