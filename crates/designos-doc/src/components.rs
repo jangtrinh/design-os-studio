@@ -61,6 +61,9 @@ struct Ctx<'a> {
     holds_itself: BTreeMap<NodeId, bool>,
     /// Number of nested swaps and override fields dropped during this context's swap operations.
     dropped_changes: usize,
+    /// When `Some`, a nested bound variant property resolves only when its variable reaches this set; otherwise it keeps
+    /// the value the copy currently shows.
+    bound_vars: Option<&'a std::collections::HashSet<String>>,
     /// Number of parked overrides kept on instances for a later return during this context's swap operations.
     kept_for_return: usize,
     /// Instances that entered or received a non-empty parked list during this context's swap operations.
@@ -78,6 +81,7 @@ impl<'a> Ctx<'a> {
             refused_swap: Vec::new(),
             holds_itself: BTreeMap::new(),
             dropped_changes: 0,
+            bound_vars: None,
             kept_for_return: 0,
             had_parked: BTreeSet::new(),
         }
@@ -3140,7 +3144,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
             // A bound variant property of a nested instance resolves its variable where this copy sits (the modes of
             // its ancestors), and the switch below is the one a person's pick makes. A property picked by hand keeps the
             // variant the copy shows; the others lie over it.
-            let mut choices = bound_variant_choices(c.s, i, &inode, cur);
+            let mut choices = bound_variant_choices_filtered(c.s, i, &inode, cur, c.bound_vars);
             choices.retain(|name, _| !inode.component.variant_picks.contains(name));
             // The bindings belong to the component the copy shows, not to the one an instance-swap property chose for it.
             if !choices.is_empty() && !prop_target {
@@ -3639,6 +3643,16 @@ pub fn swap_instance(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> 
     swap_instance_inner(doc, instance, new_comp).0
 }
 
+/// Swaps an instance to another component without recording a manual variant pick
+/// (`variant_picks`), for transient prototype player `Change to` swaps.
+pub fn swap_instance_without_pick(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> Command {
+    let mut c = Ctx::new(doc);
+    if !swap_recorded(&mut c, instance, new_comp, false) {
+        return nothing();
+    }
+    c.finish()
+}
+
 pub(crate) fn swap_instance_inner(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> (Command, usize) {
     let (cmd, dropped, _) = swap_instance_reporting(doc, instance, new_comp);
     (cmd, dropped)
@@ -3646,7 +3660,7 @@ pub(crate) fn swap_instance_inner(doc: &mut Document, instance: NodeId, new_comp
 
 pub(crate) fn swap_instance_reporting(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> (Command, usize, usize) {
     let mut c = Ctx::new(doc);
-    if !swap_recorded(&mut c, instance, new_comp) {
+    if !swap_recorded(&mut c, instance, new_comp, true) {
         return (nothing(), 0, 0);
     }
     let dropped = c.dropped_changes;
@@ -3656,7 +3670,7 @@ pub(crate) fn swap_instance_reporting(doc: &mut Document, instance: NodeId, new_
 
 /// Swaps `instance` to `new_comp` and records the swap as a `MainComponent` override. False when nothing changed: the
 /// instance already shows `new_comp`, `new_comp` is no main, or it would hold itself.
-fn swap_recorded(c: &mut Ctx, instance: NodeId, new_comp: NodeId) -> bool {
+fn swap_recorded(c: &mut Ctx, instance: NodeId, new_comp: NodeId, record_pick: bool) -> bool {
     let Some(n) = c.s.get(instance) else { return false };
     if instance_component(n) == Some(new_comp) || !matches!(c.s.get(new_comp).map(|x| &x.kind), Some(NodeKind::Component(_))) {
         return false;
@@ -3671,7 +3685,7 @@ fn swap_recorded(c: &mut Ctx, instance: NodeId, new_comp: NodeId) -> bool {
     if let Some(mut n) = c.s.get(instance).cloned() {
         is_nested = !is_top(&n);
         n.component.overrides.insert(OverrideField::MainComponent);
-        record_variant_swap(c.s, &mut n, old_comp, new_comp);
+        record_variant_swap(c.s, &mut n, old_comp, new_comp, record_pick);
         if is_nested {
             if let Some(comp) = c.s.get(new_comp) {
                 for (k, _) in parse_variant_name(&comp.name) {
@@ -3682,10 +3696,17 @@ fn swap_recorded(c: &mut Ctx, instance: NodeId, new_comp: NodeId) -> bool {
         c.update(n);
     }
     if is_nested {
+        // A swap that records no pick (the prototype player's `Change to`) is not a choice the variables may undo: the
+        // sync leaves every bound variant property at the variant the swap chose.
+        let outer = std::mem::replace(&mut c.bound_vars, (!record_pick).then(|| &*NO_VARIABLES_CHANGED));
         sync_one(c, instance);
+        c.bound_vars = outer;
     }
     true
 }
+
+/// The set of changed variables for a sync in which no variable changed: no bound property resolves, so each keeps what it shows.
+static NO_VARIABLES_CHANGED: std::sync::LazyLock<std::collections::HashSet<String>> = std::sync::LazyLock::new(std::collections::HashSet::new);
 
 /// Sets (or with `None` clears) a component property value on an instance
 /// root and re-syncs it: toggles visibility, swaps text, instance or variant.
@@ -3713,7 +3734,7 @@ fn set_instance_prop_counts(doc: &mut Document, instance: NodeId, name: &str, va
 }
 
 fn set_instance_prop_reporting(doc: &mut Document, instance: NodeId, name: &str, value: Option<PropValue>) -> (Command, usize, usize, Vec<(NodeId, NodeId)>) {
-    set_instance_prop_edit_counts_reporting(doc, instance, |n| match value {
+    set_instance_prop_edit_counts_reporting(doc, instance, None, |n| match value {
         Some(v) => {
             if matches!(v, PropValue::Variant(_)) {
                 record_variant_pick(n, name);
@@ -3728,25 +3749,34 @@ fn set_instance_prop_reporting(doc: &mut Document, instance: NodeId, name: &str,
 }
 
 /// [`set_instance_prop`] for any edit of the instance root (its stored values, its variable bindings): the edit is
-/// applied, then the instance is synced, so a changed value reaches the layers (or the variant) it drives in one command.
-pub(crate) fn set_instance_prop_edit(doc: &mut Document, instance: NodeId, edit: impl FnOnce(&mut Node)) -> (Command, usize) {
-    let (cmd, dropped, _) = set_instance_prop_edit_reporting(doc, instance, edit);
+/// applied, then the instance is synced (restricting nested bound variant resolution to `bound_vars` when `Some`), so a
+/// changed value reaches the layers (or the variant) it drives in one command.
+pub(crate) fn set_instance_prop_edit_for_vars(
+    doc: &mut Document,
+    instance: NodeId,
+    bound_vars: Option<&std::collections::HashSet<String>>,
+    edit: impl FnOnce(&mut Node),
+) -> (Command, usize) {
+    let (cmd, dropped, _, _) = set_instance_prop_edit_counts_reporting(doc, instance, bound_vars, edit);
     (cmd, dropped)
 }
 
-/// [`set_instance_prop_edit`], also the swaps the guard refused that stopped the edit, as `(main shown, main wanted)`.
-/// The list is empty when the edit went through, and when it changed nothing for another reason.
+/// [`set_instance_prop_edit_for_vars`] across all bound variables, also the swaps the guard refused that stopped the
+/// edit, as `(main shown, main wanted)`. The list is empty when the edit went through, and when it changed nothing for
+/// another reason.
 pub(crate) fn set_instance_prop_edit_reporting(doc: &mut Document, instance: NodeId, edit: impl FnOnce(&mut Node)) -> (Command, usize, Vec<(NodeId, NodeId)>) {
-    let (cmd, dropped, _, refused) = set_instance_prop_edit_counts_reporting(doc, instance, edit);
+    let (cmd, dropped, _, refused) = set_instance_prop_edit_counts_reporting(doc, instance, None, edit);
     (cmd, dropped, refused)
 }
 
 fn set_instance_prop_edit_counts_reporting(
     doc: &mut Document,
     instance: NodeId,
+    bound_vars: Option<&std::collections::HashSet<String>>,
     edit: impl FnOnce(&mut Node),
 ) -> (Command, usize, usize, Vec<(NodeId, NodeId)>) {
     let mut c = Ctx::new(doc);
+    c.bound_vars = bound_vars;
     if let Some(mut n) = c.s.get(instance).cloned() {
         edit(&mut n);
         c.update(n);
@@ -3782,7 +3812,7 @@ pub fn set_nested_instance_prop(doc: &mut Document, nested: NodeId, name: &str, 
     let chosen = BTreeMap::from([(name.to_string(), PropValue::Variant(choice.clone()))]);
     let Some(target) = variant_target_from(doc, current, &chosen) else { return pin_shown_variant(doc, nested, name, choice, current) };
     let mut c = Ctx::new(doc);
-    if !swap_recorded(&mut c, nested, target) {
+    if !swap_recorded(&mut c, nested, target, true) {
         return nothing();
     }
     if c.s.get(nested).is_some_and(is_top) {

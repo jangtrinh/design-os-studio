@@ -243,23 +243,27 @@ impl Document {
         let mut id = variable.to_string();
         for _ in 0..MAX_ALIAS_DEPTH {
             let v = self.variables.get(&id)?;
-            let value = match self.node_extension_value(node, v, mode_overrides) {
-                Some(extended) => extended,
-                None => {
-                    let mode = self.variable_mode_with_overrides(node, &v.collection, mode_overrides)?;
-                    let coll = self.variable_collections.get(&v.collection)?;
-                    self.resolve_multi_axis_value_with_modes(node, v, &mode, mode_overrides)
-                        .or_else(|| v.values.get(&mode))
-                        .or_else(|| v.values.get(&coll.default_mode))?
-                        .clone()
-                }
-            };
-            match value {
+            match self.selected_variable_value(node, v, mode_overrides)? {
                 VariableValue::Alias(next) => id = next,
                 other => return Some(other),
             }
         }
         None
+    }
+
+    /// The value `v` takes at `node` before an alias is followed: an extension's value first, then a multi-axis (`+`)
+    /// entry, then the entry of the collection's mode, then the collection default. Every walk over alias links that
+    /// must agree with [`Document::resolve_variable`] follows the alias in this value and in no other.
+    pub(crate) fn selected_variable_value(&self, node: NodeId, v: &Variable, mode_overrides: &[(&str, &str)]) -> Option<VariableValue> {
+        if let Some(extended) = self.node_extension_value(node, v, mode_overrides) {
+            return Some(extended);
+        }
+        let mode = self.variable_mode_with_overrides(node, &v.collection, mode_overrides)?;
+        let coll = self.variable_collections.get(&v.collection)?;
+        self.resolve_multi_axis_value_with_modes(node, v, &mode, mode_overrides)
+            .or_else(|| v.values.get(&mode))
+            .or_else(|| v.values.get(&coll.default_mode))
+            .cloned()
     }
 
     fn variable_mode_with_overrides(&self, node: NodeId, collection: &str, mode_overrides: &[(&str, &str)]) -> Option<String> {

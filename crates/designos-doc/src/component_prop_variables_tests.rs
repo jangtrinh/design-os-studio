@@ -480,3 +480,119 @@ fn slot_migration_removes_bound_default_for_migrated_and_dropped_visibility_prop
     assert_eq!(f.d.get(f.comp).unwrap().component.prop_default_variables.get("Swap").map(String::as_str), Some("title"));
     assert_eq!(f.d.get(f.comp).unwrap().component.prop_default_variables.get("Show icon").map(String::as_str), Some("show"));
 }
+
+#[test]
+fn resync_bound_properties_switches_variants_solves_hug_hosts_and_keeps_picks() {
+    use crate::component_variant_picks_tests::{build, copy, pick_nested, picks, shown, LARGE_DEFAULT, LARGE_HOVER};
+
+    let mut f = build(&["Size", "State"], &["Size", "State"]);
+    let host_al = AutoLayout {
+        direction: LayoutDirection::Horizontal,
+        primary_sizing: Sizing::Hug,
+        counter_sizing: Sizing::Hug,
+        padding: [4.0; 4],
+        layout_version: 1,
+        ..AutoLayout::default()
+    };
+    if let NodeKind::Frame(fp) = &mut f.d.get_mut(f.host).unwrap().kind {
+        fp.auto_layout = Some(host_al);
+    }
+    f.d.relayout_subtree(f.host);
+    assert_eq!(f.d.get(f.host).unwrap().size.x, 508.0);
+
+    let n = copy(&f);
+    pick_nested(&mut f, n, "Size", "Large");
+    assert_eq!(shown(&f, n), LARGE_DEFAULT);
+    assert_eq!(picks(&f, n), ["Size"]);
+
+    // Mutate collection default_mode outside History (as the prototype player does).
+    f.d.variable_collections.get_mut("theme").unwrap().default_mode = "dark".into();
+    let vars: std::collections::HashSet<String> = ["size".into(), "state".into()].into_iter().collect();
+    let switched = resync_bound_properties(&mut f.d, &vars).unwrap();
+    assert!(!switched.is_empty());
+
+    assert_eq!(shown(&f, f.top), LARGE_HOVER);
+    assert_eq!(shown(&f, n), LARGE_HOVER, "nested copy follows State and holds picked Size");
+    assert_eq!(f.d.get(f.host).unwrap().size.x, 618.0, "hug host relayouts in the same resync call");
+
+    f.d.variable_collections.get_mut("theme").unwrap().default_mode = "light".into();
+    resync_bound_properties(&mut f.d, &vars).unwrap();
+    assert_eq!(shown(&f, n), LARGE_DEFAULT, "picked Size stays held when returning to light");
+}
+
+/// A variable that follows another one only through the value the resolver selects for the node: the walk that decides
+/// whether a changed variable reaches a bound property must follow the same value.
+fn alias_variable(id: &str, collection: &str, values: &[(&str, VariableValue)]) -> Variable {
+    let mut v = crate::component_variant_picks_tests::string_variable(id, "", "");
+    v.collection = collection.into();
+    v.values = values.iter().map(|(m, val)| (m.to_string(), val.clone())).collect();
+    v
+}
+
+#[test]
+fn resync_follows_a_multi_axis_alias_the_resolver_selects() {
+    use crate::component_variant_picks_tests::{build, shown, SMALL_DEFAULT, SMALL_HOVER};
+
+    let mut f = build(&[], &[]);
+    f.d.variable_collections.insert(
+        "density".into(),
+        VariableCollection {
+            id: "density".into(),
+            name: "Density".into(),
+            modes: vec![VariableMode { id: "bold".into(), name: "Bold".into() }, VariableMode { id: "regular".into(), name: "Regular".into() }],
+            default_mode: "bold".into(),
+            variables: vec![],
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        },
+    );
+    f.d.variable_collections.get_mut("theme").unwrap().variables.push("look".into());
+    f.d.variables.insert("look".into(), alias_variable("look", "theme", &[("light+bold", VariableValue::Alias("state".into()))]));
+    let bind = bind_prop_variable(&mut f.d, f.top, "State", Some("look")).unwrap();
+    f.h.exec(&mut f.d, bind).unwrap();
+    assert_eq!(shown(&f, f.top), SMALL_DEFAULT);
+
+    f.d.variables.get_mut("state").unwrap().values.insert("light".into(), VariableValue::String("Hover".into()));
+    let vars: std::collections::HashSet<String> = ["state".into()].into_iter().collect();
+    resync_bound_properties(&mut f.d, &vars).unwrap();
+    assert_eq!(shown(&f, f.top), SMALL_HOVER, "State follows `state` through the multi-axis alias the resolver selects");
+}
+
+#[test]
+fn resync_follows_an_extension_alias_the_resolver_selects() {
+    use crate::component_variant_picks_tests::{build, shown, SMALL_DEFAULT, SMALL_HOVER};
+
+    let mut f = build(&[], &[]);
+    f.d.variable_collections.get_mut("theme").unwrap().set_extendable(true);
+    f.d.variable_collections.get_mut("theme").unwrap().variables.push("look".into());
+    f.d.variables.insert(
+        "look".into(),
+        alias_variable("look", "theme", &[("light", VariableValue::String("Default".into())), ("dark", VariableValue::String("Default".into()))]),
+    );
+    let mut ext = VariableCollection {
+        id: "theme_x".into(),
+        name: "Theme X".into(),
+        modes: vec![VariableMode { id: "xm".into(), name: "XM".into() }, VariableMode { id: "xn".into(), name: "XN".into() }],
+        default_mode: "xm".into(),
+        variables: vec![],
+        key: None,
+        source_library_key: None,
+        extensions: Default::default(),
+    };
+    ext.set_extension(&CollectionExtension {
+        parent: ParentCollection { collection: "theme".into(), set_key: None },
+        mode_map: [("xm".to_string(), "light".to_string()), ("xn".to_string(), "dark".to_string())].into_iter().collect(),
+        overrides: [("look".to_string(), [("xm".to_string(), VariableValue::Alias("state".into()))].into_iter().collect())].into_iter().collect(),
+    });
+    f.d.variable_collections.insert("theme_x".into(), ext);
+    f.d.get_mut(f.host).unwrap().variables.modes.insert("theme_x".into(), "xm".into());
+    let bind = bind_prop_variable(&mut f.d, f.top, "State", Some("look")).unwrap();
+    f.h.exec(&mut f.d, bind).unwrap();
+    assert_eq!(shown(&f, f.top), SMALL_DEFAULT);
+
+    f.d.variables.get_mut("state").unwrap().values.insert("light".into(), VariableValue::String("Hover".into()));
+    let vars: std::collections::HashSet<String> = ["state".into()].into_iter().collect();
+    resync_bound_properties(&mut f.d, &vars).unwrap();
+    assert_eq!(shown(&f, f.top), SMALL_HOVER, "State follows `state` through the extension alias the resolver selects");
+}
