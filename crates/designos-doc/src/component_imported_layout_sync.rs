@@ -2,7 +2,7 @@
 //! `crate::component_imported_layout`: [`before_sync`] notes it, [`after_sync`] writes it back or drops the record.
 
 use crate::component_imported_layout::{canonical_solve_hash, trial};
-use crate::component_imported_layout_fields::{layout_hash, meaning_hash, noted_if_stored, same_layers, LayoutFields};
+use crate::component_imported_layout_fields::{layout_hash, noted_if_stored, same_layers, LayoutFields};
 use crate::components::{instance_root_of, sync_one, Ctx};
 use crate::{Document, ImportedLayout, NodeId, NodeKind};
 use std::collections::{BTreeMap, BTreeSet};
@@ -125,7 +125,7 @@ pub(crate) fn after_sync(c: &mut Ctx, held: Vec<Held>) {
         if holds(c.s, h.holder, before) {
             continue;
         }
-        let keep = same_layers(c.s, h.holder, before, |b, n| b.outline_meaning.is_none_or(|m| meaning_hash(n) == m))
+        let keep = same_layers(c.s, h.holder, before, |b, n| b.outline_meaning.as_ref().is_none_or(|m| m.held_by(n)))
             && if h.solved_by_sync {
                 layout_hash(c.s, h.holder) == Some(h.record.solved)
             } else {

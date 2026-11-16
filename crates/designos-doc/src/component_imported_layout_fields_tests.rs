@@ -153,3 +153,25 @@ fn written_back_fields_are_exactly_the_compared_ones() {
     assert_eq!(hash(&synced, false), hash(&noted, false));
     assert_eq!(synced.opacity, 0.5, "the write-back touches layout fields only");
 }
+
+#[test]
+fn an_outline_is_put_back_only_on_the_shape_it_was_drawn_for() {
+    let noted = layer(NodeKind::Rectangle);
+    let meaning = LayoutFields::of(&noted).outline_meaning.expect("a layer with a baked outline notes what it means");
+    assert!(meaning.held_by(&noted));
+    let edits: [Edit; 4] = [
+        ("corner radius", |n| n.corner_radii[0] = 6.0),
+        ("corner smoothing", |n| n.corner_smoothing = 0.6),
+        ("shape", |n| n.kind = NodeKind::Line),
+        ("rectangle became a frame", |n| n.kind = NodeKind::Frame(Default::default())),
+    ];
+    for (name, edit) in edits {
+        let mut n = noted.clone();
+        edit(&mut n);
+        assert!(!meaning.held_by(&n), "{name} kept the outline");
+    }
+    let mut plain = noted.clone();
+    plain.fill_geometry = None;
+    plain.stroke_geometry = None;
+    assert!(LayoutFields::of(&plain).outline_meaning.is_none(), "no outline, nothing to check");
+}

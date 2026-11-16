@@ -8,9 +8,9 @@ fn is_parametric_shape(kind: &NodeKind) -> bool {
     matches!(kind, NodeKind::Rectangle | NodeKind::Ellipse(_) | NodeKind::Star { .. } | NodeKind::Polygon { .. } | NodeKind::Line | NodeKind::BooleanOp(_))
 }
 
+/// Both coordinates in one word.
 fn add_vec2(h: &mut StableHasher, v: Vec2) {
-    h.float(v.x);
-    h.float(v.y);
+    h.word(u64::from(v.x.to_bits()) << 32 | u64::from(v.y.to_bits()));
 }
 
 fn add_affine(h: &mut StableHasher, t: &Affine) {
@@ -146,13 +146,6 @@ pub(crate) fn hash_layer(h: &mut StableHasher, n: &Node, is_root: bool) {
     if let NodeKind::Vector { paths, network } = &n.kind {
         add_vector(h, paths, network);
     }
-    h.word(meaning_hash(n));
-}
-
-/// What the baked outlines of `n` were drawn for, apart from the layout fields themselves: corner radii and the
-/// parameters of a shape. (A vector's paths are a layout field: Figma stores them resized with the instance.)
-pub(crate) fn meaning_hash(n: &Node) -> u64 {
-    let mut h = StableHasher::new();
     for r in n.corner_radii {
         h.float(r);
     }
@@ -160,7 +153,29 @@ pub(crate) fn meaning_hash(n: &Node) -> u64 {
     if is_parametric_shape(&n.kind) {
         h.add(&n.kind);
     }
-    h.finish()
+}
+
+/// What the baked outlines of a layer were drawn for, apart from the layout fields themselves: corner radii and the
+/// parameters of a shape. (A vector's paths are a layout field: Figma stores them resized with the instance.)
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Meaning {
+    radii: [f32; 4],
+    smoothing: f32,
+    shape: Option<NodeKind>,
+}
+
+impl Meaning {
+    fn of(n: &Node) -> Self {
+        Self { radii: n.corner_radii, smoothing: n.corner_smoothing, shape: is_parametric_shape(&n.kind).then(|| n.kind.clone()) }
+    }
+
+    /// Whether layer `n` still has the corner radii and shape parameters this outline was drawn for.
+    pub(crate) fn held_by(&self, n: &Node) -> bool {
+        n.corner_radii == self.radii
+            && n.corner_smoothing == self.smoothing
+            && self.shape.as_ref().is_none_or(|k| *k == n.kind)
+            && (self.shape.is_some() || !is_parametric_shape(&n.kind))
+    }
 }
 
 /// Visits the layers of the subtree under `root`, parents before children, in child order, looking each one up once.
@@ -222,9 +237,9 @@ pub(crate) struct LayoutFields {
     stroke_geometry: Option<Vec<Path>>,
     stroke_geometry_for: Option<StrokeGeometryStamp>,
     vector: Option<NodeKind>,
-    /// [`meaning_hash`] of the layer when it carries a baked fill or stroke outline: an outline put back must be the
-    /// one drawn for the shape parameters the layer has after the sync. `None` for a layer without one.
-    pub(crate) outline_meaning: Option<u64>,
+    /// What the layer's baked fill or stroke outline was drawn for: an outline put back must be the one drawn for the
+    /// shape parameters the layer has after the sync. `None` for a layer without one.
+    pub(crate) outline_meaning: Option<Meaning>,
 }
 
 impl LayoutFields {
@@ -238,7 +253,7 @@ impl LayoutFields {
             stroke_geometry: n.stroke_geometry.clone(),
             stroke_geometry_for: n.stroke_geometry_for.clone(),
             vector: matches!(n.kind, NodeKind::Vector { .. }).then(|| n.kind.clone()),
-            outline_meaning: (n.fill_geometry.is_some() || n.stroke_geometry.is_some()).then(|| meaning_hash(n)),
+            outline_meaning: (n.fill_geometry.is_some() || n.stroke_geometry.is_some()).then(|| Meaning::of(n)),
         }
     }
 
