@@ -17,7 +17,7 @@
 
 use crate::branch_diff::StableHasher;
 use crate::component_imported_layout_fields::{layout_hash, meaning_hash, subtree, LayoutFields};
-use crate::components::{instance_component, instance_root_of, sync_one, Ctx};
+use crate::components::{instance_root_of, sync_one, Ctx};
 use crate::{Document, ImportedLayout, NodeId, NodeKind};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -95,36 +95,8 @@ pub(crate) struct Held {
     /// The layout of every layer as it was before the sync, when the instance still held its imported geometry.
     before: Option<Vec<LayoutFields>>,
     /// The sync runs Studio's canonical solve of this instance itself: it is a target, no other target lies inside
-    /// it, and no target lies inside a main it mirrors (so nothing it reads is written by the sync).
+    /// it, and no target lies inside a main (so nothing it mirrors is written by the sync).
     solved_by_sync: bool,
-}
-
-/// The main components of the instances in the subtree under `root` (`root` included).
-fn instance_mains_in(doc: &Document, root: NodeId) -> Vec<NodeId> {
-    let mut mains = BTreeSet::new();
-    let mut stack = vec![root];
-    while let Some(id) = stack.pop() {
-        let Some(n) = doc.get(id) else { continue };
-        mains.extend(instance_component(n));
-        stack.extend(n.children.iter().copied());
-    }
-    mains.into_iter().collect()
-}
-
-/// Whether a layer of `holder` mirrors, at any depth, a main in `written`.
-fn mirrors_any(doc: &Document, holder: NodeId, written: &BTreeSet<NodeId>, inside: &mut BTreeMap<NodeId, Vec<NodeId>>) -> bool {
-    let mut seen = BTreeSet::new();
-    let mut queue = instance_mains_in(doc, holder);
-    while let Some(m) = queue.pop() {
-        if !seen.insert(m) {
-            continue;
-        }
-        if written.contains(&m) {
-            return true;
-        }
-        queue.extend(inside.entry(m).or_insert_with(|| instance_mains_in(doc, m)).iter().copied());
-    }
-    false
 }
 
 /// Notes, before a sync of `targets`, the geometry of every recorded instance the sync reaches. Cheap when no record
@@ -137,9 +109,8 @@ pub(crate) fn before_sync(doc: &Document, targets: &[NodeId]) -> Vec<Held> {
         }
     }
     let target_set: BTreeSet<NodeId> = targets.iter().copied().collect();
-    // The mains the sync writes into: every main around a target.
-    let mut written: Option<BTreeSet<NodeId>> = None;
-    let mut inside: BTreeMap<NodeId, Vec<NodeId>> = BTreeMap::new();
+    let any_target_in_a_main = || targets.iter().any(|&t| crate::components::enclosing_component(doc, t).is_some());
+    let mut in_a_main: Option<bool> = None;
     let mut held = Vec::new();
     for (&holder, &count) in &targets_in {
         let Some(record) = doc.get(holder).and_then(|n| n.component.imported_layout) else { continue };
@@ -147,32 +118,24 @@ pub(crate) fn before_sync(doc: &Document, targets: &[NodeId]) -> Vec<Held> {
             .then(|| subtree(doc, holder))
             .flatten()
             .and_then(|ids| ids.iter().map(|id| doc.get(*id).map(LayoutFields::of)).collect::<Option<Vec<_>>>());
-        let solved_by_sync = before.is_some() && count == 1 && target_set.contains(&holder) && {
-            let written = written.get_or_insert_with(|| targets.iter().flat_map(|&t| mains_holding(doc, t)).collect());
-            written.is_empty() || !mirrors_any(doc, holder, written, &mut inside)
-        };
+        let solved_by_sync = count == 1 && target_set.contains(&holder) && !*in_a_main.get_or_insert_with(any_target_in_a_main);
         held.push(Held { holder, record, before, solved_by_sync });
     }
     held
 }
 
-/// Every main component around `id`.
-fn mains_holding(doc: &Document, id: NodeId) -> Vec<NodeId> {
-    let mut out = Vec::new();
+/// Number of main components around `id`: an instance inside a main is laid out before the instances of that main.
+fn mains_around(doc: &Document, id: NodeId) -> usize {
+    let mut n = 0;
     let mut cur = doc.get(id).and_then(|x| x.parent);
     while let Some(p) = cur {
         let Some(pn) = doc.get(p) else { break };
         if matches!(pn.kind, NodeKind::Component(_)) {
-            out.push(p);
+            n += 1;
         }
         cur = pn.parent;
     }
-    out
-}
-
-/// Number of main components around `id`: an instance inside a main is laid out before the instances of that main.
-fn mains_around(doc: &Document, id: NodeId) -> usize {
-    mains_holding(doc, id).len()
+    n
 }
 
 /// After the sync: for each instance [`before_sync`] noted, writes its stored geometry back when the instance held it
