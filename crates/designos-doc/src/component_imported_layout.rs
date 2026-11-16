@@ -16,6 +16,8 @@
 
 use crate::branch_diff::StableHasher;
 use crate::components::{instance_root_of, sync_one, Ctx};
+use std::collections::BTreeSet;
+
 use crate::{Affine, Document, ImportedLayout, Node, NodeId, NodeKind, Path, StretchedAxes, StrokeGeometryStamp, Vec2};
 
 /// Shape layers whose baked outline is drawn for the shape parameters their `kind` holds.
@@ -195,10 +197,11 @@ pub(crate) struct Held {
 /// Notes, before a sync of `targets`, the geometry of every recorded instance the sync reaches. Cheap when no record
 /// is reached: one walk up from each target.
 pub(crate) fn before_sync(doc: &Document, targets: &[NodeId]) -> Vec<Held> {
+    let mut holders: BTreeSet<NodeId> = BTreeSet::new();
     let mut held: Vec<Held> = Vec::new();
     for &t in targets {
         let Some(holder) = instance_root_of(doc, t) else { continue };
-        if held.iter().any(|h| h.holder == holder) {
+        if !holders.insert(holder) {
             continue;
         }
         let Some(record) = doc.get(holder).and_then(|n| n.component.imported_layout) else { continue };
@@ -231,17 +234,14 @@ fn mains_around(doc: &Document, id: NodeId) -> usize {
 ///
 /// The solve is checked on the document as the sync left it, so the instance sees its references already synced, as
 /// at import. Instances inside a main go first, so an instance of that main sees them back on their stored geometry.
-pub(crate) fn after_sync(c: &mut Ctx, mut held: Vec<Held>, targets: &[NodeId]) {
+pub(crate) fn after_sync(c: &mut Ctx, mut held: Vec<Held>) {
     if held.is_empty() {
         return;
     }
     held.sort_by_key(|h| (std::cmp::Reverse(mains_around(c.s, h.holder)), h.holder.0));
     for h in held {
         let keep = h.before.as_ref().is_some_and(|before| {
-            // A holder that was itself the only target in it has just been through the canonical solve.
-            let solved_by_sync = targets.contains(&h.holder) && targets.iter().all(|&t| t == h.holder || instance_root_of(c.s, t) != Some(h.holder));
-            let solved = if solved_by_sync { layout_hash(c.s, h.holder) } else { canonical_solve_hash(c.s, h.holder) };
-            solved == Some(h.record.solved)
+            canonical_solve_hash(c.s, h.holder) == Some(h.record.solved)
                 && subtree(c.s, h.holder).is_some_and(|ids| {
                     ids.len() == before.len() && ids.iter().zip(before).all(|(id, b)| *id == b.id && c.s.get(*id).is_some_and(|n| meaning_hash(n) == b.meaning))
                 })

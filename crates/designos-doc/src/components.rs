@@ -1359,7 +1359,7 @@ fn sync_component(c: &mut Ctx, owner: NodeId) {
     for &t in &targets {
         sync_one(c, t);
     }
-    crate::component_imported_layout::after_sync(c, held, &targets);
+    crate::component_imported_layout::after_sync(c, held);
 }
 
 /// The main nested copy `id` shows when no pick is recorded on it and its bound variant properties `choices` drive it:
