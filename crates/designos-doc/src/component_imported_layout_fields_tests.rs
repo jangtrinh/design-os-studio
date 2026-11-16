@@ -3,7 +3,8 @@
 
 use crate::branch_diff::StableHasher;
 use crate::component_imported_layout_fields::{hash_layer, LayoutFields};
-use crate::{FillRule, Node, NodeId, NodeKind, Path, PathCmd, Stroke, StrokeGeometryStamp, Vec2};
+use crate::vector::{Region, Segment, Vertex};
+use crate::{FillRule, Node, NodeId, NodeKind, Path, PathCmd, Stroke, StrokeCap, StrokeGeometryStamp, Vec2, VectorNetwork};
 
 fn path(offset: f32) -> Path {
     Path {
@@ -84,6 +85,43 @@ fn vector_paths_change_the_layer_hash() {
     let mut moved = base.clone();
     moved.kind = NodeKind::Vector { paths: vec![path(0.25)], network: None };
     assert_ne!(hash(&base, false), hash(&moved, false));
+}
+
+fn network() -> VectorNetwork {
+    VectorNetwork {
+        vertices: vec![Vertex::new(Vec2::new(0.0, 0.0)), Vertex::new(Vec2::new(10.0, 0.0)), Vertex::new(Vec2::new(10.0, 10.0))],
+        segments: vec![
+            Segment { a: 0, b: 1, ta: Vec2::ZERO, tb: Vec2::ZERO },
+            Segment { a: 1, b: 2, ta: Vec2::new(2.0, 0.0), tb: Vec2::ZERO },
+            Segment { a: 2, b: 0, ta: Vec2::ZERO, tb: Vec2::ZERO },
+        ],
+        regions: vec![Region { rule: FillRule::NonZero, loops: vec![vec![0, 1, 2]] }],
+    }
+}
+
+type NetworkEdit = (&'static str, fn(&mut VectorNetwork));
+
+const NETWORK_EDITS: &[NetworkEdit] = &[
+    ("vertex position", |n| n.vertices[1].pos.x = 11.0),
+    ("vertex corner", |n| n.vertices[1].corner_radius = 2.0),
+    ("vertex cap", |n| n.vertices[0].cap = Some(StrokeCap::Round)),
+    ("vertex added", |n| n.vertices.push(Vertex::new(Vec2::new(5.0, 5.0)))),
+    ("segment end", |n| n.segments[2].b = 1),
+    ("segment handle", |n| n.segments[1].ta = Vec2::new(3.0, 0.0)),
+    ("region rule", |n| n.regions[0].rule = FillRule::EvenOdd),
+    ("region loop", |n| n.regions[0].loops[0].reverse()),
+];
+
+#[test]
+fn every_vector_network_field_changes_the_layer_hash() {
+    let with = |net: Option<VectorNetwork>| layer(NodeKind::Vector { paths: vec![path(0.0)], network: net });
+    let h0 = hash(&with(Some(network())), false);
+    assert_ne!(hash(&with(None), false), h0, "a network added");
+    for (name, edit) in NETWORK_EDITS {
+        let mut net = network();
+        edit(&mut net);
+        assert_ne!(hash(&with(Some(net)), false), h0, "{name} left the layer hash unchanged");
+    }
 }
 
 #[test]

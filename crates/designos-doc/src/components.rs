@@ -1353,7 +1353,7 @@ fn sync_component(c: &mut Ctx, owner: NodeId) {
         }
         n
     };
-    targets.sort_by_key(|t| (depth(c.s, *t), t.0));
+    targets.sort_by_cached_key(|t| (depth(c.s, *t), t.0));
     // Imported instances whose stored geometry may outlive this sync (see `component_imported_layout`).
     let held = crate::component_imported_layout_sync::before_sync(c.s, &targets);
     for &t in &targets {

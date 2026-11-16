@@ -1,7 +1,7 @@
 //! The layout fields of an imported instance that `crate::component_imported_layout` hashes, compares and writes back.
 
 use crate::branch_diff::StableHasher;
-use crate::{Affine, Document, FillRule, Node, NodeId, NodeKind, Path, PathCmd, StretchedAxes, StrokeGeometryStamp, Vec2};
+use crate::{Affine, Document, FillRule, Node, NodeId, NodeKind, Path, PathCmd, StretchedAxes, StrokeGeometryStamp, Vec2, VectorNetwork};
 
 /// Shape layers whose baked outline is drawn for the shape parameters their `kind` holds.
 fn is_parametric_shape(kind: &NodeKind) -> bool {
@@ -40,12 +40,52 @@ fn add_stretched(h: &mut StableHasher, s: &StretchedAxes) {
     });
 }
 
-/// Hashes an outline list directly (the serde path mixes a field or variant name into every point).
+/// Hashes an optional outline list, see [`add_path_list`].
 fn add_paths(h: &mut StableHasher, paths: &Option<Vec<Path>>) {
-    let Some(paths) = paths else {
+    match paths {
+        None => h.word(0),
+        Some(paths) => add_path_list(h, paths),
+    }
+}
+
+/// Hashes a vector's paths and its network directly.
+fn add_vector(h: &mut StableHasher, paths: &[Path], network: &Option<VectorNetwork>) {
+    add_path_list(h, paths);
+    let Some(net) = network else {
         h.word(0);
         return;
     };
+    h.word(1 + net.vertices.len() as u64);
+    for v in &net.vertices {
+        add_vec2(h, v.pos);
+        h.float(v.corner_radius);
+        h.add(&(&v.cap, &v.join, &v.mirror));
+    }
+    h.word(net.segments.len() as u64);
+    for s in &net.segments {
+        h.word(s.a as u64);
+        h.word(s.b as u64);
+        add_vec2(h, s.ta);
+        add_vec2(h, s.tb);
+    }
+    h.word(net.regions.len() as u64);
+    for r in &net.regions {
+        h.word(match r.rule {
+            FillRule::NonZero => 0,
+            FillRule::EvenOdd => 1,
+        });
+        h.word(r.loops.len() as u64);
+        for l in &r.loops {
+            h.word(l.len() as u64);
+            for &i in l {
+                h.word(i as u64);
+            }
+        }
+    }
+}
+
+/// Hashes an outline list directly (the serde path mixes a field or variant name into every point).
+fn add_path_list(h: &mut StableHasher, paths: &[Path]) {
     h.word(1 + paths.len() as u64);
     for p in paths {
         h.word(match p.fill_rule {
@@ -103,8 +143,8 @@ pub(crate) fn hash_layer(h: &mut StableHasher, n: &Node, is_root: bool) {
     add_paths(h, &n.fill_geometry);
     add_paths(h, &n.stroke_geometry);
     h.add(&n.stroke_geometry_for);
-    if matches!(n.kind, NodeKind::Vector { .. }) {
-        h.add(&n.kind);
+    if let NodeKind::Vector { paths, network } = &n.kind {
+        add_vector(h, paths, network);
     }
     h.word(meaning_hash(n));
 }
