@@ -617,6 +617,16 @@ impl StableHasher {
         }
     }
 
+    /// Mixes one 64-bit word: a count, a tag or an id, for hot paths that hash plain data without serde.
+    pub(crate) fn word(&mut self, word: u64) {
+        self.0.mix(word);
+    }
+
+    /// Mixes the bit pattern of a float.
+    pub(crate) fn float(&mut self, value: f32) {
+        self.0.mix(u64::from(value.to_bits()));
+    }
+
     pub(crate) fn finish(&self) -> u64 {
         self.0.finish()
     }

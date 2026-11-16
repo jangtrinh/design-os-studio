@@ -31,6 +31,8 @@ mod component_cycle_tests;
 mod component_imported_layout;
 mod component_imported_layout_fields;
 #[cfg(test)]
+mod component_imported_layout_fields_tests;
+#[cfg(test)]
 mod component_nested_variant_binding_tests;
 mod component_prop_variables;
 #[cfg(test)]

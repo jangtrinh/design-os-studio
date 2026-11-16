@@ -155,7 +155,7 @@ pub(crate) fn after_sync(c: &mut Ctx, mut held: Vec<Held>) {
             drop_record(c, h.holder);
             continue;
         };
-        if layout_hash(c.s, h.holder) == Some(h.record.stored) {
+        if holds(c.s, h.holder, before) {
             continue;
         }
         let solved = if h.solved_by_sync { layout_hash(c.s, h.holder) } else { canonical_solve_hash(c.s, h.holder) };
@@ -175,6 +175,12 @@ pub(crate) fn after_sync(c: &mut Ctx, mut held: Vec<Held>) {
             }
         }
     }
+}
+
+/// Whether the layers of `holder` are the ones noted in `before`, in order, each still holding the layout fields noted.
+fn holds(doc: &Document, holder: NodeId, before: &[LayoutFields]) -> bool {
+    subtree(doc, holder)
+        .is_some_and(|ids| ids.len() == before.len() && ids.iter().zip(before).all(|(id, b)| doc.get(*id).is_some_and(|n| b.held_by(n, *id == holder))))
 }
 
 fn drop_record(c: &mut Ctx, holder: NodeId) {
