@@ -145,6 +145,45 @@ fn card_fig() -> Vec<u8> {
     fig(changes, vec![])
 }
 
+/// Row (auto layout, 100 wide) > Tags (fills the width, wraps, hugs its height) > two 20 x 20 tags. The instance is
+/// 80 wide, so Tags is 64 wide there; Figma stored Tags one pixel narrower than Studio's solve gives.
+fn tags_fig() -> Vec<u8> {
+    let mut changes = page();
+    let mut row = vec![
+        ("size", vec2(100.0, 36.0)),
+        ("transform", matrix(0.0, 0.0)),
+        ("stackPrimarySizing", en("FIXED")),
+        ("stackCounterSizing", en("RESIZE_TO_FIT_WITH_IMPLICIT_SIZE")),
+    ];
+    row.extend(auto_layout("HORIZONTAL", 0.0, 8.0));
+    changes.push(node((1, 1), (0, 1), "a", "SYMBOL", "Row", row));
+    let mut tags = vec![
+        ("size", vec2(84.0, 20.0)),
+        ("transform", matrix(8.0, 8.0)),
+        ("stackChildPrimaryGrow", fl(1.0)),
+        ("stackPrimarySizing", en("FIXED")),
+        ("stackCounterSizing", en("RESIZE_TO_FIT_WITH_IMPLICIT_SIZE")),
+        ("stackWrap", en("WRAP")),
+        ("stackCounterSpacing", fl(4.0)),
+    ];
+    tags.extend(auto_layout("HORIZONTAL", 4.0, 0.0));
+    changes.push(node((1, 2), (1, 1), "a", "FRAME", "Tags", tags));
+    changes.push(node((1, 3), (1, 2), "a", "RECTANGLE", "Tag A", vec![("size", vec2(20.0, 20.0)), ("transform", matrix(0.0, 0.0))]));
+    changes.push(node((1, 4), (1, 2), "b", "RECTANGLE", "Tag B", vec![("size", vec2(20.0, 20.0)), ("transform", matrix(24.0, 0.0))]));
+    let mut inst_extra = vec![("stackPrimarySizing", en("FIXED")), ("stackCounterSizing", en("RESIZE_TO_FIT_WITH_IMPLICIT_SIZE"))];
+    inst_extra.extend(auto_layout("HORIZONTAL", 0.0, 8.0));
+    changes.push(instance(
+        (2, 1),
+        "Row instance",
+        (1, 1),
+        (80.0, 36.0),
+        (24.0, 32.0),
+        vec![derived(&[(1, 2)], (63.0, 20.0), (8.0, 8.0)), derived(&[(1, 3)], (20.0, 20.0), (0.0, 0.0)), derived(&[(1, 4)], (20.0, 20.0), (24.0, 0.0))],
+        inst_extra,
+    ));
+    fig(changes, vec![])
+}
+
 /// A square outline blob in Figma's path command format.
 fn square_blob(side: f32) -> Vec<u8> {
     let mut b = Vec::new();
@@ -505,6 +544,23 @@ fn box_growing_two_hug_frames_down_gives_the_record_free_sync() {
     let mut free = record_free(&doc);
     sync(&mut free, main);
     assert_ne!(free.get(find(&free, "Card", true)).unwrap().size.y, card_before.y, "the record-free sync grows the hug frame two levels up");
+    assert_eq!(sync_and_compare(&mut doc, main, inst), Outcome::RecordFree);
+}
+
+/// A tag grows wide enough to wrap in the narrower instance but not in the main: only Studio's solve of the instance
+/// itself sees the hug frame grow (the main's own sizes, which a one-level check compares, stay as they were).
+#[test]
+fn tag_wrapping_only_in_the_instance_gives_the_record_free_sync() {
+    let (mut doc, inst, main) = imported(&tags_fig(), "Row instance", "Row");
+    assert_eq!(sync_and_compare(&mut doc, main, inst), Outcome::KeptStored);
+    let tag_b = find(&doc, "Tag B", false);
+    edit(&mut doc, tag_b, |n| n.size = Vec2::new(44.0, 20.0));
+    doc.relayout_subtree(main);
+    assert_eq!(doc.get(find(&doc, "Tags", false)).unwrap().size.y, 20.0, "the main still fits both tags on one line");
+    let tags_before = doc.get(find(&doc, "Tags", true)).unwrap().size;
+    let mut free = record_free(&doc);
+    sync(&mut free, main);
+    assert!(free.get(find(&free, "Tags", true)).unwrap().size.y > tags_before.y, "the record-free sync wraps the tags in the instance");
     assert_eq!(sync_and_compare(&mut doc, main, inst), Outcome::RecordFree);
 }
 
