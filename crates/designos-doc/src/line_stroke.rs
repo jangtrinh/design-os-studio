@@ -12,7 +12,7 @@
 //! The CPU renderer, the GPU tessellator, SVG and PDF export all take the line from here so they
 //! cannot disagree.
 
-use crate::{Node, NodeKind, Stroke, StrokeAlign, StrokeCap};
+use crate::{FillRule, Node, NodeKind, Path, PathCmd, Stroke, StrokeAlign, StrokeCap, Vec2};
 
 /// The straight segment a `Line` is stroked along, in the layer's local space.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -49,6 +49,22 @@ impl Node {
     }
 }
 
+impl LineCenterline {
+    /// The segment as a document path, `(x0, y)` to `(x1, y)`.
+    pub fn to_path(self) -> Path {
+        Path { cmds: vec![PathCmd::MoveTo(Vec2::new(self.x0, self.y)), PathCmd::LineTo(Vec2::new(self.x1, self.y))], fill_rule: FillRule::NonZero }
+    }
+}
+
+impl Node {
+    /// The path a `Line` becomes when it turns into a vector (point editing, Flatten, the Start point,
+    /// End point and Swap controls): the centreline it is drawn on, so nothing moves on conversion.
+    /// `None` when the node is not a line. This is the one place that decides it.
+    pub fn line_vector_path(&self) -> Option<Path> {
+        self.line_centerline().map(LineCenterline::to_path)
+    }
+}
+
 /// Same test the renderers use: a pattern of non-negative lengths with a positive sum dashes the stroke.
 fn draws_dashes(s: &Stroke) -> bool {
     !s.dashes.is_empty() && s.dashes.iter().all(|d| *d >= 0.0) && s.dashes.iter().sum::<f32>() > 0.0
@@ -57,7 +73,7 @@ fn draws_dashes(s: &Stroke) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{NodeId, Vec2};
+    use crate::NodeId;
 
     fn line(len: f32, w: f32, align: StrokeAlign, cap: StrokeCap) -> Node {
         let mut n = Node::new(NodeId(1), NodeKind::Line);
@@ -115,5 +131,17 @@ mod tests {
         let c = line(100.0, 0.0, StrokeAlign::Center, StrokeCap::Round).line_centerline().unwrap();
         assert_eq!(c, LineCenterline { x0: 0.0, x1: 100.0, y: 0.0 });
         assert!(Node::new(NodeId(2), NodeKind::Rectangle).line_centerline().is_none());
+    }
+
+    #[test]
+    fn the_vector_a_line_becomes_starts_on_the_drawn_centreline() {
+        let path = |n: &Node| match n.line_vector_path().unwrap().cmds.as_slice() {
+            [PathCmd::MoveTo(a), PathCmd::LineTo(b)] => ((a.x, a.y), (b.x, b.y)),
+            other => panic!("one segment, got {other:?}"),
+        };
+        assert_eq!(path(&line(100.0, 10.0, StrokeAlign::Center, StrokeCap::Round)), ((5.0, -5.0), (95.0, -5.0)));
+        assert_eq!(path(&line(100.0, 10.0, StrokeAlign::Center, StrokeCap::None)), ((0.0, -5.0), (100.0, -5.0)));
+        assert_eq!(path(&line(100.0, 10.0, StrokeAlign::Center, StrokeCap::Square)), ((0.0, 0.0), (100.0, 0.0)));
+        assert!(Node::new(NodeId(2), NodeKind::Rectangle).line_vector_path().is_none());
     }
 }

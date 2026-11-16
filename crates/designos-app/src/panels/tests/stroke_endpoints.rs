@@ -407,3 +407,65 @@ fn the_endpoint_rows_sit_one_under_the_other_inside_the_panel_with_reachable_tar
     }
     assert!(!start.intersects(swap) && !end.intersects(swap), "the swap button covers no dropdown");
 }
+
+/// A solid CENTER weight 10 `Line` of length 100 at (20, 40): the kit's measured case, drawn on its
+/// centreline above its axis.
+fn drawn_line_app(cap: StrokeCap) -> (App, NodeId, NodeId) {
+    let (mut app, page, line) = line_app(100.0, cap, vec![]);
+    let n = app.doc.get_mut(line).unwrap();
+    n.transform = Affine::translate(20.0, 40.0);
+    n.stroke.weight = 10.0;
+    (app, page, line)
+}
+
+fn render_page_pixels(app: &App, page: NodeId) -> designos_render::tiny_skia::Pixmap {
+    let mut pm = designos_render::tiny_skia::Pixmap::new(160, 80).unwrap();
+    designos_render::render_page(&app.doc, page, &designos_render::Viewport::default(), &mut pm);
+    pm
+}
+
+fn vertices(app: &App, id: NodeId) -> Vec<(f32, f32)> {
+    let NodeKind::Vector { network: Some(net), .. } = &app.doc.get(id).unwrap().kind else { panic!("the line became a vector") };
+    net.vertices.iter().map(|v| (v.pos.x, v.pos.y)).collect()
+}
+
+#[test]
+fn swapping_the_end_points_of_a_solid_centred_line_moves_no_pixel() {
+    for (cap, want) in [(StrokeCap::None, vec![(100.0f32, -5.0f32), (0.0, -5.0)]), (StrokeCap::Round, vec![(95.0, -5.0), (5.0, -5.0)])] {
+        let (mut app, page, line) = drawn_line_app(cap);
+        let before = render_page_pixels(&app, page);
+        swap_node_endpoints(app.doc.get_mut(line).unwrap());
+        let mut got = vertices(&app, line);
+        got.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut want_sorted = want.clone();
+        want_sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
+        assert_eq!(got, want_sorted, "{cap:?}: the vertices sit on the drawn centreline");
+        assert_eq!(render_page_pixels(&app, page).data(), before.data(), "{cap:?}: nothing moves on conversion");
+    }
+}
+
+#[test]
+fn an_end_point_cap_on_a_solid_centred_line_keeps_the_drawn_vertices() {
+    let (mut app, page, line) = drawn_line_app(StrokeCap::None);
+    let before = render_page_pixels(&app, page);
+    set_node_endpoint_cap(app.doc.get_mut(line).unwrap(), true, StrokeCap::ArrowLines);
+    // arrow caps on a line are unmeasured: the vector keeps the drawn vertices and only the cap changes
+    assert_eq!(vertices(&app, line), vec![(0.0, -5.0), (100.0, -5.0)]);
+    assert_eq!(end_caps(&app, line), Some((Some(StrokeCap::None), Some(StrokeCap::ArrowLines))));
+    let after = render_page_pixels(&app, page);
+    for x in [30, 50, 70] {
+        for y in 30..40 {
+            assert_eq!(after.pixel(x, y), before.pixel(x, y), "the shaft at ({x}, {y}) is where it was drawn");
+        }
+    }
+    assert!(after.pixel(50, 40).unwrap().red() > 200, "nothing below the drawn band at (50, 40)");
+}
+
+#[test]
+fn a_round_end_point_on_a_solid_centred_round_line_keeps_the_stadium_in_zero_to_length() {
+    let (mut app, page, line) = drawn_line_app(StrokeCap::Round);
+    let before = render_page_pixels(&app, page);
+    set_node_endpoint_cap(app.doc.get_mut(line).unwrap(), false, StrokeCap::Round);
+    assert_eq!(vertices(&app, line), vec![(5.0, -5.0), (95.0, -5.0)]);
+    assert_eq!(render_page_pixels(&app, page).data(), before.data());
+}
