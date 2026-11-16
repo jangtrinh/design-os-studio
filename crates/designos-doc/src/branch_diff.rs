@@ -678,9 +678,18 @@ fn hash_node_props(node: &Node) -> u64 {
         let _ = node.stroke_geometry.serialize(HashSerializer(&mut h));
         let _ = eff_stamp.as_deref().serialize(HashSerializer(&mut h));
     }
-    if !node.component.is_empty() {
+    // The imported-layout record is bookkeeping a sync keeps or drops, not content: a main whose instances gained or
+    // lost one is not edited (the `.fig` page loader and writer compare mains by this hash).
+    let link_without_record;
+    let link = if node.component.imported_layout.is_some() {
+        link_without_record = crate::ComponentLink { imported_layout: None, ..node.component.clone() };
+        &link_without_record
+    } else {
+        &node.component
+    };
+    if !link.is_empty() {
         6u8.hash(&mut h);
-        let _ = node.component.serialize(HashSerializer(&mut h));
+        let _ = link.serialize(HashSerializer(&mut h));
     }
     if !node.prototype.is_empty() {
         7u8.hash(&mut h);

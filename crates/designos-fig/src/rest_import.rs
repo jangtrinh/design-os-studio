@@ -3039,16 +3039,10 @@ impl<'a> Ctx<'a> {
         Ok(())
     }
 
-    /// Marks instance `inst` for [`record_stored_layouts`] when the file stores geometry for it: derived data, or a size
-    /// of its own. Called before its overrides are applied, while they are still held.
+    /// Requests a stored-geometry record (see [`designos_doc::record_imported_layouts`]) for instance `inst` when the
+    /// file stores derived geometry for it. Called before its overrides are applied, while they are still held.
     fn mark_stored_layout_candidate(&mut self, inst: NodeId) {
-        let has_derived = self.overrides.get(&inst).is_some_and(|o| !o.derived.is_empty() || !o.fast_derived.is_empty());
-        let resized = self
-            .doc
-            .get(inst)
-            .and_then(|n| Some((n.size, self.doc.get(instance_component(n)?)?.size)))
-            .is_some_and(|(a, b)| (a.x - b.x).abs() > 1e-4 || (a.y - b.y).abs() > 1e-4);
-        if has_derived || resized {
+        if self.overrides.get(&inst).is_some_and(|o| !o.derived.is_empty() || !o.fast_derived.is_empty()) {
             if let Some(n) = self.doc.get_mut(inst) {
                 n.component.imported_layout = Some(ImportedLayout::REQUESTED);
             }

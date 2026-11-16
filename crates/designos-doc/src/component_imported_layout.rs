@@ -103,7 +103,8 @@ fn is_holder(doc: &Document, id: NodeId) -> bool {
 /// Records, on each top-level instance in `holders`, the two hashes a later main sync needs to keep the geometry the
 /// instance holds now. Called by an importer right after it wrote a file's stored geometry into these instances and
 /// settled everything a solve reads (variables, styles, style metadata). An instance whose stored geometry Studio's
-/// sync already reproduces gets no record: a sync cannot move it, so there is nothing to keep.
+/// solve of the whole instance already reproduces is recorded too: a sync that reaches only a nested instance of it
+/// solves that part on its own and can still move it.
 pub fn record_imported_layouts(doc: &mut Document, holders: impl IntoIterator<Item = NodeId>) {
     let mut ids: Vec<NodeId> = holders.into_iter().collect();
     ids.sort_unstable();
@@ -111,7 +112,7 @@ pub fn record_imported_layouts(doc: &mut Document, holders: impl IntoIterator<It
     for id in ids {
         let record = if is_holder(doc, id) {
             match (layout_hash(doc, id), canonical_solve_hash(doc, id)) {
-                (Some(stored), Some(solved)) if stored != solved => Some(ImportedLayout { stored, solved }),
+                (Some(stored), Some(solved)) => Some(ImportedLayout { stored, solved }),
                 _ => None,
             }
         } else {
