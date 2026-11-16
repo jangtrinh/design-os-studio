@@ -306,20 +306,27 @@ pub fn snap45(v: DV) -> DV {
 /// to the geometry. `t0` is the node transform the network's coordinates are
 /// relative to. A rectangle, ellipse, polygon, star or line becomes a vector.
 fn write_model(doc: &mut Document, ed: &mut crate::edit::Edit, id: NodeId, net: &VectorNetwork, t0: Affine) {
+    if let Some(n) = ed.node(doc, id) {
+        fit_node_to_network(n, net, t0);
+    }
+}
+
+/// Makes `n` a vector of `net` with its box fitted to the geometry: the network is moved so its bounds start
+/// at (0, 0), that origin is folded into the transform (`t0` is the transform the network's coordinates are
+/// relative to) and the size is the bounds, at least 1. Every point keeps its place in the world.
+pub(crate) fn fit_node_to_network(n: &mut Node, net: &VectorNetwork, t0: Affine) {
     let bb = net.bounds();
     let origin = v2(bb.x, bb.y);
     let mut shifted = net.clone();
     shifted.translate(v2(-origin.x, -origin.y));
     let paths = shifted.to_paths();
-    if let Some(n) = ed.node(doc, id) {
-        n.kind = NodeKind::Vector { paths, network: Some(shifted) };
-        n.transform = t0 * Affine::translate(origin.x, origin.y);
-        n.size = v2(bb.w.max(1.0), bb.h.max(1.0));
-        n.fill_geometry = None;
-        n.drop_stroke_outline();
-        n.corner_radii = [0.0; 4];
-        n.corner_smoothing = 0.0;
-    }
+    n.kind = NodeKind::Vector { paths, network: Some(shifted) };
+    n.transform = t0 * Affine::translate(origin.x, origin.y);
+    n.size = v2(bb.w.max(1.0), bb.h.max(1.0));
+    n.fill_geometry = None;
+    n.drop_stroke_outline();
+    n.corner_radii = [0.0; 4];
+    n.corner_smoothing = 0.0;
 }
 
 /// Whether `id` can be edited as a vector (vectors and the basic shapes, which convert on the first edit).

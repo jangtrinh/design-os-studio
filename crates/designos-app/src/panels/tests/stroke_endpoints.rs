@@ -424,14 +424,27 @@ fn render_page_pixels(app: &App, page: NodeId) -> designos_render::tiny_skia::Pi
     pm
 }
 
+/// The vertices of the vector in page space, so a refit of the node box cannot hide a moved vertex.
 fn vertices(app: &App, id: NodeId) -> Vec<(f32, f32)> {
-    let NodeKind::Vector { network: Some(net), .. } = &app.doc.get(id).unwrap().kind else { panic!("the line became a vector") };
-    net.vertices.iter().map(|v| (v.pos.x, v.pos.y)).collect()
+    let n = app.doc.get(id).unwrap();
+    let NodeKind::Vector { network: Some(net), .. } = &n.kind else { panic!("the line became a vector") };
+    net.vertices
+        .iter()
+        .map(|v| {
+            let p = n.transform.apply(v.pos);
+            (p.x, p.y)
+        })
+        .collect()
+}
+
+/// Whether a click at page `(x, y)` with tolerance 2 selects `id`.
+fn hits(app: &App, page: NodeId, id: NodeId, x: f32, y: f32) -> bool {
+    crate::canvas::hit::hit_test(&app.doc, page, Vec2::new(x, y), 2.0, false, &[]) == Some(id)
 }
 
 #[test]
 fn swapping_the_end_points_of_a_solid_centred_line_moves_no_pixel() {
-    for (cap, want) in [(StrokeCap::None, vec![(100.0f32, -5.0f32), (0.0, -5.0)]), (StrokeCap::Round, vec![(95.0, -5.0), (5.0, -5.0)])] {
+    for (cap, want) in [(StrokeCap::None, vec![(120.0f32, 35.0f32), (20.0, 35.0)]), (StrokeCap::Round, vec![(115.0, 35.0), (25.0, 35.0)])] {
         let (mut app, page, line) = drawn_line_app(cap);
         let before = render_page_pixels(&app, page);
         swap_node_endpoints(app.doc.get_mut(line).unwrap());
@@ -440,6 +453,7 @@ fn swapping_the_end_points_of_a_solid_centred_line_moves_no_pixel() {
         let mut want_sorted = want.clone();
         want_sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
         assert_eq!(got, want_sorted, "{cap:?}: the vertices sit on the drawn centreline");
+        assert!(hits(&app, page, line, 70.0, 35.0), "{cap:?}: a click on the drawn shaft selects the line after the swap");
         assert_eq!(render_page_pixels(&app, page).data(), before.data(), "{cap:?}: nothing moves on conversion");
     }
 }
@@ -450,7 +464,7 @@ fn an_end_point_cap_on_a_solid_centred_line_keeps_the_drawn_vertices() {
     let before = render_page_pixels(&app, page);
     set_node_endpoint_cap(app.doc.get_mut(line).unwrap(), true, StrokeCap::ArrowLines);
     // arrow caps on a line are unmeasured: the vector keeps the drawn vertices and only the cap changes
-    assert_eq!(vertices(&app, line), vec![(0.0, -5.0), (100.0, -5.0)]);
+    assert_eq!(vertices(&app, line), vec![(20.0, 35.0), (120.0, 35.0)]);
     assert_eq!(end_caps(&app, line), Some((Some(StrokeCap::None), Some(StrokeCap::ArrowLines))));
     let after = render_page_pixels(&app, page);
     for x in [30, 50, 70] {
@@ -459,6 +473,7 @@ fn an_end_point_cap_on_a_solid_centred_line_keeps_the_drawn_vertices() {
         }
     }
     assert!(after.pixel(50, 40).unwrap().red() > 200, "nothing below the drawn band at (50, 40)");
+    assert!(hits(&app, page, line, 70.0, 35.0), "a click on the drawn shaft selects the line after the end cap change");
 }
 
 #[test]
@@ -466,6 +481,7 @@ fn a_round_end_point_on_a_solid_centred_round_line_keeps_the_stadium_in_zero_to_
     let (mut app, page, line) = drawn_line_app(StrokeCap::Round);
     let before = render_page_pixels(&app, page);
     set_node_endpoint_cap(app.doc.get_mut(line).unwrap(), false, StrokeCap::Round);
-    assert_eq!(vertices(&app, line), vec![(5.0, -5.0), (95.0, -5.0)]);
+    assert_eq!(vertices(&app, line), vec![(25.0, 35.0), (115.0, 35.0)]);
     assert_eq!(render_page_pixels(&app, page).data(), before.data());
+    assert!(hits(&app, page, line, 70.0, 35.0), "a click on the drawn shaft selects the line");
 }
