@@ -192,6 +192,9 @@ struct Active {
     node: NodeId,
     when: When,
     undo: Vec<Undo>,
+    /// Variables whose values or modes changed while the gesture was on: ending it re-applies the properties bound to
+    /// them over what the restore brings back.
+    changed_vars: HashSet<String>,
 }
 
 /// Playback state of one video layer. Positions are seconds.
@@ -637,7 +640,7 @@ impl Player {
             // hover ended: undo while-hovering effects, then Leave
             if let Some(i) = self.actives.iter().position(|a| a.node == *n && a.when == When::HoverOn) {
                 let a = self.actives.remove(i);
-                self.undo(a.undo);
+                self.end_active(a);
             }
             self.fire(*n, When::Leave, None);
         }
@@ -646,7 +649,7 @@ impl Player {
             if !self.reactions_on(*n, When::HoverOn).is_empty() {
                 let mut u = Vec::new();
                 self.fire(*n, When::HoverOn, Some(&mut u));
-                self.actives.push(Active { node: *n, when: When::HoverOn, undo: u });
+                self.actives.push(Active { node: *n, when: When::HoverOn, undo: u, changed_vars: HashSet::new() });
             }
         }
     }
@@ -661,7 +664,7 @@ impl Player {
         if let Some(n) = self.find_reactive(t, When::PressOn) {
             let mut u = Vec::new();
             self.fire(n, When::PressOn, Some(&mut u));
-            self.actives.push(Active { node: n, when: When::PressOn, undo: u });
+            self.actives.push(Active { node: n, when: When::PressOn, undo: u, changed_vars: HashSet::new() });
         }
     }
 
@@ -671,7 +674,7 @@ impl Player {
         self.drag_end();
         while let Some(i) = self.actives.iter().position(|a| a.when == When::PressOn) {
             let a = self.actives.remove(i);
-            self.undo(a.undo);
+            self.end_active(a);
         }
         self.press_target = None;
         if let Some(t) = target {
@@ -805,6 +808,18 @@ impl Player {
         }
         for (id, r) in hits {
             self.run(id, &r, None);
+        }
+    }
+
+    /// Ends a While hovering / While pressing gesture. Its restores bring back the variants the instances had when it
+    /// began, which may predate a variable change made since: the properties bound to the variables changed meanwhile
+    /// are re-applied on top, so an axis whose variable changed keeps the new value and the others are restored.
+    fn end_active(&mut self, a: Active) {
+        let restored = a.undo.iter().any(|u| matches!(u, Undo::RestoreComponent { .. }));
+        self.undo(a.undo);
+        if restored && !a.changed_vars.is_empty() {
+            let switched = self.resync_bound_variants(&a.changed_vars);
+            self.bump_frames_of(switched.iter().map(|(inst, _)| *inst));
         }
     }
 
@@ -969,9 +984,27 @@ impl Player {
             }
             set.extend(more);
         }
-        // Prototype variable and mode changes bypass History, so resync bound component properties
-        // (`componentProperties/...`) and their auto-layout ancestors before reflowing bound fields.
-        let switched = match designos_doc::resync_bound_properties(&mut self.doc, &direct) {
+        // Prototype variable and mode changes bypass History: the gestures on screen learn which variables changed (their
+        // restores run over the new values when they end), and bound component properties are resynced.
+        for a in &mut self.actives {
+            a.changed_vars.extend(direct.iter().cloned());
+        }
+        let switched = self.resync_bound_variants(&direct);
+        let nodes = crate::variables::bound_nodes(&self.doc, &set);
+        if nodes.is_empty() && switched.is_empty() {
+            return;
+        }
+        if !nodes.is_empty() {
+            crate::variables::reflow_bound(&mut self.doc, &set, &nodes);
+        }
+        self.bump_frames_of(nodes.iter().copied().chain(switched.iter().map(|(inst, _)| *inst)));
+    }
+
+    /// Re-applies the component properties bound to `vars` (variant, boolean and text) and the auto-layout chains their
+    /// instances feed, then keeps what hangs off a switched instance in step with the variant it now shows: the
+    /// reactions, timers and media. Returns each switched `(instance, variant it showed before)`.
+    fn resync_bound_variants(&mut self, vars: &HashSet<String>) -> Vec<(NodeId, NodeId)> {
+        let switched = match designos_doc::resync_bound_properties(&mut self.doc, vars) {
             Ok(switched) => switched,
             Err(e) => {
                 self.error(format!("Resync bound properties: {e}"));
@@ -980,9 +1013,6 @@ impl Player {
         };
         if !switched.is_empty() {
             for &(inst, old_comp) in &switched {
-                for a in &mut self.actives {
-                    a.undo.retain(|u| !matches!(u, Undo::RestoreComponent { inst: u_inst, .. } if *u_inst == inst));
-                }
                 if let Some(new_comp) = self.doc.get(inst).and_then(instance_component) {
                     self.sync_variant_reactions(inst, old_comp, new_comp);
                 }
@@ -994,14 +1024,12 @@ impl Player {
                 }
             }
         }
-        let nodes = crate::variables::bound_nodes(&self.doc, &set);
-        if nodes.is_empty() && switched.is_empty() {
-            return;
-        }
-        if !nodes.is_empty() {
-            crate::variables::reflow_bound(&mut self.doc, &set, &nodes);
-        }
-        let mut frames: Vec<NodeId> = nodes.iter().copied().chain(switched.iter().map(|(inst, _)| *inst)).filter_map(|n| self.top_frame_of(n)).collect();
+        switched
+    }
+
+    /// Invalidates the frames that hold `nodes`.
+    fn bump_frames_of(&mut self, nodes: impl Iterator<Item = NodeId>) {
+        let mut frames: Vec<NodeId> = nodes.filter_map(|n| self.top_frame_of(n)).collect();
         frames.sort();
         frames.dedup();
         for f in frames {
@@ -2341,10 +2369,13 @@ mod tests {
     fn set_variable_mode_switches_a_bound_nested_variant_and_keeps_its_text_override() {
         let mut f = bound_variant_player_fixture();
         let label = *f.doc.get(f.copy).unwrap().children.first().unwrap();
-        let mut edited = f.doc.get(label).unwrap().clone();
+        let before = f.doc.get(label).unwrap().clone();
+        let mut edited = before.clone();
         if let NodeKind::Text(tp) = &mut edited.kind {
             tp.content = "Keep me".into();
         }
+        // an edit inside an instance is recorded as an override, as the editor does
+        edited.component.overrides = record_override(&before, &edited);
         f.h.exec(&mut f.doc, Command::Update { node: Box::new(edited) }).unwrap();
 
         let mut p = Player::new(&f.doc, f.screen);
@@ -2608,6 +2639,42 @@ mod tests {
             "Size=Large, State=Hover",
             "leaving after a mode switch during While hovering keeps the new mode's variant"
         );
+    }
+
+    /// While hovering / pressing `Change to` Size=Small, State=Hover on the bound instance, then `Set variable` on `size`
+    /// only: the gesture's restore still has to run, and State goes back to what its (unchanged) variable gives.
+    fn gesture_then_size_only_variable_change(trigger: Trigger, start: impl Fn(&mut Player, NodeId), end: impl Fn(&mut Player)) {
+        let mut f = bound_variant_player_fixture();
+        let default_comp = instance_component(f.doc.get(f.top).unwrap()).unwrap();
+        let hover_comp = f.doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Size=Small, State=Hover").unwrap().id;
+        add(&mut f.doc, default_comp, react(trigger, Action::ChangeTo { dest: hover_comp }, None));
+        add(
+            &mut f.doc,
+            f.screen,
+            react(Trigger::KeyPress { keys: "S".into() }, Action::SetVariable { variable: "size".into(), value: Expression::text("Large") }, None),
+        );
+
+        let mut p = Player::new(&f.doc, f.screen);
+        start(&mut p, f.top);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Hover");
+        p.key("S");
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Hover", "size follows its variable, the gesture's State stays");
+        end(&mut p);
+        assert_eq!(
+            shown_variant_name(&p.doc, f.top),
+            "Size=Large, State=Default",
+            "the gesture ends: size keeps its new value and State, whose variable did not change, is restored"
+        );
+    }
+
+    #[test]
+    fn size_variable_change_during_while_hovering_still_restores_state_when_pointer_leaves() {
+        gesture_then_size_only_variable_change(Trigger::WhileHovering, |p, top| p.pointer_move(Some(top)), |p| p.pointer_move(None));
+    }
+
+    #[test]
+    fn size_variable_change_during_while_pressing_still_restores_state_on_release() {
+        gesture_then_size_only_variable_change(Trigger::WhilePressing, |p, top| p.pointer_down(Some(top)), |p| p.pointer_up(None, false));
     }
 
     #[test]

@@ -3696,10 +3696,17 @@ fn swap_recorded(c: &mut Ctx, instance: NodeId, new_comp: NodeId, record_pick: b
         c.update(n);
     }
     if is_nested {
+        // A swap that records no pick (the prototype player's `Change to`) is not a choice the variables may undo: the
+        // sync leaves every bound variant property at the variant the swap chose.
+        let outer = std::mem::replace(&mut c.bound_vars, (!record_pick).then(|| &*NO_VARIABLES_CHANGED));
         sync_one(c, instance);
+        c.bound_vars = outer;
     }
     true
 }
+
+/// The set of changed variables for a sync in which no variable changed: no bound property resolves, so each keeps what it shows.
+static NO_VARIABLES_CHANGED: std::sync::LazyLock<std::collections::HashSet<String>> = std::sync::LazyLock::new(std::collections::HashSet::new);
 
 /// Sets (or with `None` clears) a component property value on an instance
 /// root and re-syncs it: toggles visibility, swaps text, instance or variant.
