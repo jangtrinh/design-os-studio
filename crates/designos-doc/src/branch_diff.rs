@@ -600,6 +600,28 @@ impl<'a> serde::ser::SerializeStructVariant for HashSerializer<'a> {
     }
 }
 
+/// A fixed-seed streaming hash over serializable values: the same values hash the same in every process, so the
+/// result can be stored in a file. Used by `crate::imported_layout`.
+pub(crate) struct StableHasher(FastHasher);
+
+impl StableHasher {
+    pub(crate) fn new() -> Self {
+        Self(FastHasher::new())
+    }
+
+    /// Feeds `value` through the hashing serializer. Plain numeric values and the document types never fail to
+    /// serialize; a value that does still changes the hash, so two different inputs cannot silently compare equal.
+    pub(crate) fn add<T: ?Sized + serde::Serialize>(&mut self, value: &T) {
+        if value.serialize(HashSerializer(&mut self.0)).is_err() {
+            self.0.mix(u64::MAX);
+        }
+    }
+
+    pub(crate) fn finish(&self) -> u64 {
+        self.0.finish()
+    }
+}
+
 /// A 64-bit hash of everything about `node` except its place in the tree (`parent` and `children`). Two nodes with
 /// different content hash differently up to hash collisions; callers use it to tell whether a node was edited.
 pub fn node_content_hash(node: &Node) -> u64 {

@@ -564,6 +564,31 @@ pub struct ComponentLink {
     /// override's base-name path; re-applied when a later switch brings that layer back.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parked_overrides: Vec<ParkedOverride>,
+    /// On an imported top-level instance whose stored `.fig` geometry differs from what Studio's own sync solves: the
+    /// two subtree hashes that let a main sync keep that geometry while Studio's solve of the instance is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imported_layout: Option<ImportedLayout>,
+}
+
+/// Hashes over an imported instance subtree, taken right after import (see `crate::imported_layout`).
+///
+/// `stored` hashes the layout fields the instance held as imported (the geometry the `.fig` file stored);
+/// `solved` hashes the same fields as Studio's own instance sync lays them out. A later main sync keeps the
+/// stored geometry only while the instance still holds it and Studio's solve still produces `solved`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportedLayout {
+    pub stored: u64,
+    pub solved: u64,
+}
+
+impl ImportedLayout {
+    /// Set by an importer on an instance whose stored geometry should be recorded once everything a solve reads is in
+    /// place (see `crate::record_requested_imported_layouts`). Never valid as a record: a sync drops it.
+    pub const REQUESTED: Self = Self { stored: 0, solved: 0 };
+
+    pub fn is_requested(&self) -> bool {
+        *self == Self::REQUESTED
+    }
 }
 
 /// An override parked on an instance while the shown variant or component lacks a layer at `path`.
@@ -734,6 +759,7 @@ impl ComponentLink {
             && self.variant_picks.is_empty()
             && self.prop_default_variables.is_empty()
             && self.parked_overrides.is_empty()
+            && self.imported_layout.is_none()
     }
 }
 

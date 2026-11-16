@@ -48,8 +48,8 @@ fn nothing() -> Command {
 // multi-node operation see the effect of earlier ones.
 // ---------------------------------------------------------------------------
 
-struct Ctx<'a> {
-    s: &'a mut Document,
+pub(crate) struct Ctx<'a> {
+    pub(crate) s: &'a mut Document,
     cmds: Vec<Command>,
     invs: Vec<Command>,
     saved_dirty: crate::DirtyLog,
@@ -68,7 +68,7 @@ struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
-    fn new(doc: &'a mut Document) -> Self {
+    pub(crate) fn new(doc: &'a mut Document) -> Self {
         let saved_dirty = doc.dirty.clone();
         Ctx {
             s: doc,
@@ -88,12 +88,12 @@ impl<'a> Ctx<'a> {
             self.invs.push(inv);
         }
     }
-    fn update(&mut self, n: Node) {
+    pub(crate) fn update(&mut self, n: Node) {
         if self.s.get(n.id).map(|cur| !same_ignoring_tree(cur, &n)).unwrap_or(false) {
             self.push(Command::Update { node: Box::new(n) });
         }
     }
-    fn finish(self) -> Command {
+    pub(crate) fn finish(self) -> Command {
         for inv in self.invs.into_iter().rev() {
             let _ = inv.apply(self.s);
         }
@@ -179,6 +179,7 @@ fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, o
     if link {
         n.component.source = Some(src);
         n.component.overrides.clear();
+        n.component.imported_layout = None;
         n.component.clear_fig_own_entry_flags();
         n.component.parked_overrides.clear();
         release_own_variant_bindings(&mut n);
@@ -226,6 +227,7 @@ fn copy_rec_from(
     if link {
         n.component.source = live_source_in_doc(d, tree_doc, src);
         n.component.overrides.clear();
+        n.component.imported_layout = None;
         n.component.clear_fig_own_entry_flags();
         n.component.parked_overrides.clear();
         release_own_variant_bindings(&mut n);
@@ -1352,9 +1354,12 @@ fn sync_component(c: &mut Ctx, owner: NodeId) {
         n
     };
     targets.sort_by_key(|t| (depth(c.s, *t), t.0));
-    for t in targets {
+    // Imported instances whose stored geometry may outlive this sync (see `component_imported_layout`).
+    let held = crate::component_imported_layout::before_sync(c.s, &targets);
+    for &t in &targets {
         sync_one(c, t);
     }
+    crate::component_imported_layout::after_sync(c, held, &targets);
 }
 
 /// The main nested copy `id` shows when no pick is recorded on it and its bound variant properties `choices` drive it:
@@ -1396,7 +1401,7 @@ fn holder_of(d: &Document, id: NodeId) -> NodeId {
     id
 }
 
-fn sync_one(c: &mut Ctx, id: NodeId) {
+pub(crate) fn sync_one(c: &mut Ctx, id: NodeId) {
     let Some(r) = reference_of(&c.s, id) else { return };
     let top = c.s.get(id).map(is_top).unwrap_or(false);
     let holder = holder_of(&c.s, id);
