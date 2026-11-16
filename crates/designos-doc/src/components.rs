@@ -65,6 +65,8 @@ pub(crate) struct Ctx<'a> {
     kept_for_return: usize,
     /// Instances that entered or received a non-empty parked list during this context's swap operations.
     had_parked: BTreeSet<NodeId>,
+    /// A trial that `finish` undoes in full: it keeps only the inverse of each command, not a copy for redo.
+    scratch: bool,
 }
 
 impl<'a> Ctx<'a> {
@@ -80,16 +82,32 @@ impl<'a> Ctx<'a> {
             dropped_changes: 0,
             kept_for_return: 0,
             had_parked: BTreeSet::new(),
+            scratch: false,
         }
     }
+    /// A context whose writes are all undone by [`Ctx::finish`], which returns an empty batch.
+    pub(crate) fn scratch(doc: &'a mut Document) -> Self {
+        Ctx { scratch: true, ..Ctx::new(doc) }
+    }
     fn push(&mut self, c: Command) {
-        if let Ok(inv) = c.clone().apply(self.s) {
+        if self.scratch {
+            if let Ok(inv) = c.apply(self.s) {
+                self.invs.push(inv);
+            }
+        } else if let Ok(inv) = c.clone().apply(self.s) {
             self.cmds.push(c);
             self.invs.push(inv);
         }
     }
-    pub(crate) fn update(&mut self, n: Node) {
-        if self.s.get(n.id).map(|cur| !same_ignoring_tree(cur, &n)).unwrap_or(false) {
+    pub(crate) fn update(&mut self, mut n: Node) {
+        let Some(cur) = self.s.get(n.id) else { return };
+        // Compared without its place in the tree, which an update leaves as it is; `n` goes on unchanged.
+        let children = std::mem::replace(&mut n.children, cur.children.clone());
+        let parent = std::mem::replace(&mut n.parent, cur.parent);
+        let same = *cur == n;
+        n.children = children;
+        n.parent = parent;
+        if !same {
             self.push(Command::Update { node: Box::new(n) });
         }
     }
@@ -102,6 +120,8 @@ impl<'a> Ctx<'a> {
     }
 }
 
+/// Whether two nodes are equal apart from their place in the tree.
+#[cfg(test)]
 fn same_ignoring_tree(a: &Node, b: &Node) -> bool {
     let mut b2 = b.clone();
     b2.children = a.children.clone();

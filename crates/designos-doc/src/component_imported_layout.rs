@@ -33,7 +33,7 @@ pub(crate) fn canonical_solve_hash(doc: &mut Document, holder: NodeId) -> Option
 /// Runs `f` on the document and undoes everything it wrote, id counter included.
 pub(crate) fn trial<R>(doc: &mut Document, f: impl FnOnce(&mut Ctx) -> R) -> R {
     let saved = (doc.next_id, doc.gap_cursor, doc.layout_epoch);
-    let mut c = Ctx::new(doc);
+    let mut c = Ctx::scratch(doc);
     let out = f(&mut c);
     drop(c.finish());
     (doc.next_id, doc.gap_cursor, doc.layout_epoch) = saved;
