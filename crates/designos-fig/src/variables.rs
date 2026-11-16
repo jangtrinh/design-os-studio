@@ -142,7 +142,15 @@ pub fn import_variables_value(doc: &mut Document, v: &Value) -> usize {
             variables: farr(c, "variableIds").iter().filter_map(|s| s.as_str().map(String::from)).collect(),
             key: fstr(c, "key").map(String::from),
             source_library_key: library_key_of(c),
-            extensions: soft_deleted_extensions(c),
+            extensions: {
+                let mut e = soft_deleted_extensions(c);
+                if fbool(c, "isPublishable") == Some(false) || fbool(c, "hiddenFromPublishing") == Some(true) {
+                    e.insert(designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY.into(), Value::Bool(true));
+                } else if fbool(c, "isPublishable") == Some(true) {
+                    e.insert(designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY.into(), Value::Bool(false));
+                }
+                e
+            },
         };
         collection.set_extendable(fbool(c, EXTENDABLE_FLAG) == Some(true));
         if fbool(c, "isExtension") == Some(true) {
@@ -185,7 +193,13 @@ pub fn import_variables_value(doc: &mut Document, v: &Value) -> usize {
                 hidden_from_publishing: fbool(v, "hiddenFromPublishing").unwrap_or(false),
                 key: fstr(v, "key").map(String::from),
                 code_syntax: parse_code_syntax(v.get("codeSyntax")),
-                extensions: soft_deleted_extensions(v),
+                extensions: {
+                    let mut e = soft_deleted_extensions(v);
+                    if let Some(publishable) = fbool(v, "isPublishable") {
+                        e.insert(designos_doc::HIDDEN_FROM_PUBLISHING_EXTENSION_KEY.into(), Value::Bool(!publishable));
+                    }
+                    e
+                },
                 mode_extensions: Default::default(),
             },
         );
@@ -310,7 +324,7 @@ pub fn export_variables_meta(doc: &Document) -> Value {
             m.insert("sourceLibraryKey".into(), lib.clone().into());
         }
         m.insert("remote".into(), c.is_library().into());
-        m.insert("hiddenFromPublishing".into(), false.into());
+        m.insert("hiddenFromPublishing".into(), c.is_hidden_from_publishing().into());
         if c.is_soft_deleted() {
             m.insert(REST_DELETED_FLAG.into(), true.into());
         }
@@ -735,6 +749,12 @@ pub(crate) fn from_fig_entries_with_refs(entries: &[&Value], referenced_vars: &s
         if let Some(lib) = fstr(e, "sourceLibraryKey").filter(|k| !k.is_empty()) {
             c["sourceLibraryKey"] = lib.into();
         }
+        if let Some(publishable) = fbool(e, "isPublishable") {
+            c["isPublishable"] = publishable.into();
+            if !publishable {
+                c["hiddenFromPublishing"] = true.into();
+            }
+        }
         if fbool(e, "isCollectionExtendable") == Some(true) {
             c[EXTENDABLE_FLAG] = true.into();
         }
@@ -816,6 +836,9 @@ pub(crate) fn from_fig_entries_with_refs(entries: &[&Value], referenced_vars: &s
         let mut v = json!({"id": id, "name": fstr(e, "name").unwrap_or("Variable"), "variableCollectionId": cid, "resolvedType": ty,
                    "valuesByMode": by_mode, "scopes": rest_scopes_from_fig(e.get("variableScopes")),
                    "description": fstr(e, "description").unwrap_or(""), "hiddenFromPublishing": fbool(e, "isPublishable") == Some(false)});
+        if let Some(publishable) = fbool(e, "isPublishable") {
+            v["isPublishable"] = publishable.into();
+        }
         if !active(e) {
             v[REST_DELETED_FLAG] = true.into();
         }
@@ -907,6 +930,20 @@ mod tests {
         assert_eq!((l.variables.len(), lib.variables.len()), (1, 1));
         // the publish key stays what it was
         assert_eq!((l.key.as_deref(), lib.key.as_deref()), (Some("K_LOCAL"), Some("K_LIB")));
+    }
+
+    #[test]
+    fn collection_publish_state_roundtrips_fig_and_rest() {
+        let mut set = fig_set(20, "Private", "K_PRIVATE", None);
+        set["isPublishable"] = false.into();
+        let var = json!({"type":"VARIABLE","guid":{"sessionID":1,"localID":30},"name":"secret","variableResolvedType":"FLOAT","variableSetID":{"guid":{"sessionID":1,"localID":20}},"variableDataValues":{"entries":[]}});
+        let payload = from_fig_entries(&[&set, &var]).unwrap();
+        assert_eq!(payload["variableCollections"]["VariableCollectionId:1:20"]["hiddenFromPublishing"], true);
+        let mut doc = Document::new("d");
+        import_variables_value(&mut doc, &json!({"variables": payload}));
+        assert!(doc.variable_collections["VariableCollectionId:1:20"].is_hidden_from_publishing());
+        let meta = export_variables_meta(&doc);
+        assert_eq!(meta["variableCollections"]["VariableCollectionId:1:20"]["hiddenFromPublishing"], true);
     }
 
     #[test]

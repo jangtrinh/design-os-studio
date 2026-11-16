@@ -75,6 +75,137 @@ fn vec_data(blob: u32, nw: f32, nh: f32) -> V {
     msg(vec![("vectorNetworkBlob", V::Uint(blob)), ("normalizedSize", vec2(nw, nh))])
 }
 
+fn build_line_size_only_fixture(pad_large: bool) -> Vec<u8> {
+    let doc = node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]);
+    let page = node((0, 1), (0, 0), "a", "CANVAS", "Page 1", vec![]);
+    let main = node((1, 100), (0, 1), "a", "SYMBOL", "LineMain", vec![("size", vec2(100.0, 10.0))]);
+    let line = node(
+        (1, 101),
+        (1, 100),
+        "a",
+        "LINE",
+        "Line",
+        vec![
+            ("overrideKey", guid(90, 101)),
+            ("size", vec2(100.0, 0.0)),
+            ("strokePaints", V::Array(vec![solid(0.0, 0.0, 0.0)])),
+            ("strokeWeight", fl(10.0)),
+            ("strokeAlign", en("CENTER")),
+            ("strokeCap", en("NONE")),
+            ("strokeGeometry", geo("NONZERO", 0)),
+        ],
+    );
+    let inner_frame = node(
+        (1, 102),
+        (1, 100),
+        "b",
+        "FRAME",
+        "InnerFrame",
+        vec![("overrideKey", guid(90, 102)), ("size", vec2(100.0, 10.0)), ("horizontalConstraint", en("MIN")), ("verticalConstraint", en("MIN"))],
+    );
+    let inner_line = node(
+        (1, 103),
+        (1, 102),
+        "a",
+        "LINE",
+        "InnerLine",
+        vec![
+            ("overrideKey", guid(90, 103)),
+            ("size", vec2(100.0, 0.0)),
+            ("horizontalConstraint", en("SCALE")),
+            ("verticalConstraint", en("MIN")),
+            ("strokePaints", V::Array(vec![solid(0.0, 0.0, 0.0)])),
+            ("strokeWeight", fl(10.0)),
+            ("strokeAlign", en("CENTER")),
+            ("strokeCap", en("NONE")),
+            ("strokeGeometry", geo("NONZERO", 0)),
+        ],
+    );
+    let inner_dashed_line = node(
+        (1, 104),
+        (1, 102),
+        "b",
+        "LINE",
+        "InnerDashedLine",
+        vec![
+            ("overrideKey", guid(90, 104)),
+            ("size", vec2(100.0, 0.0)),
+            ("horizontalConstraint", en("SCALE")),
+            ("verticalConstraint", en("MIN")),
+            ("strokePaints", V::Array(vec![solid(0.0, 0.0, 0.0)])),
+            ("strokeWeight", fl(10.0)),
+            ("strokeAlign", en("CENTER")),
+            ("strokeCap", en("NONE")),
+            ("dashPattern", V::Array(vec![fl(4.0), fl(2.0)])),
+            ("strokeGeometry", geo("NONZERO", 0)),
+        ],
+    );
+    let inner_arrow_line = node(
+        (1, 105),
+        (1, 102),
+        "c",
+        "LINE",
+        "InnerArrowLine",
+        vec![
+            ("overrideKey", guid(90, 105)),
+            ("size", vec2(100.0, 0.0)),
+            ("horizontalConstraint", en("SCALE")),
+            ("verticalConstraint", en("MIN")),
+            ("strokePaints", V::Array(vec![solid(0.0, 0.0, 0.0)])),
+            ("strokeWeight", fl(10.0)),
+            ("strokeAlign", en("CENTER")),
+            ("strokeCap", en("ARROW_LINES")),
+            ("strokeGeometry", geo("NONZERO", 0)),
+        ],
+    );
+    let instance = node(
+        (2, 1),
+        (0, 1),
+        "b",
+        "INSTANCE",
+        "LineInstance",
+        vec![
+            ("size", vec2(100.0, 10.0)),
+            ("symbolData", msg(vec![("symbolID", guid(1, 100))])),
+            (
+                "derivedSymbolData",
+                V::Array(vec![
+                    ov(&[(90, 101)], vec![("size", vec2(200.0, 0.0))]),
+                    ov(&[(90, 102)], vec![("size", vec2(200.0, 10.0))]),
+                    ov(&[(90, 103)], vec![("size", vec2(200.0, 0.0))]),
+                ]),
+            ),
+        ],
+    );
+    let instance_with_outline = node(
+        (2, 2),
+        (0, 1),
+        "c",
+        "INSTANCE",
+        "LineInstanceWithOutline",
+        vec![
+            ("size", vec2(200.0, 10.0)),
+            ("symbolData", msg(vec![("symbolID", guid(1, 100))])),
+            ("derivedSymbolData", V::Array(vec![ov(&[(90, 101)], vec![("size", vec2(200.0, 0.0)), ("strokeGeometry", geo("NONZERO", 1))])])),
+        ],
+    );
+    let mut changes = vec![doc, page, main, line, inner_frame, inner_line, inner_dashed_line, inner_arrow_line, instance, instance_with_outline];
+    if pad_large {
+        for i in 0..5_100u32 {
+            changes.push(node((9, i), (0, 1), &format!("z{i:05}"), "RECTANGLE", &format!("Pad {i}"), vec![("size", vec2(2.0, 2.0))]));
+        }
+    }
+    let changes = V::Array(changes);
+    let outline_blob = path_blob(&[(1, &[0.0, -10.0]), (2, &[100.0, -10.0]), (2, &[100.0, 0.0]), (2, &[0.0, 0.0]), (0, &[])]);
+    let override_outline_blob = path_blob(&[(1, &[0.0, -6.0]), (2, &[200.0, -6.0]), (2, &[200.0, 0.0]), (2, &[0.0, 0.0]), (0, &[])]);
+    let blobs = V::Array(vec![st(vec![("bytes", V::Bytes(outline_blob))]), st(vec![("bytes", V::Bytes(override_outline_blob))])]);
+    let message = msg(vec![("nodeChanges", changes), ("blobs", blobs)]);
+    let schema = figma_like_schema();
+    let root = schema.find("Message").unwrap();
+    let body = schema.encode_message(root, &message).unwrap();
+    container::write_container(&schema.encode(), &body, Compression::Zstd, 101)
+}
+
 /// Builds a `.fig` message containing:
 /// - `chevron-selector-vertical` (24×24 main component) with a `10×16` `vector` frame and two `10×5` `Icon`
 ///   open-path stroked vectors (`strokeWeight = 1.5`, `ROUND` cap/join, `SCALE` constraints, `overrideKey`s).
@@ -502,6 +633,53 @@ fn resized_instance_without_derived_geometry_scales_geometry_to_fit_child_size()
         assert!(
             nx0.abs() < 1e-3 && ny0.abs() < 1e-3 && (nx1 - 5.0).abs() < 1e-3 && (ny1 - 2.5).abs() < 1e-3,
             "pad_large={pad_large}: expected scaled network (0..5, 0..2.5), got ({nx0}..{nx1}, {ny0}..{ny1})"
+        );
+    }
+}
+
+#[test]
+fn size_only_line_instance_override_keeps_and_scales_imported_stroke_band() {
+    let expected_stretched = vec![Path {
+        cmds: vec![
+            PathCmd::MoveTo(Vec2::new(0.0, -10.0)),
+            PathCmd::LineTo(Vec2::new(200.0, -10.0)),
+            PathCmd::LineTo(Vec2::new(200.0, 0.0)),
+            PathCmd::LineTo(Vec2::new(0.0, 0.0)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    }];
+    for pad_large in [false, true] {
+        let doc = import_fig(&build_line_size_only_fixture(pad_large)).unwrap();
+        let inst_id = find(&doc, "LineInstance").id;
+        let line = find_in_subtree(&doc, inst_id, "Line");
+        let outline = line.stroke_geometry.as_ref().expect("size-only line override keeps imported outline");
+        assert_eq!(outline, &expected_stretched, "pad_large={pad_large}");
+
+        let inner_line = find_in_subtree(&doc, inst_id, "InnerLine");
+        let inner_outline = inner_line.stroke_geometry.as_ref().expect("line inside resized inner frame keeps and scales imported outline");
+        assert_eq!(inner_outline, &expected_stretched, "pad_large={pad_large}");
+
+        let inner_dashed = find_in_subtree(&doc, inst_id, "InnerDashedLine");
+        assert!(inner_dashed.stroke_geometry.is_none(), "pad_large={pad_large}: dashed line inside resized inner frame drops outline");
+
+        let inner_arrow = find_in_subtree(&doc, inst_id, "InnerArrowLine");
+        assert!(inner_arrow.stroke_geometry.is_none(), "pad_large={pad_large}: arrow-capped line inside resized inner frame drops outline");
+
+        let with_outline = find_in_subtree(&doc, find(&doc, "LineInstanceWithOutline").id, "Line");
+        assert_eq!(
+            with_outline.stroke_geometry.as_ref().expect("override with its own strokeGeometry keeps it"),
+            &vec![Path {
+                cmds: vec![
+                    PathCmd::MoveTo(Vec2::new(0.0, -6.0)),
+                    PathCmd::LineTo(Vec2::new(200.0, -6.0)),
+                    PathCmd::LineTo(Vec2::new(200.0, 0.0)),
+                    PathCmd::LineTo(Vec2::new(0.0, 0.0)),
+                    PathCmd::Close,
+                ],
+                fill_rule: FillRule::NonZero,
+            }],
+            "pad_large={pad_large}"
         );
     }
 }

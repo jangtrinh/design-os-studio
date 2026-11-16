@@ -61,7 +61,7 @@ fn is_default_grid_tracks(t: &GridTracks) -> bool {
     t.is_default()
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct Node {
     pub id: NodeId,
     /// Original id from an imported file (Figma "12:34"), for round-tripping.
@@ -124,6 +124,11 @@ pub struct Node {
     /// already expanded by weight/align; filled with the stroke paints.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke_geometry: Option<Vec<Path>>,
+    /// Size and stroke settings that [`Node::stroke_geometry`] was computed for.
+    /// Written to JSON only when it does not match the layer's current `size`
+    /// and `stroke` fields (the outline is stale).
+    #[serde(default)]
+    pub stroke_geometry_for: Option<StrokeGeometryStamp>,
     /// Component/instance bookkeeping; empty for ordinary nodes.
     #[serde(default, skip_serializing_if = "ComponentLink::is_empty")]
     pub component: ComponentLink,
@@ -163,6 +168,168 @@ pub struct Node {
     /// Timelines, assignments and animated-property tracks of this layer; absent for almost every layer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<Box<crate::NodeMotion>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename = "Node")]
+struct NodeSer<'a> {
+    id: &'a NodeId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_id: &'a Option<String>,
+    name: &'a String,
+    kind: &'a NodeKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent: &'a Option<NodeId>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    children: &'a Vec<NodeId>,
+    #[serde(skip_serializing_if = "is_true")]
+    visible: &'a bool,
+    #[serde(skip_serializing_if = "is_false")]
+    locked: &'a bool,
+    #[serde(skip_serializing_if = "is_one")]
+    opacity: &'a f32,
+    #[serde(skip_serializing_if = "is_default_node_blend")]
+    blend: &'a BlendMode,
+    transform: &'a Affine,
+    size: &'a Vec2,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    fills: &'a Vec<Paint>,
+    #[serde(skip_serializing_if = "is_default_node_stroke")]
+    stroke: &'a Stroke,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    effects: &'a Vec<Effect>,
+    #[serde(skip_serializing_if = "is_zero_radii")]
+    corner_radii: &'a [f32; 4],
+    #[serde(skip_serializing_if = "is_zero")]
+    corner_smoothing: &'a f32,
+    #[serde(skip_serializing_if = "is_default_constraints")]
+    constraints: &'a Constraints,
+    #[serde(skip_serializing_if = "is_default_layout_child")]
+    layout_child: &'a LayoutChild,
+    #[serde(skip_serializing_if = "is_false")]
+    is_mask: &'a bool,
+    #[serde(skip_serializing_if = "MaskType::is_default")]
+    mask_type: &'a MaskType,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    style_refs: &'a BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "OwnedFieldSet::is_empty")]
+    text_style_overrides: &'a OwnedFieldSet,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fill_geometry: &'a Option<Vec<Path>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stroke_geometry: &'a Option<Vec<Path>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stroke_geometry_for: Option<&'a StrokeGeometryStamp>,
+    #[serde(skip_serializing_if = "ComponentLink::is_empty")]
+    component: &'a ComponentLink,
+    #[serde(skip_serializing_if = "PrototypeProps::is_empty")]
+    prototype: &'a PrototypeProps,
+    #[serde(skip_serializing_if = "NodeVariables::is_empty")]
+    variables: &'a NodeVariables,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    export_settings: &'a Vec<ExportPreset>,
+    #[serde(skip_serializing_if = "DevInfo::is_empty")]
+    dev: &'a DevInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slide: &'a Option<SlideProps>,
+    #[serde(skip_serializing_if = "is_false")]
+    lock_aspect: &'a bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hyperlink: &'a Option<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    plugin_data: &'a BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detached_symbol_id: &'a Option<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    fig_metadata: &'a BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    motion: &'a Option<Box<crate::NodeMotion>>,
+}
+
+impl Serialize for Node {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let Self {
+            id,
+            source_id,
+            name,
+            kind,
+            parent,
+            children,
+            visible,
+            locked,
+            opacity,
+            blend,
+            transform,
+            size,
+            fills,
+            stroke,
+            effects,
+            corner_radii,
+            corner_smoothing,
+            constraints,
+            layout_child,
+            is_mask,
+            mask_type,
+            style_refs,
+            text_style_overrides,
+            fill_geometry,
+            stroke_geometry,
+            stroke_geometry_for: _,
+            component,
+            prototype,
+            variables,
+            export_settings,
+            dev,
+            slide,
+            lock_aspect,
+            hyperlink,
+            plugin_data,
+            detached_symbol_id,
+            fig_metadata,
+            motion,
+        } = self;
+        NodeSer {
+            id,
+            source_id,
+            name,
+            kind,
+            parent,
+            children,
+            visible,
+            locked,
+            opacity,
+            blend,
+            transform,
+            size,
+            fills,
+            stroke,
+            effects,
+            corner_radii,
+            corner_smoothing,
+            constraints,
+            layout_child,
+            is_mask,
+            mask_type,
+            style_refs,
+            text_style_overrides,
+            fill_geometry,
+            stroke_geometry,
+            stroke_geometry_for: self.stale_stroke_geometry_stamp(),
+            component,
+            prototype,
+            variables,
+            export_settings,
+            dev,
+            slide,
+            lock_aspect,
+            hyperlink,
+            plugin_data,
+            detached_symbol_id,
+            fig_metadata,
+            motion,
+        }
+        .serialize(serializer)
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -318,6 +485,16 @@ pub struct ComponentLink {
     /// Properties changed on this instance node; preserved when syncing.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub overrides: BTreeSet<OverrideField>,
+    /// Override fields read from a deferred `.fig` own entry. These flags are
+    /// runtime-only: the `.fig` loader needs them while the page is unopened,
+    /// but native `.designos` and MCP serialization must never expose them.
+    #[serde(skip)]
+    pub fig_own_entry_flags: BTreeSet<OverrideField>,
+    /// Deferred `.fig` page hydration records stashed on a removed page root while the page sits
+    /// inside an undo/redo [`crate::Command::InsertPage`]. Runtime-only (`#[serde(skip)]`); dropping
+    /// the command drops this handle and releases the records.
+    #[serde(skip)]
+    pub deferred_page_stash: Option<DeferredPageStash>,
     /// Property definitions (Component / ComponentSet only).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub props: Vec<ComponentPropDef>,
@@ -383,13 +560,158 @@ pub struct ComponentLink {
     /// name (`ComponentPropDef.varValue` / `componentPropertyDefinitions[*].boundVariables.defaultValue`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub prop_default_variables: BTreeMap<String, String>,
+    /// Overrides parked when a variant switch or swap moves to a component that has no layer at the
+    /// override's base-name path; re-applied when a later switch brings that layer back.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parked_overrides: Vec<ParkedOverride>,
+}
+
+/// An override parked on an instance while the shown variant or component lacks a layer at `path`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ParkedOverride {
+    pub path: Vec<(String, usize)>,
+    pub field: OverrideField,
+    pub value: ParkedOverrideValue,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub bindings: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_source: Option<NodeId>,
+}
+
+/// Stored value of a [`ParkedOverride`], matched to its [`OverrideField`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ParkedOverrideValue {
+    Name(String),
+    Visible(bool),
+    Locked(bool),
+    Opacity(f32),
+    Blend(BlendMode),
+    Size {
+        size: Vec2,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fill_geometry: Option<Vec<Path>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stroke_geometry: Option<Vec<Path>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stroke_geometry_for: Option<StrokeGeometryStamp>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        explicit_width: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        explicit_height: Option<String>,
+    },
+    Transform(Affine),
+    Fills {
+        fills: Vec<Paint>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text_fills: Option<Vec<Paint>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        style_ref: Option<String>,
+    },
+    Stroke {
+        stroke: Box<Stroke>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        style_ref: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        explicit_stroke_fields: Option<String>,
+    },
+    Effects {
+        effects: Vec<Effect>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        style_ref: Option<String>,
+    },
+    CornerRadii {
+        radii: [f32; 4],
+        #[serde(default, skip_serializing_if = "is_zero")]
+        smoothing: f32,
+    },
+    Characters {
+        content: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fitted_size: Option<Vec2>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sizing_text: Option<Box<TextProps>>,
+    },
+    TextStyle {
+        text: Box<TextProps>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text_style_ref: Option<String>,
+        #[serde(default, skip_serializing_if = "OwnedFieldSet::is_empty")]
+        text_style_overrides: OwnedFieldSet,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fill_style_ref: Option<String>,
+    },
+    Layout {
+        frame: Box<FrameProps>,
+        layout_child: LayoutChild,
+        #[serde(default, skip_serializing_if = "is_false_pair")]
+        grid_align_overrides: [bool; 2],
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        grid_style_ref: Option<String>,
+    },
+    LockAspect(bool),
+    Arc(ArcData),
 }
 
 fn is_false_pair(pair: &[bool; 2]) -> bool {
     *pair == [false, false]
 }
 
+/// Type-erased handle to a removed deferred page's hydration records, carried by the page root
+/// inside [`crate::Command::InsertPage`] while the page sits on the undo/redo stack.
+#[derive(Clone)]
+pub struct DeferredPageStash(pub std::sync::Arc<dyn std::any::Any + Send + Sync>);
+
+impl std::fmt::Debug for DeferredPageStash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DeferredPageStash(..)")
+    }
+}
+
+impl PartialEq for DeferredPageStash {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for DeferredPageStash {}
+
 impl ComponentLink {
+    /// Adds an override observed in a deferred `.fig` own entry. The marker is
+    /// deliberately kept out of the serialized component link.
+    pub fn add_fig_own_entry_flag(&mut self, field: OverrideField) {
+        self.fig_own_entry_flags.insert(field);
+    }
+
+    /// Drops deferred `.fig` markers after the page has been materialized.
+    pub fn clear_fig_own_entry_flags(&mut self) {
+        self.fig_own_entry_flags.clear();
+    }
+
+    /// Whether this node should be treated as overriding `field` during the
+    /// lifetime of a deferred `.fig` load.
+    pub fn has_override(&self, field: &OverrideField) -> bool {
+        self.overrides.contains(field) || self.fig_own_entry_flags.contains(field)
+    }
+
+    /// Whether this link has any persistent or deferred `.fig` override.
+    pub fn has_any_override(&self) -> bool {
+        !self.overrides.is_empty() || !self.fig_own_entry_flags.is_empty()
+    }
+
+    /// Returns persistent and deferred flags as one runtime view for sync and `.fig` export.
+    pub fn override_fields(&self) -> BTreeSet<OverrideField> {
+        let mut fields = self.overrides.clone();
+        fields.extend(self.fig_own_entry_flags.iter().copied());
+        fields
+    }
+
+    /// Clears a flag regardless of whether it came from the native document or a deferred `.fig` entry.
+    pub fn remove_override(&mut self, field: &OverrideField) -> bool {
+        let a = self.overrides.remove(field);
+        let b = self.fig_own_entry_flags.remove(field);
+        a || b
+    }
+
     pub fn is_empty(&self) -> bool {
         self.source.is_none()
             && self.overrides.is_empty()
@@ -411,6 +733,7 @@ impl ComponentLink {
             && self.own_variant_bindings.is_empty()
             && self.variant_picks.is_empty()
             && self.prop_default_variables.is_empty()
+            && self.parked_overrides.is_empty()
     }
 }
 
@@ -442,6 +765,7 @@ impl Node {
             text_style_overrides: OwnedFieldSet::default(),
             fill_geometry: None,
             stroke_geometry: None,
+            stroke_geometry_for: None,
             component: ComponentLink::default(),
             prototype: PrototypeProps::default(),
             variables: NodeVariables::default(),
@@ -519,6 +843,112 @@ impl Node {
     /// for picking. Allocation-free.
     pub fn children_front_to_back(&self) -> impl Iterator<Item = &NodeId> + '_ {
         front_to_back(&self.children, self.paints_children_reversed())
+    }
+
+    /// Records the current layer `size` and `stroke` fields as the stamp for
+    /// [`Node::stroke_geometry`], or clears [`Node::stroke_geometry_for`] when
+    /// no non-empty stroke outline is stored.
+    pub fn stamp_stroke_geometry(&mut self) {
+        if self.stroke_geometry.as_ref().is_some_and(|g| !g.is_empty()) {
+            self.stroke_geometry_for = Some(StrokeGeometryStamp::of_node(self));
+        } else {
+            self.stroke_geometry_for = None;
+        }
+    }
+
+    /// Drops [`Node::stroke_geometry`] and [`Node::stroke_geometry_for`] together.
+    pub fn drop_stroke_outline(&mut self) {
+        self.stroke_geometry = None;
+        self.stroke_geometry_for = None;
+    }
+
+    /// Returns [`Node::stroke_geometry_for`] only when it is present and does not
+    /// match the layer's current `size` and `stroke` fields (so the stored outline
+    /// is stale and the stamp must be written when serializing).
+    pub fn stale_stroke_geometry_stamp(&self) -> Option<&StrokeGeometryStamp> {
+        self.stroke_geometry_for.as_ref().filter(|stamp| !stamp.matches_node(self))
+    }
+
+    /// Effective stamp of [`Node::stroke_geometry`]: `None` when no non-empty
+    /// outline is stored, the stored stamp when present, or the layer's current
+    /// `size` and `stroke` stamp when omitted.
+    pub fn effective_stroke_geometry_stamp(&self) -> Option<std::borrow::Cow<'_, StrokeGeometryStamp>> {
+        if self.stroke_geometry.as_ref().is_some_and(|g| !g.is_empty()) {
+            match &self.stroke_geometry_for {
+                Some(stamp) => Some(std::borrow::Cow::Borrowed(stamp)),
+                None => Some(std::borrow::Cow::Owned(StrokeGeometryStamp::of_node(self))),
+            }
+        } else {
+            self.stroke_geometry_for.as_ref().map(std::borrow::Cow::Borrowed)
+        }
+    }
+
+    /// Returns the stored stroke outline only while it is non-empty and its
+    /// stamp matches the layer's current `size` and `stroke` fields.
+    pub fn live_stroke_outline(&self) -> Option<&[Path]> {
+        let paths = self.stroke_geometry.as_deref().filter(|g| !g.is_empty())?;
+        let stamp = self.stroke_geometry_for.as_ref()?;
+        stamp.matches_node(self).then_some(paths)
+    }
+}
+
+/// Float tolerance used when comparing [`StrokeGeometryStamp`] against a layer's
+/// current `size` and `stroke` fields (matches `apply_constrained_geometry`).
+pub const STROKE_GEOMETRY_STAMP_TOL: f32 = 1e-4;
+
+#[inline]
+fn f32_stamp_eq(a: f32, b: f32) -> bool {
+    a.to_bits() == b.to_bits() || (a - b).abs() <= STROKE_GEOMETRY_STAMP_TOL
+}
+
+/// Stamp of the layer size and stroke fields a stored [`Node::stroke_geometry`] was computed for.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StrokeGeometryStamp {
+    pub size: Vec2,
+    pub weight: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side_weights: Option<[f32; 4]>,
+    pub align: StrokeAlign,
+    pub cap: StrokeCap,
+    pub join: StrokeJoin,
+    pub miter_limit: f32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dashes: Vec<f32>,
+}
+
+impl StrokeGeometryStamp {
+    pub fn of_size_and_stroke(size: Vec2, stroke: &Stroke) -> Self {
+        Self {
+            size,
+            weight: stroke.weight,
+            side_weights: stroke.side_weights,
+            align: stroke.align,
+            cap: stroke.cap,
+            join: stroke.join,
+            miter_limit: stroke.miter_limit,
+            dashes: stroke.dashes.clone(),
+        }
+    }
+
+    pub fn of_node(node: &Node) -> Self {
+        Self::of_size_and_stroke(node.size, &node.stroke)
+    }
+
+    pub fn matches_node(&self, node: &Node) -> bool {
+        f32_stamp_eq(self.size.x, node.size.x)
+            && f32_stamp_eq(self.size.y, node.size.y)
+            && f32_stamp_eq(self.weight, node.stroke.weight)
+            && match (self.side_weights, node.stroke.side_weights) {
+                (None, None) => true,
+                (Some(a), Some(b)) => (0..4).all(|i| f32_stamp_eq(a[i], b[i])),
+                _ => false,
+            }
+            && self.align == node.stroke.align
+            && self.cap == node.stroke.cap
+            && self.join == node.stroke.join
+            && f32_stamp_eq(self.miter_limit, node.stroke.miter_limit)
+            && self.dashes.len() == node.stroke.dashes.len()
+            && self.dashes.iter().zip(&node.stroke.dashes).all(|(&a, &b)| f32_stamp_eq(a, b))
     }
 }
 

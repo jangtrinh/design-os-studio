@@ -702,7 +702,7 @@ struct Ctx<'a> {
 
 /// Overrides carried on `.fig` instance JSON as `_overrides` / `_derived`:
 /// `[{"path": ["1:6", ...], "set": {<partial REST node fields>}}]`.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 struct Overrides {
     set: Vec<OverrideEntry>,
     derived: Vec<OverrideEntry>,
@@ -715,7 +715,7 @@ struct Overrides {
     own_keys: Vec<Box<str>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct OverrideEntry {
     path: Vec<String>,
     set: Value,
@@ -1678,7 +1678,7 @@ impl<'a> Ctx<'a> {
         if let Some(carrier) = studio_carrier {
             n.fills.clear();
             n.fill_geometry = None;
-            n.stroke_geometry = None;
+            n.drop_stroke_outline();
             n.stroke.weight = carrier.stroke_weight;
             if !carrier.stroke_paints.is_empty() {
                 n.stroke.paints = carrier.stroke_paints;
@@ -1691,6 +1691,7 @@ impl<'a> Ctx<'a> {
             }
         }
         crate::board::finish_node(&mut n);
+        n.stamp_stroke_geometry();
         (n, my_layout)
     }
 
@@ -2082,7 +2083,25 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
-        let hydrator = DeferredFigHydrator {
+        let mut page_nodes: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
+        for &page in pending_by_page.keys() {
+            let mut nodes = Vec::new();
+            self.doc.walk(page, |n, _| {
+                if self.override_keys.contains_key(&n.id)
+                    || self.col_anchor_guids.contains_key(&n.id)
+                    || self.row_anchor_guids.contains_key(&n.id)
+                    || self.grid_col_track_ids.contains_key(&n.id)
+                    || self.grid_row_track_ids.contains_key(&n.id)
+                    || self.no_auto_layout.contains(&n.id)
+                {
+                    nodes.push(n.id);
+                }
+            });
+            if !nodes.is_empty() {
+                page_nodes.insert(page, nodes);
+            }
+        }
+        let hydrator = std::sync::Arc::new(std::sync::Mutex::new(DeferredFigHydrator {
             pending_by_page,
             hydrated_pages,
             targets,
@@ -2109,8 +2128,17 @@ impl<'a> Ctx<'a> {
             derived_outlines,
             swap_mains_of,
             self_digests,
-        };
-        self.doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
+            staged_copies: HashMap::new(),
+            page_nodes,
+            self_weak: std::sync::Weak::new(),
+            live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            dropped_duplicate_records: 0,
+        }));
+        if let Ok(mut guard) = hydrator.lock() {
+            guard.self_weak = std::sync::Arc::downgrade(&hydrator);
+        }
+        self.doc.page_hydrator = Some(hydrator);
     }
 
     /// Flags on the still childless instance `inst` the fields its file record overrides on the instance itself (the
@@ -2139,11 +2167,16 @@ impl<'a> Ctx<'a> {
         }
         let holds_derived = self.overrides.get(&inst).is_some_and(|o| !o.fast_derived.is_empty());
         let Some(node) = self.doc.get_mut(inst) else { return BTreeMap::new() };
-        node.component.overrides.extend(flagged);
+        for field in flagged {
+            node.component.add_fig_own_entry_flag(field);
+        }
         let mut digests = crate::instance_self_digest::digests(node);
         // The derived data of the instance was computed for the size it has now, flagged or not.
         if holds_derived {
             digests.entry(OverrideField::Size).or_insert_with(|| crate::instance_self_digest::size_digest(node));
+            // A derived self entry can also restate the instance transform. Capture it even when
+            // the own entry did not flag Transform, so a direct move cannot be undone on reopen.
+            digests.entry(OverrideField::Transform).or_insert_with(|| crate::instance_self_digest::transform_digest(node));
         }
         digests
     }
@@ -2479,6 +2512,7 @@ impl<'a> Ctx<'a> {
             for g in n.fill_geometry.iter_mut().chain(n.stroke_geometry.iter_mut()).flatten() {
                 scale_path(g, s);
             }
+            n.stamp_stroke_geometry();
             match &mut n.kind {
                 NodeKind::Text(t) => {
                     t.style.font_size *= s;
@@ -2664,6 +2698,7 @@ impl<'a> Ctx<'a> {
             dn.corner_smoothing = target_node.corner_smoothing;
             dn.fill_geometry = target_node.fill_geometry;
             dn.stroke_geometry = target_node.stroke_geometry;
+            dn.stroke_geometry_for = target_node.stroke_geometry_for;
             dn.style_refs = target_node.style_refs;
             dn.variables.bindings = target_node.variables.bindings;
             dn.component.variant_props = target_node.component.variant_props;
@@ -2918,9 +2953,17 @@ impl<'a> Ctx<'a> {
     }
 
     fn resize_override_node(&mut self, id: NodeId, sz: Vec2, has_fill_geo: bool, has_stroke_geo: bool, skip_geo: bool, explicitly_sized: &mut HashSet<NodeId>) {
+        let keeps_outline = |n: &Node| match n.kind {
+            NodeKind::Vector { .. } | NodeKind::BooleanOp(_) => true,
+            NodeKind::Line => {
+                let dashed = !n.stroke.dashes.is_empty() && n.stroke.dashes.iter().all(|d| *d >= 0.0) && n.stroke.dashes.iter().sum::<f32>() > 0.0;
+                !dashed && n.size.x > 1e-3 && !n.stroke.cap.is_arrow() && !n.fig_metadata.contains_key("strokeCap")
+            }
+            _ => false,
+        };
         explicitly_sized.insert(id);
-        let Some((old_size, old_transform, is_vec_or_bool, is_container)) =
-            self.doc.get(id).map(|n| (n.size, n.transform, matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)), n.kind.is_container()))
+        let Some((old_size, old_transform, preserves_outline, is_container)) =
+            self.doc.get(id).map(|n| (n.size, n.transform, keeps_outline(n), n.kind.is_container()))
         else {
             return;
         };
@@ -2932,12 +2975,12 @@ impl<'a> Ctx<'a> {
             return;
         }
         if let Some(n) = self.doc.get_mut(id) {
-            if !is_vec_or_bool {
+            if !preserves_outline {
                 if !has_fill_geo || skip_geo {
                     n.fill_geometry = None;
                 }
                 if !has_stroke_geo || skip_geo {
-                    n.stroke_geometry = None;
+                    n.drop_stroke_outline();
                 }
             }
             designos_doc::apply_constrained_geometry(n, old_transform, sz);
@@ -2948,9 +2991,9 @@ impl<'a> Ctx<'a> {
                     continue;
                 }
                 if let Some(km) = self.doc.get_mut(c) {
-                    if self.large_file && !matches!(km.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
+                    if self.large_file && !keeps_outline(km) {
                         km.fill_geometry = None;
-                        km.stroke_geometry = None;
+                        km.drop_stroke_outline();
                     }
                     designos_doc::apply_constrained_geometry(km, new_transform, new_size);
                 }
@@ -3073,6 +3116,7 @@ impl<'a> Ctx<'a> {
                 }
             }
             n.stroke_geometry = Some(g);
+            n.stamp_stroke_geometry();
         }
     }
 
@@ -3279,8 +3323,9 @@ impl<'a> Ctx<'a> {
                     }
                 }
                 n.stroke_geometry = Some(g);
+                n.stamp_stroke_geometry();
             } else {
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
         }
         if derived_only {
@@ -3351,7 +3396,7 @@ impl<'a> Ctx<'a> {
         if let Some(w) = fnum(set, "strokeWeight") {
             n.stroke.weight = w;
             if !has("strokeGeometry") {
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
         }
         if let Some(iw) = set.get("individualStrokeWeights") {
@@ -3383,7 +3428,7 @@ impl<'a> Ctx<'a> {
                 }
             }
             if n.stroke.side_weights != prev && !has("strokeGeometry") {
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
         }
         if let Some(a) = fstr(set, "strokeAlign") {
@@ -3396,7 +3441,7 @@ impl<'a> Ctx<'a> {
         if let Some(c) = fstr(set, "strokeCap") {
             n.stroke.cap = crate::vecnet::cap_from(c).unwrap_or(StrokeCap::None);
             if !has("strokeGeometry") {
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
         }
         if let Some(j) = fstr(set, "strokeJoin") {
@@ -3406,7 +3451,7 @@ impl<'a> Ctx<'a> {
                 _ => StrokeJoin::Miter,
             };
             if !has("strokeGeometry") {
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
         }
         if let Some(m) = fnum(set, "strokeMiterLimit") {
@@ -3420,8 +3465,11 @@ impl<'a> Ctx<'a> {
         if set.get("strokeDashes").is_some() {
             n.stroke.dashes = farr(set, "strokeDashes").iter().filter_map(num).collect();
             if !has("strokeGeometry") {
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
+        }
+        if has("strokeGeometry") && !skip_geo {
+            n.stamp_stroke_geometry();
         }
         if let (NodeKind::Ellipse(arc), Some(a)) = (&mut n.kind, set.get("arcData").filter(|_| keep("arcData"))) {
             // an overridden ring or pie: only the keys the override carries replace the main component's arc
@@ -3432,7 +3480,7 @@ impl<'a> Ctx<'a> {
                 n.fill_geometry = None;
             }
             if !has("strokeGeometry") {
-                n.stroke_geometry = None;
+                n.drop_stroke_outline();
             }
         }
         if let Some(r) = set.get("rectangleCornerRadii").and_then(Value::as_array).filter(|a| a.len() == 4) {
@@ -3782,6 +3830,47 @@ impl<'a> Ctx<'a> {
     }
 }
 
+#[derive(Clone)]
+struct RemovedDeferredPage {
+    insts: Vec<NodeId>,
+    nodes: Vec<NodeId>,
+    targets: BTreeMap<NodeId, NodeId>,
+    done: BTreeSet<NodeId>,
+    overrides: BTreeMap<NodeId, Overrides>,
+    override_keys: HashMap<NodeId, std::sync::Arc<str>>,
+    col_anchor_guids: HashMap<NodeId, String>,
+    row_anchor_guids: HashMap<NodeId, String>,
+    grid_col_track_ids: HashMap<NodeId, Vec<String>>,
+    grid_row_track_ids: HashMap<NodeId, Vec<String>>,
+    no_auto_layout: HashSet<NodeId>,
+    scales: BTreeMap<NodeId, f32>,
+    unexpanded_instances: BTreeSet<NodeId>,
+    instance_fingerprints: HashMap<NodeId, u64>,
+    swap_mains_of: HashMap<NodeId, Vec<NodeId>>,
+    self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>>,
+}
+
+struct RemovedDeferredPageGuard {
+    data: RemovedDeferredPage,
+    inst_count: usize,
+    live_stash_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    live_stash_records: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    hydrator: std::sync::Weak<std::sync::Mutex<DeferredFigHydrator>>,
+}
+
+impl Drop for RemovedDeferredPageGuard {
+    fn drop(&mut self) {
+        self.live_stash_records.fetch_sub(self.inst_count, std::sync::atomic::Ordering::AcqRel);
+        if self.live_stash_count.fetch_sub(1, std::sync::atomic::Ordering::AcqRel) == 1 {
+            if let Some(h) = self.hydrator.upgrade() {
+                if let Ok(mut guard) = h.lock() {
+                    guard.release_shared_if_idle();
+                }
+            }
+        }
+    }
+}
+
 struct DeferredFigHydrator {
     pending_by_page: HashMap<NodeId, Vec<NodeId>>,
     hydrated_pages: HashSet<NodeId>,
@@ -3814,6 +3903,39 @@ struct DeferredFigHydrator {
     swap_mains_of: HashMap<NodeId, Vec<NodeId>>,
     /// Instance -> digest of each field it overrides on itself, as the file was opened.
     self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>>,
+    /// `dst_page -> (src_page, old_id -> new_id)` staged by `duplicate_subtree` / `clone_subtree` before `InsertPage` lands.
+    staged_copies: HashMap<NodeId, (NodeId, BTreeMap<NodeId, NodeId>)>,
+    /// `page -> nodes` whose per-node hydrator metadata was copied for `page`, so `remove_page` can stash them.
+    page_nodes: HashMap<NodeId, Vec<NodeId>>,
+    /// Weak handle to this hydrator so a dropped [`RemovedDeferredPageGuard`] can release shared maps if idle.
+    self_weak: std::sync::Weak<std::sync::Mutex<DeferredFigHydrator>>,
+    /// Number of live [`RemovedDeferredPageGuard`] handles held by undo/redo commands.
+    live_stash_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// Total number of pending instance records currently held inside live [`RemovedDeferredPageGuard`] handles.
+    live_stash_records: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// Count of override records dropped during page duplication because their layer was missing in the copy.
+    dropped_duplicate_records: usize,
+}
+
+impl DeferredFigHydrator {
+    fn release_shared_if_idle(&mut self) {
+        if self.pending_by_page.is_empty() && self.unexpanded_instances.is_empty() && self.live_stash_count.load(std::sync::atomic::Ordering::Acquire) == 0 {
+            self.targets.clear();
+            self.done.clear();
+            self.ids.clear();
+            self.overrides.clear();
+            self.override_keys.clear();
+            self.col_anchor_guids.clear();
+            self.row_anchor_guids.clear();
+            self.grid_col_track_ids.clear();
+            self.grid_row_track_ids.clear();
+            self.no_auto_layout.clear();
+            self.scales.clear();
+            self.path_cache.clear();
+            self.blob_cache.clear();
+            self.expanded_comps.clear();
+        }
+    }
 }
 
 impl std::fmt::Debug for DeferredFigHydrator {
@@ -3827,12 +3949,36 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         if !self.hydrated_pages.insert(page) {
             return false;
         }
+        self.page_nodes.remove(&page);
         let Some(insts) = self.pending_by_page.remove(&page) else {
             return false;
         };
         if insts.is_empty() {
             return false;
         }
+        // `derivedSymbolData` is a cache from the file, valid only for the main
+        // components fingerprinted when the file was imported. A main can be
+        // edited while its instance page is still deferred; applying that old
+        // cache during hydration would restore stale sizes/transforms over the
+        // freshly cloned main. The exporter already performs this check for
+        // unopened pages; mirror it before applying the record on open.
+        let mut fingerprints = crate::component_fingerprint::Fingerprints::default();
+        let mut cleared_derived = HashMap::new();
+        for &inst in &insts {
+            let Some(&main) = self.targets.get(&inst) else { continue };
+            let Some(&stored) = self.instance_fingerprints.get(&inst) else { continue };
+            let swaps = self.swap_mains_of.get(&inst).map(Vec::as_slice).unwrap_or(&[]);
+            let mains = crate::component_fingerprint::instance_mains(doc, inst, main, swaps);
+            if fingerprints.of_mains(doc, &mains) != stored {
+                if let Some(ov) = self.overrides.get_mut(&inst) {
+                    let taken = std::mem::take(&mut ov.fast_derived);
+                    if !taken.is_empty() {
+                        cleared_derived.insert(inst, taken);
+                    }
+                }
+            }
+        }
+        drop(fingerprints);
         let next_clone = self.next_clone.max(doc.peek_next_id().0);
         let saved_insts: Vec<(NodeId, Node)> = insts.iter().filter_map(|&id| doc.get(id).cloned().map(|n| (id, n))).collect();
         let saved_done = self.done.clone();
@@ -3894,6 +4040,11 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             }
         }
         if let Some(err) = hydration_err {
+            for (inst, derived) in cleared_derived {
+                if let Some(ov) = cx.overrides.get_mut(&inst) {
+                    ov.fast_derived = derived;
+                }
+            }
             cx.doc.nodes.retain(|&id, _| id.0 < next_clone);
             for (id, node) in saved_insts {
                 cx.doc.nodes.insert(id, node);
@@ -3901,35 +4052,6 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             self.done = saved_done;
             self.last_error = Some(err.to_string());
             *doc = cx.doc;
-            if !self.pending_by_page.is_empty() {
-                self.ids = cx.ids;
-                self.overrides = cx.overrides;
-                self.override_keys = cx.override_keys;
-                self.col_anchor_guids = cx.col_anchor_guids;
-                self.row_anchor_guids = cx.row_anchor_guids;
-                self.grid_col_track_ids = cx.grid_col_track_ids;
-                self.grid_row_track_ids = cx.grid_row_track_ids;
-                self.no_auto_layout = cx.no_auto_layout;
-                self.scales = cx.scales;
-                self.path_cache = cx.path_cache;
-                self.blob_cache = cx.blob_cache;
-                self.expanded_comps = cx.expanded_comps;
-            } else {
-                self.targets.clear();
-                self.done.clear();
-            }
-            return false;
-        }
-        cx.mark_custom_instance_slots();
-        if cx.next_clone > 1 {
-            cx.doc.reserve_ids(NodeId(cx.next_clone - 1));
-        }
-        self.next_clone = cx.next_clone;
-        self.cloned_nodes = cx.cloned_nodes;
-        self.budget_exhausted = cx.budget_exhausted;
-        self.unexpanded_instances.extend(cx.unexpanded_instances);
-        *doc = cx.doc;
-        if !self.pending_by_page.is_empty() {
             self.ids = cx.ids;
             self.overrides = cx.overrides;
             self.override_keys = cx.override_keys;
@@ -3942,10 +4064,49 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             self.path_cache = cx.path_cache;
             self.blob_cache = cx.blob_cache;
             self.expanded_comps = cx.expanded_comps;
-        } else {
-            self.targets.clear();
-            self.done.clear();
+            return false;
         }
+        for &inst in &cx.unexpanded_instances {
+            if let Some(derived) = cleared_derived.remove(&inst) {
+                if let Some(ov) = cx.overrides.get_mut(&inst) {
+                    ov.fast_derived = derived;
+                }
+            }
+        }
+        // The flags captured from an unopened `.fig` own entry are only a
+        // guard for the pre-hydration sync pass. Once the instance has its
+        // subtree and overrides materialized, its persistent override set is
+        // authoritative again; keeping the transient set would leak stale
+        // runtime state into later copies and reset operations.
+        for &inst in &insts {
+            if !cx.unexpanded_instances.contains(&inst) {
+                if let Some(node) = cx.doc.get_mut(inst) {
+                    node.component.clear_fig_own_entry_flags();
+                }
+            }
+        }
+        cx.mark_custom_instance_slots();
+        if cx.next_clone > 1 {
+            cx.doc.reserve_ids(NodeId(cx.next_clone - 1));
+        }
+        self.next_clone = cx.next_clone;
+        self.cloned_nodes = cx.cloned_nodes;
+        self.budget_exhausted = cx.budget_exhausted;
+        self.unexpanded_instances.extend(cx.unexpanded_instances);
+        *doc = cx.doc;
+        self.ids = cx.ids;
+        self.overrides = cx.overrides;
+        self.override_keys = cx.override_keys;
+        self.col_anchor_guids = cx.col_anchor_guids;
+        self.row_anchor_guids = cx.row_anchor_guids;
+        self.grid_col_track_ids = cx.grid_col_track_ids;
+        self.grid_row_track_ids = cx.grid_row_track_ids;
+        self.no_auto_layout = cx.no_auto_layout;
+        self.scales = cx.scales;
+        self.path_cache = cx.path_cache;
+        self.blob_cache = cx.blob_cache;
+        self.expanded_comps = cx.expanded_comps;
+        self.release_shared_if_idle();
         true
     }
 
@@ -3963,6 +4124,216 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
 
     fn is_hydrated(&self, page: NodeId) -> bool {
         self.hydrated_pages.contains(&page) || !self.pending_by_page.contains_key(&page)
+    }
+
+    fn expand_component_scratch(&mut self, doc: &Document, component: NodeId) -> Option<Document> {
+        if self.expanded_comps.contains(&component) || self.pending_by_page.is_empty() {
+            return None;
+        }
+        let mut has_direct_pending = false;
+        doc.walk(component, |n, _| {
+            if n.id != component && self.targets.contains_key(&n.id) && !self.done.contains(&n.id) {
+                has_direct_pending = true;
+            }
+        });
+        if !has_direct_pending {
+            return None;
+        }
+        let mut comp_queue = vec![component];
+        let mut visited_comps = HashSet::new();
+        let mut all_insts = BTreeSet::new();
+        let mut pending_insts = BTreeSet::new();
+        let mut has_instance_swap_values = false;
+        while let Some(c) = comp_queue.pop() {
+            if !visited_comps.insert(c) {
+                continue;
+            }
+            if c != component {
+                if let Some(parent_id) = doc.get(c).and_then(|n| n.parent) {
+                    if let Some(parent) = doc.get(parent_id) {
+                        if matches!(parent.kind, NodeKind::ComponentSet(_)) {
+                            for &sibling in &parent.children {
+                                if doc.get(sibling).is_some_and(|s| matches!(s.kind, NodeKind::Component(_))) && !visited_comps.contains(&sibling) {
+                                    comp_queue.push(sibling);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            doc.walk(c, |n, _| {
+                if n.component.values.values().any(|v| matches!(v, PropValue::Instance(t) if t.0 != 0)) {
+                    has_instance_swap_values = true;
+                }
+                if n.id != c {
+                    if let Some(&target) = self.targets.get(&n.id) {
+                        all_insts.insert(n.id);
+                        if !self.done.contains(&n.id) {
+                            pending_insts.insert(n.id);
+                            if !visited_comps.contains(&target) {
+                                comp_queue.push(target);
+                            }
+                            if let Some(swaps) = self.swap_mains_of.get(&n.id) {
+                                for &s in swaps {
+                                    if !visited_comps.contains(&s) {
+                                        comp_queue.push(s);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                for v in n.component.values.values() {
+                    if let PropValue::Instance(t) = v {
+                        if t.0 != 0 && !visited_comps.contains(t) {
+                            comp_queue.push(*t);
+                        }
+                    }
+                }
+            });
+        }
+        if pending_insts.is_empty() {
+            return None;
+        }
+
+        let mut scratch_doc = Document::new(&doc.name);
+        for &c in &visited_comps {
+            if let Some(parent_id) = doc.get(c).and_then(|n| n.parent) {
+                if let Some(parent) = doc.get(parent_id) {
+                    if matches!(parent.kind, NodeKind::ComponentSet(_)) && !scratch_doc.nodes.contains_key(&parent_id) {
+                        scratch_doc.nodes.insert(parent_id, parent.clone());
+                    }
+                }
+            }
+            doc.walk(c, |n, _| {
+                scratch_doc.nodes.insert(n.id, n.clone());
+            });
+        }
+
+        let mut scratch_targets = BTreeMap::new();
+        let mut scratch_done = BTreeSet::new();
+        for &inst in &all_insts {
+            if let Some(&target) = self.targets.get(&inst) {
+                scratch_targets.insert(inst, target);
+            }
+            if self.done.contains(&inst) {
+                scratch_done.insert(inst);
+            }
+        }
+
+        let mut fingerprints = crate::component_fingerprint::Fingerprints::default();
+        let mut scratch_overrides = BTreeMap::new();
+        for &inst in &pending_insts {
+            let Some(mut ov) = self.overrides.get(&inst).cloned() else { continue };
+            if let (Some(&main), Some(&stored)) = (self.targets.get(&inst), self.instance_fingerprints.get(&inst)) {
+                let swaps = self.swap_mains_of.get(&inst).map(Vec::as_slice).unwrap_or(&[]);
+                let mains = crate::component_fingerprint::instance_mains(doc, inst, main, swaps);
+                if fingerprints.of_mains(doc, &mains) != stored {
+                    ov.fast_derived.clear();
+                }
+            }
+            scratch_overrides.insert(inst, ov);
+        }
+        drop(fingerprints);
+
+        let mut scratch_override_keys = HashMap::new();
+        let mut scratch_col_anchors = HashMap::new();
+        let mut scratch_row_anchors = HashMap::new();
+        let mut scratch_col_tracks = HashMap::new();
+        let mut scratch_row_tracks = HashMap::new();
+        let mut scratch_no_auto_layout = HashSet::new();
+        let mut scratch_scales = BTreeMap::new();
+        for (&id, node) in &scratch_doc.nodes {
+            if let Some(v) = self.override_keys.get(&id).cloned() {
+                scratch_override_keys.insert(id, v);
+            }
+            if !has_instance_swap_values {
+                has_instance_swap_values = node.component.values.values().any(|v| matches!(v, PropValue::Instance(t) if t.0 != 0));
+            }
+            if let Some(v) = self.col_anchor_guids.get(&id).cloned() {
+                scratch_col_anchors.insert(id, v);
+            }
+            if let Some(v) = self.row_anchor_guids.get(&id).cloned() {
+                scratch_row_anchors.insert(id, v);
+            }
+            if let Some(v) = self.grid_col_track_ids.get(&id).cloned() {
+                scratch_col_tracks.insert(id, v);
+            }
+            if let Some(v) = self.grid_row_track_ids.get(&id).cloned() {
+                scratch_row_tracks.insert(id, v);
+            }
+            if self.no_auto_layout.contains(&id) {
+                scratch_no_auto_layout.insert(id);
+            }
+            if let Some(&v) = self.scales.get(&id) {
+                scratch_scales.insert(id, v);
+            }
+        }
+
+        let next_clone = self.next_clone.max(doc.peek_next_id().0);
+        let mut cx = Ctx {
+            doc: scratch_doc,
+            ids: std::mem::take(&mut self.ids),
+            instances: Vec::new(),
+            unresolved: Vec::new(),
+            overrides: scratch_overrides,
+            rest_overrides: Vec::new(),
+            node_lock_fields: HashSet::new(),
+            override_keys: scratch_override_keys,
+            col_anchor_guids: scratch_col_anchors,
+            row_anchor_guids: scratch_row_anchors,
+            grid_col_track_ids: scratch_col_tracks,
+            grid_row_track_ids: scratch_row_tracks,
+            no_auto_layout: scratch_no_auto_layout,
+            scales: scratch_scales,
+            pending_swaps: Vec::new(),
+            component_keys: BTreeMap::new(),
+            library_keys: BTreeMap::new(),
+            proto: Vec::new(),
+            overlay_props: BTreeMap::new(),
+            flow_pages: Vec::new(),
+            path_cache: std::mem::take(&mut self.path_cache),
+            blob_cache: std::mem::take(&mut self.blob_cache),
+            blobs: &[],
+            fast_derived_map: None,
+            large_file: true,
+            expanded_comps: self.expanded_comps.clone(),
+            next_clone,
+            clone_budget_total: self.clone_budget_total,
+            cloned_nodes: self.cloned_nodes,
+            budget_exhausted: self.budget_exhausted,
+            unexpanded_instances: BTreeSet::new(),
+            has_instance_swap_values,
+            has_connectors: false,
+            connectors: Vec::new(),
+            deferred_pending: None,
+        };
+        let res = cx.expand_nested(component, &scratch_targets, &mut scratch_done);
+        if res.is_ok() && !cx.budget_exhausted && cx.unexpanded_instances.is_empty() {
+            cx.mark_custom_instance_slots();
+        }
+        self.ids = cx.ids;
+        self.path_cache = cx.path_cache;
+        self.blob_cache = cx.blob_cache;
+        if let Err(err) = res {
+            self.unexpanded_instances.extend(pending_insts);
+            eprintln!("designos-fig: scratch component expansion of {component:?} failed: {err}");
+            return None;
+        }
+        if cx.budget_exhausted || !cx.unexpanded_instances.is_empty() {
+            self.unexpanded_instances.extend(pending_insts);
+            eprintln!(
+                "designos-fig: clone budget ({}) reached while expanding component {component:?}; {} nested instance(s) left unexpanded",
+                self.clone_budget_total,
+                self.unexpanded_instances.len()
+            );
+            return None;
+        }
+        Some(cx.doc)
+    }
+
+    fn is_pending_instance(&self, instance: NodeId) -> bool {
+        self.targets.contains_key(&instance) && !self.done.contains(&instance)
     }
 
     fn unexpanded_instances(&self) -> usize {
@@ -4013,6 +4384,245 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
 
     fn pending_instance_self_digests(&self, instance: NodeId) -> Option<BTreeMap<OverrideField, u64>> {
         self.self_digests.get(&instance).cloned()
+    }
+
+    fn stage_duplicated_page(&mut self, src_page: NodeId, dst_page: NodeId, id_map: BTreeMap<NodeId, NodeId>) {
+        if !self.hydrated_pages.contains(&src_page) && self.pending_by_page.contains_key(&src_page) {
+            self.staged_copies.insert(dst_page, (src_page, id_map));
+        }
+    }
+
+    fn insert_page(&mut self, doc: &Document, page: NodeId, stash: Option<designos_doc::DeferredPageStash>) {
+        if let Some(stash) = stash {
+            if let Some(guard) = stash.0.downcast_ref::<RemovedDeferredPageGuard>() {
+                let removed = guard.data.clone();
+                self.targets.extend(removed.targets);
+                self.done.extend(removed.done);
+                self.overrides.extend(removed.overrides);
+                self.override_keys.extend(removed.override_keys);
+                self.col_anchor_guids.extend(removed.col_anchor_guids);
+                self.row_anchor_guids.extend(removed.row_anchor_guids);
+                self.grid_col_track_ids.extend(removed.grid_col_track_ids);
+                self.grid_row_track_ids.extend(removed.grid_row_track_ids);
+                self.no_auto_layout.extend(removed.no_auto_layout);
+                self.scales.extend(removed.scales);
+                self.unexpanded_instances.extend(removed.unexpanded_instances);
+                self.instance_fingerprints.extend(removed.instance_fingerprints);
+                self.swap_mains_of.extend(removed.swap_mains_of);
+                self.self_digests.extend(removed.self_digests);
+                self.pending_by_page.insert(page, removed.insts);
+                if !removed.nodes.is_empty() {
+                    self.page_nodes.insert(page, removed.nodes);
+                }
+                self.hydrated_pages.remove(&page);
+            }
+            return;
+        }
+        let Some((src_page, id_map)) = self.staged_copies.remove(&page) else {
+            if !self.hydrated_pages.contains(&page) && !self.pending_by_page.contains_key(&page) {
+                let mut unstaged_insts = 0usize;
+                doc.walk(page, |n, _| {
+                    if matches!(n.kind, NodeKind::Instance { .. })
+                        && n.children.is_empty()
+                        && !self.targets.contains_key(&n.id)
+                        && !self.overrides.contains_key(&n.id)
+                    {
+                        unstaged_insts += 1;
+                    }
+                });
+                if unstaged_insts > 0 {
+                    self.dropped_duplicate_records += unstaged_insts;
+                    eprintln!(
+                        "designos-fig: inserted page {page:?} was not staged as a duplicate; dropped {unstaged_insts} unhydrated instance override record(s)"
+                    );
+                }
+            }
+            return;
+        };
+        if self.hydrated_pages.contains(&src_page) {
+            return;
+        }
+        let Some(src_insts) = self.pending_by_page.get(&src_page).cloned() else {
+            return;
+        };
+        let mut dst_insts = Vec::with_capacity(src_insts.len());
+        let mut dropped = 0usize;
+        for old_inst in src_insts {
+            let Some(new_inst) = id_map.get(&old_inst).copied().filter(|&id| doc.get(id).is_some() && doc.is_ancestor(page, id)) else {
+                dropped += 1;
+                continue;
+            };
+            dst_insts.push(new_inst);
+            if let Some(&target) = self.targets.get(&old_inst) {
+                self.targets.insert(new_inst, target);
+            }
+            if self.done.contains(&old_inst) {
+                self.done.insert(new_inst);
+            }
+            if let Some(ov) = self.overrides.get(&old_inst).cloned() {
+                self.overrides.insert(new_inst, ov);
+            }
+            if let Some(&scale) = self.scales.get(&old_inst) {
+                self.scales.insert(new_inst, scale);
+            }
+            if self.unexpanded_instances.contains(&old_inst) {
+                self.unexpanded_instances.insert(new_inst);
+            }
+            if let Some(&fp) = self.instance_fingerprints.get(&old_inst) {
+                self.instance_fingerprints.insert(new_inst, fp);
+            }
+            if let Some(swaps) = self.swap_mains_of.get(&old_inst).cloned() {
+                self.swap_mains_of.insert(new_inst, swaps);
+            }
+            if let Some(digests) = self.self_digests.get(&old_inst).cloned() {
+                self.self_digests.insert(new_inst, digests);
+            }
+        }
+        let mut dst_nodes = Vec::new();
+        for (&old_id, &new_id) in &id_map {
+            if doc.get(new_id).is_none() || !doc.is_ancestor(page, new_id) {
+                continue;
+            }
+            let mut has_meta = false;
+            if let Some(v) = self.override_keys.get(&old_id).cloned() {
+                self.override_keys.insert(new_id, v);
+                has_meta = true;
+            }
+            if let Some(v) = self.col_anchor_guids.get(&old_id).cloned() {
+                self.col_anchor_guids.insert(new_id, v);
+                has_meta = true;
+            }
+            if let Some(v) = self.row_anchor_guids.get(&old_id).cloned() {
+                self.row_anchor_guids.insert(new_id, v);
+                has_meta = true;
+            }
+            if let Some(v) = self.grid_col_track_ids.get(&old_id).cloned() {
+                self.grid_col_track_ids.insert(new_id, v);
+                has_meta = true;
+            }
+            if let Some(v) = self.grid_row_track_ids.get(&old_id).cloned() {
+                self.grid_row_track_ids.insert(new_id, v);
+                has_meta = true;
+            }
+            if self.no_auto_layout.contains(&old_id) {
+                self.no_auto_layout.insert(new_id);
+                has_meta = true;
+            }
+            if has_meta {
+                dst_nodes.push(new_id);
+            }
+        }
+        if dropped > 0 {
+            self.dropped_duplicate_records += dropped;
+            eprintln!(
+                "designos-fig: duplicating deferred page {src_page:?} -> {page:?} dropped {dropped} override record(s) whose layer is missing in the copy"
+            );
+        }
+        if !dst_insts.is_empty() {
+            self.pending_by_page.insert(page, dst_insts);
+            if !dst_nodes.is_empty() {
+                self.page_nodes.insert(page, dst_nodes);
+            }
+            self.hydrated_pages.remove(&page);
+        }
+    }
+
+    fn remove_page(&mut self, page: NodeId) -> Option<designos_doc::DeferredPageStash> {
+        self.staged_copies.remove(&page);
+        let insts = self.pending_by_page.remove(&page)?;
+        let nodes = self.page_nodes.remove(&page).unwrap_or_default();
+        let mut removed = RemovedDeferredPage {
+            insts: Vec::with_capacity(insts.len()),
+            nodes: Vec::with_capacity(nodes.len()),
+            targets: BTreeMap::new(),
+            done: BTreeSet::new(),
+            overrides: BTreeMap::new(),
+            override_keys: HashMap::new(),
+            col_anchor_guids: HashMap::new(),
+            row_anchor_guids: HashMap::new(),
+            grid_col_track_ids: HashMap::new(),
+            grid_row_track_ids: HashMap::new(),
+            no_auto_layout: HashSet::new(),
+            scales: BTreeMap::new(),
+            unexpanded_instances: BTreeSet::new(),
+            instance_fingerprints: HashMap::new(),
+            swap_mains_of: HashMap::new(),
+            self_digests: HashMap::new(),
+        };
+        for inst in insts {
+            if let Some(v) = self.targets.remove(&inst) {
+                removed.targets.insert(inst, v);
+            }
+            if self.done.remove(&inst) {
+                removed.done.insert(inst);
+            }
+            if let Some(v) = self.overrides.remove(&inst) {
+                removed.overrides.insert(inst, v);
+            }
+            if let Some(v) = self.scales.remove(&inst) {
+                removed.scales.insert(inst, v);
+            }
+            if self.unexpanded_instances.remove(&inst) {
+                removed.unexpanded_instances.insert(inst);
+            }
+            if let Some(v) = self.instance_fingerprints.remove(&inst) {
+                removed.instance_fingerprints.insert(inst, v);
+            }
+            if let Some(v) = self.swap_mains_of.remove(&inst) {
+                removed.swap_mains_of.insert(inst, v);
+            }
+            if let Some(v) = self.self_digests.remove(&inst) {
+                removed.self_digests.insert(inst, v);
+            }
+            removed.insts.push(inst);
+        }
+        for node in nodes {
+            if let Some(v) = self.override_keys.remove(&node) {
+                removed.override_keys.insert(node, v);
+            }
+            if let Some(v) = self.col_anchor_guids.remove(&node) {
+                removed.col_anchor_guids.insert(node, v);
+            }
+            if let Some(v) = self.row_anchor_guids.remove(&node) {
+                removed.row_anchor_guids.insert(node, v);
+            }
+            if let Some(v) = self.grid_col_track_ids.remove(&node) {
+                removed.grid_col_track_ids.insert(node, v);
+            }
+            if let Some(v) = self.grid_row_track_ids.remove(&node) {
+                removed.grid_row_track_ids.insert(node, v);
+            }
+            if self.no_auto_layout.remove(&node) {
+                removed.no_auto_layout.insert(node);
+            }
+            removed.nodes.push(node);
+        }
+        let inst_count = removed.insts.len();
+        self.live_stash_count.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        self.live_stash_records.fetch_add(inst_count, std::sync::atomic::Ordering::AcqRel);
+        Some(designos_doc::DeferredPageStash(std::sync::Arc::new(RemovedDeferredPageGuard {
+            data: removed,
+            inst_count,
+            live_stash_count: self.live_stash_count.clone(),
+            live_stash_records: self.live_stash_records.clone(),
+            hydrator: self.self_weak.clone(),
+        })))
+    }
+
+    fn dropped_duplicate_records(&self) -> usize {
+        self.dropped_duplicate_records
+    }
+
+    fn take_dropped_duplicate_records(&mut self) -> usize {
+        std::mem::take(&mut self.dropped_duplicate_records)
+    }
+
+    fn stored_record_count(&self) -> usize {
+        self.pending_by_page.values().map(Vec::len).sum::<usize>() + self.live_stash_records.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    fn shared_map_entry_count(&self) -> usize {
+        self.ids.len() + self.overrides.len() + self.override_keys.len() + self.path_cache.len() + self.blob_cache.len()
     }
 }
 
@@ -5073,6 +5683,12 @@ mod expand_depth_tests {
             derived_outlines: HashMap::new(),
             swap_mains_of: HashMap::new(),
             self_digests: HashMap::new(),
+            staged_copies: HashMap::new(),
+            page_nodes: HashMap::new(),
+            self_weak: std::sync::Weak::new(),
+            live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            dropped_duplicate_records: 0,
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
         assert!(!doc_h.ensure_page_hydrated(p2), "hydration that hits u64::MAX must fail cleanly");
@@ -5117,6 +5733,12 @@ mod expand_depth_tests {
             derived_outlines: HashMap::new(),
             swap_mains_of: HashMap::new(),
             self_digests: HashMap::new(),
+            staged_copies: HashMap::new(),
+            page_nodes: HashMap::new(),
+            self_weak: std::sync::Weak::new(),
+            live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            dropped_duplicate_records: 0,
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator_b)));
         assert!(doc_h.ensure_page_hydrated(p2));
@@ -5125,6 +5747,146 @@ mod expand_depth_tests {
         assert_eq!(doc_h.hydration_unexpanded_instances(), 1);
         assert_eq!(doc_h.take_hydration_unexpanded_instances(), 1);
         assert_eq!(doc_h.hydration_unexpanded_instances(), 0);
+    }
+
+    fn scratch_nested_instance_doc(
+        next_clone: u64,
+        clone_budget_total: usize,
+    ) -> (Document, std::sync::Arc<std::sync::Mutex<DeferredFigHydrator>>, NodeId, NodeId, NodeId, NodeId) {
+        let mut doc = Document::new("scratch_miss_ids");
+        let p1 = doc.add_page("Page 1");
+        let p2 = doc.add_page("Page 2");
+        let leaf_comp = NodeId(10);
+        let mut c_leaf = Node::new(leaf_comp, NodeKind::Component(FrameProps::default()));
+        let leaf_rect = NodeId(11);
+        let mut r_leaf = Node::new(leaf_rect, NodeKind::Rectangle);
+        r_leaf.parent = Some(leaf_comp);
+        c_leaf.children.push(leaf_rect);
+        c_leaf.parent = Some(p1);
+
+        let inner_comp = NodeId(12);
+        let mut c_inner = Node::new(inner_comp, NodeKind::Component(FrameProps::default()));
+        let staged_inst_src = NodeId(13);
+        let mut i_staged = Node::new(staged_inst_src, NodeKind::Instance { frame: FrameProps::default(), component: Some(leaf_comp), component_key: None });
+        let staged_inst_child = NodeId(14);
+        let mut r_staged = Node::new(staged_inst_child, NodeKind::Rectangle);
+        r_staged.parent = Some(staged_inst_src);
+        r_staged.component.source = Some(leaf_rect);
+        i_staged.children.push(staged_inst_child);
+        i_staged.parent = Some(inner_comp);
+        c_inner.children.push(staged_inst_src);
+        c_inner.parent = Some(p1);
+
+        let outer_comp = NodeId(20);
+        let mut c_outer = Node::new(outer_comp, NodeKind::Component(FrameProps::default()));
+        let nested_inst = NodeId(21);
+        let mut i_nested = Node::new(nested_inst, NodeKind::Instance { frame: FrameProps::default(), component: Some(inner_comp), component_key: None });
+        i_nested.parent = Some(outer_comp);
+        c_outer.children.push(nested_inst);
+        c_outer.parent = Some(p2);
+
+        doc.get_mut(p1).unwrap().children.extend([leaf_comp, inner_comp]);
+        doc.get_mut(p2).unwrap().children.push(outer_comp);
+        doc.nodes.insert(leaf_comp, c_leaf);
+        doc.nodes.insert(leaf_rect, r_leaf);
+        doc.nodes.insert(inner_comp, c_inner);
+        doc.nodes.insert(staged_inst_src, i_staged);
+        doc.nodes.insert(staged_inst_child, r_staged);
+        doc.nodes.insert(outer_comp, c_outer);
+        doc.nodes.insert(nested_inst, i_nested);
+        doc.reserve_ids(nested_inst);
+
+        let mut pending_by_page = HashMap::new();
+        pending_by_page.insert(p2, vec![nested_inst]);
+        let mut hydrated_pages = HashSet::new();
+        hydrated_pages.insert(p1);
+        let mut targets = BTreeMap::new();
+        targets.insert(nested_inst, inner_comp);
+        let mut expanded_comps = HashSet::new();
+        expanded_comps.insert(leaf_comp);
+        expanded_comps.insert(inner_comp);
+        let hydrator = std::sync::Arc::new(std::sync::Mutex::new(DeferredFigHydrator {
+            pending_by_page,
+            hydrated_pages,
+            targets,
+            done: BTreeSet::new(),
+            ids: BTreeMap::new(),
+            overrides: BTreeMap::new(),
+            override_keys: HashMap::new(),
+            col_anchor_guids: HashMap::new(),
+            row_anchor_guids: HashMap::new(),
+            grid_col_track_ids: HashMap::new(),
+            grid_row_track_ids: HashMap::new(),
+            no_auto_layout: HashSet::new(),
+            scales: BTreeMap::new(),
+            path_cache: HashMap::new(),
+            blob_cache: HashMap::new(),
+            expanded_comps,
+            next_clone,
+            clone_budget_total,
+            cloned_nodes: 0,
+            budget_exhausted: false,
+            unexpanded_instances: BTreeSet::new(),
+            last_error: None,
+            instance_fingerprints: HashMap::new(),
+            derived_outlines: HashMap::new(),
+            swap_mains_of: HashMap::new(),
+            self_digests: HashMap::new(),
+            staged_copies: HashMap::new(),
+            page_nodes: HashMap::new(),
+            self_weak: std::sync::Weak::new(),
+            live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            dropped_duplicate_records: 0,
+        }));
+        doc.page_hydrator = Some(hydrator.clone());
+        (doc, hydrator, p1, p2, outer_comp, nested_inst)
+    }
+
+    #[test]
+    fn scratch_budget_stop_after_staging_instance_records_live_id_without_alloc_collision() {
+        // Budget 1 clones `staged_inst_src` into `staged[0]` (allocating scratch id 22) and then trips
+        // when popping `staged_inst_child` (`parent_idx = Some(0)`), which inserts the staged scratch
+        // instance id into `cx.unexpanded_instances`. Because the scratch document is discarded, the
+        // hydrator must record the live pending instance id (`nested_inst`, 21) so a following `alloc_id`
+        // does not collide with the miss set.
+        let (mut doc, hydrator, p1, _p2, outer_comp, nested_inst) = scratch_nested_instance_doc(22, 1);
+        let cmd = designos_doc::create_instance(&mut doc, outer_comp, p1, Vec2::ZERO);
+        let inserted_ids: Vec<NodeId> = match &cmd {
+            designos_doc::Command::Insert { nodes, .. } => nodes.iter().map(|n| n.id).collect(),
+            _ => panic!("expected Insert"),
+        };
+        cmd.apply(&mut doc).unwrap();
+        let next_id = doc.alloc_id();
+
+        let recorded = hydrator.lock().unwrap().unexpanded_instances.clone();
+        assert_eq!(recorded, BTreeSet::from([nested_inst]), "recorded miss ids must be the live pending instance ids");
+        for id in inserted_ids.iter().copied().chain(std::iter::once(next_id)) {
+            assert!(!recorded.contains(&id), "allocated id {id:?} collided with recorded miss set {recorded:?}");
+        }
+        assert_eq!(doc.hydration_unexpanded_instances(), 1);
+        assert!(doc.hydration_error().is_none());
+
+        let cmd2 = designos_doc::create_instance(&mut doc, outer_comp, p1, Vec2::ZERO);
+        cmd2.apply(&mut doc).unwrap();
+        assert_eq!(
+            hydrator.lock().unwrap().unexpanded_instances,
+            BTreeSet::from([nested_inst]),
+            "repeated scratch budget stops must deduplicate on the live pending instance id"
+        );
+        assert_eq!(doc.hydration_unexpanded_instances(), 1);
+    }
+
+    #[test]
+    fn scratch_id_exhaustion_counts_miss_with_live_id() {
+        let (mut doc, hydrator, p1, _p2, outer_comp, nested_inst) = scratch_nested_instance_doc(u64::MAX, MAX_IMPORT_CLONES);
+        let cmd = designos_doc::create_instance(&mut doc, outer_comp, p1, Vec2::ZERO);
+        cmd.apply(&mut doc).unwrap();
+
+        let recorded = hydrator.lock().unwrap().unexpanded_instances.clone();
+        assert_eq!(recorded, BTreeSet::from([nested_inst]), "id-space exhaustion during scratch expansion must record the live pending instance id");
+        assert_eq!(doc.hydration_unexpanded_instances(), 1);
+        assert!(doc.hydration_error().is_none());
     }
 
     #[test]

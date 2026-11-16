@@ -333,6 +333,35 @@ fn a_table_op_text_edit_shapes_only_the_new_text() {
     }
 }
 
+/// A large table edit must not reshape every unrelated cell just because the global cache is
+/// smaller than the table. The changed cell is the only new shape on the fast path.
+#[test]
+fn a_large_table_text_edit_shapes_only_the_changed_cell() {
+    install_measurer();
+    let n = 257usize;
+    let mut t = T::new();
+    let mut nodes = build_table(&mut t.doc, n, n, Vec2::ZERO);
+    let cell = nodes[1 + 5 * n + 5].id;
+    for (i, node) in nodes.iter_mut().skip(1).enumerate() {
+        if let NodeKind::TableCell(c) = &mut node.kind {
+            c.text = default_cell_text(&format!("Cell {i}"));
+        }
+    }
+    let table = nodes[0].id;
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let mut warm = designos_doc::table::TableWarm::new(&t.doc, table).unwrap();
+    while !warm.done() {
+        warm.step(&t.doc, 128);
+    }
+    designos_doc::apply_table_relayout(&mut t.doc, table);
+    let before = designos_render::shaping_runs();
+    let cmd = designos_doc::table_ops::set_cell_text(&t.doc, table, 5, 5, "Edited").unwrap();
+    History::default().exec(&mut t.doc, cmd).unwrap();
+    assert_eq!(designos_render::shaping_runs() - before, 1, "a one-cell edit reshaped unrelated table cells");
+    assert!(designos_doc::table::relayout(&t.doc, table).is_empty(), "the table remains solved");
+    assert_eq!(t.doc.get(cell).unwrap().size.y, 44.0);
+}
+
 /// Accented single-line text at 70 % line height and 32 px overhangs its line box. The cell does not
 /// clip it: every glyph pixel a free text node would paint is painted in the cell.
 #[test]

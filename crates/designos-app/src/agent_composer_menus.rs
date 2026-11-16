@@ -57,6 +57,9 @@ pub(super) fn attach_menu(ui: &mut Ui, anchor: Rect, prd_on: bool, skills_n: usi
         }
     }
     let stay = pick.is_none() && !close_menu(ui, rect, anchor, ATTACH_PASS);
+    if stay {
+        note_overlay(ui.ctx(), rect);
+    }
     (pick, stay)
 }
 
@@ -88,6 +91,9 @@ pub(super) fn mode_menu(ui: &mut Ui, anchor: Rect, current: PermissionMode) -> (
         theme::TEXT_TERTIARY,
     );
     let stay = pick.is_none() && !close_menu(ui, rect, anchor, MODE_PASS);
+    if stay {
+        note_overlay(ui.ctx(), rect);
+    }
     (pick, stay)
 }
 
@@ -111,6 +117,60 @@ fn menu_frame(ui: &mut Ui, rect: Rect, id: &str) {
     kit::menu_surface(ui.painter(), rect);
     widgets::record(ui, id, rect);
     crate::widgets::popup_open::mark_open(ui.ctx());
+}
+
+const OVERLAYS_SLOT: &str = "agents-composer-overlay-rects";
+/// The composer overlays that can be open in one pass: attach or mode menu, and the mention popup.
+const OVERLAYS_MAX: usize = 3;
+
+/// The rects of the overlays the composer painted in `pass`.
+#[derive(Clone, Copy)]
+struct Overlays {
+    pass: u64,
+    /// One more than the last pass in which any overlay was noted, `0` for never.
+    seen: u64,
+    len: usize,
+    rects: [Rect; OVERLAYS_MAX],
+}
+
+impl Default for Overlays {
+    fn default() -> Self {
+        Self { pass: 0, seen: 0, len: 0, rects: [Rect::NOTHING; OVERLAYS_MAX] }
+    }
+}
+
+/// Notes where an overlay of the composer sits this pass. The composer paints before the terminal viewport, and egui gives the
+/// click to the widget added last, so the viewport asks [`overlay_contains`] and yields the pointer over these rects. The slot is
+/// overwritten in place, so a pass after the first allocates nothing, and a rect from an earlier pass is never read.
+pub(crate) fn note_overlay(ctx: &egui::Context, rect: Rect) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| {
+        let slot = d.get_temp_mut_or_default::<Overlays>(Id::new(OVERLAYS_SLOT));
+        if slot.pass != pass {
+            slot.pass = pass;
+            slot.len = 0;
+        }
+        if slot.len < OVERLAYS_MAX {
+            slot.rects[slot.len] = rect;
+            slot.len += 1;
+        }
+        slot.seen = pass + 1;
+    });
+}
+
+/// True when a composer overlay stays open in this pass. The composer runs before the terminal viewport in the same pass, so noting
+/// the overlay in this pass already makes the viewport hover-only before egui hit-tests the next pass's press against this pass's
+/// widgets. It reads what was noted this pass, not a stale flag, so a pass that closes a menu or a tab that paints no composer
+/// holds nothing.
+pub(crate) fn overlay_painted_recently(ctx: &egui::Context) -> bool {
+    let now = ctx.cumulative_pass_nr();
+    ctx.data(|d| d.get_temp::<Overlays>(Id::new(OVERLAYS_SLOT))).is_some_and(|o| o.seen == now + 1)
+}
+
+/// True when `pos` is over an overlay the composer painted in this pass.
+pub(crate) fn overlay_contains(ctx: &egui::Context, pos: Pos2) -> bool {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data(|d| d.get_temp::<Overlays>(Id::new(OVERLAYS_SLOT))).is_some_and(|o| o.pass == pass && o.rects[..o.len].iter().any(|r| r.contains(pos)))
 }
 
 fn menu_row(ui: &mut Ui, rect: Rect, id: &str, label: &str, caption: Option<&str>, checked: bool, tip: Option<&str>) -> bool {

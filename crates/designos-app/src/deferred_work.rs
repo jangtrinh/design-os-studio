@@ -11,6 +11,14 @@ use crate::app::App;
 /// A job that runs on a later frame, on the app.
 pub(crate) type QueuedWork = Box<dyn FnOnce(&mut App)>;
 
+/// A close must not let a retrying job hold the UI forever. Work left after this many passes is dropped with the closing app.
+pub(crate) const MAX_QUIT_DRAIN_PASSES: usize = 64;
+
+#[cfg(test)]
+thread_local! {
+    static LAST_QUIT_DROP_LOG: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
 impl App {
     /// Shows `status` now and runs `work` on the next frame, after the status has been painted.
     pub(crate) fn run_after_status_paint(&mut self, status: impl Into<String>, work: impl FnOnce(&mut App) + 'static) {
@@ -34,9 +42,20 @@ impl App {
     /// finishes before the window closes. Returns how many jobs ran.
     pub(crate) fn finish_queued_work_before_quit(&mut self) -> usize {
         let mut queued = 0;
-        while self.has_queued_work() {
+        for _ in 0..MAX_QUIT_DRAIN_PASSES {
+            if !self.has_queued_work() {
+                break;
+            }
             queued += self.queued_work.len();
             self.run_queued_work();
+        }
+        let dropped = self.queued_work.len();
+        if dropped > 0 {
+            self.queued_work.clear();
+            let line = format!("designos: warn: quit dropped {dropped} queued job(s) after {MAX_QUIT_DRAIN_PASSES} drain passes");
+            eprintln!("{line}");
+            #[cfg(test)]
+            LAST_QUIT_DROP_LOG.with(|slot| *slot.borrow_mut() = Some(line));
         }
         queued
     }
@@ -81,5 +100,33 @@ mod tests {
     fn a_quit_with_nothing_queued_runs_nothing() {
         let mut app = App::new(Document::new("Doc"));
         assert_eq!(app.finish_queued_work_before_quit(), 0);
+    }
+
+    #[test]
+    fn a_quit_bounds_a_job_that_keeps_requeuing_itself() {
+        const EXPECTED_MAX_PASSES: usize = 64;
+
+        fn requeue(app: &mut App, ran: Rc<Cell<usize>>) {
+            ran.set(ran.get() + 1);
+            if ran.get() <= EXPECTED_MAX_PASSES + 1 {
+                let next = Rc::clone(&ran);
+                app.run_after_status_paint("retrying", move |app| requeue(app, next));
+            }
+        }
+
+        let mut app = App::new(Document::new("Doc"));
+        let ran = Rc::new(Cell::new(0));
+        let first = Rc::clone(&ran);
+        app.run_after_status_paint("first", move |app| requeue(app, first));
+
+        assert_eq!(app.finish_queued_work_before_quit(), EXPECTED_MAX_PASSES);
+        assert_eq!(ran.get(), EXPECTED_MAX_PASSES, "quit must stop a self-requeueing job at the drain bound");
+        assert!(!app.has_queued_work(), "work left after the bound is discarded with the closing app");
+        let log = super::LAST_QUIT_DROP_LOG.with(|slot| slot.borrow().clone());
+        assert_eq!(
+            log.as_deref(),
+            Some("designos: warn: quit dropped 1 queued job(s) after 64 drain passes"),
+            "quit logs the dropped job count when the drain bound is hit"
+        );
     }
 }

@@ -29,7 +29,7 @@ fn expose_toggle_key(nested: NodeId) -> String {
 /// - `Card` main component with a background rect `CardBg` and two nested `Badge` instances:
 ///   `Leading badge` and `Trailing badge`;
 /// - `CardInst` outer instance of `Card`.
-fn setup_nested_expose_scene() -> (Sim, NodeId, NodeId, NodeId, NodeId, NodeId, NodeId) {
+pub(super) fn setup_nested_expose_scene() -> (Sim, NodeId, NodeId, NodeId, NodeId, NodeId, NodeId) {
     let mut s = Sim::new();
     let page = s.app().page;
 

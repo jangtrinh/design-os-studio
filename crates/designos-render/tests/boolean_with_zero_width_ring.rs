@@ -33,6 +33,60 @@ fn scene(op: BooleanOp, ring_first: bool) -> Pixmap {
     t.render(120, 120)
 }
 
+fn line_scene(op: BooleanOp, line_first: bool) -> Pixmap {
+    let mut t = T::new();
+    let group = t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::BooleanOp(op));
+        n.transform = Affine::translate(10.0, 10.0);
+        n.size = Vec2::new(100.0, 100.0);
+        n.fills = vec![Paint::solid(Color::BLACK)];
+        n
+    });
+    let line = |id| {
+        let mut n = Node::new(id, NodeKind::Line);
+        n.size = Vec2::new(100.0, 0.0);
+        n
+    };
+    let rect = |id| Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+    if line_first {
+        t.add(Some(group), line);
+        t.add(Some(group), rect);
+    } else {
+        t.add(Some(group), rect);
+        t.add(Some(group), line);
+    }
+    t.render(120, 120)
+}
+
+fn nested_empty_scene(op: BooleanOp, empty_first: bool) -> Pixmap {
+    let mut t = T::new();
+    let outer = t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::BooleanOp(op));
+        n.transform = Affine::translate(10.0, 10.0);
+        n.size = Vec2::new(100.0, 100.0);
+        n.fills = vec![Paint::solid(Color::BLACK)];
+        n
+    });
+    let add_empty_inner = |t: &mut T| {
+        let inner = t.add(Some(outer), |id| {
+            let mut n = Node::new(id, NodeKind::BooleanOp(BooleanOp::Union));
+            n.size = Vec2::new(100.0, 100.0);
+            n
+        });
+        let mut ring = Node::ellipse(t.doc.alloc_id(), Rect::new(0.0, 0.0, 100.0, 100.0));
+        ring.kind = NodeKind::Ellipse(ArcData { start: 0.0, end: std::f32::consts::TAU, inner_radius: 1.0 });
+        t.doc.insert(inner, ring).unwrap();
+    };
+    if empty_first {
+        add_empty_inner(&mut t);
+        t.add(Some(outer), |id| Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 100.0)));
+    } else {
+        t.add(Some(outer), |id| Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 100.0)));
+        add_empty_inner(&mut t);
+    }
+    t.render(120, 120)
+}
+
 fn ink(pm: &Pixmap) -> usize {
     pm.pixels().iter().filter(|p| p.red() < 128).count()
 }
@@ -62,4 +116,40 @@ fn union_and_exclude_leave_the_other_operand() {
 fn subtracting_a_ring_without_width_keeps_the_first_operand() {
     let n = ink(&scene(BooleanOp::Subtract, false));
     assert!((9900..=10100).contains(&n), "{n}");
+}
+
+#[test]
+fn an_open_line_is_a_zero_area_boolean_operand() {
+    assert_eq!(ink(&line_scene(BooleanOp::Intersect, false)), 0);
+    assert_eq!(ink(&line_scene(BooleanOp::Intersect, true)), 0);
+    assert_eq!(ink(&line_scene(BooleanOp::Subtract, true)), 0);
+    assert!((9900..=10100).contains(&ink(&line_scene(BooleanOp::Subtract, false))));
+    for op in [BooleanOp::Intersect, BooleanOp::Subtract, BooleanOp::Union, BooleanOp::Exclude] {
+        for line_first in [false, true] {
+            let pm = line_scene(op, line_first);
+            assert_eq!(pm.data(), scene(op, line_first).data());
+            if matches!(op, BooleanOp::Union | BooleanOp::Exclude) {
+                let n = ink(&pm);
+                assert!((9900..=10100).contains(&n), "{op:?} line_first={line_first}: {n} inked pixels, the square is 10000");
+            }
+        }
+    }
+}
+
+#[test]
+fn an_empty_boolean_result_remains_an_operand_when_nested() {
+    assert_eq!(ink(&nested_empty_scene(BooleanOp::Intersect, false)), 0);
+    assert_eq!(ink(&nested_empty_scene(BooleanOp::Intersect, true)), 0);
+    assert_eq!(ink(&nested_empty_scene(BooleanOp::Subtract, true)), 0);
+    assert!((9900..=10100).contains(&ink(&nested_empty_scene(BooleanOp::Subtract, false))));
+    for op in [BooleanOp::Intersect, BooleanOp::Subtract, BooleanOp::Union, BooleanOp::Exclude] {
+        for empty_first in [false, true] {
+            let pm = nested_empty_scene(op, empty_first);
+            assert_eq!(pm.data(), scene(op, empty_first).data());
+            if matches!(op, BooleanOp::Union | BooleanOp::Exclude) {
+                let n = ink(&pm);
+                assert!((9900..=10100).contains(&n), "{op:?} empty_first={empty_first}: {n} inked pixels, the square is 10000");
+            }
+        }
+    }
 }

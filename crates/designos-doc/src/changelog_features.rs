@@ -976,7 +976,7 @@ pub fn apply_bound_key_to_node(node: &mut Node, key: &str, value: &VariableValue
                 let clamped = r.max(0.0);
                 node.corner_radii = [clamped; 4];
                 node.fill_geometry = None;
-                node.stroke_geometry = None;
+                node.drop_stroke_outline();
             }
         }
         return;
@@ -1373,6 +1373,7 @@ impl PrototypeRuntime {
                 } else {
                     instance_root_of(doc, source_node).unwrap_or(source_node)
                 };
+                // Prototype player's `Change to` mutates the live preview session directly and records no undo step.
                 swap_instance_to_component(doc, inst_id, *dest)?;
             }
             Action::SetVariable { variable, value } => {
@@ -1419,6 +1420,8 @@ impl PrototypeRuntime {
 
 /// Swaps `instance_id` to target component variant `dest_comp` in-place,
 /// updating variant property values and reflowing any enclosing Auto-Layout.
+///
+/// The only production caller is the prototype player's `Change to`, which records no undo step.
 pub fn swap_instance_to_component(doc: &mut Document, instance_id: NodeId, dest_comp: NodeId) -> Result<NodeId, DocError> {
     if doc.get(instance_id).is_none() {
         return Err(DocError::NotFound(instance_id));
@@ -1435,13 +1438,14 @@ pub fn swap_instance_to_component(doc: &mut Document, instance_id: NodeId, dest_
             inst.component.values.insert(k, PropValue::Variant(v));
         }
     }
-    let relayout_root = doc.get(instance_id).and_then(|n| n.parent).unwrap_or(instance_id);
-    relayout_subtree(doc, relayout_root);
+    refit_and_relayout_after_swap(doc, instance_id);
     Ok(dest_comp)
 }
 
 /// Swaps `instance_id` to the sibling variant inside its `ComponentSet` where
 /// `prop_name == variant_value` (e.g. `("State", "Hover")`).
+///
+/// The only production caller is the prototype player's `Change to`, which records no undo step.
 pub fn swap_instance_variant(doc: &mut Document, instance_id: NodeId, prop_name: &str, variant_value: &str) -> Result<NodeId, DocError> {
     let cmd = set_instance_prop(doc, instance_id, prop_name, Some(PropValue::Variant(variant_value.to_string())));
     cmd.apply(doc)?;
@@ -1451,9 +1455,65 @@ pub fn swap_instance_variant(doc: &mut Document, instance_id: NodeId, prop_name:
             inst.size = comp_size;
         }
     }
-    let relayout_root = doc.get(instance_id).and_then(|n| n.parent).unwrap_or(instance_id);
-    relayout_subtree(doc, relayout_root);
+    refit_and_relayout_after_swap(doc, instance_id);
     Ok(new_comp)
+}
+
+fn refit_and_relayout_after_swap(doc: &mut Document, id: NodeId) {
+    let is_al = |doc: &Document, n_id: NodeId| doc.get(n_id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.auto_layout.is_some());
+    let geom_moved = |before: Option<(Vec2, f32, f32)>, after: Option<(Vec2, f32, f32)>| match (before, after) {
+        (Some((bs, btx, bty)), Some((as_, atx, aty))) => {
+            (bs.x - as_.x).abs() > 1e-3 || (bs.y - as_.y).abs() > 1e-3 || (btx - atx).abs() > 1e-3 || (bty - aty).abs() > 1e-3
+        }
+        _ => false,
+    };
+    let snap = |doc: &Document, n_id: NodeId| doc.get(n_id).map(|n| (n.size, n.transform.tx, n.transform.ty));
+
+    let Some(parent) = doc.get(id).and_then(|n| n.parent) else {
+        relayout_subtree(doc, id);
+        return;
+    };
+
+    let mut cur = if matches!(doc.get(parent).map(|n| &n.kind), Some(NodeKind::Group)) {
+        relayout_subtree(doc, id);
+        Some(parent)
+    } else {
+        let before = snap(doc, parent);
+        relayout_subtree(doc, parent);
+        if geom_moved(before, snap(doc, parent)) {
+            doc.get(parent).and_then(|n| n.parent)
+        } else {
+            None
+        }
+    };
+
+    while let Some(node_id) = cur {
+        if matches!(doc.get(node_id).map(|n| &n.kind), Some(NodeKind::Group)) {
+            let before = snap(doc, node_id);
+            let _ = crate::layout_constraints::apply_resize_to_fit_one(doc, node_id, |_d, _id| {});
+            if !geom_moved(before, snap(doc, node_id)) {
+                break;
+            }
+            cur = doc.get(node_id).and_then(|n| n.parent);
+        } else if is_al(doc, node_id) {
+            let mut top_al = node_id;
+            while let Some(p) = doc.get(top_al).and_then(|n| n.parent) {
+                if is_al(doc, p) {
+                    top_al = p;
+                } else {
+                    break;
+                }
+            }
+            let before = snap(doc, top_al);
+            doc.relayout_seeds_upward(&[node_id]);
+            if !geom_moved(before, snap(doc, top_al)) {
+                break;
+            }
+            cur = doc.get(top_al).and_then(|n| n.parent);
+        } else {
+            break;
+        }
+    }
 }
 
 // ===========================================================================

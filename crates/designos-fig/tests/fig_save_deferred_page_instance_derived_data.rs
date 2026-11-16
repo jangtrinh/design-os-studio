@@ -38,6 +38,15 @@ fn derived_data() -> Value {
     ])
 }
 
+fn derived_data_with_instance_self() -> Value {
+    let mut entries = derived_data().as_array().cloned().expect("derived entries");
+    entries.push(json!({
+        "guidPath": {"guids": [guid(BUTTON.0, BUTTON.1)]},
+        "transform": matrix(10.0, 20.0)
+    }));
+    Value::Array(entries)
+}
+
 fn dots() -> Vec<Value> {
     [(DOT, "Dot"), (SECOND_DOT, "Second dot")]
         .into_iter()
@@ -71,6 +80,57 @@ fn edit_size(doc: &mut Document, name: &str, parent_name: &str) {
         .map(|n| n.id)
         .unwrap_or_else(|| panic!("no {name} in {parent_name}"));
     doc.get_mut(id).expect("node").size.x += 5.0;
+}
+
+#[test]
+fn opening_a_deferred_page_after_main_edit_does_not_apply_stale_derived_size() {
+    let fig = derived_fixture(Vec::new());
+    let mut live = import_fig(&fig).expect("import");
+    let page = page_named(&live, "404 pages");
+    let main_label = live
+        .nodes
+        .values()
+        .find(|n| n.name == "Text" && n.parent.and_then(|p| live.get(p)).is_some_and(|p| p.name == "Buttons/Button"))
+        .map(|n| n.id)
+        .expect("main label");
+    assert!(!page_hydrated(&live, page));
+    live.get_mut(main_label).expect("main label").size = Vec2::new(125.0, 48.0);
+    assert!(live.ensure_page_hydrated(page), "page opens");
+    let instance = variant_button(&live);
+    let label = live
+        .get(instance)
+        .expect("hydrated instance")
+        .children
+        .iter()
+        .filter_map(|&c| live.get(c))
+        .find(|n| matches!(n.kind, NodeKind::Text(_)))
+        .expect("hydrated label");
+    assert_eq!(label.size, Vec2::new(125.0, 48.0), "page hydration must use the edited main, not stale derived 90x20");
+}
+
+#[test]
+fn opening_a_deferred_page_after_main_edit_keeps_instance_overrides() {
+    let fig = derived_fixture(Vec::new());
+    let mut live = import_fig(&fig).expect("import");
+    let page = page_named(&live, "404 pages");
+    let main_label = live
+        .nodes
+        .values()
+        .find(|n| n.name == "Text" && n.parent.and_then(|p| live.get(p)).is_some_and(|p| p.name == "Buttons/Button"))
+        .map(|n| n.id)
+        .expect("main label");
+    assert!(!page_hydrated(&live, page));
+    live.get_mut(main_label).expect("main label").size = Vec2::new(125.0, 48.0);
+    assert!(live.ensure_page_hydrated(page), "page opens");
+
+    let instance = variant_button(&live);
+    assert_eq!(label_of(&live, instance), "Go back", "clearing stale derived data must keep text override on the instance");
+    let icon = live.get(instance).expect("hydrated instance").children.iter().filter_map(|&c| live.get(c)).find(|n| n.name == "Icon").expect("hydrated icon");
+    assert!((icon.stroke.weight - 1.6666666).abs() < 1e-5, "clearing stale derived data must keep stroke override on the instance");
+
+    let saved = export_fig(&live).expect("export");
+    assert_eq!(reopened_label_size(&saved), Vec2::new(125.0, 48.0), "saving after opening the page must not write stale derived size back");
+    assert_eq!(reopened_label(&saved), "Go back", "override survives save after opening the page");
 }
 
 #[test]
@@ -113,6 +173,43 @@ fn after_its_main_component_is_edited_the_derived_data_is_omitted_and_the_overri
     let saved = export_fig(&live).expect("export");
     assert!(saved_derived(&saved, INSTANCE).is_empty(), "derived data computed for the old content is not written");
     assert_eq!(saved_entries(&saved, INSTANCE), saved_entries(&fig, INSTANCE), "the override entries are");
+}
+
+#[test]
+fn a_move_of_an_unopened_instance_drops_only_its_stale_derived_transform() {
+    let fig = fixture_with(json!({"derivedSymbolData": derived_data_with_instance_self()}), text_and_stroke_overrides(), dots(), blobs());
+    let mut live = import_fig(&fig).expect("import");
+    let instance = variant_button(&live);
+    live.get_mut(instance).expect("instance").transform.tx += 100.0;
+
+    let saved = export_fig(&live).expect("export");
+    let derived = saved_derived(&saved, INSTANCE);
+    assert!(
+        !derived.iter().any(|e| e["guidPath"]["guids"].as_array().is_some_and(|g| g.len() == 1 && g[0] == guid(BUTTON.0, BUTTON.1))),
+        "the stale self transform must not overwrite the moved instance"
+    );
+    assert!(derived.iter().any(|e| e.get("size").is_some()), "descendant derived data remains available");
+
+    let reopened = reopened_label_size(&saved);
+    assert_eq!(reopened, Vec2::new(90.0, 20.0), "the save remains readable after dropping only the stale self transform");
+    let mut reopened_doc = import_fig(&saved).expect("reopen moved instance");
+    reopened_doc.hydrate_all_pages();
+    let reopened_instance = variant_button(&reopened_doc);
+    assert!(
+        (reopened_doc.get(reopened_instance).expect("reopened instance").transform.tx - 100.0).abs() < 1e-4,
+        "reopen preserves the moved instance position"
+    );
+
+    // Moving the unopened instance and returning it to its open-time transform leaves derived data and own entries intact.
+    let no_edit_saved = export_fig(&import_fig(&fig).expect("import")).expect("export");
+    let mut moved_back = import_fig(&fig).expect("import");
+    let b = variant_button(&moved_back);
+    let initial = moved_back.get(b).expect("instance").transform;
+    moved_back.get_mut(b).expect("instance").transform.tx += 100.0;
+    moved_back.get_mut(b).expect("instance").transform = initial;
+    let saved_back = export_fig(&moved_back).expect("export");
+    assert_eq!(saved_derived(&saved_back, INSTANCE), saved_derived(&no_edit_saved, INSTANCE));
+    assert_eq!(saved_entries(&saved_back, INSTANCE), saved_entries(&no_edit_saved, INSTANCE));
 }
 
 #[test]
@@ -180,4 +277,34 @@ fn a_deferred_instance_pointed_at_another_component_gets_no_derived_data() {
 
     let saved = export_fig(&live).expect("export");
     assert!(saved_derived(&saved, INSTANCE).is_empty(), "derived data computed for one component is not written under another");
+}
+
+#[test]
+fn a_failed_page_hydration_after_a_main_edit_preserves_the_instance_derived_data() {
+    let on_page_2 = fig_node(
+        (1, 60),
+        (0, 2),
+        "INSTANCE",
+        "Buttons/Button",
+        json!({"symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1), "symbolOverrides": text_and_stroke_overrides()}, "derivedSymbolData": derived_data()}),
+    );
+    let fig = derived_fixture(vec![on_page_2]);
+    let mut live = import_fig(&fig).expect("import");
+    let page = page_named(&live, "404 pages");
+    let instance = variant_button(&live);
+    let before = live.pending_instance_derived(instance).expect("derived data before hydration attempt");
+    assert_eq!(before.entries.len(), 3);
+
+    edit_size(&mut live, "Text", "Buttons/Button");
+    live.reserve_ids(NodeId(u64::MAX - 2));
+    assert!(!live.ensure_page_hydrated(page), "hydration that exhausts node id space must fail");
+    let err = live.hydration_error().expect("hydration error must be recorded");
+    assert!(err.contains("node id space exhausted"), "{err}");
+
+    let after = live.pending_instance_derived(instance);
+    assert_eq!(
+        after.as_ref().map(|d| (d.fingerprint, d.entries.len(), d.entries[0].size)),
+        Some((before.fingerprint, before.entries.len(), before.entries[0].size)),
+        "failed hydration must leave the instance's derived data as it was before the attempt"
+    );
 }

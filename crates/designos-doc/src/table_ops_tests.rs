@@ -441,6 +441,23 @@ fn errors_name_the_next_action() {
     assert!(matches!(insert_rows(&broken, table, 0, 1), Err(TableOpError::BrokenTable(_))));
 }
 
+#[test]
+fn setting_the_same_text_on_a_styled_cell_still_clears_its_runs() {
+    let (mut d, _, table) = doc_with_table(2, 2);
+    let id = cell(&d, table, 0, 0);
+    let mut node = d.get(id).unwrap().clone();
+    if let NodeKind::TableCell(c) = &mut node.kind {
+        c.text.runs.push(TextRun { start: 0, end: 2, style: TextStyle::default() });
+    }
+    Command::Update { node: Box::new(node) }.apply(&mut d).unwrap();
+    let cmd = set_cell_text(&d, table, 0, 0, "r0c0").expect("the runs make the same string a change");
+    cmd.apply(&mut d).unwrap();
+    let NodeKind::TableCell(c) = &d.get(id).unwrap().kind else { panic!("a cell") };
+    assert_eq!(c.text.content, "r0c0");
+    assert!(c.text.runs.is_empty(), "a whole-text replacement clears styling runs");
+    assert!(matches!(set_cell_text(&d, table, 0, 0, "r0c0"), Err(TableOpError::NoChange(_))), "plain same text is still no change");
+}
+
 // ---------------------------------------------------------------- guards at the commit points (R-T1-2, R-T1-9)
 
 #[test]

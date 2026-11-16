@@ -9,7 +9,7 @@
 
 use crate::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// Cell text inset as `(horizontal, vertical)` px (owner question OQ-2, recommended option).
 pub const TABLE_CELL_PADDING: (f32, f32) = (12.0, 8.0);
@@ -278,6 +278,39 @@ pub fn relayout(doc: &Document, table_id: NodeId) -> Vec<Command> {
     cmds
 }
 
+/// Re-solves a text-only edit without measuring unrelated rows. Returns `None` when the table
+/// shape needs the general solver (currently any merge), so callers can preserve the full layout
+/// path for cases where a row's height affects a merged block.
+pub(crate) fn relayout_text_edit(doc: &Document, table_id: NodeId, changed: &BTreeSet<NodeId>) -> Option<Vec<Command>> {
+    if changed.is_empty() || text_measure::layout_measurer().is_none() {
+        return Some(Vec::new());
+    }
+    let table = doc.get(table_id)?;
+    let NodeKind::Table(props) = &table.kind else { return Some(Vec::new()) };
+    if !props.merges.is_empty() {
+        return None;
+    }
+    let grid = Grid::new(props);
+    let measurer = text_measure::layout_measurer()?;
+    // Most edits leave a row at its user-set minimum. Prove that from the changed cells alone;
+    // avoid indexing or rebuilding every cell in a 400 x 400 table on the fast path.
+    for &id in changed {
+        let node = doc.get(id)?;
+        let NodeKind::TableCell(cell) = &node.kind else { return None };
+        let Some(pos) = grid.position_of(cell) else { return None };
+        if grid.covered.contains(&pos) || grid.span(pos) != (1, 1) {
+            return None;
+        }
+        let width = (node.size.x - 2.0 * TABLE_CELL_PADDING.0).max(1.0);
+        let needed = text_measure::intrinsic_text_size(&cell.text, Some(width), Some(measurer.as_ref())).y + 2.0 * TABLE_CELL_PADDING.1;
+        let baseline = track_len(props.rows[pos.0].size);
+        if node.size.y > baseline + f32::EPSILON || needed > baseline + f32::EPSILON {
+            return None;
+        }
+    }
+    Some(Vec::new())
+}
+
 /// A table's text being measured ahead of its layout, a slice of cells at a time, so a big table's cold
 /// cost (a table's worth of shaping) can be spread over frames and the layout itself then only reads
 /// the measurer's cache. The jobs are listed once, in [`TableWarm::new`]; each [`TableWarm::step`] then
@@ -536,6 +569,22 @@ pub(crate) fn text_edited_tables(doc: &Document, cmd: &Command, out: &mut BTreeS
             }
         }
         Command::Batch(cmds) => cmds.iter().for_each(|c| text_edited_tables(doc, c, out)),
+        _ => {}
+    }
+}
+
+pub(crate) fn text_edited_cells(doc: &Document, cmd: &Command, out: &mut BTreeMap<NodeId, BTreeSet<NodeId>>) {
+    match cmd {
+        Command::Update { node } => {
+            if let (Some(old), NodeKind::TableCell(new)) = (doc.get(node.id), &node.kind) {
+                if matches!(&old.kind, NodeKind::TableCell(o) if o.text != new.text) {
+                    if let Some(table) = old.parent.filter(|p| doc.get(*p).is_some_and(|t| matches!(t.kind, NodeKind::Table(_)))) {
+                        out.entry(table).or_default().insert(node.id);
+                    }
+                }
+            }
+        }
+        Command::Batch(cmds) => cmds.iter().for_each(|c| text_edited_cells(doc, c, out)),
         _ => {}
     }
 }
