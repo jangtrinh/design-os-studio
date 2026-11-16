@@ -133,14 +133,18 @@ pub fn record_requested_imported_layouts(doc: &mut Document) {
 }
 
 /// Hash of the document-wide data a solve reads besides the layers: variables, their collections, shared styles and
-/// their metadata. An importer that records geometry later (when a deferred page opens) records only while this is
-/// what it was at import, since a stored geometry is only true for the values it was laid out with.
+/// the variables those styles bind (their names, descriptions and sort order are left out). An importer that records
+/// geometry later (when a deferred page opens) records only while this is what it was at import, since a stored
+/// geometry is only true for the values it was laid out with.
 pub fn layout_inputs_outside_layers_hash(doc: &Document) -> u64 {
     let mut h = StableHasher::new();
     h.add(&doc.variables);
     h.add(&doc.variable_collections);
     h.add(&doc.styles);
-    h.add(&doc.style_meta);
+    for (key, meta) in &doc.style_meta {
+        h.add(key);
+        h.add(&meta.bindings);
+    }
     h.finish()
 }
 

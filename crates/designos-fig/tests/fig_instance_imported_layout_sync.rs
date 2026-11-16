@@ -41,6 +41,12 @@ fn derived(path: &[(u32, u32)], size: (f32, f32), at: (f32, f32)) -> V {
 /// A resized instance of `main` named `name`, with its stored derived data. The instance's own size is stated in its
 /// override record, as Figma writes for a resized instance, so a sync keeps it.
 fn instance(id: (u32, u32), name: &str, main: (u32, u32), size: (f32, f32), at: (f32, f32), stored: Vec<V>, extra: Vec<(&str, V)>) -> V {
+    instance_on((0, 1), id, name, main, size, at, stored, extra)
+}
+
+/// [`instance`] on page `page`.
+#[allow(clippy::too_many_arguments)]
+fn instance_on(page: (u32, u32), id: (u32, u32), name: &str, main: (u32, u32), size: (f32, f32), at: (f32, f32), stored: Vec<V>, extra: Vec<(&str, V)>) -> V {
     let mut fields = vec![
         ("size", vec2(size.0, size.1)),
         ("transform", matrix(at.0, at.1)),
@@ -54,7 +60,7 @@ fn instance(id: (u32, u32), name: &str, main: (u32, u32), size: (f32, f32), at: 
         ("derivedSymbolData", V::Array(stored)),
     ];
     fields.extend(extra);
-    node(id, (0, 1), "b", "INSTANCE", name, fields)
+    node(id, page, "b", "INSTANCE", name, fields)
 }
 
 fn auto_layout(dir: &str, spacing: f32, pad: f32) -> Vec<(&'static str, V)> {
@@ -607,4 +613,63 @@ fn duplicated_instance_keeps_stored_geometry_like_the_original() {
 
 fn find_child(doc: &Document, root: NodeId, name: &str) -> NodeId {
     subtree(doc, root).into_iter().find(|id| doc.get(*id).is_some_and(|n| n.name == name)).expect("child")
+}
+
+/// Row on a big first page (so the file loads its other pages later) and the resized Row instance on the third
+/// page, plus a fill style with a sort position (which the reader sets after the import itself is done).
+fn deferred_row_fig() -> Vec<u8> {
+    let mut changes = vec![
+        node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
+        node((0, 1), (0, 0), "a", "CANVAS", "Cover", vec![]),
+        node((0, 2), (0, 0), "b", "CANVAS", "Page 2", vec![]),
+        node((0, 3), (0, 0), "c", "CANVAS", "Later", vec![]),
+    ];
+    let mut row = vec![("size", vec2(100.0, 40.0)), ("transform", matrix(0.0, 0.0)), ("stackPrimarySizing", en("FIXED"))];
+    row.extend(auto_layout("HORIZONTAL", 8.0, 10.0));
+    changes.push(node((1, 1), (0, 1), "a", "SYMBOL", "Row", row));
+    changes.push(node((1, 2), (1, 1), "a", "RECTANGLE", "Badge", vec![("size", vec2(20.0, 24.0)), ("transform", matrix(10.0, 8.0))]));
+    changes.push(node(
+        (1, 3),
+        (1, 1),
+        "b",
+        "FRAME",
+        "Inner",
+        vec![("size", vec2(52.0, 24.0)), ("transform", matrix(38.0, 8.0)), ("stackChildPrimaryGrow", fl(1.0))],
+    ));
+    changes.push(node(
+        (5, 1),
+        (0, 1),
+        "b",
+        "RECTANGLE",
+        "Brand",
+        vec![("styleType", en("FILL")), ("sortPosition", V::String("a".into())), ("fillPaints", V::Array(vec![solid(0.9, 0.1, 0.1)]))],
+    ));
+    let mut inst_extra = vec![("stackPrimarySizing", en("FIXED"))];
+    inst_extra.extend(auto_layout("HORIZONTAL", 8.0, 10.0));
+    changes.push(instance_on(
+        (0, 3),
+        (2, 1),
+        "Row instance",
+        (1, 1),
+        (160.0, 40.0),
+        (24.0, 32.0),
+        vec![derived(&[(1, 2)], (20.0, 24.0), (10.0, 8.0)), derived(&[(1, 3)], (111.0, 24.0), (38.0, 8.0))],
+        inst_extra,
+    ));
+    for i in 0..25_000u32 {
+        changes.push(node((9, i + 1), (0, 1), "c", "RECTANGLE", "F", vec![("size", vec2(4.0, 4.0)), ("transform", matrix(0.0, 0.0))]));
+    }
+    fig(changes, vec![])
+}
+
+/// An instance on a page the reader loads later is recorded when the page opens, and keeps its stored geometry.
+#[test]
+fn instance_on_a_page_opened_later_keeps_stored_geometry() {
+    let mut doc = import_fig(&deferred_row_fig()).expect("import");
+    let inst = doc.nodes.values().find(|n| n.name == "Row instance").expect("instance").id;
+    assert!(doc.get(inst).unwrap().children.is_empty(), "the instance's page is loaded later");
+    assert!(doc.hydrate_all_pages());
+    let main = main_of(&doc, "Row");
+    assert_eq!(doc.get(find_child(&doc, inst, "Inner")).unwrap().size, Vec2::new(111.0, 24.0));
+    assert_eq!(sync_and_compare(&mut doc, main, inst), Outcome::KeptStored);
 }
