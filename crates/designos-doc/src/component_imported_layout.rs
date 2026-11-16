@@ -24,15 +24,33 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Studio's canonical solve of instance `holder` (the sync a record-free instance gets), hashed like [`layout_hash`].
 /// The document is left as it was, id counter included: the trial's inserts and updates are all undone.
 fn canonical_solve_hash(doc: &mut Document, holder: NodeId) -> Option<u64> {
-    let (next_id, gap_cursor, layout_epoch) = (doc.next_id, doc.gap_cursor, doc.layout_epoch);
+    trial(doc, |c| {
+        sync_one(c, holder);
+        layout_hash(c.s, holder)
+    })
+}
+
+/// Whether this sync's own writes into `holder` (the sync of each instance in `inner`, in the sync's order), made again
+/// on the document as it is now, leave `holder` on the layout it held before the sync. "Now" is after the instances
+/// inside the mains `holder` mirrors were put back on what they keep, so this is the record-free sync of `holder` against
+/// its references as they stand. The document is left as it was.
+fn resync_holds(doc: &mut Document, holder: NodeId, inner: &[NodeId], before: &[LayoutFields]) -> bool {
+    trial(doc, |c| {
+        for &id in inner {
+            sync_one(c, id);
+        }
+        holds(c.s, holder, before)
+    })
+}
+
+/// Runs `f` on the document and undoes everything it wrote, id counter included.
+fn trial<R>(doc: &mut Document, f: impl FnOnce(&mut Ctx) -> R) -> R {
+    let saved = (doc.next_id, doc.gap_cursor, doc.layout_epoch);
     let mut c = Ctx::new(doc);
-    sync_one(&mut c, holder);
-    let hash = layout_hash(c.s, holder);
+    let out = f(&mut c);
     drop(c.finish());
-    doc.next_id = next_id;
-    doc.gap_cursor = gap_cursor;
-    doc.layout_epoch = layout_epoch;
-    hash
+    (doc.next_id, doc.gap_cursor, doc.layout_epoch) = saved;
+    out
 }
 
 /// Whether `id` is an instance root that no other instance holds.
@@ -97,29 +115,31 @@ pub(crate) struct Held {
     /// The sync runs Studio's canonical solve of this instance itself: it is a target, no other target lies inside
     /// it, and no target lies inside a main (so nothing it mirrors is written by the sync).
     solved_by_sync: bool,
+    /// The instances inside it the sync syncs, in the sync's order.
+    inner: Vec<NodeId>,
 }
 
 /// Notes, before a sync of `targets`, the geometry of every recorded instance the sync reaches. Cheap when no record
 /// is reached: one walk up from each target.
 pub(crate) fn before_sync(doc: &Document, targets: &[NodeId]) -> Vec<Held> {
-    let mut targets_in: BTreeMap<NodeId, usize> = BTreeMap::new();
+    let mut inner_of: BTreeMap<NodeId, Vec<NodeId>> = BTreeMap::new();
     for &t in targets {
         if let Some(holder) = instance_root_of(doc, t) {
-            *targets_in.entry(holder).or_default() += 1;
+            inner_of.entry(holder).or_default().push(t);
         }
     }
     let target_set: BTreeSet<NodeId> = targets.iter().copied().collect();
     let any_target_in_a_main = || targets.iter().any(|&t| crate::components::enclosing_component(doc, t).is_some());
     let mut in_a_main: Option<bool> = None;
     let mut held = Vec::new();
-    for (&holder, &count) in &targets_in {
+    for (holder, inner) in inner_of {
         let Some(record) = doc.get(holder).and_then(|n| n.component.imported_layout) else { continue };
         let before = (layout_hash(doc, holder) == Some(record.stored))
             .then(|| subtree(doc, holder))
             .flatten()
             .and_then(|ids| ids.iter().map(|id| doc.get(*id).map(LayoutFields::of)).collect::<Option<Vec<_>>>());
-        let solved_by_sync = count == 1 && target_set.contains(&holder) && !*in_a_main.get_or_insert_with(any_target_in_a_main);
-        held.push(Held { holder, record, before, solved_by_sync });
+        let solved_by_sync = inner.len() == 1 && target_set.contains(&holder) && !*in_a_main.get_or_insert_with(any_target_in_a_main);
+        held.push(Held { holder, record, before, solved_by_sync, inner });
     }
     held
 }
@@ -158,12 +178,16 @@ pub(crate) fn after_sync(c: &mut Ctx, mut held: Vec<Held>) {
         if holds(c.s, h.holder, before) {
             continue;
         }
-        let solved = if h.solved_by_sync { layout_hash(c.s, h.holder) } else { canonical_solve_hash(c.s, h.holder) };
-        let keep = solved == Some(h.record.solved)
-            && subtree(c.s, h.holder).is_some_and(|ids| {
-                ids.len() == before.len()
-                    && ids.iter().zip(before).all(|(id, b)| *id == b.id && b.outline_meaning.is_none_or(|m| c.s.get(*id).is_some_and(|n| meaning_hash(n) == m)))
-            });
+        let same_layers = subtree(c.s, h.holder).is_some_and(|ids| {
+            ids.len() == before.len()
+                && ids.iter().zip(before).all(|(id, b)| *id == b.id && b.outline_meaning.is_none_or(|m| c.s.get(*id).is_some_and(|n| meaning_hash(n) == m)))
+        });
+        let keep = same_layers
+            && if h.solved_by_sync {
+                layout_hash(c.s, h.holder) == Some(h.record.solved)
+            } else {
+                resync_holds(c.s, h.holder, &h.inner, before) || canonical_solve_hash(c.s, h.holder) == Some(h.record.solved)
+            };
         if !keep {
             drop_record(c, h.holder);
             continue;

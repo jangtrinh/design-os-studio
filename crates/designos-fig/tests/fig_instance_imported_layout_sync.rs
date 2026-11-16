@@ -265,6 +265,51 @@ fn chip_bar_fig() -> Vec<u8> {
     fig(changes, vec![])
 }
 
+/// The Row of [`row_fig`] resized to 160 inside a Panel main ("Row in Panel", Inner stored at 111 where Studio solves
+/// 112), and a Panel instance on the page whose copy of that row Figma stored the same way. A sync of Row reaches the
+/// Panel instance only through its nested copy.
+fn row_in_panel_fig() -> Vec<u8> {
+    let mut changes = page();
+    let mut row = vec![("size", vec2(100.0, 40.0)), ("transform", matrix(0.0, 0.0)), ("stackPrimarySizing", en("FIXED"))];
+    row.extend(auto_layout("HORIZONTAL", 8.0, 10.0));
+    changes.push(node((1, 1), (0, 1), "a", "SYMBOL", "Row", row));
+    changes.push(node((1, 2), (1, 1), "a", "RECTANGLE", "Badge", vec![("size", vec2(20.0, 24.0)), ("transform", matrix(10.0, 8.0))]));
+    changes.push(node(
+        (1, 3),
+        (1, 1),
+        "b",
+        "FRAME",
+        "Inner",
+        vec![("size", vec2(52.0, 24.0)), ("transform", matrix(38.0, 8.0)), ("stackChildPrimaryGrow", fl(1.0))],
+    ));
+    changes.push(node((3, 1), (0, 1), "b", "SYMBOL", "Panel", vec![("size", vec2(180.0, 60.0)), ("transform", matrix(0.0, 100.0))]));
+    let row_extra = || {
+        let mut extra = vec![("stackPrimarySizing", en("FIXED"))];
+        extra.extend(auto_layout("HORIZONTAL", 8.0, 10.0));
+        extra
+    };
+    changes.push(instance_on(
+        (3, 1),
+        (3, 2),
+        "Row in Panel",
+        (1, 1),
+        (160.0, 40.0),
+        (10.0, 10.0),
+        vec![derived(&[(1, 2)], (20.0, 24.0), (10.0, 8.0)), derived(&[(1, 3)], (111.0, 24.0), (38.0, 8.0))],
+        row_extra(),
+    ));
+    changes.push(instance(
+        (2, 1),
+        "Panel instance",
+        (3, 1),
+        (180.0, 60.0),
+        (24.0, 300.0),
+        vec![derived(&[(3, 2), (1, 2)], (20.0, 24.0), (10.0, 8.0)), derived(&[(3, 2), (1, 3)], (111.0, 24.0), (38.0, 8.0))],
+        vec![],
+    ));
+    fig(changes, vec![])
+}
+
 fn find(doc: &Document, name: &str, instance_side: bool) -> NodeId {
     doc.nodes
         .values()
@@ -594,6 +639,27 @@ fn edited_main_inside_the_holders_main_gives_the_record_free_sync() {
     edit(&mut doc, chip, |n| n.size = Vec2::new(30.0, 20.0));
     assert_record_free_sync_moves(&doc, chip, inst);
     assert_eq!(sync_and_compare(&mut doc, chip, inst), Outcome::RecordFree);
+}
+
+/// An instance the sync reaches only through a nested copy keeps its stored geometry when the copy's own sync, against
+/// the row in the main put back on what it stored, gives that geometry again.
+#[test]
+fn no_change_sync_keeps_an_instance_reached_through_its_nested_copy() {
+    let (mut doc, panel, row) = imported(&row_in_panel_fig(), "Panel instance", "Row");
+    assert!(doc.get(panel).unwrap().component.imported_layout.is_some(), "the panel instance is recorded");
+    assert_record_free_sync_moves(&doc, row, panel);
+    assert_eq!(sync_and_compare(&mut doc, row, panel), Outcome::KeptStored);
+}
+
+/// A variable value moves the row's layout: the row in the main takes Studio's solve, and the instance reached through
+/// its nested copy takes the record-free sync too.
+#[test]
+fn variable_value_behind_a_nested_copys_gap_gives_the_record_free_sync() {
+    let (mut doc, panel, row) = imported(&row_in_panel_fig(), "Panel instance", "Row");
+    gap_variable(&mut doc, row, 8.0);
+    doc.variables.get_mut("v_gap").unwrap().values.insert("m1".into(), VariableValue::Number(20.0));
+    assert_record_free_sync_moves(&doc, row, panel);
+    assert_eq!(sync_and_compare(&mut doc, row, panel), Outcome::RecordFree);
 }
 
 // ------------------------------------------------------------------ never worse than dropping the record
