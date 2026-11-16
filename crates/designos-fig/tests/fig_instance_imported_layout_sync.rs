@@ -240,13 +240,18 @@ fn main_of(doc: &Document, name: &str) -> NodeId {
 
 // ------------------------------------------------------------------ helpers
 
+/// Names a reader has used for the record a sync consults to keep stored geometry.
+const RECORD_KEYS: [&str; 2] = ["imported_layout", "derived"];
+
 /// The same document without any imported-layout record: what a sync did before records existed.
 fn record_free(doc: &Document) -> Document {
     let mut v: Value = serde_json::from_str(&doc.to_json().expect("to json")).expect("json");
     if let Some(nodes) = v.get_mut("nodes").and_then(Value::as_object_mut) {
         for n in nodes.values_mut() {
             if let Some(c) = n.get_mut("component").and_then(Value::as_object_mut) {
-                c.remove("imported_layout");
+                for key in RECORD_KEYS {
+                    c.remove(key);
+                }
             }
         }
     }
@@ -266,7 +271,9 @@ fn subtree(doc: &Document, root: NodeId) -> Vec<NodeId> {
 fn json_without_record(n: &Node) -> Value {
     let mut v = serde_json::to_value(n).expect("node json");
     if let Some(c) = v.get_mut("component").and_then(Value::as_object_mut) {
-        c.remove("imported_layout");
+        for key in RECORD_KEYS {
+            c.remove(key);
+        }
     }
     v
 }
