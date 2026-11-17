@@ -33,7 +33,8 @@ pub(super) struct GridTrackIds {
 pub(super) fn allocate(cx: &mut ExportCtx) {
     let doc = cx.doc;
     for (&id, n) in &doc.nodes {
-        let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) else { continue };
+        let (export_fp, _) = super::export_outer_frame_props(doc, id, n);
+        let Some(al) = export_fp.as_ref().and_then(|f| f.auto_layout.as_ref()) else { continue };
         let cols_total = al.grid_columns as usize;
         let rows_total = grid_row_tracks_for_export(doc, n, al).map_or(0, |(count, _)| count as usize);
         if cols_total == 0 && rows_total == 0 {
