@@ -120,7 +120,8 @@ fn an_ask_launch_limits_claude_to_the_users_settings_and_loads_studios_skill_fro
 
     // Studio's MCP server and hooks still reach Claude by flag: the server from a private copy of the config (the same
     // server, command and environment as the session copy the other CLIs read, except that its `DESIGNOS_MCP_CONFIG` names
-    // the private copy), the hooks from the private hooks file.
+    // the private copy, where the session copy names Studio's own server config outside the session folder), the hooks from
+    // the private hooks file.
     let private_mcp = crate::agent_approval_channel::mcp_config_path(session).unwrap();
     assert_eq!(launch.value_of("--mcp-config").map(Path::new), Some(private_mcp.as_path()), "{:?}", launch.argv);
     assert!(!private_mcp.starts_with(session), "{}", private_mcp.display());
@@ -128,7 +129,9 @@ fn an_ask_launch_limits_claude_to_the_users_settings_and_loads_studios_skill_fro
     let (mut private, mut shared) = (read(&private_mcp), read(&session.join("mcp-config.json")));
     assert!(private["mcpServers"]["designos"]["command"].is_string(), "Studio's designos server is passed: {private}");
     assert_eq!(private["mcpServers"]["designos"]["env"]["DESIGNOS_MCP_CONFIG"], private_mcp.display().to_string());
-    assert_eq!(shared["mcpServers"]["designos"]["env"]["DESIGNOS_MCP_CONFIG"], session.join("mcp-config.json").display().to_string());
+    let server_config = crate::agent_tool_policy::server_config_path(session).unwrap();
+    assert_eq!(shared["mcpServers"]["designos"]["env"]["DESIGNOS_MCP_CONFIG"], server_config.display().to_string());
+    assert!(!server_config.starts_with(session), "{}", server_config.display());
     private["mcpServers"]["designos"]["env"]["DESIGNOS_MCP_CONFIG"] = serde_json::Value::Null;
     shared["mcpServers"]["designos"]["env"]["DESIGNOS_MCP_CONFIG"] = serde_json::Value::Null;
     assert_eq!(private, shared, "the private copy is the session copy but for the path of its own config");
@@ -218,7 +221,9 @@ fn a_skip_launch_is_what_it_was() {
     for flag in ["--setting-sources", "--plugin-dir"] {
         assert!(!launch.argv.iter().any(|arg| arg == flag), "Skip mode must not carry {flag}: {:?}", launch.argv);
     }
-    assert_eq!(launch.value_of("--mcp-config").map(Path::new), Some(session.join("mcp-config.json").as_path()), "Skip mode keeps the session copy");
+    // Skip mode names `$DESIGNOS_MCP_CONFIG` as it did, which is now the config Studio keeps outside the session folder.
+    let server_config = crate::agent_tool_policy::server_config_path(session).expect("a private folder");
+    assert_eq!(launch.value_of("--mcp-config").map(Path::new), Some(server_config.as_path()), "Skip mode names the server config outside the folder");
     assert_eq!(
         (launch.settings_env.as_str(), launch.plugin_env.as_str(), launch.mcp_env.as_str()),
         ("<unset>", "<unset>", "<unset>"),
