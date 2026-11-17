@@ -95,10 +95,10 @@ pub(crate) fn is_modelled_key(key: &str) -> bool {
     KNOWN.contains(key) || override_field(key, false).is_some() || override_field(key, true).is_some()
 }
 
-/// Whether an import from binary records (`.fig`, node changes, a clipboard paste) keeps unknown keys. It does not:
-/// the converter turns every field it does not map into `fig_metadata`, so a REST key left over is a converter
-/// record nothing reads, and keeping it would fill every layer of a large file with data. Those imports pass this
-/// to the importer, which then never scans or clones unknown keys.
+/// Whether an import from binary records (`.fig`, node changes, a clipboard paste, deferred `.fig` pages) keeps
+/// unknown keys. It does not: the converter builds each layer's REST object from the fields it maps, so a key the
+/// importer does not know is a converter record nothing reads, and scanning for it would cost every layer of a
+/// large file. Those imports pass this to the importer, which then never scans or clones unknown keys.
 pub(crate) const KEEP_UNKNOWN_KEYS_FROM_BINARY: bool = false;
 
 const KNOWN_KEYS: &[&str] = &[
@@ -4278,7 +4278,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             unexpanded_instances: BTreeSet::new(),
             has_instance_swap_values,
             has_connectors: false,
-            keep_unknown_keys: true,
+            keep_unknown_keys: KEEP_UNKNOWN_KEYS_FROM_BINARY,
             connectors: Vec::new(),
             deferred_pending: None,
         };
@@ -4570,7 +4570,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             unexpanded_instances: BTreeSet::new(),
             has_instance_swap_values,
             has_connectors: false,
-            keep_unknown_keys: true,
+            keep_unknown_keys: KEEP_UNKNOWN_KEYS_FROM_BINARY,
             connectors: Vec::new(),
             deferred_pending: None,
         };
