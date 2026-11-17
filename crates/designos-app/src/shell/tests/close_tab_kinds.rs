@@ -333,11 +333,12 @@ fn a_close_after_the_person_closed_an_untitled_tab_is_tab_closed_not_a_timeout()
         s.shell.app.request_leave(None, Leave::CloseTab(id));
         wait(&mut s, SETTLED);
         assert_eq!(s.app().tabs.entries.len(), 1, "the person closed the untitled tab");
-        assert!(!session_dir.exists(), "a scratch folder goes with its tab");
+        assert!(session_dir.join("tab-closed.json").is_file(), "a scratch folder keeps the mark of its closed tab");
         assert_tab_closed_at_once(&mut s, &mut session, args.clone(), &format!("the same process, {args}"));
         let mut fresh = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("a new process");
         assert_tab_closed_at_once(&mut s, &mut fresh, args.clone(), &format!("a new process, {args}"));
-        assert!(!session_dir.exists(), "the close did not bring the folder back");
+        assert!(session_dir.join("tab-closed.json").is_file(), "the mark is still there after the answers");
+        let _ = std::fs::remove_dir_all(&session_dir);
         finish(s, workspace);
     }
 }

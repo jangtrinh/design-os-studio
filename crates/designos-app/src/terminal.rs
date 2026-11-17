@@ -3380,23 +3380,36 @@ impl TerminalState {
         if reg_dirty {
             self.persist_session_registry();
         }
+        // A scratch folder that exists now is removed below; the session ends here, so its folder stays as a mark of that.
+        let scratch_dir = Some(self.session_dir.clone()).filter(|d| crate::agent_session_files::is_ephemeral_session_dir(d) && d.is_dir());
         self.cleanup_ephemeral_session_dir();
         self.release_lock();
         // A library file's stable folder stays on disk, but this window no longer owns it: publish nothing more.
         self.session_closed = true;
         self.mark_tab_closed();
+        // The folder this terminal is still bound to was removed (a library file's session moved to its stable folder is not this:
+        // its tab lives on, and the stable folder carries the mark above).
+        if let Some(dir) = scratch_dir.filter(|d| *d == self.session_dir && !d.exists()) {
+            if crate::agent_session_files::ensure_session_dir(&dir).is_ok() {
+                Self::write_tab_closed_mark(&dir);
+            }
+        }
     }
 
     /// Tells an agent whose MCP server outlives this tab that the tab is gone: a folder that is still on disk (a library file's) gets
-    /// `tab-closed.json`; a scratch folder was removed, and its absence says the same. The editor no longer reads this folder's log, so
-    /// the agent's next close would otherwise wait out its timeout and call itself retryable.
+    /// `tab-closed.json`, and so does a scratch folder, which [`Self::shutdown`] leaves holding only that mark (and the answer to a
+    /// close) until the next sweep of folders whose process is gone. The editor no longer reads this folder's log, so the agent's next
+    /// close would otherwise wait out its timeout and call itself retryable.
     fn mark_tab_closed(&self) {
-        if !self.session_dir.is_dir() {
-            return;
+        if self.session_dir.is_dir() {
+            Self::write_tab_closed_mark(&self.session_dir);
         }
-        let marker = self.session_dir.join(designos_doc::live_patch::CloseIntent::TAB_CLOSED_FILE);
+    }
+
+    fn write_tab_closed_mark(dir: &Path) {
+        let marker = dir.join(designos_doc::live_patch::CloseIntent::TAB_CLOSED_FILE);
         if let Err(e) = atomic_write_session_file(&marker, b"{\"tab_closed\":true}\n") {
-            eprintln!("design:os studio: could not mark {} as closed: {e}", self.session_dir.display());
+            eprintln!("design:os studio: could not mark {} as closed: {e}", dir.display());
         }
     }
 
@@ -7772,6 +7785,9 @@ pub(crate) fn pin_installed_catalog_clis(st: &mut TerminalState, installed: &[Ag
         st.picker.cache.set_probe(preset, probe);
     }
 }
+
+#[cfg(test)]
+mod tab_closed_mark_tests;
 
 #[cfg(test)]
 mod ask_mode_tests;

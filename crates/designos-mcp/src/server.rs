@@ -965,19 +965,31 @@ impl Session {
     const TAB_CLOSED_NEXT_STEP: &'static str =
         "That tab is already closed, so there is nothing to close. Open the document again with designos_open_file, or ask the user.";
 
-    /// Whether the editor tab this session's folder belonged to is known to be closed. Only the
-    /// editor's `tab-closed.json` marker is authoritative; a missing session folder is reported
-    /// by the close publish path as an unavailable session instead of being treated as closed.
+    /// The folder the editor shares with this session, where its log, answers and `tab-closed.json` live.
+    fn editor_session_dir(&self) -> Option<PathBuf> {
+        self.bridge.session_dir.clone().or_else(|| self.bridge.live_doc_patch_path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)))
+    }
+
+    /// Whether the editor tab this session's folder belonged to is known to be closed. Only the editor's `tab-closed.json` says so: a
+    /// tab the person closed leaves that mark (a scratch folder keeps only it), so a folder that is merely missing does not count.
     fn editor_tab_is_gone(&self) -> bool {
-        let Some(dir) = self.bridge.session_dir.clone().or_else(|| self.bridge.live_doc_patch_path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)))
-        else {
+        self.editor_session_dir().is_some_and(|dir| crate::session_file_io::stat(&dir.join(CloseIntent::TAB_CLOSED_FILE)).is_ok())
+    }
+
+    /// Whether the session folder does not exist at all (removed by hand, or never made). The editor cannot be asked through it.
+    fn editor_session_dir_is_missing(&self) -> bool {
+        let Some(dir) = self.editor_session_dir() else {
             return false;
         };
-        // A missing session directory only proves that the session state is unavailable. It does
-        // not prove that the editor closed the tab: the path may be stale, the session may never
-        // have been created, or another process may have removed it. Let the close publish fail
-        // through the normal retryable `EDITOR_NOT_NOTIFIED` path so the caller sees that state.
-        crate::session_file_io::stat(&dir.join(CloseIntent::TAB_CLOSED_FILE)).is_ok()
+        matches!(std::fs::symlink_metadata(&dir), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+    }
+
+    /// The folder this session shares with the editor is gone and nothing says the tab was closed: no editor can be asked, so a retry
+    /// can never work.
+    fn session_folder_gone_error() -> ToolError {
+        ToolError::new(ErrorCode::EditorNotNotified, "", "The session folder is gone, so the editor cannot be asked.")
+            .with_safe_to_retry(false)
+            .with_next_step("Check the document state with designos_get_document, or ask the user.")
     }
 
     /// A close of a tab this session already closed: no editor is asked, and the answer is not retryable.
@@ -1452,6 +1464,9 @@ impl Session {
                 let live = self.live_editor();
                 if live && (self.live_tab_closed || self.editor_tab_is_gone()) {
                     return Err(Self::tab_already_closed_error());
+                }
+                if live && self.editor_session_dir_is_missing() {
+                    return Err(Self::session_folder_gone_error());
                 }
                 if !live && self.dirty && policy == UnsavedPolicy::Fail {
                     return Err(ToolError::new(ErrorCode::UnsavedChanges, "/unsaved", "Unsaved changes. The document stayed open.")

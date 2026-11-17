@@ -157,13 +157,18 @@ fn a_shell_started_while_the_window_is_built_keeps_its_session_after_the_first_f
 }
 
 /// The frame that handles the close request shuts the terminal down and then still runs the rest of the
-/// frame, which publishes the document: the folder the shutdown removed must stay gone (spec rule 4, AC 2).
+/// frame, which publishes the document: the folder the shutdown emptied must stay empty, holding only the mark of the closed tab
+/// (spec rule 4, AC 2).
 #[test]
-fn closing_the_window_leaves_no_session_folder_behind() {
+fn closing_the_window_leaves_only_the_closed_mark_in_its_session_folder() {
     let mut s = Sim::new();
     let dir = s.app().terminal.session_dir.clone();
     assert!(crate::agent_session_files::is_ephemeral_session_dir(&dir), "precondition: a window without a library file keeps a scratch folder");
     assert!(dir.join("canvas.designos").is_file(), "precondition: the window published its canvas before it closed");
     s.close_frame();
-    assert!(!dir.exists(), "the close frame re-created the session folder {}", dir.display());
+    let mut left: Vec<String> =
+        std::fs::read_dir(&dir).map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+    left.sort();
+    assert_eq!(left, ["owner.json", "tab-closed.json"], "the close frame wrote into the session folder {}", dir.display());
+    let _ = std::fs::remove_dir_all(&dir);
 }

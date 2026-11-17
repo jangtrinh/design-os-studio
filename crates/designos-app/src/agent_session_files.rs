@@ -714,9 +714,11 @@ mod tests {
     #[test]
     fn two_windows_never_touch_each_others_session_files() {
         let mut win1 = TerminalState::for_tab(1);
-        win1.bind_session(&format!("p{}-w1-tab-1", std::process::id()));
+        // Not a `p<pid>-w1-tab-1` name: the window of every shell test has that one, and a test that closes it must not
+        // remove or fill the folder of this one.
+        win1.bind_session(&unique_test_id("two-windows-1"));
         let mut win2 = TerminalState::for_tab(1);
-        win2.bind_session(&format!("p{}-w2-tab-1", std::process::id()));
+        win2.bind_session(&unique_test_id("two-windows-2"));
         assert_ne!(win1.session_dir, win2.session_dir);
 
         let mut doc1 = Document::new("Window One Doc");
@@ -843,7 +845,8 @@ mod tests {
         st.flush_live_sync();
         assert!(session_dir.exists());
         st.shutdown();
-        assert!(!session_dir.exists(), "shutdown must remove the ephemeral session dir {}", session_dir.display());
+        assert_eq!(files_in(&session_dir), CLOSED_SCRATCH_FOLDER, "shutdown must leave only the mark of the closed tab in {}", session_dir.display());
+        let _ = std::fs::remove_dir_all(&session_dir);
     }
 
     /// The frame that closes a window (or the last tab) goes on to publish the document: that publish must
@@ -888,9 +891,10 @@ mod tests {
         st.start_bootstrap_job(doc.clone(), page, None, Some(Duration::from_millis(400)));
 
         st.shutdown();
-        assert!(!session_dir.exists(), "precondition: shutdown removed the folder");
+        assert_eq!(files_in(&session_dir), CLOSED_SCRATCH_FOLDER, "precondition: shutdown removed the folder's files");
         std::thread::sleep(Duration::from_millis(900));
-        assert!(!session_dir.exists(), "the bootstrap build re-created {}", session_dir.display());
+        assert_eq!(files_in(&session_dir), CLOSED_SCRATCH_FOLDER, "the bootstrap build wrote into {}", session_dir.display());
+        let _ = std::fs::remove_dir_all(&session_dir);
     }
 
     #[test]
@@ -908,12 +912,12 @@ mod tests {
         st.flush_live_sync();
         assert!(channel.join(crate::agent_approval_channel::HOOK_SCRIPT_NAME).is_file(), "the session installs its approval hook");
         st.shutdown();
-        assert!(!session_dir.exists(), "precondition: shutdown removed the folder");
+        assert_eq!(files_in(&session_dir), CLOSED_SCRATCH_FOLDER, "precondition: shutdown removed the folder's files");
         assert!(!channel.exists(), "shutdown removes the approval channel with the folder");
 
         st.sync_live_file_context(&doc, page, &[], None);
         st.flush_live_sync();
-        assert!(!session_dir.exists(), "the publish after shutdown re-created {}", session_dir.display());
+        assert_eq!(files_in(&session_dir), CLOSED_SCRATCH_FOLDER, "the publish after shutdown wrote into {}", session_dir.display());
         assert!(!channel.exists(), "the publish after shutdown re-created the approval channel {}", channel.display());
 
         // Binding to a session again (a document opened in this terminal) lifts the stop.
@@ -924,6 +928,18 @@ mod tests {
         assert!(next_dir.join("canvas.designos").is_file(), "a rebound terminal publishes again");
         st.shutdown();
         assert!(!crate::agent_approval_channel::channel_dir(&next_dir).expect("a private channel folder").exists());
+        let _ = std::fs::remove_dir_all(&session_dir);
+        let _ = std::fs::remove_dir_all(&next_dir);
+    }
+
+    /// What a closed scratch folder holds: the owner marker and the mark of the closed tab, nothing else.
+    const CLOSED_SCRATCH_FOLDER: [&str; 2] = ["owner.json", "tab-closed.json"];
+
+    fn files_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> =
+            std::fs::read_dir(dir).map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+        names.sort();
+        names
     }
 
     fn writer_test_job(session_dir: &Path, key: (u64, u64, u64)) -> SnapshotJob {

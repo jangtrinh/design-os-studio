@@ -94,7 +94,11 @@ counter, so a result file a former server process left behind never matches, and
 `close-cancel.json` are deleted before each live close is published. A tab that is already closed (the editor
 answers `reason: "tab_closed"`) is `EDITOR_NOT_NOTIFIED` with `safe_to_retry: false` and `next_step` "That tab is
 already closed, so there is nothing to close. Open the document again with designos_open_file, or ask the user.";
-the "tab not shown" answer, where the tab still exists, stays retryable for every policy.
+a tab the person closed leaves `tab-closed.json` in its session folder (a scratch folder keeps only that mark until the
+next sweep), which is what tells the closed tab apart from a missing folder. A session folder that is gone with no
+such mark is `EDITOR_NOT_NOTIFIED` with `safe_to_retry: false`, the message "The session folder is gone, so the editor
+cannot be asked." and `next_step` "Check the document state with designos_get_document, or ask the user.", at once and
+without the wait. The "tab not shown" answer, where the tab still exists, stays retryable for every policy.
 
 ### 3.3 Catalogue
 

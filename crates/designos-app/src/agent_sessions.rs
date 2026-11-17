@@ -1261,7 +1261,11 @@ mod tests {
             !st1.session_dir.join("sessions.json").exists(),
             "fallback window must never write sessions.json into the stable folder owned by another window"
         );
-        assert!(!st2_fallback_dir.exists(), "fallback window's ephemeral dir must be removed on shutdown");
+        assert!(
+            !st2_fallback_dir.join("sessions.json").exists() && !st2_fallback_dir.join("doc-patch.jsonl").exists(),
+            "fallback window's ephemeral dir must be emptied on shutdown"
+        );
+        let _ = std::fs::remove_dir_all(&st2_fallback_dir);
 
         st1.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
