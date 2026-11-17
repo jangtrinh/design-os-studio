@@ -374,10 +374,26 @@ pub fn text_aligned_stroke_layers(doc: &Document, n: &Node) -> Vec<AlignedTextLa
     layers
 }
 
+/// The path a `Line` becomes when it turns into a vector: point editing, Flatten and Outline stroke all
+/// start from it. It is the segment on the layer's axis, `(0, 0)` to `(size.x, 0)`, exactly as before the
+/// live line stroke moved onto Figma's band. A line drawn on that band (a solid centred line with a butt or
+/// round cap) therefore changes place when it becomes a vector; where its vertices should go is an open
+/// question for a follow-up that starts from Figma's own behaviour. This is the one place to change.
+fn line_vector_paths(doc: &Document, n: &Node) -> Option<Vec<d::Path>> {
+    // an inside-aligned twin is always drawn on the axis, which is the geometry this has always returned
+    let mut on_axis = n.clone();
+    on_axis.stroke.align = d::StrokeAlign::Inside;
+    let shape = node_shape(doc, &on_axis, 0.05)?;
+    Some(shape.paths.iter().map(|(p, r)| sk_to_doc(p, rule_of(*r))).collect())
+}
+
 /// Geometry of a shape or text node in its own coordinate space as document paths
 /// (rectangles, ellipses, polygons, stars, lines, vectors, boolean groups, text).
 /// Containers have none.
 pub fn node_paths(doc: &Document, n: &Node) -> Option<Vec<d::Path>> {
+    if matches!(n.kind, NodeKind::Line) {
+        return line_vector_paths(doc, n);
+    }
     if matches!(n.kind, NodeKind::Text(_)) {
         let runs = text_flatten_runs(doc, n);
         let mut cmds = Vec::new();

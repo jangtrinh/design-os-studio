@@ -407,3 +407,85 @@ fn the_endpoint_rows_sit_one_under_the_other_inside_the_panel_with_reachable_tar
     }
     assert!(!start.intersects(swap) && !end.intersects(swap), "the swap button covers no dropdown");
 }
+
+/// A solid CENTER weight 10 `Line` of length 100 at (20, 40): the kit's measured case. It is drawn on
+/// Figma's band (rows 30..40), half a weight above its axis.
+fn drawn_line_app(cap: StrokeCap) -> (App, NodeId, NodeId) {
+    let (mut app, page, line) = line_app(100.0, cap, vec![]);
+    let n = app.doc.get_mut(line).unwrap();
+    n.transform = Affine::translate(20.0, 40.0);
+    n.stroke.weight = 10.0;
+    (app, page, line)
+}
+
+/// (first row, last row, first column, last column) of dark pixels on the page.
+fn ink_box(app: &App, page: NodeId) -> (u32, u32, u32, u32) {
+    let mut pm = designos_render::tiny_skia::Pixmap::new(160, 80).unwrap();
+    designos_render::render_page(&app.doc, page, &designos_render::Viewport::default(), &mut pm);
+    let (mut y0, mut y1, mut x0, mut x1) = (u32::MAX, 0, u32::MAX, 0);
+    for y in 0..pm.height() {
+        for x in 0..pm.width() {
+            if pm.pixel(x, y).unwrap().red() < 128 {
+                (y0, y1, x0, x1) = (y0.min(y), y1.max(y), x0.min(x), x1.max(x));
+            }
+        }
+    }
+    (y0, y1, x0, x1)
+}
+
+/// The vertices of the vector in page space.
+fn vertices(app: &App, id: NodeId) -> Vec<(f32, f32)> {
+    let n = app.doc.get(id).unwrap();
+    let NodeKind::Vector { network: Some(net), .. } = &n.kind else { panic!("the line became a vector") };
+    net.vertices
+        .iter()
+        .map(|v| {
+            let p = n.transform.apply(v.pos);
+            (p.x, p.y)
+        })
+        .collect()
+}
+
+/// Whether a click at page `(x, y)` with tolerance 2 selects `id`.
+fn hits(app: &App, page: NodeId, id: NodeId, x: f32, y: f32) -> bool {
+    crate::canvas::hit::hit_test(&app.doc, page, Vec2::new(x, y), 2.0, false, &[]) == Some(id)
+}
+
+// The Start point, End point and Swap controls turn a Line into a vector on the layer's axis, exactly as
+// they always did; a solid centred line therefore changes place on conversion (it is drawn half a weight
+// above its axis, a vector is stroked on its path). Where the vertices should go is left to a follow-up.
+
+#[test]
+fn swapping_the_end_points_of_a_solid_centred_line_converts_it_on_its_axis() {
+    for (cap, cols) in [(StrokeCap::None, (20, 119)), (StrokeCap::Round, (15, 124))] {
+        let (mut app, page, line) = drawn_line_app(cap);
+        assert_eq!(ink_box(&app, page).0, 30, "{cap:?}: drawn on Figma's band before");
+        swap_node_endpoints(app.doc.get_mut(line).unwrap());
+        let mut got = vertices(&app, line);
+        got.sort_by(|a, b| a.0.total_cmp(&b.0));
+        assert_eq!(got, vec![(20.0, 40.0), (120.0, 40.0)], "{cap:?}: the vertices sit on the axis");
+        let n = app.doc.get(line).unwrap();
+        assert_eq!((n.size, n.transform), (Vec2::new(100.0, 0.0), Affine::translate(20.0, 40.0)), "{cap:?}: the box is untouched");
+        assert!(hits(&app, page, line, 70.0, 40.0), "{cap:?}: a click on the axis selects it");
+        assert_eq!(ink_box(&app, page), (35, 44, cols.0, cols.1), "{cap:?}: the vector is stroked centred on the axis");
+    }
+}
+
+#[test]
+fn an_end_point_cap_on_a_solid_centred_line_converts_it_on_its_axis() {
+    let (mut app, page, line) = drawn_line_app(StrokeCap::None);
+    set_node_endpoint_cap(app.doc.get_mut(line).unwrap(), true, StrokeCap::ArrowLines);
+    assert_eq!(vertices(&app, line), vec![(20.0, 40.0), (120.0, 40.0)]);
+    assert_eq!(end_caps(&app, line), Some((Some(StrokeCap::None), Some(StrokeCap::ArrowLines))));
+    let (y0, y1, ..) = ink_box(&app, page);
+    assert!(y0 <= 35 && y1 >= 44, "the shaft is centred on the axis, rows {y0}..={y1}");
+    assert!(hits(&app, page, line, 70.0, 40.0), "a click on the axis selects it");
+}
+
+#[test]
+fn a_round_end_point_on_a_solid_centred_round_line_converts_it_on_its_axis() {
+    let (mut app, page, line) = drawn_line_app(StrokeCap::Round);
+    set_node_endpoint_cap(app.doc.get_mut(line).unwrap(), false, StrokeCap::Round);
+    assert_eq!(vertices(&app, line), vec![(20.0, 40.0), (120.0, 40.0)]);
+    assert_eq!(ink_box(&app, page), (35, 44, 15, 124), "round caps overhang a vector's ends");
+}

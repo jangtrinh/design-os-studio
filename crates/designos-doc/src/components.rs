@@ -48,8 +48,8 @@ fn nothing() -> Command {
 // multi-node operation see the effect of earlier ones.
 // ---------------------------------------------------------------------------
 
-struct Ctx<'a> {
-    s: &'a mut Document,
+pub(crate) struct Ctx<'a> {
+    pub(crate) s: &'a mut Document,
     cmds: Vec<Command>,
     invs: Vec<Command>,
     saved_dirty: crate::DirtyLog,
@@ -68,10 +68,12 @@ struct Ctx<'a> {
     kept_for_return: usize,
     /// Instances that entered or received a non-empty parked list during this context's swap operations.
     had_parked: BTreeSet<NodeId>,
+    /// A trial that `finish` undoes in full: it keeps only the inverse of each command, not a copy for redo.
+    scratch: bool,
 }
 
 impl<'a> Ctx<'a> {
-    fn new(doc: &'a mut Document) -> Self {
+    pub(crate) fn new(doc: &'a mut Document) -> Self {
         let saved_dirty = doc.dirty.clone();
         Ctx {
             s: doc,
@@ -84,20 +86,36 @@ impl<'a> Ctx<'a> {
             bound_vars: None,
             kept_for_return: 0,
             had_parked: BTreeSet::new(),
+            scratch: false,
         }
     }
+    /// A context whose writes are all undone by [`Ctx::finish`], which returns an empty batch.
+    pub(crate) fn scratch(doc: &'a mut Document) -> Self {
+        Ctx { scratch: true, ..Ctx::new(doc) }
+    }
     fn push(&mut self, c: Command) {
-        if let Ok(inv) = c.clone().apply(self.s) {
+        if self.scratch {
+            if let Ok(inv) = c.apply(self.s) {
+                self.invs.push(inv);
+            }
+        } else if let Ok(inv) = c.clone().apply(self.s) {
             self.cmds.push(c);
             self.invs.push(inv);
         }
     }
-    fn update(&mut self, n: Node) {
-        if self.s.get(n.id).map(|cur| !same_ignoring_tree(cur, &n)).unwrap_or(false) {
+    pub(crate) fn update(&mut self, mut n: Node) {
+        let Some(cur) = self.s.get(n.id) else { return };
+        // Compared without its place in the tree, which an update leaves as it is; `n` goes on unchanged.
+        let children = std::mem::replace(&mut n.children, cur.children.clone());
+        let parent = std::mem::replace(&mut n.parent, cur.parent);
+        let same = *cur == n;
+        n.children = children;
+        n.parent = parent;
+        if !same {
             self.push(Command::Update { node: Box::new(n) });
         }
     }
-    fn finish(self) -> Command {
+    pub(crate) fn finish(self) -> Command {
         for inv in self.invs.into_iter().rev() {
             let _ = inv.apply(self.s);
         }
@@ -106,6 +124,8 @@ impl<'a> Ctx<'a> {
     }
 }
 
+/// Whether two nodes are equal apart from their place in the tree.
+#[cfg(test)]
 fn same_ignoring_tree(a: &Node, b: &Node) -> bool {
     let mut b2 = b.clone();
     b2.children = a.children.clone();
@@ -183,6 +203,7 @@ fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, o
     if link {
         n.component.source = Some(src);
         n.component.overrides.clear();
+        n.component.imported_layout = None;
         n.component.clear_fig_own_entry_flags();
         n.component.parked_overrides.clear();
         release_own_variant_bindings(&mut n);
@@ -230,6 +251,7 @@ fn copy_rec_from(
     if link {
         n.component.source = live_source_in_doc(d, tree_doc, src);
         n.component.overrides.clear();
+        n.component.imported_layout = None;
         n.component.clear_fig_own_entry_flags();
         n.component.parked_overrides.clear();
         release_own_variant_bindings(&mut n);
@@ -1355,10 +1377,13 @@ fn sync_component(c: &mut Ctx, owner: NodeId) {
         }
         n
     };
-    targets.sort_by_key(|t| (depth(c.s, *t), t.0));
-    for t in targets {
+    targets.sort_by_cached_key(|t| (depth(c.s, *t), t.0));
+    // Imported instances whose stored geometry may outlive this sync (see `component_imported_layout`).
+    let held = crate::component_imported_layout_sync::before_sync(c.s, &targets);
+    for &t in &targets {
         sync_one(c, t);
     }
+    crate::component_imported_layout_sync::after_sync(c, held);
 }
 
 /// The main nested copy `id` shows when no pick is recorded on it and its bound variant properties `choices` drive it:
@@ -1400,7 +1425,7 @@ fn holder_of(d: &Document, id: NodeId) -> NodeId {
     id
 }
 
-fn sync_one(c: &mut Ctx, id: NodeId) {
+pub(crate) fn sync_one(c: &mut Ctx, id: NodeId) {
     let Some(r) = reference_of(&c.s, id) else { return };
     let top = c.s.get(id).map(is_top).unwrap_or(false);
     let holder = holder_of(&c.s, id);
