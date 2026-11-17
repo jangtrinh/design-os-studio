@@ -1237,12 +1237,19 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     // Text-bearing nodes (for example Sticky notes) share the Typography controls. Prefer a
     // regular Text node when one is selected so alignment/list previews retain their existing
     // semantics, but do not let selection order hide the controls for a mixed selection.
-    let text_node = if is_text {
-        Some(n0.clone())
+    // The search reads the stored kind and clones only the node it finds, so a selection with no
+    // Text layer costs no clones per frame.
+    let found_text = if is_text {
+        None
     } else {
-        sel.iter().filter_map(|id| app.doc.get(*id).map(|n| resolve_node(&app.doc, n).into_owned())).find(|n| matches!(n.kind, NodeKind::Text(_)))
+        sel.iter()
+            .take(64)
+            .copied()
+            .find(|id| matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::Text(_))))
+            .and_then(|id| app.doc.get(id).map(|n| resolve_node(&app.doc, n).into_owned()))
     };
-    if let Some(text_node) = &text_node {
+    let text_node: Option<&Node> = if is_text { Some(&n0) } else { found_text.as_ref() };
+    if let Some(text_node) = text_node {
         let Some(t) = text_node.kind.any_text() else { return };
         section_sep(ui, pane, false);
         title(ui, pane, "Typography", None, false);
