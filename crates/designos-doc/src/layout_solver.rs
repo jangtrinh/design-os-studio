@@ -1136,6 +1136,8 @@ mod tests {
         ];
         let out = compute(&al, Vec2::new(300.0, 80.0), SizeLimits::default(), &kids);
         assert!(out.rects[2].y > out.rects[0].y, "fixed actions still wrap when their total does not fit: {:?}", out.rects);
+        assert!((out.rects[0].w - 90.0).abs() <= 1e-3, "the title takes what the 200 wide action leaves on its row: {:?}", out.rects);
+        assert_eq!(out.rects[1].y, out.rects[0].y, "the 200 wide action shares the title's row: {:?}", out.rects);
     }
 
     #[test]
