@@ -11,7 +11,7 @@ use crate::kiwi::{self, KiwiValue, Schema};
 use crate::rest_import::{self, fnum, fstr};
 use crate::svgpath::write_path;
 use crate::FigError;
-use designos_doc::{Affine, Document, FillRule, Path, PathCmd, Vec2};
+use designos_doc::{Affine, Document, FigTextGeometry, FillRule, Node, NodeKind, Path, PathCmd, Vec2};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 
@@ -327,6 +327,9 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
         release_os_memory();
     }
     let (mut doc, mut report) = rest_import::import_rest_value_owned_with_budget(rest, true, &blob_refs, fast_derived.as_mut(), clone_budget_total)?;
+    for node in doc.nodes.values_mut() {
+        node.fig_text_geometry = fig_text_geometry(node, &blob_refs);
+    }
     report.dropped_variable_bindings += dropped_variable_bindings;
     report.dropped_variable_overrides += dropped_variable_overrides;
     for (sid, sp) in style_sort_positions {
@@ -342,6 +345,79 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
         release_os_memory();
     }
     Ok((doc, report))
+}
+
+/// Figma stores each shaped glyph's path in a blob, in font-em coordinates
+/// with the y axis pointing up. Keep its exact local outline for missing-font
+/// display; the editable text remains the source of truth after an edit.
+fn fig_text_geometry(node: &Node, blobs: &[&[u8]]) -> Option<FigTextGeometry> {
+    let NodeKind::Text(text) = &node.kind else { return None };
+    if text.content.is_empty() || !text.runs.is_empty() {
+        return None;
+    }
+    let raw = node.fig_metadata.get("derivedTextData")?;
+    let derived: Value = serde_json::from_str(raw).ok()?;
+    let size = derived.get("layoutSize")?;
+    if (fnum(size, "x")? - node.size.x).abs() > 0.1 || (fnum(size, "y")? - node.size.y).abs() > 0.1 {
+        return None;
+    }
+    let fonts = derived.get("fontMetaData")?.as_array()?;
+    if fonts.len() != 1 || fstr(fonts.first()?.get("key")?, "family")?.to_lowercase() != text.style.font_family.to_lowercase() {
+        return None;
+    }
+    let glyphs = derived.get("glyphs")?.as_array()?;
+    if glyphs.is_empty() || glyphs.len() > 4096 {
+        return None;
+    }
+    let mut path = Path { cmds: Vec::new(), fill_rule: FillRule::NonZero };
+    let mut glyph_blobs = Vec::with_capacity(glyphs.len());
+    let mut blob_bytes = 0usize;
+    for glyph in glyphs {
+        let scale = fnum(glyph, "fontSize")?;
+        let pos = glyph.get("position")?;
+        let x = fnum(pos, "x")?;
+        let y = fnum(pos, "y")?;
+        if !scale.is_finite() || scale <= 0.0 || !x.is_finite() || !y.is_finite() || fnum(glyph, "rotation").unwrap_or(0.0).abs() > 1e-5 {
+            return None;
+        }
+        let Some(blob_index) = glyph.get("commandsBlob").and_then(Value::as_u64) else {
+            glyph_blobs.push(None);
+            continue;
+        };
+        let blob = *blobs.get(usize::try_from(blob_index).ok()?)?;
+        blob_bytes = blob_bytes.checked_add(blob.len())?;
+        if blob_bytes > 2_000_000 {
+            return None;
+        }
+        glyph_blobs.push(Some(blob.to_vec()));
+        let mut glyph_path = commands_blob_to_path(blob, false);
+        let mut finite = true;
+        for cmd in &mut glyph_path.cmds {
+            let mut point = |p: &mut Vec2| {
+                p.x = x + p.x * scale;
+                p.y = y - p.y * scale;
+                finite &= p.x.is_finite() && p.y.is_finite();
+            };
+            match cmd {
+                PathCmd::MoveTo(p) | PathCmd::LineTo(p) => point(p),
+                PathCmd::QuadTo(a, b) => {
+                    point(a);
+                    point(b);
+                }
+                PathCmd::CubicTo(a, b, c) => {
+                    point(a);
+                    point(b);
+                    point(c);
+                }
+                PathCmd::Close => {}
+            }
+        }
+        if !finite {
+            return None;
+        }
+        path.cmds.extend(glyph_path.cmds);
+    }
+    (!path.cmds.is_empty()).then(|| FigTextGeometry { text: text.clone(), size: node.size, path, glyph_blobs })
 }
 
 /// How many `VARIABLE_OVERRIDE` nodes (node type 35) `entries` hold. The importer reads none of them: the field layout

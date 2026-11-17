@@ -80,6 +80,23 @@ pub struct TextLayout {
     pub line_box: Vec2,
 }
 
+/// Layout an imported text node. When its original font is unavailable, use
+/// the glyph paths Figma embedded in the file until the text is edited.
+pub fn layout_node(node: &d::Node) -> Rc<TextLayout> {
+    let d::NodeKind::Text(props) = &node.kind else { unreachable!("layout_node requires text") };
+    if let Some(saved) = node.fig_text_geometry.as_ref().filter(|saved| saved.matches(node)) {
+        let missing_font = resolve_font(&props.style.font_family, props.style.font_weight, props.style.italic)
+            .is_none_or(|resolved| !resolved.family.eq_ignore_ascii_case(&props.style.font_family));
+        if missing_font {
+            let shape = crate::geom::vector_paths(std::slice::from_ref(&saved.path));
+            if let Some((path, _)) = shape.paths.into_iter().next() {
+                return Rc::new(TextLayout { styles: vec![props.style.clone()], paths: vec![Some(path)], line_box: node.size });
+            }
+        }
+    }
+    layout(props, node.size)
+}
+
 /// The line box of `props` laid out in a box of `size`, from its own small cache (one `Vec2` per text
 /// besides the key), so deciding whether a cell's text fits needs no shaped layout to stay cached. A
 /// miss shapes the text through [`layout`], so the painter that draws it next reuses that layout.

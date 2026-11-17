@@ -1171,6 +1171,7 @@ fn copy_node_group(dst: &mut Node, src: &Node, group: Group) {
             dst.hyperlink = src.hyperlink.clone();
             dst.detached_symbol_id = src.detached_symbol_id.clone();
             dst.fig_metadata = src.fig_metadata.clone();
+            dst.fig_text_geometry = src.fig_text_geometry.clone();
             dst.motion = src.motion.clone();
         }
         Group::Position => {}

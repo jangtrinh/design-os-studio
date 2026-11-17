@@ -9,7 +9,7 @@ use crate::mesh::{tessellate, Mesh};
 use designos_doc as d;
 use designos_doc::{Document, Node, NodeId, NodeKind, Vec2};
 use designos_render::tiny_skia as sk;
-use designos_render::{font_generation, outline_of, stroke_plan, text_outlines, NodeShape, StrokeClip};
+use designos_render::{font_generation, outline_of, stroke_plan, text_outlines_for_node, NodeShape, StrokeClip};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hash, Hasher};
@@ -87,6 +87,7 @@ struct GeomSrc {
     radii: [f32; 4],
     smoothing: f32,
     fill_geometry: Option<Vec<d::Path>>,
+    fig_text_geometry: Option<d::FigTextGeometry>,
     stroke_geometry: Option<Vec<d::Path>>,
     stroke: StrokeKey,
     font_gen: usize,
@@ -160,6 +161,10 @@ impl GeomSrc {
             1u8.hash(&mut h);
             hash_path_slice(fg, &mut h);
         }
+        if let Some(fg) = &n.fig_text_geometry {
+            3u8.hash(&mut h);
+            hash_path_slice(std::slice::from_ref(&fg.path), &mut h);
+        }
         if let Some(sg) = n.live_stroke_outline() {
             2u8.hash(&mut h);
             hash_path_slice(sg, &mut h);
@@ -200,6 +205,7 @@ impl GeomSrc {
             radii: n.corner_radii,
             smoothing: n.corner_smoothing,
             fill_geometry: n.fill_geometry.clone(),
+            fig_text_geometry: n.fig_text_geometry.clone(),
             stroke_geometry: n.live_stroke_outline().map(<[d::Path]>::to_vec),
             stroke: StrokeKey::of(n),
             font_gen: font_generation(),
@@ -213,6 +219,7 @@ impl GeomSrc {
             || self.radii != n.corner_radii
             || self.smoothing != n.corner_smoothing
             || self.fill_geometry != n.fill_geometry
+            || self.fig_text_geometry != n.fig_text_geometry
             || self.stroke_geometry.as_deref() != n.live_stroke_outline()
             || !self.stroke.same(n)
             || (matches!(n.kind, NodeKind::Text(_)) && self.font_gen != font_generation())
@@ -511,8 +518,8 @@ impl GeomCache {
 fn build_geom(doc: &Document, n: &Node, scale: f32) -> NodeGeom {
     let tol = 0.1 / scale;
     let mut g = NodeGeom { shape: None, fill: None, stroke: RefCell::default(), text: Vec::new(), scale, lazy: RefCell::default() };
-    if let NodeKind::Text(tp) = &n.kind {
-        for o in text_outlines(tp, n.size) {
+    if let NodeKind::Text(_) = &n.kind {
+        for o in text_outlines_for_node(n) {
             let Some(mesh) = tessellate(&[(o.path.clone(), sk::FillRule::Winding)], tol) else { continue };
             g.text.push(TextGeom { mesh: Arc::new(mesh), fills: o.fills, path: o.path, stroke: RefCell::default() });
         }
@@ -529,6 +536,41 @@ fn build_geom(doc: &Document, n: &Node, scale: f32) -> NodeGeom {
 mod tests {
     use super::*;
     use designos_doc::{AutoLayout, Color, FrameProps, LayoutGrid, Paint, Path, PathCmd, Rect, TextStyle};
+
+    #[test]
+    fn gpu_geometry_uses_imported_icon_glyph_and_invalidates_when_it_changes() {
+        let mut doc = Document::new("icon");
+        let page = doc.add_page("Page");
+        let id = doc.alloc_id();
+        let mut style = TextStyle::default();
+        style.font_family = "MissingIconFaceForTest".into();
+        style.font_size = 20.0;
+        let mut node = Node::text(id, Rect::new(0.0, 0.0, 20.0, 20.0), "\u{e900}", style);
+        let NodeKind::Text(text) = &node.kind else { unreachable!() };
+        node.fig_text_geometry = Some(d::FigTextGeometry {
+            text: text.clone(),
+            size: node.size,
+            path: Path {
+                cmds: vec![
+                    PathCmd::MoveTo(Vec2::new(0.0, 20.0)),
+                    PathCmd::LineTo(Vec2::new(20.0, 20.0)),
+                    PathCmd::LineTo(Vec2::new(10.0, 4.0)),
+                    PathCmd::Close,
+                ],
+                fill_rule: d::FillRule::NonZero,
+            },
+            glyph_blobs: Vec::new(),
+        });
+        doc.insert(page, node).unwrap();
+        let src = GeomSrc::build(&doc, doc.get(id).unwrap(), false);
+        let built = build_geom(&doc, doc.get(id).unwrap(), 1.0);
+        assert_eq!(built.text.len(), 1);
+        let bounds = built.text[0].path.bounds();
+        assert!((bounds.left() - 0.0).abs() < 1e-4 && (bounds.right() - 20.0).abs() < 1e-4);
+
+        doc.get_mut(id).unwrap().fig_text_geometry = None;
+        assert!(!src.same(&doc, doc.get(id).unwrap(), false));
+    }
 
     #[test]
     fn canonical_kind_deduplicates_frames_components_and_instances() {
