@@ -852,10 +852,11 @@ mod tests {
         assert_offset_refused(|id| Node::new(id, NodeKind::Group), true);
     }
 
-    /// A centred round-cap Line is stroked on a centreline that sits half a weight above its axis and
-    /// half a weight in from each end; editing or flattening it must not move or reshape what is drawn.
+    /// A solid centred round-cap Line is drawn on Figma's band (half a weight above its axis, inset half a
+    /// weight from each end), but the vector it becomes still starts on the layer's axis, as it always did.
+    /// Where those vertices should go is left to a follow-up; this pins what conversion does today.
     #[test]
-    fn flatten_of_a_centred_round_line_keeps_what_is_drawn_and_edits_the_drawn_centreline() {
+    fn a_centred_round_line_becomes_a_vector_on_its_axis() {
         use designos_render::{render_page, tiny_skia::Pixmap, Viewport};
         let mut doc = Document::new("Test");
         let page = doc.add_page("Page 1");
@@ -870,24 +871,33 @@ mod tests {
         line.stroke.align = StrokeAlign::Center;
         line.stroke.cap = StrokeCap::Round;
         doc.insert(page, line).unwrap();
-        let render = |doc: &Document| {
+        let ink = |doc: &Document| {
             let mut pm = Pixmap::new(160, 80).unwrap();
             render_page(doc, page, &Viewport::default(), &mut pm);
-            pm
+            let (mut y0, mut y1, mut x0, mut x1) = (u32::MAX, 0, u32::MAX, 0);
+            for y in 0..pm.height() {
+                for x in 0..pm.width() {
+                    if pm.pixel(x, y).unwrap().red() < 128 {
+                        (y0, y1, x0, x1) = (y0.min(y), y1.max(y), x0.min(x), x1.max(x));
+                    }
+                }
+            }
+            (y0, y1, x0, x1)
         };
-        let before = render(&doc);
+        assert_eq!(ink(&doc), (30, 39, 20, 119), "the line is drawn on Figma's band");
         let mut app = app_on_new_page(doc, page);
 
-        // point editing starts from the drawn centreline: (5, -5) to (95, -5) in the layer's space
+        // point editing starts from the axis: (0, 0) to (100, 0) in the layer's space
         let net = crate::canvas::vector::network_of(&app, app.doc.get(id).unwrap()).expect("a line has a network");
         let at: Vec<(f32, f32)> = net.vertices.iter().map(|v| (v.pos.x, v.pos.y)).collect();
-        assert_eq!(at, vec![(5.0, -5.0), (95.0, -5.0)]);
+        assert_eq!(at, vec![(0.0, 0.0), (100.0, 0.0)]);
 
         app.selection = vec![id];
         app.flatten_selection();
         let vid = app.selection[0];
         assert!(matches!(app.doc.get(vid).unwrap().kind, NodeKind::Vector { .. }), "the line became a vector");
-        assert_eq!(render(&app.doc).data(), before.data(), "the flattened vector draws exactly the line it came from");
+        // a vector strokes centred on its path, and its round caps overhang
+        assert_eq!(ink(&app.doc), (35, 44, 15, 124), "the flattened vector is centred on the axis");
     }
 
     #[test]

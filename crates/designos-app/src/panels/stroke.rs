@@ -85,13 +85,9 @@ fn endpoint_cap_label(cap: Option<StrokeCap>) -> &'static str {
 
 fn ensure_open_vector_network(n: &mut Node) {
     if matches!(n.kind, NodeKind::Line) {
-        // the centreline the line is drawn on, so the ink does not move on conversion
-        let Some(path) = n.line_vector_path() else { return };
+        let path = Path { cmds: vec![PathCmd::MoveTo(Vec2::ZERO), PathCmd::LineTo(Vec2::new(n.size.x, 0.0))], fill_rule: FillRule::NonZero };
         let net = VectorNetwork::from_paths(std::slice::from_ref(&path));
-        // the vertices sit above the axis for a measured centred line, so the box is refitted to them
-        // exactly as point editing does and every point stays where it is drawn
-        let t0 = n.transform;
-        crate::canvas::vector::fit_node_to_network(n, &net, t0);
+        n.kind = NodeKind::Vector { paths: vec![path], network: Some(net) };
         n.fills.clear();
     } else if let NodeKind::Vector { paths, network } = &mut n.kind {
         if network.as_ref().is_none_or(|net| !net.is_valid()) {

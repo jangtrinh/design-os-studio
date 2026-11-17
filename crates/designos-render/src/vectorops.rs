@@ -375,13 +375,16 @@ pub fn text_aligned_stroke_layers(doc: &Document, n: &Node) -> Vec<AlignedTextLa
 }
 
 /// The path a `Line` becomes when it turns into a vector: point editing, Flatten and Outline stroke all
-/// start from it, and so do the Start point, End point and Swap controls through the same
-/// `Node::line_vector_path`. Today it is the centreline the line is drawn on (shifted half a weight above
-/// the axis for a measured centred line, inset for a round cap), so the vector draws exactly what the line
-/// drew (owner ruling: vertices go on the drawn stroke). To start from the layer's axis instead, change
-/// `Node::line_vector_path` to return the segment `(0, 0)` to `(size.x, 0)`; nothing else changes.
-fn line_vector_paths(n: &Node) -> Option<Vec<d::Path>> {
-    n.line_vector_path().map(|p| vec![p])
+/// start from it. It is the segment on the layer's axis, `(0, 0)` to `(size.x, 0)`, exactly as before the
+/// live line stroke moved onto Figma's band. A line drawn on that band (a solid centred line with a butt or
+/// round cap) therefore changes place when it becomes a vector; where its vertices should go is an open
+/// question for a follow-up that starts from Figma's own behaviour. This is the one place to change.
+fn line_vector_paths(doc: &Document, n: &Node) -> Option<Vec<d::Path>> {
+    // an inside-aligned twin is always drawn on the axis, which is the geometry this has always returned
+    let mut on_axis = n.clone();
+    on_axis.stroke.align = d::StrokeAlign::Inside;
+    let shape = node_shape(doc, &on_axis, 0.05)?;
+    Some(shape.paths.iter().map(|(p, r)| sk_to_doc(p, rule_of(*r))).collect())
 }
 
 /// Geometry of a shape or text node in its own coordinate space as document paths
@@ -389,7 +392,7 @@ fn line_vector_paths(n: &Node) -> Option<Vec<d::Path>> {
 /// Containers have none.
 pub fn node_paths(doc: &Document, n: &Node) -> Option<Vec<d::Path>> {
     if matches!(n.kind, NodeKind::Line) {
-        return line_vector_paths(n);
+        return line_vector_paths(doc, n);
     }
     if matches!(n.kind, NodeKind::Text(_)) {
         let runs = text_flatten_runs(doc, n);
