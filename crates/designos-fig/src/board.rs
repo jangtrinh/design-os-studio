@@ -266,7 +266,7 @@ fn stamp_kind(v: &Value) -> String {
 
 /// Board node kind for a REST `type`, or `None` for every other type. `origin` is the
 /// page-space position of the parent, to turn absolute connector points into parent space.
-pub(crate) fn kind_from_json(ty: &str, v: &Value, origin: Vec2) -> Option<NodeKind> {
+pub(crate) fn kind_from_json(ty: &str, v: &Value, origin: Vec2, keep_unknown_keys: bool) -> Option<NodeKind> {
     Some(match ty {
         "STICKY" => {
             let mut p = StickyProps::default();
@@ -279,14 +279,18 @@ pub(crate) fn kind_from_json(ty: &str, v: &Value, origin: Vec2) -> Option<NodeKi
             p.text = board_text_props(v, p.text);
             p.show_author = fbool(v, "authorVisible").unwrap_or(false);
             p.author = fstr(v, "authorName").map(String::from).filter(|s| !s.is_empty());
-            p.extra = board_extra(v, STICKY_KNOWN, sticky_native_names());
+            if keep_unknown_keys {
+                p.extra = board_extra(v, STICKY_KNOWN, sticky_native_names());
+            }
             NodeKind::Sticky(p)
         }
         "SHAPE_WITH_TEXT" => {
             let shape_str = fstr(v, "shapeType").or_else(|| fstr(v, "shapeWithTextType"));
             let mut p = ShapeWithTextProps { shape: shape_str.map(shape_from_name).unwrap_or_default(), ..Default::default() };
             p.text = board_text_props(v, p.text);
-            p.extra = board_extra(v, SHAPE_KNOWN, shape_native_names());
+            if keep_unknown_keys {
+                p.extra = board_extra(v, SHAPE_KNOWN, shape_native_names());
+            }
             NodeKind::ShapeWithText(p)
         }
         "STAMP" => NodeKind::Stamp { kind: stamp_kind(v) },
@@ -312,7 +316,7 @@ pub(crate) fn kind_from_json(ty: &str, v: &Value, origin: Vec2) -> Option<NodeKi
                 start_cap: cap_from_name(fstr(v, "connectorStartStrokeCap")),
                 end_cap: cap_from_name(fstr(v, "connectorEndStrokeCap")),
                 label: None,
-                extra: connector_extra(v),
+                extra: if keep_unknown_keys { connector_extra(v) } else { BTreeMap::new() },
             };
             let label = board_text_props(v, board_text(14.0, TextAlignH::Center, TextAlignV::Center));
             if !label.content.is_empty() {

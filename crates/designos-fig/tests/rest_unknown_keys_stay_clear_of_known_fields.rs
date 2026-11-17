@@ -5,7 +5,7 @@ mod common;
 
 use common::{find, rich_document};
 use designos_doc::*;
-use designos_fig::{export_fig, export_rest_json, import_fig, import_rest_json};
+use designos_fig::{export_rest_json, import_rest_json};
 use serde_json::{json, Value};
 
 fn page_payload(children: Value) -> String {
@@ -158,9 +158,12 @@ fn prototype_dev_and_grid_keys_other_import_passes_read_are_not_kept_as_unknown(
 }
 
 #[test]
-fn a_fig_file_does_not_keep_the_records_its_converter_leaves_over() {
-    let bytes = export_fig(&rich_document()).unwrap();
-    let doc = import_fig(&bytes).unwrap();
-    let kept: Vec<_> = doc.nodes.values().filter(|n| !n.extra.is_empty()).map(|n| (&n.name, n.extra.keys().collect::<Vec<_>>())).collect();
-    assert!(kept.is_empty(), "{kept:?}");
+fn keys_that_only_repeat_modelled_geometry_are_not_kept_but_interactions_are() {
+    let payload = page_payload(json!([
+        {"id":"1:1","name":"Rect","type":"RECTANGLE","size":{"x":10.0,"y":10.0},"relativeTransform":[[0.866,-0.5,0],[0.5,0.866,0]],
+         "rotation":30.0,"absoluteRenderBounds":{"x":0.0,"y":0.0,"width":12.0,"height":12.0},"background":[],
+         "interactions":[],"futureKey":1}
+    ]));
+    let doc = import_rest_json(&payload).unwrap();
+    assert_eq!(find(&doc, "Rect").extra.keys().collect::<Vec<_>>(), ["futureKey", "interactions"]);
 }

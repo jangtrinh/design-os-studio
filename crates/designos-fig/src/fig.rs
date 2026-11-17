@@ -335,8 +335,14 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
     if large {
         release_os_memory();
     }
-    let (mut doc, mut report) = rest_import::import_rest_value_owned_with_budget(rest, true, &blob_refs, fast_derived.as_mut(), clone_budget_total)?;
-    rest_import::forget_unknown_keys(&mut doc);
+    let (mut doc, mut report) = rest_import::import_rest_value_owned_with_budget(
+        rest,
+        true,
+        &blob_refs,
+        fast_derived.as_mut(),
+        clone_budget_total,
+        rest_import::KEEP_UNKNOWN_KEYS_FROM_BINARY,
+    )?;
     report.dropped_variable_bindings += dropped_variable_bindings;
     report.dropped_variable_overrides += dropped_variable_overrides;
     for (sid, sp) in style_sort_positions {
@@ -821,8 +827,14 @@ pub fn import_fig_node_changes_with_report(changes: &Value, name: &str) -> Resul
     let entries: Vec<Entry> = list.into_iter().filter_map(entry_from_json).collect();
     let dropped_variable_overrides = count_variable_override_nodes(&entries);
     let rest = entries_to_rest(entries, &blob_refs, name);
-    let (mut doc, mut report) = rest_import::import_rest_value_with_blobs_and_budget(&rest, true, &[], None, rest_import::CLONE_BUDGET_TOTAL)?;
-    rest_import::forget_unknown_keys(&mut doc);
+    let (doc, mut report) = rest_import::import_rest_value_with_blobs_and_budget(
+        &rest,
+        true,
+        &[],
+        None,
+        rest_import::CLONE_BUDGET_TOTAL,
+        rest_import::KEEP_UNKNOWN_KEYS_FROM_BINARY,
+    )?;
     report.dropped_variable_overrides += dropped_variable_overrides;
     Ok((doc, report))
 }

@@ -95,6 +95,12 @@ pub(crate) fn is_modelled_key(key: &str) -> bool {
     KNOWN.contains(key) || override_field(key, false).is_some() || override_field(key, true).is_some()
 }
 
+/// Whether an import from binary records (`.fig`, node changes, a clipboard paste) keeps unknown keys. It does not:
+/// the converter turns every field it does not map into `fig_metadata`, so a REST key left over is a converter
+/// record nothing reads, and keeping it would fill every layer of a large file with data. Those imports pass this
+/// to the importer, which then never scans or clones unknown keys.
+pub(crate) const KEEP_UNKNOWN_KEYS_FROM_BINARY: bool = false;
+
 const KNOWN_KEYS: &[&str] = &[
     "id",
     "type",
@@ -241,6 +247,10 @@ const KNOWN_KEYS: &[&str] = &[
     "textWrapStyle",
     "transform",
     "variantPropSpecs",
+    // Copies of data the model already holds (the layer's transform, its bounds, its fills).
+    "absoluteRenderBounds",
+    "background",
+    "rotation",
     // Prototype, dev-mode and grid keys that other import passes read from the same layer object.
     "_gridColumnAnchorGuid",
     "_gridColumnTrackIds",
@@ -270,21 +280,6 @@ const KNOWN_KEYS: &[&str] = &[
     "transitionTimeout",
     "transitionType",
 ];
-
-/// Forgets every kept unknown key. A `.fig` file or a clipboard paste is converted from binary records, so a key
-/// left over after the importer has taken what it models is a record the converter emitted, not a key a newer
-/// release wrote; keeping it would only fill every layer of a large file with data nothing reads.
-pub(crate) fn forget_unknown_keys(doc: &mut Document) {
-    for n in doc.nodes.values_mut() {
-        n.extra.clear();
-        match &mut n.kind {
-            NodeKind::Connector(c) => c.extra.clear(),
-            NodeKind::Sticky(s) => s.extra.clear(),
-            NodeKind::ShapeWithText(s) => s.extra.clear(),
-            _ => {}
-        }
-    }
-}
 
 /// The keys of a layer's REST object that the model has no field for.
 pub(crate) fn node_extra(v: &Value, ty: &str) -> BTreeMap<String, Value> {
@@ -901,6 +896,9 @@ struct Ctx<'a> {
     has_instance_swap_values: bool,
     /// Whether any `CONNECTOR` node was encountered during import.
     has_connectors: bool,
+    /// Keep the REST keys the model has no field for in `Node::extra`. Off for `.fig`, node-change and clipboard
+    /// imports: their converter leaves records that nothing reads, so those paths never scan or clone them.
+    keep_unknown_keys: bool,
     connectors: Vec<(NodeId, Option<String>, Option<String>)>,
     /// Deferred multi-page hydrator state assembled during `finish`.
     deferred_pending: Option<DeferredHydration>,
@@ -1022,12 +1020,12 @@ pub fn import_rest_json_with_report(json: &str) -> Result<(Document, ImportRepor
 /// [`import_rest_json_with_report`] with a caller-specified global clone budget (used by tests to exercise budget exhaustion).
 pub fn import_rest_json_with_budget(json: &str, clone_budget_total: usize) -> Result<(Document, ImportReport), FigError> {
     let v = parse_json_text(json)?;
-    import_rest_value_with_blobs_and_budget(&v, true, &[], None, clone_budget_total)
+    import_rest_value_with_blobs_and_budget(&v, true, &[], None, clone_budget_total, true)
 }
 
 #[cfg(test)]
 pub(crate) fn import_rest_value(v: &Value, expand_instances: bool) -> Result<Document, FigError> {
-    import_rest_value_with_blobs(v, expand_instances, &[], None)
+    import_rest_value_with_blobs(v, expand_instances, &[], None, true)
 }
 
 /// Maps an already-parsed REST-shaped value. `expand_instances` clones the
@@ -1039,9 +1037,10 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
     blobs: &'a [&'a [u8]],
     fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
     clone_budget_total: usize,
+    keep_unknown_keys: bool,
 ) -> Result<(Document, ImportReport), FigError> {
     if crate::board::is_figjam(&v) {
-        return import_rest_value_with_blobs_and_budget(&v, expand_instances, blobs, fast_derived_map, clone_budget_total);
+        return import_rest_value_with_blobs_and_budget(&v, expand_instances, blobs, fast_derived_map, clone_budget_total, keep_unknown_keys);
     }
     let has_doc = v.get("document").is_some();
     if !has_doc && fstr(&v, "type").is_none() {
@@ -1083,6 +1082,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         expanded_comps: HashSet::new(),
         has_instance_swap_values: false,
         has_connectors: false,
+        keep_unknown_keys,
         connectors: Vec::new(),
         deferred_pending: None,
     };
@@ -1189,8 +1189,9 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
     expand_instances: bool,
     blobs: &'a [&'a [u8]],
     fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
+    keep_unknown_keys: bool,
 ) -> Result<Document, FigError> {
-    import_rest_value_with_blobs_and_budget(v, expand_instances, blobs, fast_derived_map, CLONE_BUDGET_TOTAL).map(|(doc, _)| doc)
+    import_rest_value_with_blobs_and_budget(v, expand_instances, blobs, fast_derived_map, CLONE_BUDGET_TOTAL, keep_unknown_keys).map(|(doc, _)| doc)
 }
 
 pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
@@ -1199,6 +1200,7 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
     blobs: &'a [&'a [u8]],
     fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
     clone_budget_total: usize,
+    keep_unknown_keys: bool,
 ) -> Result<(Document, ImportReport), FigError> {
     let root = match v.get("document") {
         Some(d) => d,
@@ -1242,6 +1244,7 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
         expanded_comps: HashSet::new(),
         has_instance_swap_values: false,
         has_connectors: false,
+        keep_unknown_keys,
         connectors: Vec::new(),
         deferred_pending: None,
     };
@@ -1574,7 +1577,9 @@ impl<'a> Ctx<'a> {
             self.has_connectors = true;
             self.connectors.push((id, carrier.start_node_id.clone(), carrier.end_node_id.clone()));
             let mut props = carrier.props.clone();
-            props.extra.extend(crate::rest_import::node_extra(v, ty).into_iter().filter(|(k, _)| !crate::board::connector_native_names().contains(k)));
+            if self.keep_unknown_keys {
+                props.extra.extend(crate::rest_import::node_extra(v, ty).into_iter().filter(|(k, _)| !crate::board::connector_native_names().contains(k)));
+            }
             NodeKind::Connector(props)
         } else {
             match ty {
@@ -1592,7 +1597,7 @@ impl<'a> Ctx<'a> {
                         };
                         self.connectors.push((id, ep_id("connectorStart"), ep_id("connectorEnd")));
                     }
-                    crate::board::kind_from_json(ty, v, pinfo.origin).unwrap_or(NodeKind::Unknown { type_name: ty.to_string() })
+                    crate::board::kind_from_json(ty, v, pinfo.origin, self.keep_unknown_keys).unwrap_or(NodeKind::Unknown { type_name: ty.to_string() })
                 }
                 "COMPONENT" => NodeKind::Component(frame()),
                 "COMPONENT_SET" => NodeKind::ComponentSet(frame()),
@@ -1741,7 +1746,10 @@ impl<'a> Ctx<'a> {
             },
         };
         n.size = v.get("size").and_then(vec2).or_else(|| bbox.and_then(|b| Some(Vec2::new(fnum(b, "width")?, fnum(b, "height")?)))).unwrap_or(Vec2::ZERO);
-        n.extra = node_extra(v, ty);
+        // A carried connector keeps its unknown keys on its props, once.
+        if self.keep_unknown_keys && !matches!(n.kind, NodeKind::Connector(_)) {
+            n.extra = node_extra(v, ty);
+        }
 
         // Paint & stroke.
         let fills = parse_paints(v.get("fills"));
@@ -4270,6 +4278,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             unexpanded_instances: BTreeSet::new(),
             has_instance_swap_values,
             has_connectors: false,
+            keep_unknown_keys: true,
             connectors: Vec::new(),
             deferred_pending: None,
         };
@@ -4561,6 +4570,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             unexpanded_instances: BTreeSet::new(),
             has_instance_swap_values,
             has_connectors: false,
+            keep_unknown_keys: true,
             connectors: Vec::new(),
             deferred_pending: None,
         };
@@ -5811,7 +5821,7 @@ mod expand_depth_tests {
         let chain = component_chain(chain_len);
         let base_nodes = 1 + 2 * chain_len + 1; // page + len*(comp + inner) + Use
         let started = std::time::Instant::now();
-        let (doc, report) = import_rest_value_with_blobs_and_budget(&chain, true, &[], None, budget).unwrap();
+        let (doc, report) = import_rest_value_with_blobs_and_budget(&chain, true, &[], None, budget, true).unwrap();
         let elapsed = started.elapsed();
         let cloned = doc.nodes.len().saturating_sub(base_nodes);
         assert!(cloned <= budget, "cloned {cloned} > {budget}");
@@ -5874,7 +5884,7 @@ mod expand_depth_tests {
                 ]
             }
         });
-        let (mut doc, rep) = import_rest_value_with_blobs_and_budget(&multi_page, true, &[&[0u8][..]], None, 6).unwrap();
+        let (mut doc, rep) = import_rest_value_with_blobs_and_budget(&multi_page, true, &[&[0u8][..]], None, 6, true).unwrap();
         assert_eq!(rep.instances_left_unexpanded, 4, "deferred page instances exceeding budget must be reported in ImportReport");
         assert!(doc.validate_and_repair().is_clean());
 
@@ -6172,7 +6182,7 @@ mod expand_depth_tests {
             {"id": "1:1", "name": "HugeComp", "type": "COMPONENT", "size": {"x": 10, "y": 10}, "children": leaves},
             {"id": "1:2", "name": "HugeInst", "type": "INSTANCE", "componentId": "1:1", "size": {"x": 10, "y": 10}}
         ]}]}});
-        let (doc, rep) = import_rest_value_with_blobs_and_budget(&doc_json, true, &[], None, MAX_IMPORT_CLONES).unwrap();
+        let (doc, rep) = import_rest_value_with_blobs_and_budget(&doc_json, true, &[], None, MAX_IMPORT_CLONES, true).unwrap();
         assert_eq!(rep.instances_left_unexpanded, 0);
         let inst = doc.nodes.values().find(|n| n.name == "HugeInst").unwrap();
         assert_eq!(inst.children.len(), PER_INSTANCE_CLONE_BUDGET);
@@ -6214,6 +6224,7 @@ mod expand_depth_tests {
             expanded_comps: HashSet::new(),
             has_instance_swap_values: false,
             has_connectors: false,
+            keep_unknown_keys: true,
             connectors: Vec::new(),
             deferred_pending: None,
         };
@@ -6258,6 +6269,7 @@ mod expand_depth_tests {
             expanded_comps: HashSet::new(),
             has_instance_swap_values: false,
             has_connectors: false,
+            keep_unknown_keys: true,
             connectors: Vec::new(),
             deferred_pending: None,
         };
@@ -6409,5 +6421,46 @@ mod grid_sizing_tests {
                 GridTrack::Flex(1.0),
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod keep_unknown_keys_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn payload() -> Value {
+        let item = |ty: &str| json!({"id": format!("1:{ty}"), "name": ty, "type": ty, "size": {"x": 10.0, "y": 10.0}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "futureKey": 1});
+        json!({"name": "x", "document": {"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": [
+            {"id": "0:1", "name": "Page", "type": "CANVAS", "children": [item("RECTANGLE"), item("STICKY"), item("SHAPE_WITH_TEXT"), item("STAMP"), item("SECTION")]}]}})
+    }
+
+    fn kept(doc: &Document) -> usize {
+        doc.nodes
+            .values()
+            .map(|n| {
+                n.extra.len()
+                    + match &n.kind {
+                        NodeKind::Sticky(s) => s.extra.len(),
+                        NodeKind::ShapeWithText(s) => s.extra.len(),
+                        NodeKind::Connector(c) => c.extra.len(),
+                        _ => 0,
+                    }
+            })
+            .sum()
+    }
+
+    #[test]
+    fn the_option_decides_whether_unknown_keys_are_kept() {
+        let (doc, _) = import_rest_value_with_blobs_and_budget(&payload(), true, &[], None, CLONE_BUDGET_TOTAL, true).unwrap();
+        assert_eq!(kept(&doc), 5, "every kind keeps its futureKey");
+        let (doc, _) = import_rest_value_with_blobs_and_budget(&payload(), true, &[], None, CLONE_BUDGET_TOTAL, false).unwrap();
+        assert_eq!(kept(&doc), 0);
+    }
+
+    #[test]
+    fn an_import_from_binary_records_keeps_no_unknown_keys() {
+        let (doc, _) = import_rest_value_owned_with_budget(payload(), true, &[], None, CLONE_BUDGET_TOTAL, KEEP_UNKNOWN_KEYS_FROM_BINARY).unwrap();
+        assert_eq!(kept(&doc), 0, "the .fig, node-change and clipboard imports pass this value");
     }
 }

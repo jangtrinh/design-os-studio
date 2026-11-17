@@ -308,6 +308,23 @@ fn rest_carried_connector_unknown_keys_roundtrip() {
 }
 
 #[test]
+fn rest_carried_connector_keeps_its_unknown_keys_once() {
+    let (doc, _, _, _) = design_doc_with_connector(None);
+    let mut payload = export_rest_json(&doc);
+    let node = payload["document"]["children"][0]["children"].as_array_mut().unwrap().iter_mut().find(|n| n["name"] == "Flow Arrow").unwrap();
+    node["futureCarrierKey"] = serde_json::json!({"n": 3});
+    let imported = import_rest_json(&payload.to_string()).unwrap();
+    let conn = find(&imported, "Flow Arrow");
+    assert!(conn.extra.is_empty(), "the node holds a copy too: {:?}", conn.extra);
+    let NodeKind::Connector(props) = &conn.kind else { panic!("a connector") };
+    assert_eq!(props.extra.get("futureCarrierKey"), Some(&serde_json::json!({"n": 3})));
+    assert_eq!(imported.to_json().unwrap().matches("futureCarrierKey").count(), 1, "written once in a native save");
+    let out = export_rest_json(&imported);
+    let out_node = out["document"]["children"][0]["children"].as_array().unwrap().iter().find(|n| n["name"] == "Flow Arrow").unwrap();
+    assert_eq!(out_node["futureCarrierKey"], serde_json::json!({"n": 3}));
+}
+
+#[test]
 fn fig_design_round_trip_restores_live_connector() {
     let (doc, a, b, c) = design_doc_with_connector(Some("yes"));
     let orig = doc.get(c).unwrap();
