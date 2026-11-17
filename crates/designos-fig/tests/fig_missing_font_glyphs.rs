@@ -70,7 +70,7 @@ fn fixture() -> Vec<u8> {
     container::write_container(&schema.encode(), &body, Compression::Zstd, 161)
 }
 
-fn icon_node<'a>(doc: &'a designos_doc::Document) -> &'a Node {
+fn icon_node(doc: &designos_doc::Document) -> &Node {
     doc.nodes.values().find(|node| node.name == "Icon text").unwrap()
 }
 
