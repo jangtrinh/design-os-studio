@@ -21,7 +21,8 @@ impl Document {
     /// Re-solves only the auto-layout frames in `seeds`, each once, deepest first, and then climbs:
     /// after a frame is solved, its auto-layout parent is solved too only when the frame's own size
     /// changed (a hugging frame bubbling a new size up). An ancestor shared by several climbs is
-    /// solved once, after all of them, so it reads every new size. The climb stops at the first frame whose
+    /// solved once, after all of them, so it reads every new size, and once more only when solving it
+    /// handed a child a size whose own re-solve changed the child's hugged size. The climb stops at the first frame whose
     /// size held, or at the first ancestor that is not auto layout. Unlike [`Self::relayout_subtree`]
     /// this never walks the containers below a seed, so untouched siblings keep the positions they
     /// have. One [`MAX_RELAYOUT_RESOLVES`] budget covers the whole call; a subtree past it is
@@ -39,7 +40,8 @@ impl Document {
         // One worklist for seeds and climbed-to ancestors alike, deepest first, so a frame is solved
         // only after every frame below it that will change has been solved. A frame enters the
         // list once (`queued`), whether it is a seed or the parent of several frames that moved,
-        // and depth only ever falls while the list drains, so nothing is solved twice.
+        // and depth only ever falls while the list drains, so a frame is queued and popped once. A frame
+        // is solved again only when solving it resized a child (see below).
         let mut work: BTreeMap<(Reverse<usize>, usize), NodeId> = BTreeMap::new();
         let mut queued: HashSet<NodeId> = HashSet::with_capacity(seeds.len());
         let mut work_index = 0usize;
@@ -57,7 +59,9 @@ impl Document {
         let mut budget = MAX_RELAYOUT_RESOLVES;
         while let Some((_, cur)) = work.pop_first() {
             let before = self.get(cur).map(|n| n.size);
-            self.solve_auto_layout_node(cur, 0, &mut budget);
+            // Solving `cur` can hand a child a width that changes its own hugged height, after `cur` was sized from the
+            // old one. Solve again until the children hold their size; each pass spends the shared budget, so this ends.
+            while self.solve_auto_layout_node(cur, 0, &mut budget) && budget > 0 {}
             let moved = match (before, self.get(cur).map(|n| n.size)) {
                 (Some(b), Some(a)) => (b.x - a.x).abs() > 1e-3 || (b.y - a.y).abs() > 1e-3,
                 _ => false,
@@ -184,22 +188,26 @@ impl Document {
         self.solve_auto_layout_node(root, hops, budget);
     }
 
-    fn solve_auto_layout_node(&mut self, root: NodeId, hops: usize, budget: &mut usize) {
+    /// Solves one auto-layout frame and writes its children's rects. Returns whether a child came out of its
+    /// top-down re-solve at a size other than the one this solve wrote for it (a wrapping frame that needed more
+    /// lines at its new width, say). The frame was sized from the child's earlier size, so such a frame has to be
+    /// solved once more to read the new one.
+    fn solve_auto_layout_node(&mut self, root: NodeId, hops: usize, budget: &mut usize) -> bool {
         #[cfg(test)]
         SOLVE_CALLS.with(|c| c.set(c.get() + 1));
         if !self.pending_relayout.is_empty() {
             self.pending_relayout.retain(|&id| id != root);
         }
-        let Some(root_node) = self.get(root) else { return };
+        let Some(root_node) = self.get(root) else { return false };
         let resolved = crate::resolve_node(self, root_node);
         let Some(al) = resolved.kind.frame_props().and_then(|f| f.auto_layout.clone()) else {
-            return;
+            return false;
         };
         let children = root_node.children.clone();
         // A hugging frame that has no children to measure keeps the size it has: solving it would shrink
         // the hugged axes to nothing. That is what an instance is until its children are cloned in.
         if children.is_empty() && hugged_axes(&al) != (false, false) && self.is_unexpanded_instance(root) {
-            return;
+            return false;
         }
         let frame = root_node.size;
         let own_limits = SizeLimits::from(&resolved.layout_child);
@@ -227,6 +235,7 @@ impl Document {
         if let Some(fnode) = self.get_mut(root) {
             fnode.size = out.frame;
         }
+        let mut child_resized_below = false;
         for ((cid, kid), r) in flow_ids.iter().zip(&kids).zip(&out.rects) {
             let Some(write) = self.get(*cid).map(|n| slot_write(&n.transform, n.size, *r)) else { continue };
             let new_size = write.size;
@@ -269,8 +278,10 @@ impl Document {
             }
             if size_changed && is_auto_layout {
                 self.relayout_top_down(*cid, hops + 1, budget);
+                child_resized_below |= self.get(*cid).is_some_and(|n| (n.size.x - new_size.x).abs() > 1e-3 || (n.size.y - new_size.y).abs() > 1e-3);
             }
         }
+        child_resized_below
     }
 
     /// How many times layout was written to this document outside any history step. Runtime only:
@@ -1239,7 +1250,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_ancestor_pass_matches_the_per_seed_climb_for_every_seed_order() {
+    fn shared_ancestor_pass_matches_the_per_seed_climb_on_a_tree_of_hugging_columns() {
         // `[left_a, root]` is a deep seed plus a shallow seed that is also an ancestor of a frame the
         // climb solves in between (`left`): the shallow seed must still see `left`'s new size.
         // `[left_a, right_a]` shares `root` between two climbs. The last two lists reorder and repeat.
@@ -1280,5 +1291,132 @@ mod tests {
         reset_solve_calls();
         doc.relayout_seeds_upward(&seeds);
         assert_eq!(solve_calls(), frames.len(), "{} distinct frames, however often a seed repeats", frames.len());
+    }
+
+    /// Adds an auto-layout frame under `parent` with its stored size already set.
+    fn settled_frame(doc: &mut Document, parent: NodeId, al: AutoLayout, size: Vec2, fill_width: bool) -> NodeId {
+        let id = doc.alloc_id();
+        let mut node = Node::new(id, NodeKind::Frame(FrameProps { auto_layout: Some(al), ..FrameProps::default() }));
+        node.size = size;
+        if fill_width {
+            node.layout_child.horizontal = Sizing::Fill;
+        }
+        doc.insert(parent, node).unwrap()
+    }
+
+    fn settled_rect(doc: &mut Document, parent: NodeId, w: f32, h: f32) -> NodeId {
+        let id = doc.alloc_id();
+        doc.insert(parent, Node::rectangle(id, Rect::new(0.0, 0.0, w, h))).unwrap()
+    }
+
+    fn row_al(primary: Sizing, counter: Sizing, wrap: bool) -> AutoLayout {
+        AutoLayout {
+            direction: LayoutDirection::Horizontal,
+            primary_sizing: primary,
+            counter_sizing: counter,
+            wrap,
+            item_spacing: 0.0,
+            ..AutoLayout::default()
+        }
+    }
+
+    /// A row `P` (fixed 300 wide, hugging its height) holding a hugging frame `I` (170 wide) and a
+    /// wrapping frame `A` that fills the rest (130 wide, one line of two 60 wide rects). Built settled
+    /// by hand, because the bottom-up solve has the same blind spot the tests below are about.
+    /// Returns `[P, I, A, I's rect]`.
+    fn settled_row_with_a_wrapping_column() -> (Document, [NodeId; 4]) {
+        let mut doc = Document::new("row-with-wrapping-column");
+        let page = doc.add_page("Page");
+        let p = settled_frame(&mut doc, page, row_al(Sizing::Fixed, Sizing::Hug, false), Vec2::new(300.0, 20.0), false);
+        let i = settled_frame(&mut doc, p, row_al(Sizing::Hug, Sizing::Hug, false), Vec2::new(170.0, 20.0), false);
+        let i_rect = settled_rect(&mut doc, i, 170.0, 20.0);
+        let a = settled_frame(&mut doc, p, row_al(Sizing::Fixed, Sizing::Hug, true), Vec2::new(130.0, 20.0), true);
+        doc.get_mut(a).unwrap().transform.tx = 170.0;
+        settled_rect(&mut doc, a, 60.0, 20.0);
+        settled_rect(&mut doc, a, 60.0, 20.0);
+        // The settled state is a fixed point of the solver.
+        let before = tree_geometry(&doc, &[p, i, a]);
+        doc.relayout_seeds_upward_per_seed_climb(&[p]);
+        assert_eq!(tree_geometry(&doc, &[p, i, a]), before, "the hand-built state is already laid out");
+        (doc, [p, i, a, i_rect])
+    }
+
+    fn pad_left(doc: &mut Document, id: NodeId, by: f32) {
+        doc.get_mut(id).unwrap().kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().padding[3] += by;
+    }
+
+    #[test]
+    fn a_parent_is_solved_again_when_solving_it_resizes_a_child_top_down() {
+        // Raising I's left padding widens I to 200, so A gets 100 and must wrap onto two lines (100 x 40). P read A's
+        // old height of 20 when it was solved; it has to be solved once more to hug the 40. A padding edit of an
+        // auto-layout frame seeds the frame and its parent.
+        for seeds in [[1usize, 0], [0, 1]] {
+            let (mut doc, [p, i, a, _]) = settled_row_with_a_wrapping_column();
+            let (mut oracle, oracle_ids) = settled_row_with_a_wrapping_column();
+            pad_left(&mut doc, i, 30.0);
+            pad_left(&mut oracle, oracle_ids[1], 30.0);
+            let ids = [p, i, a, a];
+            let list: Vec<NodeId> = seeds.iter().map(|&k| ids[k]).collect();
+            let oracle_list: Vec<NodeId> = seeds.iter().map(|&k| oracle_ids[k]).collect();
+            doc.relayout_seeds_upward(&list);
+            oracle.relayout_seeds_upward_per_seed_climb(&oracle_list);
+            assert_eq!(doc.get(i).unwrap().size, Vec2::new(200.0, 20.0));
+            assert_eq!(doc.get(a).unwrap().size, Vec2::new(100.0, 40.0), "seeds {seeds:?}");
+            assert_eq!(doc.get(p).unwrap().size, Vec2::new(300.0, 40.0), "seeds {seeds:?}: P hugs the wrapped column");
+            assert_eq!(tree_geometry(&doc, &[p, i, a]), tree_geometry(&oracle, &[oracle_ids[0], oracle_ids[1], oracle_ids[2]]), "seeds {seeds:?}");
+        }
+    }
+
+    #[test]
+    fn a_frame_that_resizes_a_child_top_down_is_solved_again_when_only_the_child_is_a_seed() {
+        // Editing the content of I (its rect grows 170 -> 200 wide) seeds I alone. The per-seed climb left P at 20 high
+        // here, with A overflowing it; the shared pass settles it.
+        let (mut doc, [p, i, a, i_rect]) = settled_row_with_a_wrapping_column();
+        doc.get_mut(i_rect).unwrap().size.x = 200.0;
+        doc.relayout_seeds_upward(&[i]);
+        assert_eq!(doc.get(a).unwrap().size, Vec2::new(100.0, 40.0));
+        assert_eq!(doc.get(p).unwrap().size, Vec2::new(300.0, 40.0));
+    }
+
+    #[test]
+    fn two_seeds_that_share_a_wrapping_column_give_the_same_result_in_either_order() {
+        // X (vertical, hugging) stacks S1, a wrapping frame Y that stretches to X's width, and S2. S1 widens and S2
+        // grows taller, so Y goes from two lines (100 wide) to one (150 wide) while S2's offset follows.
+        let build = || {
+            let mut doc = Document::new("masking");
+            let page = doc.add_page("Page");
+            let col = |primary, counter| AutoLayout {
+                direction: LayoutDirection::Vertical,
+                primary_sizing: primary,
+                counter_sizing: counter,
+                item_spacing: 0.0,
+                ..AutoLayout::default()
+            };
+            let x = settled_frame(&mut doc, page, col(Sizing::Hug, Sizing::Hug), Vec2::new(100.0, 60.0), false);
+            let s1 = settled_frame(&mut doc, x, row_al(Sizing::Hug, Sizing::Hug, false), Vec2::new(100.0, 10.0), false);
+            let s1_rect = settled_rect(&mut doc, s1, 100.0, 10.0);
+            let y = settled_frame(&mut doc, x, row_al(Sizing::Fixed, Sizing::Hug, true), Vec2::new(100.0, 40.0), false);
+            doc.get_mut(y).unwrap().layout_child.horizontal = Sizing::Fill;
+            settled_rect(&mut doc, y, 60.0, 20.0);
+            settled_rect(&mut doc, y, 60.0, 20.0);
+            doc.get_mut(y).unwrap().transform.ty = 10.0;
+            let s2 = settled_frame(&mut doc, x, row_al(Sizing::Hug, Sizing::Hug, false), Vec2::new(40.0, 10.0), false);
+            doc.get_mut(s2).unwrap().transform.ty = 50.0;
+            let s2_rect = settled_rect(&mut doc, s2, 40.0, 10.0);
+            let settled = tree_geometry(&doc, &[x, s1, y, s2]);
+            doc.relayout_seeds_upward_per_seed_climb(&[x]);
+            assert_eq!(tree_geometry(&doc, &[x, s1, y, s2]), settled, "the hand-built state is already laid out");
+            doc.get_mut(s1_rect).unwrap().size.x = 150.0;
+            doc.get_mut(s2_rect).unwrap().size.y = 30.0;
+            (doc, [x, s1, y, s2])
+        };
+        for order in [[1usize, 3], [3, 1]] {
+            let (mut doc, ids) = build();
+            let seeds: Vec<NodeId> = order.iter().map(|&k| ids[k]).collect();
+            doc.relayout_seeds_upward(&seeds);
+            assert_eq!(doc.get(ids[0]).unwrap().size, Vec2::new(150.0, 60.0), "order {order:?}");
+            assert_eq!(doc.get(ids[2]).unwrap().size, Vec2::new(150.0, 20.0), "order {order:?}");
+            assert_eq!(doc.get(ids[3]).unwrap().transform.ty, 30.0, "order {order:?}: S2 sits under the one-line Y");
+        }
     }
 }
