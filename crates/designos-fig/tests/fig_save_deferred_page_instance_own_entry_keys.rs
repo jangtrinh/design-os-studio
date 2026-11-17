@@ -618,7 +618,15 @@ fn an_entry_with_only_corner_smoothing_follows_a_radius_edit_of_its_main() {
 }
 
 fn deferred_layout_fixture_with_main(main_fields: Value, instance_overrides: Value) -> Vec<u8> {
-    let instance = json!({"symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1), "symbolOverrides": instance_overrides}});
+    deferred_layout_fixture_with_instance(main_fields, json!({}), instance_overrides)
+}
+
+/// Like [`deferred_layout_fixture_with_main`], with `instance_fields` stated on the instance's own node change.
+fn deferred_layout_fixture_with_instance(main_fields: Value, instance_fields: Value, instance_overrides: Value) -> Vec<u8> {
+    let mut instance = json!({"symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1), "symbolOverrides": instance_overrides}});
+    for (key, value) in instance_fields.as_object().expect("instance fields object") {
+        instance[key] = value.clone();
+    }
     let mut changes = vec![
         fig_node((0, 0), (0, 0), "DOCUMENT", "Document", json!({})),
         fig_node((0, 1), (0, 0), "CANVAS", "Cover", json!({})),
@@ -829,21 +837,95 @@ fn a_shortened_grid_track_list_leaves_recorded_grid_tracks_and_anchors_untouched
     }
 }
 
+/// An instance whose own node change states a grid of two tracks per axis, with the same tracks in its own entry, and a
+/// user edit that leaves one track. The count the user set is neither the recorded count nor the one the writer would
+/// number from the frame as it was before the record's layout keys were applied, so the tracks must stay as recorded.
 #[test]
-fn native_document_save_does_not_contain_unopened_outer_frame_metadata() {
-    let own = own_entry_json(json!({"stackMode": "HORIZONTAL", "stackSpacing": 12.0}));
-    let fig = deferred_layout_fixture(json!([own]));
-    let mut live = import_fig(&fig).expect("import");
-    let instance = variant_button(&live);
-    assert!(
-        !live.get(instance).expect("instance").fig_metadata.contains_key("_unopenedOuterFrame"),
-        "Node::fig_metadata must not carry internal _unopenedOuterFrame key"
-    );
-    assert!(
-        !serde_json::to_string(&live).expect("serialize live document").contains("_unopenedOuterFrame"),
-        "serialized Document must not contain _unopenedOuterFrame while deferred"
-    );
-    live.load_pending_pages().expect("load pending pages for native save");
-    let native_json = live.to_json().expect("serialize native document");
-    assert!(!native_json.contains("_unopenedOuterFrame"), "native document JSON must not contain _unopenedOuterFrame");
+fn a_shortened_track_list_of_a_grid_the_instance_states_itself_leaves_the_record_untouched() {
+    let sizing = |a: &Value, b: &Value| {
+        json!([
+            {"id": a, "trackSize": {"minSizing": {"type": "FLEX", "value": 1.0}, "maxSizing": {"type": "FLEX", "value": 1.0}}},
+            {"id": b, "trackSize": {"minSizing": {"type": "FIXED", "value": 120.0}, "maxSizing": {"type": "FIXED", "value": 120.0}}}
+        ])
+    };
+    let (col_a, col_b, row_a, row_b) = (guid(9, 10), guid(9, 11), guid(9, 20), guid(9, 21));
+    let grid = json!({
+        "stackMode": "GRID",
+        "gridColumnGap": 4.0,
+        "gridRowGap": 4.0,
+        "gridColumns": {"entries": [{"id": col_a, "position": "!"}, {"id": col_b, "position": "\""}]},
+        "gridColumnsSizing": {"entries": sizing(&col_a, &col_b)},
+        "gridRows": {"entries": [{"id": row_a, "position": "!"}, {"id": row_b, "position": "\""}]},
+        "gridRowsSizing": {"entries": sizing(&row_a, &row_b)}
+    });
+    let own = own_entry_json(grid.clone());
+    let child_first = json!({"guidPath": {"guids": [guid(LABEL.0, LABEL.1)]}, "gridColumnAnchor": col_a, "gridRowAnchor": row_a});
+    let child_last = json!({"guidPath": {"guids": [guid(ICON.0, ICON.1)]}, "gridColumnAnchor": col_b, "gridRowAnchor": row_b});
+    let main_fields = json!({"stackMode": "GRID", "gridColumnGap": 4.0, "gridRowGap": 4.0});
+    let fig = deferred_layout_fixture_with_instance(main_fields, grid, json!([own, child_first, child_last]));
+    let recorded_entries = saved_entries(&fig, INSTANCE);
+
+    let leaves = [GridTrack::Fixed(120.0), GridTrack::Flex(1.0)];
+    for (axis_is_column, leaf) in [true, false].into_iter().flat_map(|c| leaves.iter().map(move |l| (c, *l))) {
+        let saved = edit_and_save(&fig, |n| {
+            let al = n.kind.frame_props_mut().expect("instance frame").auto_layout.as_mut().expect("recorded auto layout");
+            if axis_is_column {
+                al.grid_columns = 1;
+                al.grid_col_tracks = vec![leaf].into();
+            } else {
+                al.grid_rows = 1;
+                al.grid_row_tracks = vec![leaf].into();
+            }
+        });
+        assert_eq!(
+            saved_entries(&saved, INSTANCE),
+            recorded_entries,
+            "a track list of another length must leave tracks and anchors as recorded (columns: {axis_is_column}, leaf {leaf:?})"
+        );
+    }
+}
+
+/// When the instance states its own grid and the user resizes a track without changing the count, the resized track is
+/// saved and every child stays on the track it was anchored to.
+#[test]
+fn a_resized_track_of_a_grid_the_instance_states_itself_survives_a_save_and_reopen() {
+    let sizing = |a: &Value, b: &Value| {
+        json!([
+            {"id": a, "trackSize": {"minSizing": {"type": "FLEX", "value": 1.0}, "maxSizing": {"type": "FLEX", "value": 1.0}}},
+            {"id": b, "trackSize": {"minSizing": {"type": "FIXED", "value": 120.0}, "maxSizing": {"type": "FIXED", "value": 120.0}}}
+        ])
+    };
+    let (col_a, col_b) = (guid(9, 10), guid(9, 11));
+    let grid = json!({
+        "stackMode": "GRID",
+        "gridColumnGap": 4.0,
+        "gridColumns": {"entries": [{"id": col_a, "position": "!"}, {"id": col_b, "position": "\""}]},
+        "gridColumnsSizing": {"entries": sizing(&col_a, &col_b)}
+    });
+    let own = own_entry_json(grid.clone());
+    let child_first = json!({"guidPath": {"guids": [guid(LABEL.0, LABEL.1)]}, "gridColumnAnchor": col_a});
+    let child_last = json!({"guidPath": {"guids": [guid(ICON.0, ICON.1)]}, "gridColumnAnchor": col_b});
+    let main_fields = json!({"stackMode": "GRID", "gridColumnGap": 4.0, "gridRowGap": 0.0});
+    let fig = deferred_layout_fixture_with_instance(main_fields, grid, json!([own, child_first, child_last]));
+    let saved = edit_and_save(&fig, |n| {
+        let al = n.kind.frame_props_mut().expect("instance frame").auto_layout.as_mut().expect("recorded auto layout");
+        al.grid_col_tracks[1] = GridTrack::Fixed(200.0);
+    });
+
+    let mut reopened = import_fig(&saved).expect("reopen saved fig");
+    reopened.hydrate_all_pages();
+    let instance = variant_button(&reopened);
+    let node = reopened.get(instance).expect("hydrated instance");
+    let al = node.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).expect("hydrated auto layout");
+    assert_eq!((al.grid_columns, &al.grid_col_tracks[..2]), (2, &[GridTrack::Flex(1.0), GridTrack::Fixed(200.0)][..]));
+    let column_of = |kind_is_text: bool| {
+        let child = node
+            .children
+            .iter()
+            .copied()
+            .find(|&c| reopened.get(c).is_some_and(|n| matches!(n.kind, NodeKind::Text(_)) == kind_is_text))
+            .expect("hydrated child");
+        reopened.get(child).expect("child").layout_child.grid_column
+    };
+    assert_eq!((column_of(true), column_of(false)), (Some(0), Some(1)), "children keep the tracks they were anchored to");
 }

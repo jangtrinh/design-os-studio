@@ -398,6 +398,14 @@ fn set_own_key(entries: &mut [V], own: &[usize], last: usize, key: &str, val: V)
     }
 }
 
+/// Whether a grid track list can be restated from the node: the count the user left, the count the node was seeded
+/// with, the count the record states and the count the writer numbers must all be the same. Otherwise the writer's ids
+/// belong to another frame than the record's and the track sizes would land on the wrong tracks (or on tracks that were
+/// removed), so the tracks stay as recorded and the edit is not saved.
+fn track_counts_agree(edited: u32, seeded: Option<u32>, recorded: usize, numbered: usize) -> bool {
+    seeded == Some(edited) && recorded == numbered && numbered == edited as usize
+}
+
 fn copy_fresh_key(entries: &mut [V], own: &[usize], last: usize, fresh: &V, key: &str) {
     if let Some(val) = fresh.get(key).cloned() {
         set_own_key(entries, own, last, key, val);
@@ -559,7 +567,7 @@ fn restate_edited_layout_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main_gu
     if seeded_al.map(|a| (a.grid_columns, &a.grid_col_tracks)) != Some((now_al.grid_columns, &now_al.grid_col_tracks)) {
         let old_cols = ordered_track_guids_in_own(entries, own, "gridColumns");
         let new_cols = ordered_track_guids(&fresh, "gridColumns").unwrap_or_default();
-        if old_cols.is_empty() || old_cols.len() == new_cols.len() {
+        if track_counts_agree(now_al.grid_columns, seeded_al.map(|a| a.grid_columns), old_cols.len(), new_cols.len()) {
             copy_fresh_key(entries, own, last, &fresh, "gridColumns");
             copy_fresh_key(entries, own, last, &fresh, "gridColumnsSizing");
             remap_child_grid_anchors(entries, own, "gridColumnAnchor", &old_cols, &new_cols);
@@ -568,7 +576,7 @@ fn restate_edited_layout_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main_gu
     if seeded_al.map(|a| (a.grid_rows, &a.grid_row_tracks)) != Some((now_al.grid_rows, &now_al.grid_row_tracks)) {
         let old_rows = ordered_track_guids_in_own(entries, own, "gridRows");
         let new_rows = ordered_track_guids(&fresh, "gridRows").unwrap_or_default();
-        if old_rows.is_empty() || old_rows.len() == new_rows.len() {
+        if track_counts_agree(now_al.grid_rows, seeded_al.map(|a| a.grid_rows), old_rows.len(), new_rows.len()) {
             copy_fresh_key(entries, own, last, &fresh, "gridRows");
             copy_fresh_key(entries, own, last, &fresh, "gridRowsSizing");
             remap_child_grid_anchors(entries, own, "gridRowAnchor", &old_rows, &new_rows);

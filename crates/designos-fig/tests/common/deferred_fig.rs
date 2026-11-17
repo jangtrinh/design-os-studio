@@ -98,7 +98,7 @@ pub fn deferred_fixture() -> Vec<u8> {
     fixture(text_and_stroke_overrides(), Vec::new(), Vec::new())
 }
 
-/// A deferred fixture whose main component has auto-layout. The instance record says spacing 4; #1699 edits the
+/// A deferred fixture whose main component has auto-layout. The instance record says spacing 4; a test edits the
 /// unopened instance to 20 and expects the save to restate the edited frame layout.
 pub fn deferred_layout_fixture(instance_overrides: Value) -> Vec<u8> {
     let mut instance = json!({"symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1), "symbolOverrides": instance_overrides}});
