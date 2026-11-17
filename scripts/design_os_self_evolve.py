@@ -20,7 +20,7 @@ Orchestrates the closed-loop self-evolving design verification and pulse for `de
      The same gate also compares the non-colour tokens (radius, spacing, size) with their
      `theme.rs` constants through `scripts/non_colour_token_parity.py`.
 
-     Every `Color32` constant in `theme.rs` (188 names) must fall in exactly one class: mapped to a store key
+     Every `Color32` constant in `theme.rs` (190 names) must fall in exactly one class: mapped to a store key
      (`RUST_TO_DESIGN_TOKEN_MAP`), sharing an existing key with the same value and role
      (`RUST_COLOUR_SHARED_KEY`), pending a new key (`RUST_COLOUR_PENDING_STORE`: Studio path and full pinned
      value, alpha included; the count may only fall) or exempt by design (`RUST_COLOUR_EXEMPT`: canvas, Dev
@@ -220,7 +220,9 @@ RUST_COLOUR_SHARED_KEY: Dict[str, str] = {
     "DROP_INDICATOR": "primary",
     "HOME_THUMB_BG": "secondary",
     "ICON_QUATERNARY": "neutral",
+    "MEASURE_LABEL_TEXT": "primary-foreground",
     "PRESENT_BG": "bg",
+    "PROTO_LABEL_TEXT": "primary-foreground",
     "STATUS_INFO_TEXT": "info",
     "SWATCH_PLACEHOLDER": "secondary-active",
     "SYNTAX_PLAIN": "bg-foreground",
