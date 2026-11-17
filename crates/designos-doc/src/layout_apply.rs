@@ -4,6 +4,8 @@ use crate::layout_rotated::{extent, fix_tilted_input, local_size, slot_write};
 use crate::layout_solver::{compute_then_refit_wrapped, hugged_axes, ChildIn, SizeLimits};
 use crate::text_measure::{height_resize_text_height, layout_measurer};
 use crate::{Document, LayoutDirection, Node, NodeId, NodeKind, Vec2};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, HashSet};
 
 impl Document {
     /// Re-solves auto layout bottom-up from `root`: every container below it first, so hugging
@@ -18,7 +20,8 @@ impl Document {
 
     /// Re-solves only the auto-layout frames in `seeds`, each once, deepest first, and then climbs:
     /// after a frame is solved, its auto-layout parent is solved too only when the frame's own size
-    /// changed (a hugging frame bubbling a new size up). The climb stops at the first frame whose
+    /// changed (a hugging frame bubbling a new size up). An ancestor shared by several climbs is
+    /// solved once, after all of them, so it reads every new size. The climb stops at the first frame whose
     /// size held, or at the first ancestor that is not auto layout. Unlike [`Self::relayout_subtree`]
     /// this never walks the containers below a seed, so untouched siblings keep the positions they
     /// have. One [`MAX_RELAYOUT_RESOLVES`] budget covers the whole call; a subtree past it is
@@ -33,50 +36,26 @@ impl Document {
             }
             d
         };
-        let mut order: Vec<(usize, NodeId)> = Vec::with_capacity(seeds.len());
-        for &id in seeds {
-            if self.is_auto_layout_frame(id) && !order.iter().any(|(_, o)| *o == id) {
-                order.push((depth(self, id), id));
-            }
-        }
-        // Deepest first, so a container is solved after the children whose new sizes it reads.
-        order.sort_by_key(|(d, _)| std::cmp::Reverse(*d));
-
-        let mut budget = MAX_RELAYOUT_RESOLVES;
-        let mut pending: Vec<(usize, NodeId)> = Vec::new();
-        let direct: Vec<NodeId> = order.iter().map(|(_, id)| *id).collect();
-        let enqueue_parent = |doc: &Document, id: NodeId, pending: &mut Vec<(usize, NodeId)>| {
-            if doc.is_auto_layout_frame(id) && !direct.contains(&id) && !pending.iter().any(|(_, queued)| *queued == id) {
-                pending.push((depth(doc, id), id));
+        // One worklist for seeds and climbed-to ancestors alike, deepest first, so a frame is solved
+        // only after every frame below it that will change has been solved. A frame enters the
+        // list once (`queued`), whether it is a seed or the parent of several frames that moved,
+        // and depth only ever falls while the list drains, so nothing is solved twice.
+        let mut work: BTreeMap<(Reverse<usize>, usize), NodeId> = BTreeMap::new();
+        let mut queued: HashSet<NodeId> = HashSet::with_capacity(seeds.len());
+        let mut work_index = 0usize;
+        let mut enqueue = |doc: &Document, id: NodeId, work: &mut BTreeMap<(Reverse<usize>, usize), NodeId>| {
+            if doc.is_auto_layout_frame(id) && queued.insert(id) {
+                // The running index keeps frames of equal depth in the order they were queued.
+                work.insert((Reverse(depth(doc, id)), work_index), id);
+                work_index += 1;
             }
         };
-
-        // Solve every directly edited seed first. Ancestors are deferred until all sibling
-        // changes have been applied, so a shared ancestor is solved once using both new sizes.
-        for (_, seed) in order {
-            let before = self.get(seed).map(|n| n.size);
-            self.solve_auto_layout_node(seed, 0, &mut budget);
-            let moved = match (before, self.get(seed).map(|n| n.size)) {
-                (Some(b), Some(a)) => (b.x - a.x).abs() > 1e-3 || (b.y - a.y).abs() > 1e-3,
-                _ => false,
-            };
-            if moved {
-                if let Some(parent) = self.get(seed).and_then(|n| n.parent) {
-                    enqueue_parent(self, parent, &mut pending);
-                }
-            }
+        for &id in seeds {
+            enqueue(self, id, &mut work);
         }
 
-        let mut processed = Vec::new();
-        while let Some((_, cur)) = {
-            // Pop the deepest queued ancestor first, matching the seed ordering above.
-            pending.sort_by_key(|(d, _)| *d);
-            pending.pop()
-        } {
-            if processed.contains(&cur) {
-                continue;
-            }
-            processed.push(cur);
+        let mut budget = MAX_RELAYOUT_RESOLVES;
+        while let Some((_, cur)) = work.pop_first() {
             let before = self.get(cur).map(|n| n.size);
             self.solve_auto_layout_node(cur, 0, &mut budget);
             let moved = match (before, self.get(cur).map(|n| n.size)) {
@@ -85,7 +64,7 @@ impl Document {
             };
             if moved {
                 if let Some(parent) = self.get(cur).and_then(|n| n.parent) {
-                    enqueue_parent(self, parent, &mut pending);
+                    enqueue(self, parent, &mut work);
                 }
             }
         }
@@ -1177,5 +1156,129 @@ mod tests {
         reset_solve_calls();
         doc.relayout_seeds_upward(&[seeds[0], parent, seeds[1], parent]);
         assert_eq!(solve_calls(), 3, "shared ancestor should be solved once");
+    }
+
+    impl Document {
+        /// The climb [`Document::relayout_seeds_upward`] replaced: every seed is solved deepest first
+        /// and then walked up on its own, so an ancestor reached by several seeds is solved once per
+        /// seed. Kept as the oracle the shared-ancestor pass must agree with.
+        fn relayout_seeds_upward_per_seed_climb(&mut self, seeds: &[NodeId]) {
+            let depth = |doc: &Document, id: NodeId| {
+                let mut d = 0usize;
+                let mut cur = doc.get(id).and_then(|n| n.parent);
+                while let Some(p) = cur {
+                    d += 1;
+                    cur = doc.get(p).and_then(|n| n.parent);
+                }
+                d
+            };
+            let mut order: Vec<(usize, NodeId)> = Vec::new();
+            for &id in seeds {
+                if self.is_auto_layout_frame(id) && !order.iter().any(|(_, o)| *o == id) {
+                    order.push((depth(self, id), id));
+                }
+            }
+            order.sort_by_key(|(d, _)| std::cmp::Reverse(*d));
+            let mut budget = MAX_RELAYOUT_RESOLVES;
+            for (_, seed) in order {
+                let mut cur = seed;
+                loop {
+                    let before = self.get(cur).map(|n| n.size);
+                    self.solve_auto_layout_node(cur, 0, &mut budget);
+                    let moved = match (before, self.get(cur).map(|n| n.size)) {
+                        (Some(b), Some(a)) => (b.x - a.x).abs() > 1e-3 || (b.y - a.y).abs() > 1e-3,
+                        _ => false,
+                    };
+                    let parent = self.get(cur).and_then(|n| n.parent);
+                    match parent.filter(|p| moved && self.is_auto_layout_frame(*p)) {
+                        Some(p) => cur = p,
+                        None => break,
+                    }
+                }
+            }
+        }
+    }
+
+    /// Frames of a hugging tree, `[root, left, left_a, left_b, right, right_a]`, plus the leaf under
+    /// `left_a` and the one under `right_a`. Built settled: every frame already holds its fitted size.
+    ///
+    /// ```text
+    /// root > left  > left_a  > leaf_l
+    ///               > left_b > rect
+    ///      > right > right_a > leaf_r
+    /// ```
+    fn settled_hugging_tree() -> (Document, [NodeId; 6], [NodeId; 2]) {
+        let mut doc = Document::new("hugging-tree");
+        let page = doc.add_page("Page");
+        let hugging =
+            || AutoLayout { direction: LayoutDirection::Vertical, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Fixed, ..AutoLayout::default() };
+        let frame = |doc: &mut Document, parent: NodeId| {
+            let id = doc.alloc_id();
+            doc.insert(parent, Node::new(id, NodeKind::Frame(FrameProps { auto_layout: Some(hugging()), ..FrameProps::default() }))).unwrap()
+        };
+        let leaf = |doc: &mut Document, parent: NodeId, h: f32| {
+            let id = doc.alloc_id();
+            doc.insert(parent, Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, h))).unwrap()
+        };
+        let root = frame(&mut doc, page);
+        let left = frame(&mut doc, root);
+        let left_a = frame(&mut doc, left);
+        let leaf_l = leaf(&mut doc, left_a, 10.0);
+        let left_b = frame(&mut doc, left);
+        leaf(&mut doc, left_b, 30.0);
+        let right = frame(&mut doc, root);
+        let right_a = frame(&mut doc, right);
+        let leaf_r = leaf(&mut doc, right_a, 20.0);
+        doc.relayout_subtree(root);
+        (doc, [root, left, left_a, left_b, right, right_a], [leaf_l, leaf_r])
+    }
+
+    /// Size and offset of every frame in the tree, in id order.
+    fn tree_geometry(doc: &Document, frames: &[NodeId]) -> Vec<(Vec2, f32, f32)> {
+        frames.iter().map(|id| (doc.get(*id).unwrap().size, doc.get(*id).unwrap().transform.tx, doc.get(*id).unwrap().transform.ty)).collect()
+    }
+
+    #[test]
+    fn shared_ancestor_pass_matches_the_per_seed_climb_for_every_seed_order() {
+        // `[left_a, root]` is a deep seed plus a shallow seed that is also an ancestor of a frame the
+        // climb solves in between (`left`): the shallow seed must still see `left`'s new size.
+        // `[left_a, right_a]` shares `root` between two climbs. The last two lists reorder and repeat.
+        let seed_lists: [&[usize]; 6] = [&[2, 0], &[2, 5], &[2, 5, 0], &[0, 5, 2], &[2, 2, 1, 5, 0], &[3, 2, 5]];
+        for list in seed_lists {
+            let (mut shared, frames, leaves) = settled_hugging_tree();
+            let (mut per_seed, _, _) = settled_hugging_tree();
+            for doc in [&mut shared, &mut per_seed] {
+                doc.get_mut(leaves[0]).unwrap().size.y = 55.0;
+                doc.get_mut(leaves[1]).unwrap().size.y = 5.0;
+            }
+            let seeds: Vec<NodeId> = list.iter().map(|&i| frames[i]).collect();
+            shared.relayout_seeds_upward(&seeds);
+            per_seed.relayout_seeds_upward_per_seed_climb(&seeds);
+            assert_eq!(tree_geometry(&shared, &frames), tree_geometry(&per_seed, &frames), "seed list {list:?}");
+        }
+    }
+
+    #[test]
+    fn a_seed_above_an_unsolved_ancestor_is_solved_after_it() {
+        let (mut doc, frames, leaves) = settled_hugging_tree();
+        let [root, left, left_a, ..] = frames;
+        let settled_root = doc.get(root).unwrap().size.y;
+        doc.get_mut(leaves[0]).unwrap().size.y = 55.0;
+        // `left` is not a seed: it is solved only because `left_a` grew, and `root` is a seed that sits above it.
+        doc.relayout_seeds_upward(&[left_a, root]);
+        assert_eq!(doc.get(left_a).unwrap().size.y, 55.0);
+        assert_eq!(doc.get(left).unwrap().size.y, 85.0, "left hugs left_a (55) and left_b (30)");
+        assert_eq!(doc.get(root).unwrap().size.y, settled_root + 45.0, "root hugs the grown left");
+    }
+
+    #[test]
+    fn a_wide_seed_list_solves_each_frame_at_most_once() {
+        let (mut doc, frames, leaves) = settled_hugging_tree();
+        doc.get_mut(leaves[0]).unwrap().size.y = 55.0;
+        doc.get_mut(leaves[1]).unwrap().size.y = 5.0;
+        let seeds: Vec<NodeId> = frames.iter().chain(frames.iter()).copied().collect();
+        reset_solve_calls();
+        doc.relayout_seeds_upward(&seeds);
+        assert_eq!(solve_calls(), frames.len(), "{} distinct frames, however often a seed repeats", frames.len());
     }
 }
