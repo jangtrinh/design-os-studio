@@ -1249,8 +1249,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
             .and_then(|id| app.doc.get(id).map(|n| resolve_node(&app.doc, n).into_owned()))
     };
     let text_node: Option<&Node> = if is_text { Some(&n0) } else { found_text.as_ref() };
-    if let Some(text_node) = text_node {
-        let Some(t) = text_node.kind.any_text() else { return };
+    if let Some(t) = text_node.and_then(|n| n.kind.any_text()) {
         section_sep(ui, pane, false);
         title(ui, pane, "Typography", None, false);
         super::typography::section(app, ui, pane, sel, t);
@@ -1518,7 +1517,9 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     }
 
     // ---- Fill
-    if text_node.is_some() {
+    // The text colour replaces the Fill rows only when the first layer itself carries text, as it did
+    // before mixed selections searched for one: a shape first keeps its own paint rows.
+    if is_text || (n0.kind.board_text().is_some() && text_node.is_some()) {
         // Text colour lives in the text style, not in `Node::fills`.
         section_sep(ui, pane, false);
         title(ui, pane, "Fill", None, false);
@@ -2546,7 +2547,7 @@ fn apply_picker(doc: &mut Document, p: &mut Picker) {
                 }
             }
             PickTarget::TextFill => {
-                if let NodeKind::Text(t) = &mut n.kind {
+                if let Some(t) = n.kind.any_text_mut() {
                     let col = Color { a: 1.0, ..c };
                     let op = c.a;
                     crate::richtext::apply_all(t, |st| super::typography::set_solid(st, col, Some(op)));
@@ -4872,6 +4873,115 @@ mod tests {
                 t.style.fills = vec![Paint::solid(NEW)];
             }
         });
+    }
+
+    /// A page with a Rectangle (red fill), a Sticky and a Text, the two text carriers both black.
+    fn mixed_text_app() -> (App, NodeId, NodeId, NodeId) {
+        let mut doc = Document::new("mixed selection");
+        let page = doc.add_page("Page 1");
+        let rect_id = doc.alloc_id();
+        let mut rect = Node::rectangle(rect_id, designos_doc::Rect::new(0.0, 0.0, 80.0, 40.0));
+        rect.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
+        let rect_id = doc.insert(page, rect).unwrap();
+        let sticky_id = doc.alloc_id();
+        let mut sticky = Node::new(sticky_id, NodeKind::Sticky(StickyProps::default()));
+        if let NodeKind::Sticky(sp) = &mut sticky.kind {
+            sp.text.style.fills = vec![Paint::solid(Color::rgb(0, 0, 0))];
+        }
+        let sticky_id = doc.insert(page, sticky).unwrap();
+        let text_id = doc.alloc_id();
+        let style = TextStyle { fills: vec![Paint::solid(Color::rgb(0, 0, 0))], ..TextStyle::default() };
+        let text_id = doc.insert(page, Node::text(text_id, designos_doc::Rect::new(0.0, 60.0, 80.0, 20.0), "Hello", style)).unwrap();
+        let mut app = App::new(doc);
+        app.page = page;
+        (app, rect_id, sticky_id, text_id)
+    }
+
+    fn text_fill_of(app: &App, id: NodeId) -> Option<Color> {
+        match app.doc.get(id)?.kind.any_text()?.style.fills.first().map(|p| &p.kind)? {
+            PaintKind::Solid(c) => Some(*c),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn the_text_fill_picker_recolours_sticky_text_in_a_mixed_selection() {
+        let (mut app, _, sticky, text) = mixed_text_app();
+        for (order, colour) in [([sticky, text], NEW), ([text, sticky], OLD)] {
+            app.selection = order.to_vec();
+            open_picker(&mut app, PickTarget::TextFill, Color32::BLACK, Rect::NOTHING, order.to_vec());
+            let mut pk = app.props.picker.take().expect("picker open");
+            pk.paint = Paint::solid(colour);
+            apply_picker(&mut app.doc, &mut pk);
+            let tx = std::mem::replace(&mut pk.tx, Tx::new());
+            assert!(app.run_tx(tx));
+            for id in order {
+                assert_eq!(text_fill_of(&app, id), Some(colour), "order {order:?}: {id:?} takes the picked colour");
+            }
+        }
+    }
+
+    #[test]
+    fn undo_resyncs_the_open_picker_on_a_sticky_text_fill() {
+        let (mut app, id) = picker_app_with(|id| {
+            let mut sticky = Node::new(id, NodeKind::Sticky(StickyProps::default()));
+            if let NodeKind::Sticky(sp) = &mut sticky.kind {
+                sp.text.style.fills = vec![Paint::solid(OLD)];
+            }
+            sticky
+        });
+        assert_undo_resyncs_picker(&mut app, id, PickTarget::TextFill, |n| {
+            if let NodeKind::Sticky(sp) = &mut n.kind {
+                sp.text.style.fills = vec![Paint::solid(NEW)];
+            }
+        });
+    }
+
+    /// One inspector pass over `sel`: the section titles drawn and whether the text-colour row (`text-sw`)
+    /// and the first Fill paint row (`sw:false:0`) were laid out.
+    fn inspector_pass(app: &mut App, sel: &[NodeId]) -> (Vec<String>, bool, bool) {
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::ZERO, egui::Vec2::new(theme::RIGHT_PANEL_WIDTH, 1600.0));
+        app.selection = sel.to_vec();
+        let mut titles = Vec::new();
+        for pass in 0..2 {
+            let raw = egui::RawInput { screen_rect: Some(region), time: Some(1.0 + pass as f64 * 0.1), ..Default::default() };
+            let out = ctx.run_ui(raw, |ui| show(app, ui, region));
+            fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+                match shape {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_string()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    _ => {}
+                }
+            }
+            titles.clear();
+            out.shapes.iter().for_each(|c| walk(&c.shape, &mut titles));
+        }
+        let rect_of = |key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key.to_string()))));
+        (titles, rect_of("text-sw").is_some(), rect_of("sw:false:0").is_some())
+    }
+
+    #[test]
+    fn a_shape_first_mixed_selection_keeps_the_shapes_fill_rows() {
+        let (mut app, rect, sticky, text) = mixed_text_app();
+        let (titles, text_colour_row, paint_row) = inspector_pass(&mut app, &[rect, text]);
+        assert!(titles.iter().any(|t| t == "Fill"), "{titles:?}");
+        assert!(
+            paint_row && !text_colour_row,
+            "[Rect, Text]: the Fill section lists the rectangle's paint (text colour row {text_colour_row}, paint row {paint_row})"
+        );
+
+        let (titles, text_colour_row, paint_row) = inspector_pass(&mut app, &[sticky, text]);
+        assert!(titles.iter().any(|t| t == "Typography") && titles.iter().any(|t| t == "Fill"), "{titles:?}");
+        assert!(
+            text_colour_row && !paint_row,
+            "[Sticky, Text]: the Fill section is the text colour (text colour row {text_colour_row}, paint row {paint_row})"
+        );
+
+        let (_, text_colour_row, paint_row) = inspector_pass(&mut app, &[text, rect]);
+        assert!(text_colour_row && !paint_row, "[Text, Rect]: the text colour, as main");
     }
 
     #[test]
