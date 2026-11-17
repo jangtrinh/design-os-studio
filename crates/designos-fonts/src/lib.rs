@@ -23,7 +23,8 @@ mod subst;
 
 pub use assets::{bundled, bundled_for, FontAsset};
 pub use cache::{
-    no_follow_refusal, write_atomic, write_atomic_no_follow, write_atomic_with, write_atomic_with_no_follow, Fetch, FontCache, NoFollowRefusal, Sidecar,
+    is_save_temp_name, no_follow_refusal, write_atomic, write_atomic_no_follow, write_atomic_with, write_atomic_with_no_follow, Fetch, FontCache,
+    NoFollowRefusal, Sidecar,
 };
 pub use ensure::{ensure_font_requests_with, ensure_fonts, ensure_fonts_with, FontReport, LoadedFont};
 pub use error::FontError;

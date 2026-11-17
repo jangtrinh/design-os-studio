@@ -264,6 +264,17 @@ fn tmp_file_name(prefix: &str, pid: u32, seq: u64) -> String {
     format!("{prefix}.{TMP_MARKER}-{pid}-{seq}.tmp")
 }
 
+/// Whether `file_name` has the shape of a temporary file the savers of this module create (`<name>.save-<pid>-<seq>.tmp`),
+/// whatever `<name>` is. For code that must keep its own file names clear of those, such as a folder that lies inside a
+/// workspace the saver writes to.
+pub fn is_save_temp_name(file_name: &str) -> bool {
+    let Some(stem) = file_name.strip_suffix(".tmp") else { return false };
+    let Some((_, fields)) = stem.rsplit_once(format!(".{TMP_MARKER}-").as_str()) else { return false };
+    let Some((pid, seq)) = fields.split_once('-') else { return false };
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    digits(pid) && digits(seq)
+}
+
 /// The pid inside a name produced by [`tmp_file_name`] for `prefix`, or `None` for any other name.
 fn tmp_file_pid(file_name: &str, prefix: &str) -> Option<u32> {
     let stem = file_name.strip_suffix(".tmp")?;
@@ -550,6 +561,16 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     const CARLITO: &str = include_str!("../tests/fixtures/fontsource_carlito.json");
+
+    #[test]
+    fn the_temporary_name_shape_is_the_one_the_savers_create() {
+        for name in ["doc.designos", "a.b.c", "x"] {
+            assert!(is_save_temp_name(&tmp_file_name(name, 4242, 7)), "{name}");
+        }
+        for name in ["doc.designos", "doc.designos.tmp", "doc.save-1.tmp", "doc.save-a-b.tmp", "doc.save-1-2.tmp.keep", "doc.safe-1-2.tmp", ".tmp"] {
+            assert!(!is_save_temp_name(name), "{name}");
+        }
+    }
 
     #[test]
     fn replace_retries_transient_windows_lock_before_success() {
