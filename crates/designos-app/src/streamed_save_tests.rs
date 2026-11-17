@@ -67,3 +67,50 @@ fn a_native_save_of_a_document_with_pages_to_load_is_refused_before_the_file_is_
     crate::io::save_path_counted(&doc, &out).expect("the loaded document saves");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// --- the headless save (`--out`, in place) never follows a link at the path ------------------------------------------------
+
+#[test]
+fn a_headless_save_writes_the_bytes_of_the_text_and_leaves_no_temporary_file() {
+    let dir = scratch("headless_bytes");
+    let out = dir.join("out.designos");
+    std::fs::write(&out, "old content that is longer than nothing").unwrap();
+    let doc = document_with_a_nan();
+
+    let path = crate::io::save_path_no_follow(&doc, &out).expect("the save succeeds");
+
+    assert_eq!(path, out);
+    assert_eq!(std::fs::read(&out).unwrap(), doc.to_json().unwrap().as_bytes());
+    let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    assert_eq!(names, vec!["out.designos".to_string()], "no temporary file stays behind");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_headless_save_makes_the_folders_of_its_path_and_gives_a_bare_name_the_native_ending() {
+    let dir = scratch("headless_folders");
+    let doc = document_with_a_nan();
+
+    let path = crate::io::save_path_no_follow(&doc, &dir.join("new").join("deeper").join("copy")).expect("the save succeeds");
+
+    assert_eq!(path, dir.join("new").join("deeper").join("copy.designos"));
+    assert!(path.is_file());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_headless_save_of_a_document_with_pages_to_load_is_refused_before_the_file_is_touched() {
+    let dir = scratch("headless_refused");
+    let out = dir.join("out.designos");
+    std::fs::write(&out, "old").unwrap();
+    let fig = dir.join("kit.fig");
+    std::fs::write(&fig, designos_fig::testkit::deferred_pages_fig()).unwrap();
+    let doc = designos_library::load_external(&fig).unwrap();
+    assert!(doc.has_pending_pages(), "precondition: a page waits for its content");
+
+    let err = crate::io::save_path_no_follow(&doc, &out).expect_err("a partial document must not be written");
+
+    assert!(err.contains("Cannot serialize"), "{err}");
+    assert_eq!(std::fs::read(&out).unwrap(), b"old", "the old file is untouched");
+    let _ = std::fs::remove_dir_all(&dir);
+}

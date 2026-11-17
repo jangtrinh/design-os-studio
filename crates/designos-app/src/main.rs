@@ -6,6 +6,8 @@ pub mod agent_cli_catalog;
 #[cfg(test)]
 mod agent_cli_export_fig_tests;
 #[cfg(test)]
+mod agent_cli_headless_writes_tests;
+#[cfg(test)]
 mod agent_cli_scan_design_system_tests;
 #[cfg(test)]
 mod agent_cli_select_tests;
@@ -49,6 +51,7 @@ mod check_designs;
 mod cli;
 pub(crate) mod cli_export_write;
 pub mod cli_resolve;
+pub(crate) mod cli_save_targets;
 mod cli_scan_design_system;
 mod clipboard;
 mod cmdk;
@@ -182,6 +185,12 @@ where
     // Before any window or command: a name that is not a file (`designos doctor`) must not open an empty editor.
     if let Some(message) = cli::missing_file_message(opts) {
         return Err((2, message));
+    }
+    // Before any window opens: a capture that cannot be written (a name that is not a .png, a link, a recording folder that is
+    // a link) must not cost a render first.
+    if let Some(path) = &opts.screenshot {
+        cli_save_targets::check_screenshot_target(path, cli_save_targets::sequence_frames_of(opts.panel.as_deref()))
+            .map_err(|e| (2, format!("designos: {e}")))?;
     }
     if let Some(dir) = &opts.seed_library {
         #[cfg(any(test, feature = "fixtures"))]
@@ -361,7 +370,7 @@ impl SaveTarget {
         }
         match self {
             Self::Library(lib, id) => lib.save_file(id, doc).map_err(|e| format!("Cannot save library file {id}: {e}")),
-            Self::Path(path) => io::save_path(doc, path).map(|_| ()),
+            Self::Path(path) => io::save_path_no_follow(doc, path).map(|_| ()),
         }
     }
 }
@@ -449,6 +458,17 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     // Same for --scan-design-system: an unusable target stops the command before the file is read.
     if let Some(out_path) = &opts.scan_design_system {
         cli_scan_design_system::check_target(out_path, opts.overwrite)?;
+    }
+    // And for the document a command saves (`--out`, or the file itself): one that changes the document stops before it changes
+    // anything when the save would be refused. The save itself refuses a link again at the moment of the write.
+    let mutates_document = opts.import_capture.is_some()
+        || opts.apply_spec.is_some()
+        || opts.import_variables.is_some()
+        || opts.add_comment.is_some()
+        || opts.reply_comment.is_some()
+        || opts.resolve_comment.is_some();
+    if let (true, None, Some(path)) = (mutates_document, &opts.open_id, opts.out.as_ref().or(opts.file.as_ref())) {
+        cli_save_targets::check_save_target(path)?;
     }
     let (mut doc, save_target) = if let Some(id) = &opts.open_id {
         let root = opts.library.clone().unwrap_or_else(designos_library::Library::default_root);

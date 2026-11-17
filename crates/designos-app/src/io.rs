@@ -374,6 +374,10 @@ pub fn backup_path(path: &Path) -> PathBuf {
 
 /// If `path` was structurally repaired when loaded, writes its pre-repair bytes to `<path>.bak`.
 pub fn write_pending_repair_backup(path: &Path) -> Result<bool, String> {
+    write_pending_repair_backup_as(path, LinkPolicy::Follow)
+}
+
+fn write_pending_repair_backup_as(path: &Path, links: LinkPolicy) -> Result<bool, String> {
     let mut p = path.to_path_buf();
     if p.extension().is_none() {
         p.set_extension(NATIVE_EXT);
@@ -382,7 +386,13 @@ pub fn write_pending_repair_backup(path: &Path) -> Result<bool, String> {
     let pending_backup = repaired_originals().lock().ok().and_then(|map| map.get(&key).cloned());
     if let Some(original_bytes) = &pending_backup {
         let bak = backup_path(&p);
-        designos_library::write_atomic(&bak, original_bytes).map_err(|e| format!("Cannot write {}: {e}", bak.display()))?;
+        match links {
+            LinkPolicy::Follow => designos_library::write_atomic(&bak, original_bytes).map_err(|e| format!("Cannot write {}: {e}", bak.display()))?,
+            LinkPolicy::Refuse => designos_library::write_atomic_no_follow(&bak, original_bytes).map_err(|e| match e {
+                designos_library::LibraryError::Io(io) => crate::cli_save_targets::explain_write_error("save", &bak, &io),
+                other => format!("Cannot write {}: {other}", bak.display()),
+            })?,
+        }
         return Ok(true);
     }
     Ok(false)
@@ -447,10 +457,41 @@ pub fn comment_threads_left_out(doc: &Document, path: &Path) -> usize {
     }
 }
 
+/// Whether a save writes through a link at the final path component (an editor save does, as `fs::write` does) or refuses it (a
+/// path somebody else named, the headless Agent CLI).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LinkPolicy {
+    Follow,
+    Refuse,
+}
+
 /// Writes the native format (or `.fig` binary / `.pen` JSON when the extension matches); returns the final path.
-/// This is the headless save (the Agent CLI), so what the file leaves out goes to stderr.
+/// This is the editor-style save, which writes through a link; tests use it. The headless Agent CLI saves with
+/// [`save_path_no_follow`], so what the file leaves out goes to stderr there.
+#[cfg(test)]
 pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
     let (p, replaced) = save_path_counted(doc, path).map_err(|e| e.to_string())?;
+    if replaced > 0 {
+        eprintln!("designos: {}: wrote {replaced} non-finite numbers as their neutral value", p.display());
+    }
+    if comment_threads_left_out(doc, &p) > 0 {
+        eprintln!("designos: {}: {COMMENTS_ONLY_IN_NATIVE_NOTICE}", p.display());
+    }
+    Ok(p)
+}
+
+/// The headless save (the Agent CLI): [`save_path`] for a path an agent named. A link at the final component, a file with a second
+/// name and a name that is not a design file are refused with a sentence that says what to do (nothing is written through a link,
+/// and the folders of a new path are made). The native format is streamed into the file; what the file leaves out goes to stderr.
+pub fn save_path_no_follow(doc: &Document, path: &Path) -> Result<PathBuf, String> {
+    let target = crate::cli_save_targets::save_path_with_ending(path);
+    if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+    }
+    let (p, replaced) = save_path_counted_as(doc, path, LinkPolicy::Refuse).map_err(|e| match designos_fonts::no_follow_refusal(&e) {
+        Some(refusal) => crate::cli_save_targets::refusal_message("save", &target, refusal),
+        None => e.to_string(),
+    })?;
     if replaced > 0 {
         eprintln!("designos: {}: wrote {replaced} non-finite numbers as their neutral value", p.display());
     }
@@ -463,6 +504,10 @@ pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
 /// [`save_path`], also returning how many non-finite numbers the native format wrote as their neutral
 /// value, counted by the one serialization the save performs (`.fig` and `.pen` exports replace none).
 pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize), std::io::Error> {
+    save_path_counted_as(doc, path, LinkPolicy::Follow)
+}
+
+fn save_path_counted_as(doc: &Document, path: &Path, links: LinkPolicy) -> Result<(PathBuf, usize), std::io::Error> {
     let mut p = path.to_path_buf();
     if p.extension().is_none() {
         p.set_extension(NATIVE_EXT);
@@ -484,10 +529,9 @@ pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize)
         }
     };
 
-    let wrote_backup = write_pending_repair_backup(&p).map_err(std::io::Error::other)?;
-    let written = match &exported {
-        Some(bytes) => designos_library::write_atomic(&p, bytes),
-        None => designos_library::write_atomic_with(&p, |out| {
+    let wrote_backup = write_pending_repair_backup_as(&p, links).map_err(std::io::Error::other)?;
+    let stream =
+        |out: &mut dyn std::io::Write| -> std::io::Result<()> {
             replaced = doc.to_writer_counted(out).map_err(|e| {
                 if e.is_io() {
                     std::io::Error::from(e)
@@ -496,9 +540,16 @@ pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize)
                 }
             })?;
             Ok(())
-        }),
+        };
+    let written = match (&exported, links) {
+        (Some(bytes), LinkPolicy::Follow) => designos_library::write_atomic(&p, bytes),
+        (Some(bytes), LinkPolicy::Refuse) => designos_library::write_atomic_no_follow(&p, bytes),
+        (None, LinkPolicy::Follow) => designos_library::write_atomic_with(&p, stream),
+        (None, LinkPolicy::Refuse) => designos_library::write_atomic_with_no_follow(&p, stream),
     };
     written.map_err(|e| match e {
+        // A refusal of the path is passed on whole: the caller words it.
+        designos_library::LibraryError::Io(io) if designos_fonts::no_follow_refusal(&io).is_some() => io,
         designos_library::LibraryError::Io(io) => std::io::Error::new(io.kind(), format!("Cannot write {}: {io}", p.display())),
         other => std::io::Error::other(format!("Cannot write {}: {other}", p.display())),
     })?;
