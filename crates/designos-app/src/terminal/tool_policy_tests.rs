@@ -191,8 +191,28 @@ fn a_session_from_an_older_build_keeps_its_list_and_cannot_be_widened_after_the_
     finish(st);
 }
 
+/// The folder's own copy as the user or an agent edits it by hand.
+fn edit_copy(st: &TerminalState, edit: impl FnOnce(&mut Value)) {
+    let mut cfg = read_json(&session_config(st));
+    edit(&mut cfg);
+    std::fs::write(session_config(st), serde_json::to_vec_pretty(&cfg).unwrap()).expect("a hand edit");
+}
+
+/// The tools the folder's own copy enables.
+fn tools_in_the_copy(st: &TerminalState) -> BTreeSet<String> {
+    let config = EnabledToolsConfig::from_mcp_config_json(&std::fs::read_to_string(session_config(st)).expect("the session copy"));
+    all_tools().into_iter().filter(|name| config.is_tool_enabled(name)).collect()
+}
+
+fn sync(st: &mut TerminalState, doc: &Document, page: NodeId) {
+    st.sync_live_file_context(doc, page, &[], None);
+    st.flush_live_sync();
+}
+
+/// A session that has started on the default can still be narrowed by hand, and an agent that narrows its own copy only harms itself:
+/// the narrower list is honoured and kept, and nobody can put the tools back in the folder's copy.
 #[test]
-fn a_session_on_the_default_stays_on_every_tool_whatever_the_agent_writes() {
+fn a_session_on_the_default_honours_a_narrowing_and_keeps_it() {
     let mut st = fresh(AgentPermissionMode::Skip);
     let (doc, page) = one_page();
     launch(&mut st);
@@ -200,13 +220,115 @@ fn a_session_on_the_default_stays_on_every_tool_whatever_the_agent_writes() {
     assert_tools_stay(&mut st, &every, &doc, page, "a default session");
     assert!(read_json(&session_config(&st)).get("designos").is_none(), "the default is never written down");
 
-    // An agent that narrows its own list in the copy is not what the user asked for either: the list that counts is the one it started with.
-    let mut cfg = read_json(&session_config(&st));
-    cfg["designos"] = json!({ "enabled_tools": ["designos_get_document"] });
-    std::fs::write(session_config(&st), serde_json::to_vec_pretty(&cfg).unwrap()).expect("the agent's write");
+    edit_copy(&st, |cfg| cfg["designos"] = json!({ "enabled_tools": ["designos_get_document"] }));
     launch(&mut st);
-    assert_tools_stay(&mut st, &every, &doc, page, "after the agent narrowed the copy");
+    let narrowed = names(&["designos_get_document"]);
+    assert_tools_stay(&mut st, &narrowed, &doc, page, "after the copy was narrowed");
+
+    // The copy is put back to every tool, three ways: the narrowing was kept.
+    for (what, forge) in forgeries() {
+        edit_copy(&st, |cfg| forge(cfg));
+        sync(&mut st, &doc, page);
+        assert_tools_stay(&mut st, &narrowed, &doc, page, &format!("after {what} and a sync"));
+        launch(&mut st);
+        assert_tools_stay(&mut st, &narrowed, &doc, page, &format!("after {what} and a new launch"));
+    }
     finish(st);
+}
+
+/// By-hand edits are the only way the user sets the list, so one made after an agent has started counts at once, in every start.
+#[test]
+fn a_tool_the_user_takes_out_after_the_first_start_is_honoured_and_cannot_be_put_back() {
+    for mode in [AgentPermissionMode::Skip, AgentPermissionMode::Ask] {
+        let mut st = fresh(mode);
+        let (doc, page) = one_page();
+        user_restricts(&st, &RESTRICTED, None);
+        launch(&mut st);
+        let two = names(&RESTRICTED);
+        assert_tools_stay(&mut st, &two, &doc, page, &format!("{mode:?}, the first start"));
+
+        // The user takes one more tool out; the next sync honours it.
+        edit_copy(&st, |cfg| cfg["designos"] = json!({ "enabled_tools": ["designos_get_document"] }));
+        sync(&mut st, &doc, page);
+        let one = names(&["designos_get_document"]);
+        assert_tools_stay(&mut st, &one, &doc, page, &format!("{mode:?}, after the user narrowed it and a sync"));
+
+        // An agent that puts the tools back, or takes the key out, changes nothing, for the next sync or the next start.
+        for (what, forge) in forgeries() {
+            edit_copy(&st, |cfg| forge(cfg));
+            launch(&mut st);
+            assert_tools_stay(&mut st, &one, &doc, page, &format!("{mode:?}, after {what} and a new launch"));
+        }
+        finish(st);
+    }
+}
+
+/// An edit that puts tools back is ignored for those tools, the kept list stays as it was, and the user is told how the list changes.
+#[test]
+fn tools_put_back_after_the_first_start_stay_off_and_the_user_is_told() {
+    let mut st = fresh(AgentPermissionMode::Skip);
+    let (doc, page) = one_page();
+    user_restricts(&st, &RESTRICTED, None);
+    launch(&mut st);
+    assert!(st.set_aside_note.is_none(), "nothing to say at the first start: {:?}", st.set_aside_note);
+    let two = names(&RESTRICTED);
+
+    edit_copy(&st, |cfg| cfg["designos"] = json!({ "enabled_tools": all_tools() }));
+    launch(&mut st);
+    let note = st.set_aside_note.clone().expect("a sentence for the start line");
+    assert!(note.contains("can only be narrowed"), "{note}");
+    assert!(note.contains("delete the folder"), "the reset is named: {note}");
+    assert_tools_stay(&mut st, &two, &doc, page, "after the user tried to widen it");
+
+    // The copy was written back as the list in force, so the next start has nothing more to say.
+    launch(&mut st);
+    assert!(st.set_aside_note.is_none(), "{:?}", st.set_aside_note);
+    finish(st);
+}
+
+/// A sync writes the list in force into the user's file, never a wider one than the user's own.
+#[test]
+fn a_sync_never_writes_a_wider_list_over_the_users_file() {
+    let mut st = fresh(AgentPermissionMode::Skip);
+    let (mut doc, page) = one_page();
+    user_restricts(&st, &RESTRICTED, None);
+    launch(&mut st);
+
+    edit_copy(&st, |cfg| cfg["designos"] = json!({ "enabled_tools": ["designos_get_document"] }));
+    sync(&mut st, &doc, page);
+    assert_eq!(tools_in_the_copy(&st), names(&["designos_get_document"]), "the user's narrower list is what stays in the file");
+
+    // A wider file is not the user's list any more: what is written back is what is in force, which is inside the file's own list.
+    let wide: BTreeSet<String> = all_tools().into_iter().collect();
+    edit_copy(&st, |cfg| cfg["designos"] = json!({ "enabled_tools": wide }));
+    // The document changed, so this sync writes the files again.
+    doc.add_page("Page 2");
+    sync(&mut st, &doc, page);
+    let written = tools_in_the_copy(&st);
+    assert!(written.is_subset(&wide) && written == names(&["designos_get_document"]), "{written:?}");
+    finish(st);
+}
+
+/// A scratch folder that is deleted takes the list kept for it, so a later session on the same path starts from its own file.
+#[test]
+fn the_kept_list_goes_with_the_scratch_folder_when_a_saved_library_file_is_bound() {
+    let mut st = fresh(AgentPermissionMode::Skip);
+    user_restricts(&st, &RESTRICTED, None);
+    launch(&mut st);
+    let scratch = st.session_dir.clone();
+    let kept = crate::agent_tool_policy::policy_dir(&scratch).expect("a policy folder");
+    assert!(kept.exists());
+
+    let lib = std::env::temp_dir().join(format!("designos-tool-policy-lib-{}", crate::live_sync_tests::unique_tab_id()));
+    let _ = std::fs::remove_dir_all(&lib);
+    std::fs::create_dir_all(&lib).expect("a library folder");
+    // Binding a saved file keeps running tabs and does not shut the state down, so the folder is deleted by the bind itself.
+    st.bind_library_file_inner(&lib, "file-x", "win-x", crate::agent_sessions::is_pid_alive, true);
+    assert_ne!(st.session_dir, scratch, "the session moved to the library's folder");
+    assert!(!scratch.exists(), "the scratch folder is gone");
+    assert!(!kept.exists(), "so is the list kept for it");
+    finish(st);
+    let _ = std::fs::remove_dir_all(&lib);
 }
 
 /// `designos-mcp` enables every tool when its config is missing, so a start that cannot keep a restricted list private does not happen,
@@ -240,6 +362,9 @@ fn no_agent_starts_when_the_kept_tool_list_is_damaged() {
     for preset in [AgentCliPreset::Shell, AgentCliPreset::Claude] {
         let refused = st.spawn_tab(preset, None).expect_err("the kept list cannot be read");
         assert!(refused.contains("designos tool list"), "{preset:?}: {refused}");
+        // It says what to do: the folder to delete, as a path, with no hash to compute.
+        let folder = crate::agent_tool_policy::policy_dir(&st.session_dir).expect("a policy folder");
+        assert!(refused.contains("delete the folder") && refused.contains(&folder.display().to_string()), "{preset:?}: {refused}");
     }
     assert!(st.tabs.is_empty());
     finish(st);
