@@ -68,10 +68,9 @@ fn picker_slot_paint(n: &Node, slot: super::properties::PickTarget) -> Option<Pa
     match slot {
         PickTarget::Fill(pi) => n.fills.get(pi).cloned(),
         PickTarget::Stroke(pi) => n.stroke.paints.get(pi).cloned(),
-        PickTarget::TextFill => match &n.kind {
-            NodeKind::Text(t) => crate::richtext::summary(t, 0..t.content.len()).fills.and_then(|f| f.into_iter().find(|p| p.visible)),
-            _ => None,
-        },
+        PickTarget::TextFill => {
+            n.kind.any_text().and_then(|t| crate::richtext::summary(t, 0..t.content.len()).fills.and_then(|f| f.into_iter().find(|p| p.visible)))
+        }
         PickTarget::PageBg => match n.kind {
             NodeKind::Page { background } => Some(Paint::solid(background)),
             _ => None,
