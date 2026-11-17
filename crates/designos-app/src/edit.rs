@@ -148,6 +148,7 @@ pub(crate) fn properties_changed(old: &Node, cur: &Node) -> bool {
         mask_type,
         style_refs,
         text_style_overrides,
+        fig_text_geometry,
         fill_geometry,
         stroke_geometry,
         stroke_geometry_for,
@@ -184,6 +185,7 @@ pub(crate) fn properties_changed(old: &Node, cur: &Node) -> bool {
         || *effects != cur.effects
         || *style_refs != cur.style_refs
         || *text_style_overrides != cur.text_style_overrides
+        || *fig_text_geometry != cur.fig_text_geometry
         || *component != cur.component
         || *prototype != cur.prototype
         || *variables != cur.variables

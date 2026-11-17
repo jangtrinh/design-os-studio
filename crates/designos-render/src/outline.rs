@@ -35,7 +35,16 @@ pub struct TextOutline {
 /// Glyph outlines of a text node, one entry per style, laid out exactly like
 /// the CPU renderer does (same shaping, same positions).
 pub fn text_outlines(props: &TextProps, size: Vec2) -> Vec<TextOutline> {
-    let lay = text::layout(props, size);
+    outlines_from_layout(text::layout(props, size))
+}
+
+/// Text outlines for a document node, including its original Figma glyphs
+/// when the font is missing.
+pub fn text_outlines_for_node(node: &Node) -> Vec<TextOutline> {
+    outlines_from_layout(text::layout_node(node))
+}
+
+fn outlines_from_layout(lay: Rc<text::TextLayout>) -> Vec<TextOutline> {
     lay.paths
         .iter()
         .enumerate()

@@ -385,6 +385,7 @@ mod tests {
             mask_type: designos_doc::MaskType::default(),
             style_refs: BTreeMap::new(),
             text_style_overrides: designos_doc::OwnedFieldSet::default(),
+            fig_text_geometry: None,
             fill_geometry: None,
             stroke_geometry: None,
             stroke_geometry_for: None,

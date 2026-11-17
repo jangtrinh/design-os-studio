@@ -104,6 +104,8 @@ fn populated() -> Node {
     n.is_mask = true;
     n.mask_type = MaskType::Vector;
     n.style_refs.insert("fill".into(), "S:1".into());
+    n.fig_text_geometry =
+        Some(designos_doc::FigTextGeometry { text: TextProps::default(), size: n.size, path: path_with(2), glyph_blobs: vec![Some(vec![1, 2])] });
     n.fill_geometry = Some(vec![path_with(2)]);
     n.stroke_geometry = Some(vec![path_with(1)]);
     n.stroke_geometry_for =
@@ -174,6 +176,13 @@ fn field_edits() -> Vec<(&'static str, Vec<Edit>)> {
         ("is_mask", vec![|n| n.is_mask = false]),
         ("mask_type", vec![|n| n.mask_type = MaskType::Alpha, |n| n.mask_type = MaskType::Luminance]),
         ("style_refs", vec![|n| n.style_refs.clear(), |n| n.style_refs.insert("stroke".into(), "S:2".into()).map_or((), |_| ())]),
+        (
+            "fig_text_geometry",
+            vec![|n| n.fig_text_geometry = None, |n| {
+                n.fig_text_geometry =
+                    Some(designos_doc::FigTextGeometry { text: TextProps::default(), size: n.size, path: path_with(3), glyph_blobs: Vec::new() })
+            }],
+        ),
         ("fill_geometry", vec![|n| n.fill_geometry = None, |n| n.fill_geometry = Some(Vec::new()), |n| n.fill_geometry = Some(vec![path_with(3)])]),
         ("stroke_geometry", vec![|n| n.stroke_geometry = None, |n| n.stroke_geometry = Some(Vec::new()), |n| n.stroke_geometry = Some(vec![path_with(3)])]),
         (

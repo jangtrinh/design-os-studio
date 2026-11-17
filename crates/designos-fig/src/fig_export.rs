@@ -2318,7 +2318,32 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             msg_fields.push(pair);
         }
     }
-    append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, &node.fig_metadata);
+    // The original `commandsBlob` numbers refer to the imported file's blob
+    // table. Re-index them into this export's table before writing derived text.
+    // An edited text layer must not export its stale glyph cache.
+    let mut filtered_text_meta = None;
+    if matches!(&node.kind, NodeKind::Text(_)) {
+        let mut meta = node.fig_metadata.clone();
+        if let Some(saved) = node.fig_text_geometry.as_ref().filter(|saved| saved.matches(&node)) {
+            if let Some(raw) = meta.get("derivedTextData") {
+                if let Ok(mut derived) = serde_json::from_str::<serde_json::Value>(raw) {
+                    if let Some(glyphs) = derived.get_mut("glyphs").and_then(serde_json::Value::as_array_mut).filter(|g| g.len() == saved.glyph_blobs.len()) {
+                        for (glyph, blob) in glyphs.iter_mut().zip(&saved.glyph_blobs) {
+                            if let Some(blob) = blob {
+                                glyph["commandsBlob"] = json!(cx.add_blob(blob.clone()));
+                            }
+                        }
+                        if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, "derivedTextData", &derived) {
+                            msg_fields.push(pair);
+                        }
+                    }
+                }
+            }
+        }
+        meta.remove("derivedTextData");
+        filtered_text_meta = Some(meta);
+    }
+    append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, filtered_text_meta.as_ref().unwrap_or(&node.fig_metadata));
     cx.changes.push(V::Message(msg_fields));
 
     if let Some((lc, carrier_val)) = lowered_conn {
