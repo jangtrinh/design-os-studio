@@ -217,6 +217,9 @@ pub fn write_atomic_with(path: &Path, fill: impl FnOnce(&mut dyn std::io::Write)
     write_via_tmp(&target, dir, prefix, fill, existing)
 }
 
+mod no_follow;
+pub use no_follow::{no_follow_refusal, write_atomic_no_follow, write_atomic_with_no_follow, NoFollowRefusal};
+
 /// Truncates `name` on a UTF-8 char boundary so appending `.{pid}-{seq}.tmp` never exceeds
 /// the 255-byte / 255-char filesystem filename limit (`ENAMETOOLONG`).
 fn tmp_prefix(name: &str) -> &str {
@@ -293,11 +296,13 @@ struct ExistingTarget {
     meta: std::fs::Metadata,
 }
 
+/// Opens the existing file at `path` for the metadata copy and checks it. With `no_follow`, a link at the final component is
+/// refused (`O_NOFOLLOW`), so is a file with a second name, and a missing file is a plain `NotFound`; every refusal then
+/// carries a [`NoFollowRefusal`]. Without it, links are followed by the caller before this runs.
 #[cfg(unix)]
-fn open_writable_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
-    use std::io::{Error, ErrorKind};
+fn open_writable_regular(path: &Path, no_follow: bool) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
     use std::os::fd::AsRawFd;
-    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
     #[cfg(target_os = "linux")]
     const O_NONBLOCK: i32 = 0o4000;
@@ -311,46 +316,62 @@ fn open_writable_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs
         fn fcntl(fd: i32, cmd: i32, ...) -> i32;
     }
 
-    let file = match std::fs::OpenOptions::new().write(true).custom_flags(O_NONBLOCK).open(path) {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).custom_flags(O_NONBLOCK | if no_follow { libc::O_NOFOLLOW } else { 0 });
+    let file = match opts.open(path) {
         Ok(f) => f,
+        Err(e) if no_follow && e.kind() == std::io::ErrorKind::NotFound => return Err(e),
+        // FreeBSD reports a link met by `O_NOFOLLOW` as `EMLINK`.
+        Err(e) if no_follow && matches!(e.raw_os_error(), Some(libc::ELOOP | libc::EMLINK)) => {
+            return Err(no_follow::refused(NoFollowRefusal::Link, path, None));
+        }
+        Err(e) if no_follow && e.raw_os_error() == Some(libc::EISDIR) => {
+            return Err(no_follow::refused(NoFollowRefusal::Directory, path, None));
+        }
         Err(e) if e.raw_os_error() == Some(ENXIO) => {
-            return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", path.display())));
+            return Err(no_follow::refused(NoFollowRefusal::NotRegularFile, path, None));
         }
         Err(e) => {
-            return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only or not writable: {e}", path.display())));
+            return Err(no_follow::refused(NoFollowRefusal::NotWritable, path, Some(e.to_string())));
         }
     };
     let meta = file.metadata()?;
     if meta.is_dir() {
-        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is a directory", path.display())));
+        return Err(no_follow::refused(NoFollowRefusal::Directory, path, None));
     }
     if !meta.is_file() {
-        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", path.display())));
+        return Err(no_follow::refused(NoFollowRefusal::NotRegularFile, path, None));
+    }
+    if no_follow && meta.nlink() > 1 {
+        return Err(no_follow::refused(NoFollowRefusal::SecondName, path, None));
     }
     let fd = file.as_raw_fd();
     let flags = unsafe { fcntl(fd, F_GETFL) };
     if flags < 0 {
-        return Err(Error::last_os_error());
+        return Err(std::io::Error::last_os_error());
     }
     if unsafe { fcntl(fd, F_SETFL, flags & !O_NONBLOCK) } < 0 {
-        return Err(Error::last_os_error());
+        return Err(std::io::Error::last_os_error());
     }
     Ok((file, meta))
 }
 
 #[cfg(not(unix))]
-fn open_writable_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
-    use std::io::{Error, ErrorKind};
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .open(path)
-        .map_err(|e| Error::new(ErrorKind::PermissionDenied, format!("{} is read-only or not writable: {e}", path.display())))?;
+fn open_writable_regular(path: &Path, no_follow: bool) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+    if no_follow {
+        match std::fs::symlink_metadata(path) {
+            Ok(meta) if meta.file_type().is_symlink() => return Err(no_follow::refused(NoFollowRefusal::Link, path, None)),
+            Ok(_) => {}
+            Err(e) => return Err(e),
+        }
+    }
+    let file = std::fs::OpenOptions::new().write(true).open(path).map_err(|e| no_follow::refused(NoFollowRefusal::NotWritable, path, Some(e.to_string())))?;
     let meta = file.metadata()?;
     if meta.is_dir() {
-        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is a directory", path.display())));
+        return Err(no_follow::refused(NoFollowRefusal::Directory, path, None));
     }
     if !meta.is_file() {
-        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", path.display())));
+        return Err(no_follow::refused(NoFollowRefusal::NotRegularFile, path, None));
     }
     Ok((file, meta))
 }
@@ -379,7 +400,7 @@ fn resolve_save_target(path: &Path) -> std::io::Result<(PathBuf, Option<Existing
                 if meta.permissions().readonly() {
                     return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only or not writable: permission denied", cur.display())));
                 }
-                let (file, opened_meta) = open_writable_regular(&cur)?;
+                let (file, opened_meta) = open_writable_regular(&cur, false)?;
                 #[cfg(not(target_os = "macos"))]
                 let _ = file;
                 let real = std::fs::canonicalize(&cur).unwrap_or(cur);
