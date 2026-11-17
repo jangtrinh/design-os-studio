@@ -542,9 +542,7 @@ mod tests {
         let mut doc = Document::new("icon");
         let page = doc.add_page("Page");
         let id = doc.alloc_id();
-        let mut style = TextStyle::default();
-        style.font_family = "MissingIconFaceForTest".into();
-        style.font_size = 20.0;
+        let style = TextStyle { font_family: "MissingIconFaceForTest".into(), font_size: 20.0, ..TextStyle::default() };
         let mut node = Node::text(id, Rect::new(0.0, 0.0, 20.0, 20.0), "\u{e900}", style);
         let NodeKind::Text(text) = &node.kind else { unreachable!() };
         node.fig_text_geometry = Some(d::FigTextGeometry {
