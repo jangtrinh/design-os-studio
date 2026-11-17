@@ -133,6 +133,7 @@ fn import_with_limits(clip: &FigClipboard, inflate_budget: u64, decoded_values: 
         .unwrap_or_default();
     let rest = message_to_rest(&message, "Figma clipboard");
     let mut doc = rest_import::import_rest_value_with_blobs(&rest, true, &blobs, None)?;
+    rest_import::forget_unknown_keys(&mut doc);
     doc.images = archive.images;
     Ok(doc)
 }

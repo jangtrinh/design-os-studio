@@ -479,7 +479,6 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
     if node.locked {
         m.insert("locked".into(), true.into());
     }
-    m.extend(node.extra.clone());
     let lowered_conn = match (&node.kind, doc.kind) {
         (NodeKind::Connector(cp), k) if k != DocumentKind::Board => {
             let carrier = crate::board::StudioConnectorCarrier::from_node(
@@ -880,6 +879,10 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
             }
         }
         m.insert("children".into(), Value::Array(kids));
+    }
+    // Keys kept from the import come last and never replace one written above.
+    for (k, v) in &node.extra {
+        m.entry(k.clone()).or_insert_with(|| v.clone());
     }
     Some(Value::Object(m))
 }

@@ -3,10 +3,11 @@
 //! kinds of the document model. `SECTION` needs no special handling.
 
 use crate::export::{n, paints, v2};
-use crate::rest_import::{farr, fbool, fnum, fstr, parse_paints, vec2};
+use crate::rest_import::{farr, fbool, fnum, fstr, is_modelled_key, parse_paints, vec2};
 use designos_doc::*;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 /// Whether a file (or the node tree under it) comes from FigJam.
 pub(crate) fn is_figjam(root: &Value) -> bool {
@@ -101,6 +102,28 @@ fn cap_name(c: ConnectorCap) -> &'static str {
     }
 }
 
+/// The keys the saved form of `T` writes for its own fields. A kept unknown key is written beside them (`extra` is
+/// flattened), so one spelled like a field would be written twice and the saved file would no longer open: such a
+/// key is not kept.
+fn native_field_names<T: serde::Serialize + Default>(cell: &'static OnceLock<Vec<String>>) -> &'static [String] {
+    cell.get_or_init(|| serde_json::to_value(T::default()).ok().and_then(|v| v.as_object().map(|o| o.keys().cloned().collect())).unwrap_or_default())
+}
+
+pub(crate) fn connector_native_names() -> &'static [String] {
+    static NAMES: OnceLock<Vec<String>> = OnceLock::new();
+    native_field_names::<ConnectorProps>(&NAMES)
+}
+
+fn sticky_native_names() -> &'static [String] {
+    static NAMES: OnceLock<Vec<String>> = OnceLock::new();
+    native_field_names::<StickyProps>(&NAMES)
+}
+
+fn shape_native_names() -> &'static [String] {
+    static NAMES: OnceLock<Vec<String>> = OnceLock::new();
+    native_field_names::<ShapeWithTextProps>(&NAMES)
+}
+
 fn connector_extra(v: &Value) -> BTreeMap<String, Value> {
     const KNOWN: &[&str] = &[
         "id",
@@ -140,11 +163,28 @@ fn connector_extra(v: &Value) -> BTreeMap<String, Value> {
         "fontFamily",
         "fontWeight",
     ];
-    v.as_object().into_iter().flat_map(|o| o.iter()).filter(|(k, _)| !KNOWN.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()
+    v.as_object()
+        .into_iter()
+        .flat_map(|o| o.iter())
+        .filter(|(k, _)| !KNOWN.contains(&k.as_str()) && !is_modelled_key(k) && !connector_native_names().contains(k))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
 }
 
-fn board_extra(v: &Value, known: &[&str]) -> BTreeMap<String, Value> {
-    v.as_object().into_iter().flat_map(|o| o.iter()).filter(|(k, _)| !known.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()
+/// Writes the kept unknown keys of a board item after its own fields, never over one already written.
+fn keep_extra(m: &mut Map<String, Value>, extra: &BTreeMap<String, Value>) {
+    for (k, v) in extra {
+        m.entry(k.clone()).or_insert_with(|| v.clone());
+    }
+}
+
+fn board_extra(v: &Value, known: &[&str], native: &[String]) -> BTreeMap<String, Value> {
+    v.as_object()
+        .into_iter()
+        .flat_map(|o| o.iter())
+        .filter(|(k, _)| !known.contains(&k.as_str()) && !is_modelled_key(k) && !native.contains(k))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
 }
 
 const STICKY_KNOWN: &[&str] = &[
@@ -239,14 +279,14 @@ pub(crate) fn kind_from_json(ty: &str, v: &Value, origin: Vec2) -> Option<NodeKi
             p.text = board_text_props(v, p.text);
             p.show_author = fbool(v, "authorVisible").unwrap_or(false);
             p.author = fstr(v, "authorName").map(String::from).filter(|s| !s.is_empty());
-            p.extra = board_extra(v, STICKY_KNOWN);
+            p.extra = board_extra(v, STICKY_KNOWN, sticky_native_names());
             NodeKind::Sticky(p)
         }
         "SHAPE_WITH_TEXT" => {
             let shape_str = fstr(v, "shapeType").or_else(|| fstr(v, "shapeWithTextType"));
             let mut p = ShapeWithTextProps { shape: shape_str.map(shape_from_name).unwrap_or_default(), ..Default::default() };
             p.text = board_text_props(v, p.text);
-            p.extra = board_extra(v, SHAPE_KNOWN);
+            p.extra = board_extra(v, SHAPE_KNOWN, shape_native_names());
             NodeKind::ShapeWithText(p)
         }
         "STAMP" => NodeKind::Stamp { kind: stamp_kind(v) },
@@ -502,12 +542,12 @@ pub(crate) fn export_fields(node: &Node, origin: Vec2, m: &mut Map<String, Value
                 m.insert("authorName".into(), a.clone().into());
             }
             text_fields(m, &s.text);
-            m.extend(s.extra.clone());
+            keep_extra(m, &s.extra);
         }
         NodeKind::ShapeWithText(s) => {
             m.insert("shapeType".into(), shape_name(s.shape).into());
             text_fields(m, &s.text);
-            m.extend(s.extra.clone());
+            keep_extra(m, &s.extra);
         }
         NodeKind::Stamp { kind } => {
             m.insert("stampType".into(), kind.clone().into());
@@ -538,7 +578,7 @@ pub(crate) fn export_fields(node: &Node, origin: Vec2, m: &mut Map<String, Value
             if let Some(l) = &c.label {
                 text_fields(m, l);
             }
-            m.extend(c.extra.clone());
+            keep_extra(m, &c.extra);
         }
         _ => {}
     }
