@@ -177,6 +177,24 @@ pub fn remove_session_dir_all(path: &Path) -> io::Result<()> {
     }
 }
 
+/// Removes every entry of the folder `path` whose name is not in `keep`, a link below it as a link and a folder with all it holds,
+/// without following a link. A folder that is not there has nothing to remove; a link or a file at `path` is refused.
+pub fn remove_session_dir_entries_except(path: &Path, keep: &[&str]) -> io::Result<()> {
+    let missing = |e: &io::Error| e.kind() == io::ErrorKind::NotFound;
+    let (place, holder) = match open_place(path, false) {
+        Err(e) if missing(&e) => return Ok(()),
+        opened => opened?,
+    };
+    let folder = match holder.open_child(&place.name, false) {
+        Err(e) if missing(&e) => return Ok(()),
+        folder => folder?,
+    };
+    for name in folder.entries_not_in(keep)? {
+        folder.remove_all(&name)?;
+    }
+    Ok(())
+}
+
 /// The entries one Ask-mode start moved out of the way of the CLI that would run them, and the folder they went into. Nothing that is
 /// not Studio's is deleted: an entry is moved, whole, to `<session>/.designos-set-aside/<stamp>/<its path with "/" written "__">`, so
 /// that no moved entry keeps a name a CLI loads. The folder is made when the first entry needs it, and is new for each start.

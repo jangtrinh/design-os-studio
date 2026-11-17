@@ -157,8 +157,7 @@ fn a_shell_started_while_the_window_is_built_keeps_its_session_after_the_first_f
 }
 
 /// The frame that handles the close request shuts the terminal down and then still runs the rest of the
-/// frame, which publishes the document: the folder the shutdown emptied must stay empty, holding only the mark of the closed tab
-/// (spec rule 4, AC 2).
+/// frame, which publishes the document: the folder the shutdown emptied must stay empty, holding only the mark of the closed tab.
 #[test]
 fn closing_the_window_leaves_only_the_closed_mark_in_its_session_folder() {
     let mut s = Sim::new();

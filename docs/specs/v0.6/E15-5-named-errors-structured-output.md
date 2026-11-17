@@ -98,7 +98,9 @@ a tab the person closed leaves `tab-closed.json` in its session folder (a scratc
 next sweep), which is what tells the closed tab apart from a missing folder. A session folder that is gone with no
 such mark is `EDITOR_NOT_NOTIFIED` with `safe_to_retry: false`, the message "The session folder is gone, so the editor
 cannot be asked." and `next_step` "Check the document state with designos_get_document, or ask the user.", at once and
-without the wait. The "tab not shown" answer, where the tab still exists, stays retryable for every policy.
+without the wait. Once `tab-closed.json` is there, an edit, `designos_open_file` and `designos_new_document` are refused with the
+same "already closed" answer before anything is changed, and nothing is written into the folder: no editor reads it, so a
+write would be answered "ok" and lost. The "tab not shown" answer, where the tab still exists, stays retryable for every policy.
 
 ### 3.3 Catalogue
 

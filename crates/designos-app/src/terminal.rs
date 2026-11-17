@@ -1574,17 +1574,36 @@ pub struct TerminalState {
     pub viewport_size: (u16, u16),
 }
 
+/// The content of `tab-closed.json`.
+const TAB_CLOSED_MARK: &[u8] = b"{\"tab_closed\":true}\n";
+
 /// Removes a scratch session folder but keeps `close-result.json`: an agent's close of this very tab writes its answer there, and
 /// the tab's shutdown (which removes the folder) runs right after. Without the answer the agent waits out its timeout for a close that
 /// happened. The stray folder holds only that file and goes with the next sweep of folders whose process is gone.
-fn remove_scratch_dir_keeping_the_close_answer(dir: &Path) {
-    let result = dir.join(designos_doc::live_patch::CloseIntent::RESULT_FILE);
-    let answer = crate::agent_session_files::read_session_file(&result).ok();
-    let _ = std::fs::remove_dir_all(dir);
-    if let Some(bytes) = answer {
-        if crate::agent_session_files::ensure_session_dir(dir).is_ok() {
-            let _ = atomic_write_session_file(&result, &bytes);
+///
+/// With `session_ended` the folder stays as the mark of a closed tab: `tab-closed.json` is written first and the folder is emptied
+/// around it, so an agent's close never sees a moment with neither the folder nor the mark. `owner.json` stays too, for the sweep.
+fn remove_scratch_dir_keeping_the_close_answer(dir: &Path, session_ended: bool) {
+    use designos_doc::live_patch::CloseIntent;
+    if !session_ended {
+        let result = dir.join(CloseIntent::RESULT_FILE);
+        let answer = crate::agent_session_files::read_session_file(&result).ok();
+        let _ = std::fs::remove_dir_all(dir);
+        if let Some(bytes) = answer {
+            if crate::agent_session_files::ensure_session_dir(dir).is_ok() {
+                let _ = atomic_write_session_file(&result, &bytes);
+            }
         }
+        return;
+    }
+    // The mark first: from here on a close that comes looking finds the folder with its mark, never neither. A folder that is not
+    // there stays not there, and a link in its place (refused by both calls) is removed as a link.
+    if crate::agent_session_files::session_file_metadata(dir).is_ok_and(|m| m.is_dir()) {
+        let _ = atomic_write_session_file(&dir.join(CloseIntent::TAB_CLOSED_FILE), TAB_CLOSED_MARK);
+    }
+    let kept = [CloseIntent::RESULT_FILE, CloseIntent::TAB_CLOSED_FILE, crate::agent_session_files::OWNER_FILE];
+    if crate::agent_session_files::remove_session_dir_entries_except(dir, &kept).is_err() {
+        let _ = crate::agent_session_files::remove_session_dir_all(dir);
     }
 }
 
@@ -3320,7 +3339,7 @@ impl TerminalState {
     /// ephemeral `<data dir>/designos/sessions/<session_id>/` directory (never touching library
     /// `<lib_root>/agent-sessions/<file_id>/` folders or a scratch directory that still holds the
     /// only copy of a library file's session).
-    fn cleanup_ephemeral_session_dir(&mut self) {
+    fn cleanup_ephemeral_session_dir(&mut self, session_ended: bool) {
         self.snapshot_worker.cancel_and_wait();
         self.stop_bootstrap_writes();
         // No tab is left to ask: the approval channel (hook script, requests, answers) goes with the session.
@@ -3338,7 +3357,8 @@ impl TerminalState {
                         }
                     }
                     self.forget_tool_policy_of_removed_session_dir();
-                    remove_scratch_dir_keeping_the_close_answer(&self.session_dir);
+                    // The session moves to its stable folder and its tab lives on: this scratch folder is not marked closed.
+                    remove_scratch_dir_keeping_the_close_answer(&self.session_dir, false);
                     if self.tabs.is_empty() {
                         self.update_session_dir_paths(stable_dir);
                     } else {
@@ -3348,7 +3368,7 @@ impl TerminalState {
                 }
             }
             self.forget_tool_policy_of_removed_session_dir();
-            remove_scratch_dir_keeping_the_close_answer(&self.session_dir);
+            remove_scratch_dir_keeping_the_close_answer(&self.session_dir, session_ended);
             self.last_synced_key = None;
             self.session_closed = true;
         }
@@ -3380,20 +3400,11 @@ impl TerminalState {
         if reg_dirty {
             self.persist_session_registry();
         }
-        // A scratch folder that exists now is removed below; the session ends here, so its folder stays as a mark of that.
-        let scratch_dir = Some(self.session_dir.clone()).filter(|d| crate::agent_session_files::is_ephemeral_session_dir(d) && d.is_dir());
-        self.cleanup_ephemeral_session_dir();
+        self.cleanup_ephemeral_session_dir(true);
         self.release_lock();
         // A library file's stable folder stays on disk, but this window no longer owns it: publish nothing more.
         self.session_closed = true;
         self.mark_tab_closed();
-        // The folder this terminal is still bound to was removed (a library file's session moved to its stable folder is not this:
-        // its tab lives on, and the stable folder carries the mark above).
-        if let Some(dir) = scratch_dir.filter(|d| *d == self.session_dir && !d.exists()) {
-            if crate::agent_session_files::ensure_session_dir(&dir).is_ok() {
-                Self::write_tab_closed_mark(&dir);
-            }
-        }
     }
 
     /// Tells an agent whose MCP server outlives this tab that the tab is gone: a folder that is still on disk (a library file's) gets
@@ -3408,7 +3419,7 @@ impl TerminalState {
 
     fn write_tab_closed_mark(dir: &Path) {
         let marker = dir.join(designos_doc::live_patch::CloseIntent::TAB_CLOSED_FILE);
-        if let Err(e) = atomic_write_session_file(&marker, b"{\"tab_closed\":true}\n") {
+        if let Err(e) = atomic_write_session_file(&marker, TAB_CLOSED_MARK) {
             eprintln!("design:os studio: could not mark {} as closed: {e}", dir.display());
         }
     }
@@ -4025,7 +4036,7 @@ impl TerminalState {
             }
         }
         if self.tabs.is_empty() {
-            self.cleanup_ephemeral_session_dir();
+            self.cleanup_ephemeral_session_dir(false);
         }
     }
 

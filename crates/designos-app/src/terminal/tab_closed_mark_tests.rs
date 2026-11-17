@@ -4,12 +4,17 @@
 use super::*;
 use designos_doc::live_patch::CloseIntent;
 
+/// What a closed scratch folder holds: the owner marker and the mark of the closed tab, nothing else.
+const CLOSED_SCRATCH_FOLDER: [&str; 2] = ["owner.json", "tab-closed.json"];
+
 fn scratch_state_with_a_folder() -> TerminalState {
     let st = TerminalState::default();
     assert!(crate::agent_session_files::is_ephemeral_session_dir(&st.session_dir), "a scratch folder: {}", st.session_dir.display());
     let _ = std::fs::remove_dir_all(&st.session_dir);
     crate::agent_session_files::ensure_session_dir(&st.session_dir).expect("create the folder");
     atomic_write_session_file(&st.session_dir.join("doc-patch.jsonl"), b"").expect("the agent's log");
+    atomic_write_session_file(&st.session_dir.join("canvas.designos"), b"{}").expect("the published canvas");
+    std::fs::create_dir(st.session_dir.join("nested")).expect("a nested folder");
     st
 }
 
@@ -20,13 +25,35 @@ fn names_in(dir: &Path) -> Vec<String> {
     names
 }
 
+fn mcp_on(dir: &Path) -> (designos_mcp::server::Session, PathBuf) {
+    let workspace = std::env::temp_dir().join(format!("designos-closed-mark-{}-{}", std::process::id(), crate::live_sync_tests::unique_tab_id()));
+    std::fs::create_dir_all(&workspace).unwrap();
+    let mut session = designos_mcp::server::Session::with_session_dir(&workspace, dir).expect("an MCP session on the folder");
+    session.set_close_ack_timeout(std::time::Duration::from_secs(10));
+    (session, workspace)
+}
+
 #[test]
 fn a_scratch_tab_that_shuts_down_leaves_only_the_mark_of_its_closed_tab() {
     let mut st = scratch_state_with_a_folder();
     let dir = st.session_dir.clone();
     st.shutdown();
-    assert!(dir.join(CloseIntent::TAB_CLOSED_FILE).is_file(), "the closed tab left its mark");
-    assert!(!dir.join("doc-patch.jsonl").exists(), "the rest of the scratch folder is gone: {:?}", names_in(&dir));
+    assert_eq!(names_in(&dir), CLOSED_SCRATCH_FOLDER);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The folder is emptied around the mark, never removed and made again: an agent's close that lands during the shutdown sees the
+/// folder or the mark, and never neither.
+#[cfg(unix)]
+#[test]
+fn the_scratch_folder_is_emptied_in_place_so_a_close_never_sees_it_missing() {
+    use std::os::unix::fs::MetadataExt;
+    let mut st = scratch_state_with_a_folder();
+    let dir = st.session_dir.clone();
+    let before = std::fs::metadata(&dir).unwrap().ino();
+    st.shutdown();
+    assert_eq!(std::fs::metadata(&dir).unwrap().ino(), before, "the same folder, not a new one");
+    assert!(dir.join(CloseIntent::TAB_CLOSED_FILE).is_file());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -36,8 +63,7 @@ fn a_scratch_tab_that_shuts_down_keeps_the_answer_to_a_close_and_the_mark() {
     let dir = st.session_dir.clone();
     atomic_write_session_file(&dir.join(CloseIntent::RESULT_FILE), b"{\"closed\":true}").expect("the answer");
     st.shutdown();
-    assert!(dir.join(CloseIntent::RESULT_FILE).is_file(), "the answer to the close stays");
-    assert!(dir.join(CloseIntent::TAB_CLOSED_FILE).is_file(), "and so does the mark");
+    assert_eq!(names_in(&dir), ["close-result.json", "owner.json", "tab-closed.json"]);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -55,7 +81,62 @@ fn removing_the_scratch_folder_while_the_tab_stays_leaves_no_mark() {
     let mut st = scratch_state_with_a_folder();
     let dir = st.session_dir.clone();
     // The last agent tab closes: the project tab is still open, so its folder is not marked closed.
-    st.cleanup_ephemeral_session_dir();
+    st.cleanup_ephemeral_session_dir(false);
     assert!(!dir.join(CloseIntent::TAB_CLOSED_FILE).exists(), "the project tab is still open: {:?}", names_in(&dir));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Opening a library file in the tab (or saving the tab's work into the library) ends the scratch session: the old folder goes, the
+/// mark with it, so an agent that outlived the session is told the folder is gone, which can never be retried.
+#[test]
+fn rebinding_a_scratch_tab_to_a_library_file_answers_the_old_session_with_a_missing_folder() {
+    let mut st = scratch_state_with_a_folder();
+    let old = st.session_dir.clone();
+    let (mut session, workspace) = mcp_on(&old);
+    let lib = std::env::temp_dir().join(format!("designos-closed-mark-lib-{}-{}", std::process::id(), crate::live_sync_tests::unique_tab_id()));
+    std::fs::create_dir_all(&lib).unwrap();
+    st.bind_library_file(&lib, "file-rebind", &format!("p{}-wrebind-{}", std::process::id(), crate::live_sync_tests::unique_tab_id()));
+    assert_ne!(st.session_dir, old, "the terminal moved to another folder");
+    assert!(!old.exists(), "the old scratch folder is gone: {:?}", names_in(&old));
+    let started = std::time::Instant::now();
+    let err = session.call("designos_close_document", serde_json::json!({"unsaved": "discard"})).map_err(|e| e.to_json_value()).expect_err("no editor to ask");
+    assert!(started.elapsed() < std::time::Duration::from_secs(2), "answered at once");
+    assert_eq!(err["code"], "EDITOR_NOT_NOTIFIED", "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
+    assert_eq!(err["message"], "The session folder is gone, so the editor cannot be asked.", "{err}");
+    st.shutdown();
+    let _ = std::fs::remove_dir_all(&workspace);
+    let _ = std::fs::remove_dir_all(&lib);
+}
+
+/// A new session that gets a scratch folder name an earlier process left (the process id was recycled) must not inherit that tab's
+/// mark or its owner marker.
+#[test]
+fn a_new_session_does_not_inherit_the_mark_or_the_owner_of_a_folder_an_earlier_process_left() {
+    let st = TerminalState::default();
+    let dir = st.session_dir.clone();
+    let _ = std::fs::remove_dir_all(&dir);
+    crate::agent_session_files::ensure_session_dir(&dir).expect("create the folder");
+    let stale = crate::agent_session_files::OwnerMarker { pid: std::process::id().wrapping_add(1), started_ms: 1 };
+    atomic_write_session_file(&dir.join("owner.json"), &serde_json::to_vec(&stale).unwrap()).expect("an earlier process's owner marker");
+    atomic_write_session_file(&dir.join(CloseIntent::TAB_CLOSED_FILE), b"{\"tab_closed\":true}\n").expect("an earlier tab's mark");
+    crate::agent_session_files::ensure_session_dir(&dir).expect("claim the folder");
+    assert!(!dir.join(CloseIntent::TAB_CLOSED_FILE).exists(), "the earlier tab's mark does not apply to the new session");
+    let owner = crate::agent_session_files::read_owner_marker(&dir).expect("an owner marker");
+    assert_eq!(owner.pid, std::process::id(), "the new session owns the folder");
+    assert_eq!(owner.started_ms, crate::agent_session_files::current_process_started_ms());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The same process keeps its own folder and its mark across a repeated call: publishing does not lift a mark that is there.
+#[test]
+fn a_folder_this_process_owns_keeps_its_mark_when_it_is_ensured_again() {
+    let st = TerminalState::default();
+    let dir = st.session_dir.clone();
+    let _ = std::fs::remove_dir_all(&dir);
+    crate::agent_session_files::ensure_session_dir(&dir).expect("create the folder");
+    atomic_write_session_file(&dir.join(CloseIntent::TAB_CLOSED_FILE), b"{\"tab_closed\":true}\n").expect("the mark");
+    crate::agent_session_files::ensure_session_dir(&dir).expect("ensure again");
+    assert!(dir.join(CloseIntent::TAB_CLOSED_FILE).is_file());
     let _ = std::fs::remove_dir_all(&dir);
 }

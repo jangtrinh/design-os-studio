@@ -18,8 +18,8 @@ pub(crate) use folder_owner::check_owner;
 pub use refusal::{files_not_updated_message, library_fallback_message, start_failure_message, with_next_step, with_set_aside_note};
 pub use session_io::{
     added_while_starting, atomic_write_session_file, create_session_dir_all, create_session_file_exclusive, open_plain_file, open_session_file,
-    read_session_file, read_session_text, remove_session_dir_all, remove_session_file, rename_session_file, session_file_metadata, set_aside_entries_except,
-    set_aside_path, write_session_file_unless, write_session_file_verified, SetAside,
+    read_session_file, read_session_text, remove_session_dir_all, remove_session_dir_entries_except, remove_session_file, rename_session_file,
+    session_file_metadata, set_aside_entries_except, set_aside_path, write_session_file_unless, write_session_file_verified, SetAside,
 };
 
 use std::path::{Path, PathBuf};
@@ -152,6 +152,9 @@ pub fn is_ephemeral_session_dir(dir: &Path) -> bool {
     ephemeral_sessions_root().is_some_and(|root| dir.parent() == Some(root.as_path()))
 }
 
+/// The file in a scratch session folder that names the process that owns it.
+pub const OWNER_FILE: &str = "owner.json";
+
 /// Writes `<session_dir>/owner.json` with `{ "pid": <current pid>, "started_ms": <started_ms> }`.
 pub fn write_owner_marker(session_dir: &Path) -> std::io::Result<()> {
     let marker = OwnerMarker { pid: std::process::id(), started_ms: current_process_started_ms() };
@@ -170,10 +173,18 @@ pub fn read_owner_marker(session_dir: &Path) -> Option<OwnerMarker> {
 ///
 /// The folder is made with an exclusive `mkdir` (0700). A path that exists already is accepted only when it is a real
 /// folder owned by the user, so an existing link, file or foreign folder is an error and nothing is written there.
+///
+/// A scratch folder whose `owner.json` is not this process's (a folder an earlier Studio left under a name this one gets too, after the
+/// process id was recycled) is claimed: its owner marker is rewritten and the mark of that earlier closed tab is removed, so the new
+/// session does not read as closed and the sweep does not judge it by a process that is gone.
 pub fn ensure_session_dir(session_dir: &Path) -> std::io::Result<()> {
     folder::create_session_folder(session_dir)?;
-    if is_ephemeral_session_dir(session_dir) && !session_dir.join("owner.json").exists() {
-        write_owner_marker(session_dir)?;
+    if is_ephemeral_session_dir(session_dir) {
+        let ours = read_owner_marker(session_dir).is_some_and(|m| m.pid == std::process::id() && m.started_ms == current_process_started_ms());
+        if !ours {
+            let _ = remove_session_file(&session_dir.join(designos_doc::live_patch::CloseIntent::TAB_CLOSED_FILE));
+            write_owner_marker(session_dir)?;
+        }
     }
     Ok(())
 }

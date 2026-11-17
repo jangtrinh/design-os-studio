@@ -465,6 +465,57 @@ fn live_close_when_the_tab_left_its_mark_is_tab_closed_not_retryable() {
     assert!(!session_dir.join("doc-patch.jsonl").exists(), "nothing was written to a log nobody reads");
 }
 
+fn files_in(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir).map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+    names.sort();
+    names
+}
+
+/// A session folder a closed tab left behind: the owner marker and the mark of the closed tab.
+fn closed_tab_folder(dir: &Workspace, tab_id: u64) -> (PathBuf, Session) {
+    let (session_dir, s) = live_session(dir, tab_id);
+    fs::write(session_dir.join("owner.json"), b"{}").unwrap();
+    fs::write(session_dir.join(CloseIntent::TAB_CLOSED_FILE), b"{\"tab_closed\":true}\n").unwrap();
+    (session_dir, s)
+}
+
+fn assert_already_closed(err: &Value, what: &str) {
+    assert_eq!(err["code"], json!("EDITOR_NOT_NOTIFIED"), "{what}: {err}");
+    assert_eq!(err["safe_to_retry"], false, "{what}: asking again can never work: {err}");
+    assert!(err["next_step"].as_str().unwrap_or("").contains("already closed"), "{what}: {err}");
+}
+
+/// The tab is closed and its folder stays: an edit would be appended to a log nobody reads and answered "ok". It is refused as
+/// "already closed", nothing is written into the folder, and the agent's document is not changed.
+#[test]
+fn an_edit_after_the_tab_left_its_mark_is_refused_and_writes_nothing() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = closed_tab_folder(&dir, 8);
+    let page = page_id(&mut s);
+    let nodes = node_count(&mut s);
+    let before = files_in(&session_dir);
+    for (process, mut session) in [("the same process", s), ("a new process", Session::with_session_dir(&dir.0, &session_dir).unwrap())] {
+        let err = session.call("designos_create_node", json!({"parent_id": page, "kind": "frame", "name": "Late"})).unwrap_err().to_json_value();
+        assert_already_closed(&err, process);
+        assert_eq!(node_count(&mut session), nodes, "{process}: the edit was not kept");
+        assert_eq!(files_in(&session_dir), before, "{process}: nothing was written into the folder");
+    }
+}
+
+/// Opening or creating a document writes the whole document into the folder: refused the same way, and the open document stays.
+#[test]
+fn opening_or_creating_a_document_after_the_tab_left_its_mark_is_refused_and_writes_nothing() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = closed_tab_folder(&dir, 9);
+    s.call("designos_save_file", json!({"path": "other.designos"})).unwrap();
+    let before = files_in(&session_dir);
+    let err = s.call("designos_open_file", json!({"path": "other.designos"})).unwrap_err().to_json_value();
+    assert_already_closed(&err, "open");
+    let err = s.call("designos_new_document", json!({"name": "Late", "discard_changes": true})).unwrap_err().to_json_value();
+    assert_already_closed(&err, "new");
+    assert_eq!(files_in(&session_dir), before, "nothing was written into the folder");
+}
+
 /// The editor itself answers that the tab is not the one shown: nothing changed, so it is retryable too.
 #[test]
 fn editor_ack_that_the_tab_is_not_shown_is_retryable() {

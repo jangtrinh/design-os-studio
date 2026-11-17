@@ -283,6 +283,17 @@ fn the_first_close_right_after_a_tab_switch_closes_without_a_retry() {
     finish(s, workspace);
 }
 
+/// Every way of showing a parked tab takes the stale-close boundary itself: none leaves it to the first poll, which would bring back
+/// the race the first close after a switch lost to.
+#[test]
+fn showing_a_parked_tab_never_leaves_the_stale_close_boundary_to_the_first_poll() {
+    let (mut s, _dir) = untitled_tab();
+    for idx in [0, 1, 0, 1] {
+        switch_to(&mut s, idx);
+        assert_eq!(s.app().terminal.live_patch.late_boundaries(), 0, "switching to tab {idx}");
+    }
+}
+
 // ---- A tab that is already gone -----------------------------------------------------------------------------------------------
 
 /// What a new MCP process (or one whose tab the person closed) gets: an answer at once that says asking again can never work.
@@ -341,6 +352,65 @@ fn a_close_after_the_person_closed_an_untitled_tab_is_tab_closed_not_a_timeout()
         let _ = std::fs::remove_dir_all(&session_dir);
         finish(s, workspace);
     }
+}
+
+fn files_in(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> =
+        std::fs::read_dir(dir).map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+    names.sort();
+    names
+}
+
+/// What an agent whose MCP outlived the tab gets for an edit: the same answer as a close, and no file is written into the folder.
+fn assert_edit_refused_as_closed(session: &mut designos_mcp::server::Session, node: u64, folder: &Path, files: &[String], what: &str) {
+    let err = session.call("designos_update_node", json!({"node_id": node, "name": "Late edit"})).map_err(|e| e.to_json_value()).expect_err(what);
+    assert_eq!(err["code"], "EDITOR_NOT_NOTIFIED", "{what}: {err}");
+    assert_eq!(err["safe_to_retry"], false, "{what}: asking again can never work: {err}");
+    assert!(next_step(&err).contains("already closed"), "{what}: {err}");
+    assert_eq!(files_in(folder), files, "{what}: nothing was written into the folder");
+}
+
+#[test]
+fn an_edit_after_the_person_closed_an_untitled_tab_is_refused_and_writes_nothing() {
+    let dir = TmpDir::new();
+    let mut s = Sim::with(Options { library: Some(dir.0.join("lib")), ..Default::default() });
+    s.shell.app.tabs.always_visible = true;
+    let mut doc = two_rects();
+    doc.name = "Untitled".into();
+    s.shell.app.open_new_tab("Untitled", doc, crate::tabs::ProjectTabKind::Design);
+    wait(&mut s, SETTLED);
+    let (mut session, workspace) = mcp_on_the_shown_tab(&mut s, &dir);
+    let session_dir = s.app().terminal.session_dir.clone();
+    let node = s.app().doc.get(s.app().page).unwrap().children[0].0;
+    let id = tab_id(&s, s.app().tabs.active_idx);
+    s.shell.app.request_leave(None, Leave::CloseTab(id));
+    wait(&mut s, SETTLED);
+    let left = ["owner.json".to_string(), "tab-closed.json".to_string()];
+    assert_eq!(files_in(&session_dir), left, "the closed tab left only its mark");
+    assert_edit_refused_as_closed(&mut session, node, &session_dir, &left, "the same process");
+    let mut fresh = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("a new process");
+    assert_edit_refused_as_closed(&mut fresh, node, &session_dir, &left, "a new process");
+    wait(&mut s, SETTLED);
+    assert_eq!(files_in(&session_dir), left, "the editor wrote nothing either");
+    let _ = std::fs::remove_dir_all(&session_dir);
+    finish(s, workspace);
+}
+
+#[test]
+fn an_edit_after_the_person_closed_a_library_file_tab_is_refused_and_writes_nothing() {
+    let (mut s, dir) = library_sim();
+    let (mut session, workspace) = mcp_on_the_shown_tab(&mut s, &dir);
+    let session_dir = s.app().terminal.session_dir.clone();
+    let node = s.app().doc.get(s.app().page).unwrap().children[0].0;
+    let id = tab_id(&s, 0);
+    s.shell.app.request_leave(None, Leave::CloseTab(id));
+    wait(&mut s, SETTLED);
+    assert!(session_dir.join("tab-closed.json").is_file(), "the closed tab left its mark");
+    let files = files_in(&session_dir);
+    assert_edit_refused_as_closed(&mut session, node, &session_dir, &files, "the same process");
+    let mut fresh = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("a new process");
+    assert_edit_refused_as_closed(&mut fresh, node, &session_dir, &files, "a new process");
+    finish(s, workspace);
 }
 
 #[test]
