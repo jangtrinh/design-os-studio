@@ -19,6 +19,7 @@ fn all_tools() -> Vec<String> {
 /// A window on a cleared session folder, in `mode`, with nothing started yet.
 fn fresh(mode: AgentPermissionMode) -> TerminalState {
     let mut st = TerminalState::for_tab(crate::live_sync_tests::unique_tab_id());
+    crate::agent_tool_policy::remove(&st.session_dir);
     let _ = std::fs::remove_dir_all(&st.session_dir);
     std::fs::create_dir_all(&st.session_dir).expect("session folder");
     st.permission_mode = mode;
@@ -28,12 +29,7 @@ fn fresh(mode: AgentPermissionMode) -> TerminalState {
 /// Removes everything a test made: the session folder, the approval channel and the folder Studio keeps the policy in.
 fn finish(mut st: TerminalState) {
     st.stop_bootstrap_writes();
-    let kept = st.session_env().mcp_config_path;
-    if !kept.starts_with(&st.session_dir) {
-        if let Some(dir) = kept.parent() {
-            let _ = std::fs::remove_dir_all(dir);
-        }
-    }
+    crate::agent_tool_policy::remove(&st.session_dir);
     crate::agent_approval_channel::remove_channel(&st.session_dir);
     let _ = std::fs::remove_dir_all(&st.session_dir);
 }
@@ -100,12 +96,17 @@ fn one_page() -> (Document, NodeId) {
 }
 
 /// One way an agent edits the copy in its folder, and the name it is told by.
-fn forgeries() -> Vec<(&'static str, Box<dyn Fn(&mut Value)>)> {
+type Forge = Box<dyn Fn(&mut Value)>;
+
+fn forgeries() -> Vec<(&'static str, Forge)> {
     vec![
         ("a full tool list", Box::new(|cfg: &mut Value| cfg["designos"] = json!({ "enabled_tools": all_tools() }))),
-        ("the designos key deleted", Box::new(|cfg: &mut Value| {
-            cfg.as_object_mut().unwrap().remove("designos");
-        })),
+        (
+            "the designos key deleted",
+            Box::new(|cfg: &mut Value| {
+                cfg.as_object_mut().unwrap().remove("designos");
+            }),
+        ),
         (
             "an empty known_tools snapshot, which makes every tool look new",
             Box::new(|cfg: &mut Value| cfg["designos"] = json!({ "enabled_tools": [], "known_tools": [] })),
@@ -205,5 +206,41 @@ fn a_session_on_the_default_stays_on_every_tool_whatever_the_agent_writes() {
     std::fs::write(session_config(&st), serde_json::to_vec_pretty(&cfg).unwrap()).expect("the agent's write");
     launch(&mut st);
     assert_tools_stay(&mut st, &every, &doc, page, "after the agent narrowed the copy");
+    finish(st);
+}
+
+/// `designos-mcp` enables every tool when its config is missing, so a start that cannot keep a restricted list private does not happen,
+/// whichever way it is made and whichever permission mode is saved.
+#[test]
+fn no_agent_starts_when_the_tool_list_cannot_be_kept_private() {
+    let mut st = fresh(AgentPermissionMode::Skip);
+    user_restricts(&st, &RESTRICTED, None);
+    crate::agent_approval_channel::without_private_root(|| {
+        for preset in [AgentCliPreset::Shell, AgentCliPreset::Claude, AgentCliPreset::Codex] {
+            let refused = st.spawn_tab(preset, None).expect_err("a restricted list has nowhere private to be kept");
+            assert!(refused.contains("designos tool list"), "{preset:?}: {refused}");
+            assert_eq!(st.status_msg.as_deref(), Some(refused.as_str()));
+        }
+        let custom = st.spawn_custom_cli_tab("Mine", "true", None).expect_err("a custom CLI is refused too");
+        assert!(custom.contains("designos tool list"), "{custom}");
+        assert!(st.tabs.is_empty(), "nothing started");
+    });
+    finish(st);
+}
+
+#[test]
+fn no_agent_starts_when_the_kept_tool_list_is_damaged() {
+    let mut st = fresh(AgentPermissionMode::Skip);
+    user_restricts(&st, &RESTRICTED, None);
+    launch(&mut st);
+    let kept = crate::agent_tool_policy::policy_dir(&st.session_dir).expect("a policy folder").join("tool-policy.json");
+    std::fs::write(&kept, "{\"designos\":{\"enabled_tools\":\"all\"}}").expect("a damaged policy");
+    // The folder's own copy says every tool, and is not read in its place.
+    std::fs::write(session_config(&st), "{}").expect("the agent's write");
+    for preset in [AgentCliPreset::Shell, AgentCliPreset::Claude] {
+        let refused = st.spawn_tab(preset, None).expect_err("the kept list cannot be read");
+        assert!(refused.contains("designos tool list"), "{preset:?}: {refused}");
+    }
+    assert!(st.tabs.is_empty());
     finish(st);
 }

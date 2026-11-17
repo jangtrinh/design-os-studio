@@ -80,6 +80,15 @@ spacing scale; real content, never lorem ipsum (the `placeholder-text` rule flag
 - Studio's `mcp-config.json` gains `"designos": {"enabled_tools": [...]}` (absent = all enabled); the
   MCP reads it at start (path from `DESIGNOS_MCP_CONFIG`). Disabled tools are omitted from `tools/list`
   and from the rules text; calling one returns `TOOL_DISABLED`.
+- The list is a permission, so an agent that can write the session folder must not be able to widen
+  it. Until the first agent starts in a session folder, the `mcp-config.json` there is the list the user
+  wrote. At that start Studio keeps a copy in its private folder (`<data dir>/designos/ap/policy/<hash>/`,
+  `agent_tool_policy.rs`) and from then on builds every config, the rules text and the bootstrap block
+  from the copy: `DESIGNOS_MCP_CONFIG` names a Studio-written file in that folder, and edits of the
+  session folder's `mcp-config.json` no longer change the list. A start that cannot keep a restricted
+  list private is refused. To change the list of a session that has started, delete its folder under
+  `policy/` (the session's folder name is `fnv1a_64(session path)` in hex), edit `mcp-config.json`, and
+  start the agent again.
 
 ### 3.5 Serving
 
