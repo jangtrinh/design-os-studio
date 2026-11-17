@@ -2019,7 +2019,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 fields.push(("fillGeometry", V::Array(fgs)));
             }
         }
-        if let Some(paths) = &node.stroke_geometry {
+        // Only an outline that still matches the layer's size and stroke: a stale one would be read back as its stroke.
+        if let Some(paths) = node.live_stroke_outline() {
             let sgs = encode_geometry_blobs(cx, paths);
             if !sgs.is_empty() {
                 fields.push(("strokeGeometry", V::Array(sgs)));

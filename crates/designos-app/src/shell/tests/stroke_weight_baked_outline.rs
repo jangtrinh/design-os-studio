@@ -79,16 +79,16 @@ fn a_weight_edit_draws_the_new_stroke_not_the_baked_outline_and_undo_brings_the_
         edit_num_field(&mut s, "stroke-w", "20");
         assert_eq!(s.app().doc.get(baked).unwrap().stroke.weight, 20.0, "the weight was set ({what})");
         assert!(!live_outline(&s, baked), "the stored outline no longer matches, so it is not drawn ({what})");
-        assert_eq!(pixels_of(&s.app().doc, baked), pixels_of(&s.app().doc, control), "the panel edit draws the live 20px stroke ({what})");
+        assert!(pixels_of(&s.app().doc, baked) == pixels_of(&s.app().doc, control), "the panel edit draws the live 20px stroke ({what})");
 
         // A save and reload keeps rejecting the stale outline.
         let reloaded = Document::from_json(&s.app().doc.to_json().unwrap()).unwrap();
         assert!(reloaded.get(baked).unwrap().live_stroke_outline().is_none(), "reload does not revive the outline ({what})");
-        assert_eq!(pixels_of(&reloaded, baked), pixels_of(&reloaded, control), "the reloaded layer draws the live stroke ({what})");
+        assert!(pixels_of(&reloaded, baked) == pixels_of(&reloaded, control), "the reloaded layer draws the live stroke ({what})");
 
         s.cmd_key(Key::Z);
         assert_eq!(s.app().doc.get(baked).unwrap().stroke.weight, BAKED_WEIGHT, "undo restores the weight ({what})");
-        assert_eq!(pixels_of(&s.app().doc, baked), before, "undo draws the stored outline again ({what})");
+        assert!(pixels_of(&s.app().doc, baked) == before, "undo draws the stored outline again ({what})");
     }
 }
 
@@ -108,7 +108,7 @@ fn the_outline_baked_at_the_old_weight_is_drawn_again_only_when_the_weight_goes_
 
     edit_num_field(&mut s, "stroke-w", "4");
     assert!(live_outline(&s, baked), "back at the baked weight the outline matches the layer again");
-    assert_eq!(pixels_of(&s.app().doc, baked), before, "and it draws what it drew at import, which is the 4px stroke");
+    assert!(pixels_of(&s.app().doc, baked) == before, "and it draws what it drew at import, which is the 4px stroke");
 }
 
 #[test]
@@ -129,5 +129,23 @@ fn an_individual_side_weight_edit_draws_the_live_stroke_not_the_baked_outline() 
     edit_field(&mut s, left, "20");
     assert_eq!(s.app().doc.get(baked).unwrap().stroke.side_weights, Some([4.0, 4.0, 4.0, 20.0]));
     assert!(!live_outline(&s, baked));
-    assert_eq!(pixels_of(&s.app().doc, baked), pixels_of(&s.app().doc, control), "the live per-side stroke is drawn");
+    assert!(pixels_of(&s.app().doc, baked) == pixels_of(&s.app().doc, control), "the live per-side stroke is drawn");
+}
+
+#[test]
+fn a_panel_weight_edit_survives_saving_a_fig_file_and_opening_it_again() {
+    let mut s = Sim::new();
+    let baked = add_stroked(&mut s, NodeKind::Rectangle, "Baked", true);
+    let control = add_stroked(&mut s, NodeKind::Rectangle, "Control", false);
+    s.shell.app.edit_nodes(&[control], |n| n.stroke.weight = 20.0);
+    s.shell.app.selection = vec![baked];
+    s.frame(vec![]);
+
+    edit_num_field(&mut s, "stroke-w", "20");
+    assert!(pixels_of(&s.app().doc, baked) == pixels_of(&s.app().doc, control), "the panel edit draws the live stroke");
+
+    let reopened = designos_fig::import_fig(&designos_fig::export_fig(&s.app().doc).unwrap()).unwrap();
+    let by_name = |name: &str| reopened.nodes.values().find(|n| n.name == name).unwrap().id;
+    let same = pixels_of(&reopened, by_name("Baked")) == pixels_of(&reopened, by_name("Control"));
+    assert!(same, "the saved and reopened layer still draws the live 20px stroke");
 }
