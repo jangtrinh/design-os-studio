@@ -184,7 +184,10 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
         let mut cur: Vec<usize> = Vec::new();
         let mut used = 0.0;
         for (i, k) in kids.iter().enumerate() {
-            let m = outer_main(k);
+            // A Fill child consumes the remaining space on its line. Its stored width can be
+            // the result of an earlier solve and must not force a wrap before the fixed siblings
+            // have had a chance to fit beside it.
+            let m = if k.main_fill { ax.clamp_main(&k.limits, 0.0) + ax.margin_main(&k.margin) } else { outer_main(k) };
             let add = if cur.is_empty() { m } else { al.item_spacing + m };
             if !cur.is_empty() && used + add > avail + 1e-3 {
                 lines.push(std::mem::take(&mut cur));
@@ -272,7 +275,7 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
         let k = line.len() as f32;
         // Main sizes (distribute fill children by grow weight with a CSS flex freeze loop for min/max clamping).
         let mut mains: Vec<f32> = line.iter().map(|i| nat_main(&kids[*i])).collect();
-        if !al.wrap && !hug_main {
+        if !hug_main {
             let mut frozen: Vec<bool> = line.iter().map(|i| !kids[*i].main_fill).collect();
             let fixed: f32 = line.iter().zip(&frozen).filter(|(_, &f)| f).map(|(i, _)| nat_main(&kids[*i])).sum();
             let total_margins: f32 = line.iter().map(|i| ax.margin_main(&kids[*i].margin)).sum();
@@ -309,12 +312,16 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
                     break;
                 }
                 let mut newly_frozen = false;
+                // Every child is judged against the same share, the one the violations above were summed from: freezing a
+                // child lowers `rem_for_fill`, and reading that against the unchanged `weight` would shrink the shares of
+                // the children after it and freeze them on a minimum they do not violate.
+                let rem_this_pass = rem_for_fill;
                 for (j, i) in line.iter().enumerate() {
                     if frozen[j] {
                         continue;
                     }
                     let kid = &kids[*i];
-                    let raw = rem_for_fill * fill_weight(kid) / weight;
+                    let raw = rem_this_pass * fill_weight(kid) / weight;
                     let clamped = ax.clamp_main(&kid.limits, raw);
                     let diff = clamped - raw;
                     let freeze_this = if total_violation > 1e-4 {
@@ -1101,6 +1108,69 @@ mod tests {
         }
         for &k in &kids[4..8] {
             assert_eq!((slot_of(&d, k).1, slot_of(&d, k).3), (153.0, 88.0));
+        }
+    }
+
+    #[test]
+    fn wrapped_row_keeps_fill_title_and_fitting_actions_on_one_line() {
+        let al = AutoLayout {
+            direction: LayoutDirection::Horizontal,
+            primary_sizing: Sizing::Fixed,
+            counter_sizing: Sizing::Fixed,
+            wrap: true,
+            item_spacing: 10.0,
+            ..Default::default()
+        };
+        let kids =
+            [ChildIn { size: Vec2::new(280.0, 24.0), main_fill: true, ..Default::default() }, ChildIn { size: Vec2::new(20.0, 24.0), ..Default::default() }];
+        let out = compute(&al, Vec2::new(300.0, 40.0), SizeLimits::default(), &kids);
+
+        assert_eq!(out.rects.len(), 2);
+        assert_eq!(out.rects[1].y, out.rects[0].y, "fitting actions must stay on the title row");
+        assert!((out.rects[0].w - 270.0).abs() <= 1e-3, "fill title gets remaining width: {:?}", out.rects);
+
+        let kids = [
+            ChildIn { size: Vec2::new(280.0, 24.0), main_fill: true, ..Default::default() },
+            ChildIn { size: Vec2::new(200.0, 24.0), ..Default::default() },
+            ChildIn { size: Vec2::new(120.0, 24.0), ..Default::default() },
+        ];
+        let out = compute(&al, Vec2::new(300.0, 80.0), SizeLimits::default(), &kids);
+        assert!(out.rects[2].y > out.rects[0].y, "fixed actions still wrap when their total does not fit: {:?}", out.rects);
+        assert!((out.rects[0].w - 90.0).abs() <= 1e-3, "the title takes what the 200 wide action leaves on its row: {:?}", out.rects);
+        assert_eq!(out.rects[1].y, out.rects[0].y, "the 200 wide action shares the title's row: {:?}", out.rects);
+    }
+
+    #[test]
+    fn fill_children_below_their_minimum_share_freeze_one_by_one_in_flowing_and_wrapped_rows() {
+        // Two Fill children in 592 with a 16 gap: an even split is 288 each, below the first one's 320 minimum. It freezes at
+        // 320 and the second takes the 256 that is left. This is the stored geometry of the Untitled UI blog cards.
+        for wrap in [false, true] {
+            let al = AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Hug,
+                wrap,
+                item_spacing: 16.0,
+                ..Default::default()
+            };
+            let kids = [
+                ChildIn {
+                    size: Vec2::new(320.0, 200.0),
+                    main_fill: true,
+                    limits: SizeLimits { min_w: Some(320.0), ..Default::default() },
+                    ..Default::default()
+                },
+                ChildIn {
+                    size: Vec2::new(256.0, 180.0),
+                    main_fill: true,
+                    limits: SizeLimits { min_w: Some(200.0), ..Default::default() },
+                    ..Default::default()
+                },
+            ];
+            let out = compute(&al, Vec2::new(592.0, 200.0), SizeLimits::default(), &kids);
+            let widths: Vec<f32> = out.rects.iter().map(|r| r.w).collect();
+            assert_eq!(widths, [320.0, 256.0], "wrap = {wrap}: {:?}", out.rects);
+            assert_eq!(out.rects[1].x, 336.0, "wrap = {wrap}: the second child sits beside the first");
         }
     }
 }
