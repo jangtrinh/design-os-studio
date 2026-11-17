@@ -239,7 +239,8 @@ pub fn node_geo(n: &Node) -> Option<Geo> {
             Some(single(ellipse_cmds(w, h, arc)?, kind, true, fillable, false))
         }
         NodeKind::Line => {
-            let cmds = vec![PathCmd::MoveTo(v(0.0, 0.0)), PathCmd::LineTo(v(w, 0.0))];
+            let c = n.line_centerline()?;
+            let cmds = vec![PathCmd::MoveTo(v(c.x0, c.y)), PathCmd::LineTo(v(c.x1, c.y))];
             Some(single(cmds, GeoKind::Path, false, false, false))
         }
         NodeKind::Polygon { count } => Some(single(poly_cmds(w, h, &polygon_points(*count))?, GeoKind::Path, true, true, false)),
