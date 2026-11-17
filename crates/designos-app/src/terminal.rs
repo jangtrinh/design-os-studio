@@ -7032,7 +7032,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                 ui.ctx().memory_mut(|m| m.surrender_focus(fid));
             }
         }
-        let card_preset = if in_active_terminal && banner_preset == AgentCliPreset::Claude { banner_preset } else { AgentCliPreset::Codex };
+        let card_preset = crate::agent_approval_card::approval_card_layout_preset(banner_preset, in_active_terminal);
         let has_session_grant = in_active_terminal
             && banner_preset == AgentCliPreset::Claude
             && reqs.first().is_some_and(|req| crate::agent_permissions::offer_session_grant(card_mode, req));
