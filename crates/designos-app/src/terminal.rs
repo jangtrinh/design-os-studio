@@ -2461,6 +2461,7 @@ impl TerminalState {
             if self.tabs.is_empty() && self.session_dir != expected_stable_dir {
                 if crate::agent_session_files::is_ephemeral_session_dir(&self.session_dir) {
                     self.snapshot_worker.cancel_and_wait();
+                    self.forget_tool_policy_of_removed_session_dir();
                     let _ = std::fs::remove_dir_all(&self.session_dir);
                 }
                 self.update_session_dir_paths(expected_stable_dir);
@@ -2502,6 +2503,7 @@ impl TerminalState {
                 if self.tabs.is_empty() {
                     if crate::agent_session_files::is_ephemeral_session_dir(&self.session_dir) && self.session_dir != dir {
                         self.snapshot_worker.cancel_and_wait();
+                        self.forget_tool_policy_of_removed_session_dir();
                         let _ = std::fs::remove_dir_all(&self.session_dir);
                     }
                     self.update_session_dir_paths(dir);
@@ -2513,6 +2515,7 @@ impl TerminalState {
                 if self.tabs.is_empty() {
                     if crate::agent_session_files::is_ephemeral_session_dir(&self.session_dir) && self.session_dir != dir {
                         self.snapshot_worker.cancel_and_wait();
+                        self.forget_tool_policy_of_removed_session_dir();
                         let _ = std::fs::remove_dir_all(&self.session_dir);
                     }
                     self.update_session_dir_paths(dir);
@@ -5647,9 +5650,15 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
     // The default (every tool) is never written down: an absent `designos` key means "all", so a tool a later
     // build adds is on for sessions that survive an update. A user-edited `enabled_tools` list is kept across
     // each page or selection sync, together with the `known_tools` snapshot that lets new tools be switched on. Once an agent has
-    // started in the folder the list is the one Studio kept then, not what the folder's copy says now (`agent_tool_policy`).
+    // started in the folder the list can only be narrowed: it is the list Studio kept then, less what the folder's copy has taken
+    // out since, and tools put back in that copy stay off (`agent_tool_policy`). This write never leaves a wider list in the copy
+    // than the one in force.
     let existing_config = crate::agent_session_files::read_session_text(&session_config_path);
-    let custom_tools = crate::agent_tool_policy::effective(&job.session_dir, existing_config.as_deref())?;
+    let crate::agent_tool_policy::Resolved { custom: custom_tools, notice: tool_list_notice } =
+        crate::agent_tool_policy::resolve(&job.session_dir, existing_config.as_deref())?;
+    if let Some(notice) = &tool_list_notice {
+        eprintln!("design:os studio: {notice}");
+    }
 
     // The server's environment holds ids and paths, and no document or page name: every CLI loads this config by itself,
     // and `designos-mcp` reads neither name (the tab's shell still has `DESIGNOS_DOC_NAME` and `DESIGNOS_TARGET_PAGE_NAME`).
@@ -5814,7 +5823,7 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
     atomic_write_session_file(&job.session_dir.join("AGENTS.md"), skill_md.as_bytes())?;
     atomic_write_session_file(&job.session_dir.join("GEMINI.md"), skill_md.as_bytes())?;
     // The CLI whose tab is starting has had every one of its files checked above; another CLI's Gemini settings are not its concern.
-    let note = join_notes(set_aside_note, workspace_note);
+    let note = join_notes(join_notes(set_aside_note, workspace_note), tool_list_notice);
     if exact.is_some() {
         return Ok(note);
     }

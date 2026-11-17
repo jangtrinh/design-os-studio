@@ -81,14 +81,21 @@ spacing scale; real content, never lorem ipsum (the `placeholder-text` rule flag
   MCP reads it at start (path from `DESIGNOS_MCP_CONFIG`). Disabled tools are omitted from `tools/list`
   and from the rules text; calling one returns `TOOL_DISABLED`.
 - The list is a permission, so an agent that can write the session folder must not be able to widen
-  it. Until the first agent starts in a session folder, the `mcp-config.json` there is the list the user
-  wrote. At that start Studio keeps a copy in its private folder (`<data dir>/designos/ap/policy/<hash>/`,
-  `agent_tool_policy.rs`) and from then on builds every config, the rules text and the bootstrap block
-  from the copy: `DESIGNOS_MCP_CONFIG` names a Studio-written file in that folder, and edits of the
-  session folder's `mcp-config.json` no longer change the list. A start that cannot keep a restricted
-  list private is refused. To change the list of a session that has started, delete its folder under
-  `policy/` (the session's folder name is `fnv1a_64(session path)` in hex), edit `mcp-config.json`, and
-  start the agent again.
+  it. Editing the `mcp-config.json` in the session folder by hand is the only way to set it, and
+  that file is the list until the first agent starts in the folder. At that start Studio keeps a copy
+  in its private folder (`<data dir>/designos/ap/policy/<hash>/`, `agent_tool_policy.rs`). From then
+  on the list in force is the kept list intersected with the list in `mcp-config.json`, and when that
+  is narrower than the kept list it is written back as the kept list. So a tool taken out of the file
+  takes effect at the next sync or start and stays out; a tool put back is ignored, and the start line
+  says the list can only be narrowed by editing the file. A deleted `designos` key, a forged
+  `known_tools` snapshot and a file that does not parse count as "no narrowing", never as "every
+  tool". `DESIGNOS_MCP_CONFIG` names a Studio-written file in the private folder, and every sync
+  rewrites the folder's `mcp-config.json` with the list in force, never a wider one than the user's.
+- A start that cannot keep a restricted list private, or finds the kept list damaged, is refused
+  (it does not fall back to every tool); the message names the folder to delete. To widen the list
+  of a session that has started, delete that folder (the path is in the message and the start line),
+  edit `mcp-config.json`, and start the agent again. The kept list goes with a scratch session folder
+  when that folder is deleted.
 
 ### 3.5 Serving
 
