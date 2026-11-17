@@ -6,6 +6,8 @@ pub mod agent_cli_catalog;
 #[cfg(test)]
 mod agent_cli_export_fig_tests;
 #[cfg(test)]
+mod agent_cli_export_replace_tests;
+#[cfg(test)]
 mod agent_cli_headless_writes_tests;
 #[cfg(test)]
 mod agent_cli_scan_design_system_tests;
@@ -455,6 +457,10 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     if let Some(out_path) = &opts.export_fig {
         cli_export_write::check_target(out_path, "fig", opts.overwrite)?;
     }
+    // --export-spec replaces an existing file, and never writes through a link: an unusable target stops the command first.
+    if let Some(out_path) = &opts.export_spec {
+        cli_save_targets::check_replace_target(out_path, Some("json"))?;
+    }
     // Same for --scan-design-system: an unusable target stops the command before the file is read.
     if let Some(out_path) = &opts.scan_design_system {
         cli_scan_design_system::check_target(out_path, opts.overwrite)?;
@@ -607,7 +613,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
             .ok_or("No node found to export")?;
         let spec = doc.export_spec(target_id)?;
         let json = serde_json::to_string_pretty(&spec).map_err(|e| format!("Cannot serialize spec: {e}"))?;
-        std::fs::write(out_path, json).map_err(|e| format!("Cannot write {}: {e}", out_path.display()))?;
+        cli_save_targets::replace_file(out_path, Some("json"), json.as_bytes())?;
         let out = serde_json::json!({ "exported_node_id": target_id.0, "path": out_path });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
     }
@@ -680,7 +686,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
             if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
                 let _ = std::fs::create_dir_all(parent);
             }
-            std::fs::write(out_target, &bytes).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+            cli_save_targets::replace_file(out_target, Some("json"), &bytes)?;
             let out = serde_json::json!({
                 "format": "dtcg",
                 "path": out_target,
@@ -704,12 +710,12 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
                     let _ = std::fs::create_dir_all(parent);
                 }
                 let zip_bytes = bundle.to_zip_bytes().map_err(|e| format!("Cannot build zip: {e}"))?;
-                std::fs::write(out_target, &zip_bytes).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+                cli_save_targets::replace_file(out_target, Some("zip"), &zip_bytes)?;
             } else if ext.eq_ignore_ascii_case("json") && bundle.files.len() == 1 {
                 if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
                     let _ = std::fs::create_dir_all(parent);
                 }
-                std::fs::write(out_target, &bundle.files[0].1).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+                cli_save_targets::replace_file(out_target, Some("json"), &bundle.files[0].1)?;
             } else {
                 let mut seen_names = std::collections::BTreeSet::new();
                 let mut dup_names = Vec::new();
@@ -722,15 +728,23 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
                 if !dup_names.is_empty() {
                     return Err(format!("Refusing to overwrite duplicate export file(s): {}", dup_names.join(", ")));
                 }
+                let safe_names: Vec<String> = bundle
+                    .files
+                    .iter()
+                    .map(|(name, _)| {
+                        std::path::Path::new(name)
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !name.contains("..") && !name.contains('/') && !name.contains('\\'))
+                            .map(str::to_owned)
+                            .ok_or_else(|| format!("Refusing to write unsafe export filename '{name}'"))
+                    })
+                    .collect::<Result<_, _>>()?;
+                // The folder and every file in it are checked before the first is written, so a link among them leaves no half a bundle.
+                cli_save_targets::check_replace_folder("write", out_target, &safe_names)?;
                 std::fs::create_dir_all(out_target).map_err(|e| format!("Cannot create dir {}: {e}", out_target.display()))?;
-                for (name, bytes) in &bundle.files {
-                    let safe_name = std::path::Path::new(name)
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !name.contains("..") && !name.contains('/') && !name.contains('\\'))
-                        .ok_or_else(|| format!("Refusing to write unsafe export filename '{name}'"))?;
-                    let dest = out_target.join(safe_name);
-                    std::fs::write(&dest, bytes).map_err(|e| format!("Cannot write {}: {e}", dest.display()))?;
+                for ((_, bytes), safe_name) in bundle.files.iter().zip(&safe_names) {
+                    cli_save_targets::replace_file(&out_target.join(safe_name), None, bytes)?;
                 }
             }
             let files_written: Vec<&str> = bundle.files.iter().map(|(n, _)| n.as_str()).collect();

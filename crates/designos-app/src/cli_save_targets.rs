@@ -110,13 +110,10 @@ pub fn check_replace_folder(verb: &str, folder: &Path, entries: &[String]) -> Re
     entries.iter().try_for_each(|name| inspect_existing(verb, &folder.join(name)))
 }
 
-/// Replaces the file at `path` (or creates it, and the folders above it) with `bytes`, and nothing is written through a link.
-/// This is the rule these exports have always had for an existing file: it is replaced.
+/// Replaces the file at `path` (or creates it in a folder that exists) with `bytes`, and nothing is written through a link. This
+/// is the rule these exports have always had for an existing file: it is replaced. The caller makes any folder.
 pub fn replace_file(path: &Path, ending: Option<&str>, bytes: &[u8]) -> Result<(), String> {
     check_replace_target(path, ending)?;
-    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-        fs::create_dir_all(parent).map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
-    }
     designos_fonts::write_atomic_no_follow(path, bytes).map_err(|e| explain_write_error("write", path, &e))
 }
 
