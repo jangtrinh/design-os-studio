@@ -114,3 +114,31 @@ fn a_headless_save_of_a_document_with_pages_to_load_is_refused_before_the_file_i
     assert_eq!(std::fs::read(&out).unwrap(), b"old", "the old file is untouched");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_headless_save_streams_the_document_instead_of_holding_the_file_in_memory() {
+    // 32 images of 1 MiB: the file is about 64 MiB of text (an image is written as hex), and no single image is larger than 2 MiB of it.
+    const IMAGES: usize = 32;
+    const IMAGE_BYTES: usize = 1024 * 1024;
+    let dir = scratch("headless_streams");
+    let out = dir.join("out.designos");
+    std::fs::write(&out, "old").unwrap();
+    let mut doc = document_with_a_nan();
+    for n in 0..IMAGES {
+        doc.images.insert(format!("blob-{n}"), (0..IMAGE_BYTES as u32).map(|i| ((i + n as u32) % 251) as u8).collect());
+    }
+
+    // The instrument sees a save that builds the whole text first.
+    let (text, text_peak) = crate::test_alloc_count::peak_bytes_in(|| doc.to_json().unwrap());
+    let file_len = text.len();
+    assert!(text_peak >= file_len, "the instrument must see the text path hold the whole text: peak {text_peak} for {file_len} bytes");
+    assert!(file_len > IMAGES * IMAGE_BYTES, "precondition: the file is larger than the images");
+    drop(text);
+
+    let (saved, peak) = crate::test_alloc_count::peak_bytes_in(|| crate::io::save_path_no_follow(&doc, &out));
+
+    saved.expect("the save succeeds");
+    assert_eq!(std::fs::metadata(&out).unwrap().len() as usize, file_len);
+    assert!(peak < file_len / 8, "the save held {peak} bytes at once for a {file_len}-byte file; a stream holds a buffer and one image, not the file");
+    let _ = std::fs::remove_dir_all(&dir);
+}
