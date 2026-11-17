@@ -129,7 +129,7 @@ fn a_name_that_is_not_a_design_file_is_refused_and_nothing_is_written() {
     for out in ["out.txt", "out.png", "out.svg"] {
         let target = s.path(out);
         let err = run(&[text(&doc), "--add-comment", "note", "--out", text(&target)]).unwrap_err();
-        assert!(err.contains(".designos"), "the refusal names the endings: {err}");
+        assert!(err.contains(".designos") && err.contains("--out <name>.designos"), "the refusal names the endings and the fix: {err}");
         assert!(!target.exists(), "{out} was created");
     }
     let err = run(&[text(&svg), "--add-comment", "note"]).unwrap_err();

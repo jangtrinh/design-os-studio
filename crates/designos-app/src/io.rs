@@ -385,17 +385,22 @@ fn write_pending_repair_backup_as(path: &Path, links: LinkPolicy) -> Result<bool
     let key = repair_key(&p);
     let pending_backup = repaired_originals().lock().ok().and_then(|map| map.get(&key).cloned());
     if let Some(original_bytes) = &pending_backup {
-        let bak = backup_path(&p);
-        match links {
-            LinkPolicy::Follow => designos_library::write_atomic(&bak, original_bytes).map_err(|e| format!("Cannot write {}: {e}", bak.display()))?,
-            LinkPolicy::Refuse => designos_library::write_atomic_no_follow(&bak, original_bytes).map_err(|e| match e {
-                designos_library::LibraryError::Io(io) => crate::cli_save_targets::explain_write_error("save", &bak, &io),
-                other => format!("Cannot write {}: {other}", bak.display()),
-            })?,
-        }
+        write_backup_file(&backup_path(&p), original_bytes, links)?;
         return Ok(true);
     }
     Ok(false)
+}
+
+/// Writes the pre-repair bytes to the backup file chosen for them. A headless save refuses a link at that name (it can appear
+/// between choosing the name and writing it); the editor save writes through, as it always did.
+fn write_backup_file(bak: &Path, bytes: &[u8], links: LinkPolicy) -> Result<(), String> {
+    match links {
+        LinkPolicy::Follow => designos_library::write_atomic(bak, bytes).map_err(|e| format!("Cannot write {}: {e}", bak.display())),
+        LinkPolicy::Refuse => designos_library::write_atomic_no_follow(bak, bytes).map_err(|e| match e {
+            designos_library::LibraryError::Io(io) => crate::cli_save_targets::explain_write_error("back up to", bak, &io),
+            other => format!("Cannot write {}: {other}", bak.display()),
+        }),
+    }
 }
 
 /// Drops the pending pre-repair backup bytes for `path` after a save has succeeded.
@@ -484,6 +489,8 @@ pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
 /// name and a name that is not a design file are refused with a sentence that says what to do (nothing is written through a link,
 /// and the folders of a new path are made). The native format is streamed into the file; what the file leaves out goes to stderr.
 pub fn save_path_no_follow(doc: &Document, path: &Path) -> Result<PathBuf, String> {
+    // The same check the command makes before it changes anything, so no caller can save to a name that is not a design file.
+    crate::cli_save_targets::check_save_target(path)?;
     let target = crate::cli_save_targets::save_path_with_ending(path);
     if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
@@ -548,8 +555,8 @@ fn save_path_counted_as(doc: &Document, path: &Path, links: LinkPolicy) -> Resul
         (None, LinkPolicy::Refuse) => designos_library::write_atomic_with_no_follow(&p, stream),
     };
     written.map_err(|e| match e {
-        // A refusal of the path is passed on whole: the caller words it.
-        designos_library::LibraryError::Io(io) if designos_fonts::no_follow_refusal(&io).is_some() => io,
+        // A headless save passes a refusal of the path on whole (the caller words it); the editor save keeps its "Cannot write" text.
+        designos_library::LibraryError::Io(io) if links == LinkPolicy::Refuse && designos_fonts::no_follow_refusal(&io).is_some() => io,
         designos_library::LibraryError::Io(io) => std::io::Error::new(io.kind(), format!("Cannot write {}: {io}", p.display())),
         other => std::io::Error::other(format!("Cannot write {}: {other}", p.display())),
     })?;
@@ -1030,6 +1037,89 @@ mod tests {
         assert!(!save_toast2.error, "second save of the same file must not repeat the notice: {}", save_toast2.text);
 
         let _ = std::fs::remove_dir_all(&lib_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_repair_backup_is_never_written_through_a_link_by_a_headless_save() {
+        let dir = tmp("bak_link_dir");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let victim = dir.join("victim.designos");
+        let bak = dir.join("doc.designos.bak");
+        std::fs::write(&victim, b"keep this user data").unwrap();
+        std::os::unix::fs::symlink(&victim, &bak).unwrap();
+
+        // The name is chosen first and written a moment later: a link that appears at the chosen name in between is refused.
+        let refused = write_backup_file(&bak, b"pre-repair bytes", LinkPolicy::Refuse).expect_err("a link must not take the backup");
+        assert!(refused.contains("back up to") && refused.contains("symbolic link"), "{refused}");
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep this user data", "the file the link points at was written through");
+
+        // The editor save keeps writing through, as it always did.
+        write_backup_file(&bak, b"pre-repair bytes", LinkPolicy::Follow).unwrap();
+        assert_eq!(std::fs::read(&victim).unwrap(), b"pre-repair bytes");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_backup_name_that_a_link_already_holds_moves_to_the_next_slot() {
+        let mut d = Document::new("Damaged");
+        let page = d.add_page("P");
+        d.nodes.get_mut(&page).unwrap().children.push(designos_doc::NodeId(999));
+        let dir = tmp("bak_slot_dir");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("doc.designos");
+        let damaged_bytes = d.to_json().unwrap().into_bytes();
+        std::fs::write(&p, &damaged_bytes).unwrap();
+        let victim = dir.join("victim.designos");
+        std::fs::write(&victim, b"keep this user data").unwrap();
+        std::os::unix::fs::symlink(&victim, dir.join("doc.designos.bak")).unwrap();
+
+        let (doc, warning) = load_path_with_warning(&p).unwrap();
+        assert!(warning.is_some(), "precondition: the load repaired the file");
+        save_path_no_follow(&doc, &p).unwrap();
+
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep this user data");
+        assert_eq!(std::fs::read(dir.join("doc.designos.bak.1")).unwrap(), damaged_bytes, "the backup went to the next free slot");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn an_editor_save_that_is_refused_keeps_the_cannot_write_wording() {
+        use std::os::unix::fs::PermissionsExt;
+        let p = tmp("editor_readonly.designos");
+        let _ = std::fs::remove_file(&p);
+        std::fs::write(&p, b"old").unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o444)).unwrap();
+        if std::fs::OpenOptions::new().write(true).open(&p).is_ok() {
+            // Running as a user the mode does not bind (root): the refusal cannot be produced here.
+            let _ = std::fs::remove_file(&p);
+            return;
+        }
+        let mut d = Document::new("Doc");
+        d.add_page("P");
+
+        let err = save_path_counted(&d, &p).expect_err("a read-only file is refused");
+
+        let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644));
+        let _ = std::fs::remove_file(&p);
+        assert!(err.to_string().starts_with(&format!("Cannot write {}: ", p.display())), "the toast text changed: {err}");
+    }
+
+    #[test]
+    fn a_headless_save_to_a_name_that_is_not_a_design_file_is_refused_by_the_save_itself() {
+        let p = tmp("not_a_design_file.txt");
+        let _ = std::fs::remove_file(&p);
+        let mut d = Document::new("Doc");
+        d.add_page("P");
+
+        let err = save_path_no_follow(&d, &p).expect_err("the ending decides");
+
+        assert!(err.contains("--out <name>.designos"), "the refusal names its fix: {err}");
+        assert!(!p.exists());
     }
 
     #[test]

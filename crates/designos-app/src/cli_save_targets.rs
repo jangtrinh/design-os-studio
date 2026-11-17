@@ -77,7 +77,7 @@ pub fn check_save_target(path: &Path) -> Result<(), String> {
     let effective = save_path_with_ending(path);
     if !SAVE_ENDINGS.iter().any(|ending| has_ending(&effective, ending)) {
         return Err(format!(
-            "Refusing to save {}: a design file ends in .designos, .fig or .pen. Name the output path with one of those endings.",
+            "Refusing to save {}: a design file ends in .designos, .fig or .pen. Pass --out <name>.designos (or a name with one of the other endings).",
             effective.display()
         ));
     }

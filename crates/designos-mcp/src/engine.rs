@@ -7125,4 +7125,14 @@ mod tests {
             })
         );
     }
+
+    /// A write that fails because the disk is read-only or full is for a person to fix. The no-follow writer hands such an error
+    /// on as it came (only a refusal by the file itself is its typed `NotWritable`), so a read-only volume lands here.
+    #[cfg(unix)]
+    #[test]
+    fn an_overwrite_on_a_read_only_volume_asks_for_a_human() {
+        let volume = std::io::Error::from_raw_os_error(libc::EROFS);
+        assert!(super::write_needs_human(&volume), "{volume}");
+        assert_eq!(designos_library::no_follow_refusal(&volume), None);
+    }
 }

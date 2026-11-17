@@ -342,9 +342,7 @@ fn open_writable_regular(path: &Path, no_follow: bool) -> std::io::Result<(std::
         Err(e) if e.raw_os_error() == Some(ENXIO) => {
             return Err(no_follow::refused(NoFollowRefusal::NotRegularFile, path, None));
         }
-        Err(e) => {
-            return Err(no_follow::refused(NoFollowRefusal::NotWritable, path, Some(e.to_string())));
-        }
+        Err(e) => return Err(open_failure(path, e, no_follow)),
     };
     let meta = file.metadata()?;
     if meta.is_dir() {
@@ -367,6 +365,18 @@ fn open_writable_regular(path: &Path, no_follow: bool) -> std::io::Result<(std::
     Ok((file, meta))
 }
 
+/// What a failed open of the file to replace means. Following links, every failure says the file is not writable (the editor
+/// save's long-standing wording). Without following, only the errors that say *this file* refuses the write (`EACCES`, `EPERM`,
+/// `ETXTBSY`) do; any other (a read-only volume, a failing disk) is returned as it came, so its kind survives and a caller can
+/// tell "change this file" from "a person has to look at the disk".
+#[cfg(unix)]
+fn open_failure(path: &Path, e: std::io::Error, no_follow: bool) -> std::io::Error {
+    if no_follow && !matches!(e.raw_os_error(), Some(libc::EACCES | libc::EPERM | libc::ETXTBSY)) {
+        return e;
+    }
+    no_follow::refused(NoFollowRefusal::NotWritable, path, Some(e.to_string()))
+}
+
 #[cfg(not(unix))]
 fn open_writable_regular(path: &Path, no_follow: bool) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
     if no_follow {
@@ -376,7 +386,14 @@ fn open_writable_regular(path: &Path, no_follow: bool) -> std::io::Result<(std::
             Err(e) => return Err(e),
         }
     }
-    let file = std::fs::OpenOptions::new().write(true).open(path).map_err(|e| no_follow::refused(NoFollowRefusal::NotWritable, path, Some(e.to_string())))?;
+    let file = std::fs::OpenOptions::new().write(true).open(path).map_err(|e| {
+        // Without following links only a refusal by the file itself is "not writable"; any other failure keeps its kind.
+        if no_follow && e.kind() != std::io::ErrorKind::PermissionDenied {
+            e
+        } else {
+            no_follow::refused(NoFollowRefusal::NotWritable, path, Some(e.to_string()))
+        }
+    })?;
     let meta = file.metadata()?;
     if meta.is_dir() {
         return Err(no_follow::refused(NoFollowRefusal::Directory, path, None));
@@ -561,6 +578,32 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     const CARLITO: &str = include_str!("../tests/fixtures/fontsource_carlito.json");
+
+    #[cfg(unix)]
+    #[test]
+    fn a_no_follow_open_that_fails_for_the_disk_keeps_its_error_and_one_the_file_causes_is_not_writable() {
+        let path = Path::new("/ws/doc.designos");
+        for errno in [libc::EROFS, libc::EIO, libc::ENOTDIR, libc::ENAMETOOLONG] {
+            let e = open_failure(path, std::io::Error::from_raw_os_error(errno), true);
+            assert_eq!(no_follow_refusal(&e), None, "errno {errno} is not a refusal of the file");
+            assert_eq!(e.raw_os_error(), Some(errno), "errno {errno} must reach the caller as it came");
+        }
+        let read_only_volume = open_failure(path, std::io::Error::from_raw_os_error(libc::EROFS), true);
+        assert_eq!(read_only_volume.kind(), std::io::ErrorKind::ReadOnlyFilesystem);
+        for errno in [libc::EACCES, libc::EPERM, libc::ETXTBSY] {
+            let e = open_failure(path, std::io::Error::from_raw_os_error(errno), true);
+            assert_eq!(no_follow_refusal(&e), Some(NoFollowRefusal::NotWritable), "errno {errno}");
+            assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_following_open_keeps_saying_not_writable_for_every_failure() {
+        let e = open_failure(Path::new("/ws/doc.designos"), std::io::Error::from_raw_os_error(libc::EROFS), false);
+        assert_eq!(no_follow_refusal(&e), Some(NoFollowRefusal::NotWritable));
+        assert!(e.to_string().contains("is read-only or not writable:"), "{e}");
+    }
 
     #[test]
     fn the_temporary_name_shape_is_the_one_the_savers_create() {
