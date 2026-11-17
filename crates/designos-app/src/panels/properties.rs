@@ -1517,9 +1517,10 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     }
 
     // ---- Fill
-    // The text colour replaces the Fill rows only when the first layer itself carries text, as it did
-    // before mixed selections searched for one: a shape first keeps its own paint rows.
-    if is_text || (n0.kind.board_text().is_some() && text_node.is_some()) {
+    // The text colour replaces the Fill rows only when the first layer is a Text or a Sticky (whose own
+    // fills are never drawn), as it did before mixed selections searched for one. Every other layer, a
+    // shape with text and a table cell included, draws its body from its own fills and keeps its paint rows.
+    if is_text || (matches!(n0.kind, NodeKind::Sticky(_)) && text_node.is_some()) {
         // Text colour lives in the text style, not in `Node::fills`.
         section_sep(ui, pane, false);
         title(ui, pane, "Fill", None, false);
@@ -4982,6 +4983,39 @@ mod tests {
 
         let (_, text_colour_row, paint_row) = inspector_pass(&mut app, &[text, rect]);
         assert!(text_colour_row && !paint_row, "[Text, Rect]: the text colour, as main");
+    }
+
+    /// Shapes with text and table cells draw their body from their own fills, so as the first layer they keep
+    /// the paint list, like any other shape; only a Sticky first swaps in the text colour.
+    #[test]
+    fn a_text_carrying_shape_first_keeps_its_paint_rows() {
+        let (mut app, _, _, text) = mixed_text_app();
+        let page = app.page;
+        let shape_id = app.doc.alloc_id();
+        let mut shape_props = ShapeWithTextProps::default();
+        shape_props.text.style.fills = vec![Paint::solid(Color::rgb(0, 0, 0))];
+        let mut shape = Node::new(shape_id, NodeKind::ShapeWithText(shape_props));
+        shape.fills = vec![Paint::solid(Color::rgb(0x33, 0x66, 0xFF))];
+        let shape_id = app.doc.insert(page, shape).unwrap();
+        let cell_id = app.doc.alloc_id();
+        let cell_props = designos_doc::TableCellProps {
+            row: designos_doc::TrackId { session: 0, local: 1 },
+            col: designos_doc::TrackId { session: 0, local: 2 },
+            text: StickyProps::default().text,
+        };
+        let mut cell_props = cell_props;
+        cell_props.text.style.fills = vec![Paint::solid(Color::rgb(0, 0, 0))];
+        let mut cell = Node::new(cell_id, NodeKind::TableCell(cell_props));
+        cell.fills = vec![Paint::solid(Color::rgb(0x33, 0x66, 0xFF))];
+        let cell_id = app.doc.insert(page, cell).unwrap();
+
+        for (name, first) in [("shape with text", shape_id), ("table cell", cell_id)] {
+            let (_, text_colour_row, paint_row) = inspector_pass(&mut app, &[first, text]);
+            assert!(
+                paint_row && !text_colour_row,
+                "[{name}, Text]: the Fill section lists the layer's own paint (text colour row {text_colour_row}, paint row {paint_row})"
+            );
+        }
     }
 
     #[test]
