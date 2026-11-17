@@ -312,12 +312,16 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
                     break;
                 }
                 let mut newly_frozen = false;
+                // Every child is judged against the same share, the one the violations above were summed from: freezing a
+                // child lowers `rem_for_fill`, and reading that against the unchanged `weight` would shrink the shares of
+                // the children after it and freeze them on a minimum they do not violate.
+                let rem_this_pass = rem_for_fill;
                 for (j, i) in line.iter().enumerate() {
                     if frozen[j] {
                         continue;
                     }
                     let kid = &kids[*i];
-                    let raw = rem_for_fill * fill_weight(kid) / weight;
+                    let raw = rem_this_pass * fill_weight(kid) / weight;
                     let clamped = ax.clamp_main(&kid.limits, raw);
                     let diff = clamped - raw;
                     let freeze_this = if total_violation > 1e-4 {
@@ -1132,5 +1136,39 @@ mod tests {
         ];
         let out = compute(&al, Vec2::new(300.0, 80.0), SizeLimits::default(), &kids);
         assert!(out.rects[2].y > out.rects[0].y, "fixed actions still wrap when their total does not fit: {:?}", out.rects);
+    }
+
+    #[test]
+    fn fill_children_below_their_minimum_share_freeze_one_by_one_in_flowing_and_wrapped_rows() {
+        // Two Fill children in 592 with a 16 gap: an even split is 288 each, below the first one's 320 minimum. It freezes at
+        // 320 and the second takes the 256 that is left. This is the stored geometry of the Untitled UI blog cards.
+        for wrap in [false, true] {
+            let al = AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Hug,
+                wrap,
+                item_spacing: 16.0,
+                ..Default::default()
+            };
+            let kids = [
+                ChildIn {
+                    size: Vec2::new(320.0, 200.0),
+                    main_fill: true,
+                    limits: SizeLimits { min_w: Some(320.0), ..Default::default() },
+                    ..Default::default()
+                },
+                ChildIn {
+                    size: Vec2::new(256.0, 180.0),
+                    main_fill: true,
+                    limits: SizeLimits { min_w: Some(200.0), ..Default::default() },
+                    ..Default::default()
+                },
+            ];
+            let out = compute(&al, Vec2::new(592.0, 200.0), SizeLimits::default(), &kids);
+            let widths: Vec<f32> = out.rects.iter().map(|r| r.w).collect();
+            assert_eq!(widths, [320.0, 256.0], "wrap = {wrap}: {:?}", out.rects);
+            assert_eq!(out.rects[1].x, 336.0, "wrap = {wrap}: the second child sits beside the first");
+        }
     }
 }
