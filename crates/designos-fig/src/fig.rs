@@ -2794,9 +2794,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             | "gridRowAnchorIndex"
             | "gridChildHorizontalAlign"
             | "gridChildVerticalAlign"
-            | "layoutGrids"
-            | "styleIdForGrid"
-            | "inheritGridStyleID" => {
+            | "layoutGrids" => {
                 has_layout = true;
             }
             "fontName"
@@ -3004,8 +3002,12 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         if let Some(r) = obj.get("gridRowAnchor").or_else(|| obj.get("gridRowAnchorIndex")) {
             m.insert("gridRowAnchorIndex".into(), r.clone());
         }
-        if let Some(g) = convert_grids(lk.style_node_of(o, "styleIdForGrid", "inheritGridStyleID").unwrap_or(o)) {
-            m.insert("layoutGrids".into(), g);
+        // A grid style link alone leaves the nested frame's grids as its component has them; it is read only next to
+        // the explicit grids the entry states.
+        if obj.contains_key("layoutGrids") {
+            if let Some(g) = convert_grids(lk.style_node_of(o, "styleIdForGrid", "inheritGridStyleID").unwrap_or(o)) {
+                m.insert("layoutGrids".into(), g);
+            }
         }
     }
     if has_text {
