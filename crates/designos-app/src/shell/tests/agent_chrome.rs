@@ -42,13 +42,17 @@ fn terminal_content_colours_unchanged() {
 fn approval_card_height_follows_control_xs() {
     use crate::terminal::AgentCliPreset;
     assert_eq!(crate::agent_approval_card::approval_card_outer_height(AgentCliPreset::Claude), 136.0);
-    for preset in [AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Gemini, AgentCliPreset::Antigravity, AgentCliPreset::Shell] {
-        // The card without Claude's buttons is the 96 px card plus the keyboard-controls hint line (a caption line and the gap after it).
+    // A CLI that answers in its own terminal menu carries the keyboard-controls hint: a caption line and the gap after it.
+    for preset in [AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Gemini, AgentCliPreset::Antigravity] {
         assert_eq!(
             crate::agent_approval_card::approval_card_outer_height(preset),
             96.0 + crate::theme::LINE_CAPTION + crate::theme::SPACE_INLINE,
             "{preset:?}"
         );
+    }
+    // Every other card keeps the plain 96 px height.
+    for preset in [AgentCliPreset::Shell, AgentCliPreset::OpenCode, AgentCliPreset::DesignOsHelp] {
+        assert_eq!(crate::agent_approval_card::approval_card_outer_height(preset), 96.0, "{preset:?}");
     }
 }
 

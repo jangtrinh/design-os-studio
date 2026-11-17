@@ -35,18 +35,37 @@ pub fn approval_card_outer_height(preset: AgentCliPreset) -> f32 {
         + theme::TARGET_MIN
         + theme::SPACE_INLINE
         + if claude { theme::CONTROL_XS + theme::SPACE_INLINE } else { 0.0 }
-        + native_cli_hint_height(claude)
+        + native_cli_hint_height(preset)
         + theme::CONTROL_XS
         + theme::INSET_BUTTON;
     inner + theme::SPACE_ROW * 2.0
 }
 
-/// How a native CLI card tells the person to answer in the terminal; Claude's card has its own buttons and no hint.
+/// How a native CLI card tells the person to answer in the terminal; a card that Studio answers itself has no hint.
 const NATIVE_CLI_HINT: &str = "Use ↑/↓ and Enter in terminal to choose";
 
-/// Room the [`NATIVE_CLI_HINT`] line takes under the title row (the line and the gap that follows it); none on Claude's card.
-fn native_cli_hint_height(claude: bool) -> f32 {
-    if claude { 0.0 } else { theme::LINE_CAPTION + theme::SPACE_INLINE }
+/// Whether `preset` is a CLI whose approval menu lives in its own terminal and is answered there with the keyboard.
+fn answers_in_own_menu(preset: AgentCliPreset) -> bool {
+    matches!(preset, AgentCliPreset::Codex | AgentCliPreset::Grok | AgentCliPreset::Gemini | AgentCliPreset::Antigravity)
+}
+
+/// The preset whose card layout is drawn for `preset`'s request. A Claude request is answered with Studio's own buttons on the active
+/// tab only; on another tab it gets the plain Open tab card (no Claude actions, no keyboard hint), which `Shell` stands in for.
+/// The painted card and the viewport reservation both read this, so they never disagree.
+pub fn approval_card_layout_preset(preset: AgentCliPreset, in_active_terminal: bool) -> AgentCliPreset {
+    match preset {
+        AgentCliPreset::Claude if !in_active_terminal => AgentCliPreset::Shell,
+        other => other,
+    }
+}
+
+/// Room the [`NATIVE_CLI_HINT`] line takes under the title row (the line and the gap that follows it); none where the hint is not shown.
+fn native_cli_hint_height(preset: AgentCliPreset) -> f32 {
+    if answers_in_own_menu(preset) {
+        theme::LINE_CAPTION + theme::SPACE_INLINE
+    } else {
+        0.0
+    }
 }
 
 /// Narrow panels stack the three Claude actions so no button is clipped.
@@ -113,9 +132,9 @@ pub fn paint_approval_card_for_tab(
     if (preset == AgentCliPreset::Claude || matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp)) && first_req.is_none() {
         return None;
     }
-    let is_claude = preset == AgentCliPreset::Claude && in_active_terminal;
+    let card_preset = approval_card_layout_preset(preset, in_active_terminal);
+    let is_claude = card_preset == AgentCliPreset::Claude;
     let has_session_grant = is_claude && first_req.is_some_and(|req| agent_permissions::offer_session_grant(mode, req));
-    let card_preset = if is_claude { preset } else { AgentCliPreset::Codex };
     let outer_h = approval_card_outer_height_for_width(card_preset, viewport_rect.width(), has_session_grant);
     let card_h = outer_h - theme::SPACE_ROW * 2.0;
     let card_rect = Rect::from_min_size(
@@ -152,10 +171,10 @@ pub fn paint_approval_card_for_tab(
     p.text(Pos2::new(header_r.left(), header_r.center().y), Align2::LEFT_CENTER, title_elided, title_font, theme::TEXT);
 
     let mut y = header_r.bottom() + theme::SPACE_INLINE;
-    if !is_claude {
+    if answers_in_own_menu(card_preset) {
         let hint = widgets::elide(&p, NATIVE_CLI_HINT, &theme::font_caption(), inner.width());
         p.text(Pos2::new(inner.left(), y), Align2::LEFT_TOP, hint, theme::font_caption(), theme::TEXT_SECONDARY);
-        y += native_cli_hint_height(false);
+        y += native_cli_hint_height(card_preset);
     }
 
     if let Some(req) = first_req.filter(|_| is_claude) {
@@ -609,17 +628,8 @@ mod tests {
             theme::apply(&ctx);
             let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 400.0));
             let out = ctx.run_ui(egui::RawInput { screen_rect: Some(viewport), ..Default::default() }, |ui| {
-                let _ = paint_approval_card_for_tab(
-                    ui,
-                    viewport,
-                    AgentCliPreset::Codex,
-                    &[],
-                    3,
-                    in_active_terminal,
-                    1,
-                    "test-approval",
-                    AgentPermissionMode::Ask,
-                );
+                let _ =
+                    paint_approval_card_for_tab(ui, viewport, AgentCliPreset::Codex, &[], 3, in_active_terminal, 1, "test-approval", AgentPermissionMode::Ask);
             });
             let rect_of = |name: &str| ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", name.to_string())))).unwrap_or(Rect::NOTHING);
             let (card, action) = (rect_of("agent-approval-card"), rect_of(button));
@@ -639,6 +649,64 @@ mod tests {
     fn claude_approval_card_has_no_native_cli_hint() {
         let texts = card_texts(AgentCliPreset::Claude, &[request("designos_update_node", "node_id:2")], AgentPermissionMode::Ask);
         assert!(!texts.iter().any(|t| t.contains(NATIVE_CLI_HINT)), "Claude answers on the card itself: {texts:?}");
+    }
+
+    /// Paints the card for `preset` as the Agents panel would and returns the text it painted and the card's own rect.
+    fn tab_card(preset: AgentCliPreset, in_active_terminal: bool, requests: &[ApprovalRequest]) -> (Vec<String>, Rect) {
+        let ctx = Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        let viewport = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(420.0, 800.0));
+        let mut texts = Vec::new();
+        for _ in 0..2 {
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
+                let _ = paint_approval_card_for_tab(ui, viewport, preset, requests, 3, in_active_terminal, 1, "test-card", AgentPermissionMode::Ask);
+            });
+            texts = crate::lint::scan_shapes(&out.shapes).0.into_iter().map(|t| t.text).collect();
+        }
+        let card = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agent-approval-card".to_string())))).expect("the card is recorded");
+        (texts, card)
+    }
+
+    /// Only a CLI that answers in its own terminal menu gets the keyboard hint, whichever tab the card points at. A Claude request
+    /// waiting on a background tab is answered by Studio's own card, so it never tells the person to use the terminal keys.
+    #[test]
+    fn the_keyboard_hint_shows_only_for_clis_that_answer_in_their_own_menu() {
+        for preset in [AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Gemini, AgentCliPreset::Antigravity] {
+            for in_active_terminal in [true, false] {
+                let (texts, card) = tab_card(preset, in_active_terminal, &[]);
+                assert!(texts.iter().any(|t| t.contains(NATIVE_CLI_HINT)), "{preset:?} active={in_active_terminal}: hint missing: {texts:?}");
+                assert_eq!(card.height() + theme::SPACE_ROW * 2.0, approval_card_outer_height(preset), "{preset:?} active={in_active_terminal}");
+            }
+        }
+        let claude = [request("designos_update_node", "node_id:2")];
+        let (active, active_card) = tab_card(AgentCliPreset::Claude, true, &claude);
+        assert!(!active.iter().any(|t| t.contains(NATIVE_CLI_HINT)), "Claude on the active tab: {active:?}");
+        assert_eq!(active_card.height() + theme::SPACE_ROW * 2.0, approval_card_outer_height(AgentCliPreset::Claude));
+        let (background, background_card) = tab_card(AgentCliPreset::Claude, false, &claude);
+        assert!(!background.iter().any(|t| t.contains(NATIVE_CLI_HINT)), "Claude on a background tab: {background:?}");
+        assert_eq!(
+            background_card.height() + theme::SPACE_ROW * 2.0,
+            approval_card_outer_height(AgentCliPreset::Shell),
+            "the Open tab card without the hint is the plain card"
+        );
+    }
+
+    /// The height the terminal viewport reserves (read through [`approval_card_layout_preset`]) is the height painted, for every CLI on
+    /// the active tab and on another one.
+    #[test]
+    fn the_viewport_reservation_matches_the_painted_card_for_every_cli() {
+        let claude = [request("designos_update_node", "node_id:2")];
+        for preset in
+            [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Gemini, AgentCliPreset::Antigravity, AgentCliPreset::OpenCode]
+        {
+            for in_active_terminal in [true, false] {
+                let requests: &[ApprovalRequest] = if preset == AgentCliPreset::Claude { &claude } else { &[] };
+                let (_, card) = tab_card(preset, in_active_terminal, requests);
+                let reserved = approval_card_outer_height_for_width(approval_card_layout_preset(preset, in_active_terminal), 420.0, false);
+                assert_eq!(card.height() + theme::SPACE_ROW * 2.0, reserved, "{preset:?} active={in_active_terminal}");
+            }
+        }
     }
 
     fn modal_texts(mode: AgentPermissionMode) -> Vec<String> {
