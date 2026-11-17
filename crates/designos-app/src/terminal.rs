@@ -7696,6 +7696,9 @@ pub(crate) fn pin_installed_catalog_clis(st: &mut TerminalState, installed: &[Ag
 mod ask_mode_tests;
 
 #[cfg(test)]
+mod tool_policy_tests;
+
+#[cfg(test)]
 mod ask_risky_start_tests;
 
 #[cfg(all(test, unix))]
