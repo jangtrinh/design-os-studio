@@ -263,6 +263,7 @@ pub fn sweep_stale_sessions(root: &Path, now: SystemTime, is_alive: impl Fn(u32,
         if std::fs::remove_dir_all(&dir).is_ok() {
             // The session's approval channel lives outside this folder (Studio-private); nobody uses it any more.
             crate::agent_approval_channel::remove_channel(&dir);
+            crate::agent_tool_policy::remove(&dir);
             removed += 1;
         }
     }

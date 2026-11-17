@@ -322,6 +322,7 @@ impl Drop for ScopedTerminalState {
         // `shutdown` stops the snapshot and bootstrap workers before it removes a folder, so a late worker cannot bring the folder back.
         // This may run while a failed test unwinds, where a second panic would abort the whole test binary: it must not escape.
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.state.shutdown()));
+        crate::agent_tool_policy::remove(&self.created_folder);
         let _ = std::fs::remove_dir_all(&self.created_folder);
     }
 }

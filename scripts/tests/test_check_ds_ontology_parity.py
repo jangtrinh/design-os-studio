@@ -823,9 +823,9 @@ class ColourClassTests(unittest.TestCase):
         report = dse.check_colour_classes(self.theme, self.store)
         self.assertEqual(report["problems"], [])
         counts = report["counts"]
-        self.assertEqual(sum(counts.values()), 188)
+        self.assertEqual(sum(counts.values()), 190)
         self.assertEqual(
-            counts, {"mapped": 32, "shared-key": 21, "pending": 68, "exempt": 67}
+            counts, {"mapped": 32, "shared-key": 23, "pending": 68, "exempt": 67}
         )
 
     def test_classes_are_disjoint(self) -> None:
@@ -850,14 +850,14 @@ class ColourClassTests(unittest.TestCase):
 
     def test_every_declared_colour_constant_is_read_on_the_real_tree(self) -> None:
         report = dse.check_colour_classes(self.theme, self.store)
-        self.assertEqual(report["declared"], 188)
+        self.assertEqual(report["declared"], 190)
         self.assertEqual(report["declared"], report["total"])
 
     def test_constant_with_a_trailing_comment_is_unclassified(self) -> None:
         report = dse.check_colour_classes(
             self.theme + "\npub const FOO: Color32 = rgb(0x123456); // new chrome colour\n", self.store
         )
-        self.assertEqual(report["declared"], 189)
+        self.assertEqual(report["declared"], 191)
         self.assertEqual(sum(1 for p in report["problems"] if "FOO" in p), 1, report["problems"])
         self.assertTrue(any("FOO is unclassified" in p for p in report["problems"]))
 
