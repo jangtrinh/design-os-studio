@@ -34,6 +34,7 @@ pub mod agent_session_files;
 pub mod agent_sessions;
 mod agent_start_failure;
 mod agent_stop;
+pub mod agent_tool_policy;
 pub mod agent_turn_card;
 pub mod agent_turn_ledger;
 pub mod agent_turn_marks;

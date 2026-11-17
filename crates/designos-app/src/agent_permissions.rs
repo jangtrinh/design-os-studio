@@ -146,7 +146,7 @@ pub fn ask_mode_launch_command(skip_cmd: &str) -> String {
 }
 
 /// The value of Claude's `--mcp-config` for a tab started in `mode`, set as [`CLAUDE_MCP_CONFIG_ENV`]; `None` in Skip mode,
-/// whose launch names `<session>/mcp-config.json` itself.
+/// whose launch names `$DESIGNOS_MCP_CONFIG`, the server config Studio keeps outside the session folder (`agent_tool_policy`).
 ///
 /// Claude starts the servers of that file as commands, outside any sandbox, so in Ask mode it is the private copy Studio
 /// writes next to the hooks, once it exists. Without it (no private folder, or it could not be written) the value is
