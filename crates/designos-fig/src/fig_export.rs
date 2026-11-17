@@ -1638,10 +1638,12 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             grid::push_frame_fields(cx, id, &node, al, &mut fields, &mut carried);
             if al.direction == LayoutDirection::Grid {
                 fields.push(("gridColumnGap", fl(al.item_spacing)));
-                fields.push(("gridRowGap", fl(al.counter_spacing)));
+                fields.push(("gridRowGap", fl(al.line_gap())));
             }
             fields.push(("stackSpacing", fl(al.item_spacing)));
-            fields.push(("stackCounterSpacing", fl(al.counter_spacing)));
+            if let Some(cs) = al.counter_spacing {
+                fields.push(("stackCounterSpacing", fl(cs)));
+            }
             // Figma stores top and left padding on the vertical and horizontal padding fields.
             fields.push(("stackVerticalPadding", fl(al.padding[0])));
             fields.push(("stackPaddingRight", fl(al.padding[1])));
@@ -3194,10 +3196,12 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                         grid::push_frame_fields(cx, cid, n, al, &mut ov, &mut carried);
                         if al.direction == LayoutDirection::Grid {
                             ov.push(("gridColumnGap", fl(al.item_spacing)));
-                            ov.push(("gridRowGap", fl(al.counter_spacing)));
+                            ov.push(("gridRowGap", fl(al.line_gap())));
                         }
                         ov.push(("stackSpacing", fl(al.item_spacing)));
-                        ov.push(("stackCounterSpacing", fl(al.counter_spacing)));
+                        if let Some(cs) = al.counter_spacing {
+                            ov.push(("stackCounterSpacing", fl(cs)));
+                        }
                         ov.push(("stackVerticalPadding", fl(al.padding[0])));
                         ov.push(("stackPaddingRight", fl(al.padding[1])));
                         ov.push(("stackPaddingBottom", fl(al.padding[2])));

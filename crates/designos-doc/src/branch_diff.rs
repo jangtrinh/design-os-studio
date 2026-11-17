@@ -600,6 +600,38 @@ impl<'a> serde::ser::SerializeStructVariant for HashSerializer<'a> {
     }
 }
 
+/// A fixed-seed streaming hash over serializable values: the same values hash the same in every process, so the
+/// result can be stored in a file. Used by `crate::imported_layout`.
+pub(crate) struct StableHasher(FastHasher);
+
+impl StableHasher {
+    pub(crate) fn new() -> Self {
+        Self(FastHasher::new())
+    }
+
+    /// Feeds `value` through the hashing serializer. Plain numeric values and the document types never fail to
+    /// serialize; a value that does still changes the hash, so two different inputs cannot silently compare equal.
+    pub(crate) fn add<T: ?Sized + serde::Serialize>(&mut self, value: &T) {
+        if value.serialize(HashSerializer(&mut self.0)).is_err() {
+            self.0.mix(u64::MAX);
+        }
+    }
+
+    /// Mixes one 64-bit word: a count, a tag or an id, for hot paths that hash plain data without serde.
+    pub(crate) fn word(&mut self, word: u64) {
+        self.0.mix(word);
+    }
+
+    /// Mixes the bit pattern of a float.
+    pub(crate) fn float(&mut self, value: f32) {
+        self.0.mix(u64::from(value.to_bits()));
+    }
+
+    pub(crate) fn finish(&self) -> u64 {
+        self.0.finish()
+    }
+}
+
 /// A 64-bit hash of everything about `node` except its place in the tree (`parent` and `children`). Two nodes with
 /// different content hash differently up to hash collisions; callers use it to tell whether a node was edited.
 pub fn node_content_hash(node: &Node) -> u64 {
@@ -656,9 +688,18 @@ fn hash_node_props(node: &Node) -> u64 {
         let _ = node.stroke_geometry.serialize(HashSerializer(&mut h));
         let _ = eff_stamp.as_deref().serialize(HashSerializer(&mut h));
     }
-    if !node.component.is_empty() {
+    // The imported-layout record is bookkeeping a sync keeps or drops, not content: a main whose instances gained or
+    // lost one is not edited (the `.fig` page loader and writer compare mains by this hash).
+    let link_without_record;
+    let link = if node.component.imported_layout.is_some() {
+        link_without_record = crate::ComponentLink { imported_layout: None, ..node.component.clone() };
+        &link_without_record
+    } else {
+        &node.component
+    };
+    if !link.is_empty() {
         6u8.hash(&mut h);
-        let _ = node.component.serialize(HashSerializer(&mut h));
+        let _ = link.serialize(HashSerializer(&mut h));
     }
     if !node.prototype.is_empty() {
         7u8.hash(&mut h);

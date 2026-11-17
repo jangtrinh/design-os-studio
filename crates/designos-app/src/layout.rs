@@ -327,7 +327,7 @@ mod tests {
     fn wrap_breaks_lines() {
         let mut a = al();
         a.wrap = true;
-        a.counter_spacing = 4.0;
+        a.counter_spacing = Some(4.0);
         a.padding = [0.0; 4];
         let out = compute(&a, v2(75.0, 100.0), &[kid(30.0, 10.0), kid(30.0, 20.0), kid(30.0, 10.0)]);
         assert_eq!(out.rects[1].x, 40.0);
@@ -412,7 +412,7 @@ mod tests {
 
     /// Vertical wrap: A and B fill the first column (40 + 10 + 40 = 90 <= 100), C does not fit under them.
     fn vertical_wrap() -> AutoLayout {
-        AutoLayout { direction: LayoutDirection::Vertical, wrap: true, item_spacing: 10.0, counter_spacing: 6.0, padding: [0.0; 4], ..Default::default() }
+        AutoLayout { direction: LayoutDirection::Vertical, wrap: true, item_spacing: 10.0, counter_spacing: Some(6.0), padding: [0.0; 4], ..Default::default() }
     }
     fn vertical_kids() -> [ChildIn; 4] {
         [kid(30.0, 40.0), kid(20.0, 40.0), kid(25.0, 40.0), kid(10.0, 30.0)]
@@ -441,7 +441,7 @@ mod tests {
     #[test]
     fn vertical_wrap_with_zero_counter_spacing_packs_columns() {
         let mut a = vertical_wrap();
-        a.counter_spacing = 0.0;
+        a.counter_spacing = Some(0.0);
         let out = compute(&a, v2(200.0, 100.0), &vertical_kids());
         assert_eq!(out.rects[2].x, 30.0);
     }
@@ -459,7 +459,7 @@ mod tests {
         a.wrap = true;
         a.padding = [0.0; 4];
         a.item_spacing = 0.0;
-        a.counter_spacing = 0.0;
+        a.counter_spacing = Some(0.0);
         a.counter_align_content = CounterAlignContent::SpaceBetween;
         // 40 + 40 = 80 fits in 100, a third does not: lines of cross 10 and 10; free 100 - 20 = 80 -> line 2 at 10 + 80
         let kids = [kid(40.0, 10.0), kid(40.0, 10.0), kid(40.0, 10.0)];
@@ -484,7 +484,7 @@ mod tests {
         a.wrap = true;
         a.padding = [0.0; 4];
         a.item_spacing = 0.0;
-        a.counter_spacing = 0.0;
+        a.counter_spacing = Some(0.0);
         a.counter_align_content = CounterAlignContent::SpaceBetween;
         // widths 60 each, frame 60 wide: one item per line; crosses 10, 20, 10 = 40; free 100 - 40 = 60 over 2 gaps = 30
         let out = compute(&a, v2(60.0, 100.0), &[kid(60.0, 10.0), kid(60.0, 20.0), kid(60.0, 10.0)]);
@@ -497,7 +497,7 @@ mod tests {
         a.wrap = true;
         a.padding = [0.0; 4];
         a.item_spacing = 0.0;
-        a.counter_spacing = 40.0;
+        a.counter_spacing = Some(40.0);
         a.counter_align_content = CounterAlignContent::SpaceBetween;
         // free per gap would be (100 - 30) / 2 = 35 < 40: the lines overflow at the minimum gap
         let out = compute(&a, v2(60.0, 100.0), &[kid(60.0, 10.0), kid(60.0, 10.0), kid(60.0, 10.0)]);
@@ -691,7 +691,7 @@ mod tests {
             grid_columns: 3,
             grid_rows: 0,
             item_spacing: 10.0,
-            counter_spacing: 10.0,
+            counter_spacing: Some(10.0),
             counter_sizing: Sizing::Hug,
             ..Default::default()
         };

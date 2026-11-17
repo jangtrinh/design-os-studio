@@ -950,7 +950,9 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         missing_variable_bindings,
     };
     cx.install_deferred_hydrator();
-    let doc = cx.doc;
+    let mut doc = cx.doc;
+    // Last, once everything a solve reads is settled and the page loader is in place, as for any later sync.
+    designos_doc::record_requested_imported_layouts(&mut doc);
     drop(cx.override_keys);
     drop(cx.ids);
     drop(cx.instances);
@@ -1095,7 +1097,9 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
         missing_variable_bindings,
     };
     cx.install_deferred_hydrator();
-    let doc = cx.doc;
+    let mut doc = cx.doc;
+    // Last, once everything a solve reads is settled and the page loader is in place, as for any later sync.
+    designos_doc::record_requested_imported_layouts(&mut doc);
     drop(cx.override_keys);
     drop(cx.ids);
     drop(cx.instances);
@@ -2128,6 +2132,7 @@ impl<'a> Ctx<'a> {
             derived_outlines,
             swap_mains_of,
             self_digests,
+            layout_inputs_at_open: designos_doc::layout_inputs_outside_layers_hash(&self.doc),
             staged_copies: HashMap::new(),
             page_nodes,
             self_weak: std::sync::Weak::new(),
@@ -2529,7 +2534,9 @@ impl<'a> Ctx<'a> {
                 k => {
                     if let Some(al) = k.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
                         al.item_spacing *= s;
-                        al.counter_spacing *= s;
+                        if let Some(c) = &mut al.counter_spacing {
+                            *c *= s;
+                        }
                         al.padding.iter_mut().for_each(|p| *p *= s);
                     }
                 }
@@ -2900,6 +2907,7 @@ impl<'a> Ctx<'a> {
             n.component.slot_configs.clear();
             n.component.prop_default_variables.clear();
             n.component.expose_nested_instances = false;
+            n.component.imported_layout = None;
             let container = n.kind.is_container();
             match parent_idx {
                 Some(idx) => staged[idx].children.push(id),
@@ -3004,6 +3012,7 @@ impl<'a> Ctx<'a> {
     /// Applies `.fig` `symbolOverrides` and then `derivedSymbolData` to the
     /// instance's copied subtree.
     fn apply_overrides(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> Result<(), FigError> {
+        self.mark_stored_layout_candidate(inst);
         let Some(mut ov) = self.overrides.remove(&inst) else { return Ok(()) };
         let mut subtree_maps: HashMap<NodeId, HashMap<String, NodeId>> = HashMap::new();
         let mut explicitly_sized: HashSet<NodeId> = HashSet::new();
@@ -3030,6 +3039,16 @@ impl<'a> Ctx<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Requests a stored-geometry record (see [`designos_doc::record_imported_layouts`]) for instance `inst` when the
+    /// file stores derived geometry for it. Called before its overrides are applied, while they are still held.
+    fn mark_stored_layout_candidate(&mut self, inst: NodeId) {
+        if self.overrides.get(&inst).is_some_and(|o| !o.derived.is_empty() || !o.fast_derived.is_empty()) {
+            if let Some(n) = self.doc.get_mut(inst) {
+                n.component.imported_layout = Some(ImportedLayout::REQUESTED);
+            }
+        }
     }
 
     fn apply_fast_derived(&mut self, id: NodeId, d: &crate::fig::FastDerivedEntry, explicitly_sized: &mut HashSet<NodeId>) {
@@ -3547,7 +3566,7 @@ impl<'a> Ctx<'a> {
                     al.item_spacing = x;
                 }
                 if let Some(x) = fnum(set, "counterAxisSpacing") {
-                    al.counter_spacing = x;
+                    al.counter_spacing = Some(x);
                 }
                 for (idx, k) in [(0, "paddingTop"), (1, "paddingRight"), (2, "paddingBottom"), (3, "paddingLeft")] {
                     if let Some(x) = fnum(set, k) {
@@ -3871,6 +3890,22 @@ impl Drop for RemovedDeferredPageGuard {
     }
 }
 
+/// Withdraws the record requests [`Ctx::mark_stored_layout_candidate`] made, on every instance (`only` = `None`) or on
+/// the instances in `only`: the geometry they hold is not the one the file stored for the document as it is now.
+fn withdraw_stored_layout_requests(doc: &mut Document, only: Option<&HashSet<NodeId>>) {
+    let requested: Vec<NodeId> = doc
+        .nodes
+        .values()
+        .filter(|n| n.component.imported_layout.is_some_and(|r| r.is_requested()) && only.is_none_or(|o| o.contains(&n.id)))
+        .map(|n| n.id)
+        .collect();
+    for id in requested {
+        if let Some(n) = doc.get_mut(id) {
+            n.component.imported_layout = None;
+        }
+    }
+}
+
 struct DeferredFigHydrator {
     pending_by_page: HashMap<NodeId, Vec<NodeId>>,
     hydrated_pages: HashSet<NodeId>,
@@ -3903,6 +3938,9 @@ struct DeferredFigHydrator {
     swap_mains_of: HashMap<NodeId, Vec<NodeId>>,
     /// Instance -> digest of each field it overrides on itself, as the file was opened.
     self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>>,
+    /// Hash of the variables and styles as the file was opened: a page opened later records its instances' stored
+    /// geometry only while they are unchanged (see [`designos_doc::layout_inputs_outside_layers_hash`]).
+    layout_inputs_at_open: u64,
     /// `dst_page -> (src_page, old_id -> new_id)` staged by `duplicate_subtree` / `clone_subtree` before `InsertPage` lands.
     staged_copies: HashMap<NodeId, (NodeId, BTreeMap<NodeId, NodeId>)>,
     /// `page -> nodes` whose per-node hydrator metadata was copied for `page`, so `remove_page` can stash them.
@@ -3979,6 +4017,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             }
         }
         drop(fingerprints);
+        let derived_refused: HashSet<NodeId> = cleared_derived.keys().copied().collect();
         let next_clone = self.next_clone.max(doc.peek_next_id().0);
         let saved_insts: Vec<(NodeId, Node)> = insts.iter().filter_map(|&id| doc.get(id).cloned().map(|n| (id, n))).collect();
         let saved_done = self.done.clone();
@@ -4086,6 +4125,14 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             }
         }
         cx.mark_custom_instance_slots();
+        // The document records the stored geometry of this page's instances once the loader is released (a record
+        // needs a sync, which reads the loader). Not where the main changed since the file was opened, nor anywhere
+        // once variables or styles changed: the stored geometry was laid out for the values the file had.
+        if designos_doc::layout_inputs_outside_layers_hash(&cx.doc) == self.layout_inputs_at_open {
+            withdraw_stored_layout_requests(&mut cx.doc, Some(&derived_refused));
+        } else {
+            withdraw_stored_layout_requests(&mut cx.doc, None);
+        }
         if cx.next_clone > 1 {
             cx.doc.reserve_ids(NodeId(cx.next_clone - 1));
         }
@@ -5073,7 +5120,7 @@ fn frame_props(v: &Value) -> FrameProps {
         let item_spacing = p("itemSpacing");
         // An absent counter gap on a wrap frame is Figma's "Auto" line gap: it follows the item spacing.
         // An explicit value, zero included, is kept.
-        let counter_spacing = fnum(v, "counterAxisSpacing").unwrap_or(if wrap { item_spacing } else { 0.0 });
+        let counter_spacing = fnum(v, "counterAxisSpacing");
         AutoLayout {
             direction,
             wrap,
@@ -5683,6 +5730,7 @@ mod expand_depth_tests {
             derived_outlines: HashMap::new(),
             swap_mains_of: HashMap::new(),
             self_digests: HashMap::new(),
+            layout_inputs_at_open: 0,
             staged_copies: HashMap::new(),
             page_nodes: HashMap::new(),
             self_weak: std::sync::Weak::new(),
@@ -5733,6 +5781,7 @@ mod expand_depth_tests {
             derived_outlines: HashMap::new(),
             swap_mains_of: HashMap::new(),
             self_digests: HashMap::new(),
+            layout_inputs_at_open: 0,
             staged_copies: HashMap::new(),
             page_nodes: HashMap::new(),
             self_weak: std::sync::Weak::new(),
@@ -5832,6 +5881,7 @@ mod expand_depth_tests {
             derived_outlines: HashMap::new(),
             swap_mains_of: HashMap::new(),
             self_digests: HashMap::new(),
+            layout_inputs_at_open: 0,
             staged_copies: HashMap::new(),
             page_nodes: HashMap::new(),
             self_weak: std::sync::Weak::new(),

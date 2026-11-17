@@ -279,12 +279,12 @@ fn horizontal_and_vertical_spacing_rules_follow_stack_axis() {
     let mut f = fx();
     let h_row = f.frame(f.page, "HRow", None);
     f.doc.get_mut(h_row).unwrap().kind = NodeKind::Frame(FrameProps {
-        auto_layout: Some(AutoLayout { direction: LayoutDirection::Horizontal, item_spacing: 16.0, counter_spacing: 12.0, ..AutoLayout::v1() }),
+        auto_layout: Some(AutoLayout { direction: LayoutDirection::Horizontal, item_spacing: 16.0, counter_spacing: Some(12.0), ..AutoLayout::v1() }),
         ..FrameProps::default()
     });
     let v_col = f.frame(f.page, "VCol", None);
     f.doc.get_mut(v_col).unwrap().kind = NodeKind::Frame(FrameProps {
-        auto_layout: Some(AutoLayout { direction: LayoutDirection::Vertical, item_spacing: 16.0, counter_spacing: 12.0, ..AutoLayout::v1() }),
+        auto_layout: Some(AutoLayout { direction: LayoutDirection::Vertical, item_spacing: 16.0, counter_spacing: Some(12.0), ..AutoLayout::v1() }),
         ..FrameProps::default()
     });
     f.num_var("space/4", 16.0, 16.0, &["GAP"]);

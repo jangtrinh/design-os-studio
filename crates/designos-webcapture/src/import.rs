@@ -569,7 +569,7 @@ fn convert_painted_text_box(
         direction: LayoutDirection::Horizontal,
         wrap: false,
         item_spacing: 4.0,
-        counter_spacing: 0.0,
+        counter_spacing: Some(0.0),
         padding: pad,
         primary_align,
         counter_align: LayoutAlign::Center,
@@ -1029,7 +1029,7 @@ mod tests {
         assert_eq!(nav_al.direction, LayoutDirection::Horizontal);
         assert!(nav_al.wrap);
         assert_eq!(nav_al.item_spacing, 16.0);
-        assert_eq!(nav_al.counter_spacing, 8.0);
+        assert_eq!(nav_al.line_gap(), 8.0);
         assert_eq!(nav_al.padding, [12.0, 16.0, 12.0, 16.0]);
         assert_eq!(nav_al.primary_align, LayoutAlign::SpaceBetween);
         assert_eq!(nav_al.counter_align, LayoutAlign::Center);

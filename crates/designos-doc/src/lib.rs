@@ -28,6 +28,11 @@ mod comments;
 mod component_arc_override_tests;
 #[cfg(test)]
 mod component_cycle_tests;
+mod component_imported_layout;
+mod component_imported_layout_fields;
+#[cfg(test)]
+mod component_imported_layout_fields_tests;
+mod component_imported_layout_sync;
 #[cfg(test)]
 mod component_nested_variant_binding_tests;
 mod component_prop_variables;
@@ -131,6 +136,7 @@ pub use changelog_features::*;
 pub use color_profile::{ColorProfile, SrgbPixelConverter};
 pub use color_space::*;
 pub use comments::*;
+pub use component_imported_layout::{layout_inputs_outside_layers_hash, record_imported_layouts, record_requested_imported_layouts};
 pub use component_prop_variables::*;
 pub use components::*;
 pub use connector_home::*;
@@ -859,8 +865,11 @@ impl Document {
         drop(self.unloaded_pages(loader_at, &*guard));
         let changed = guard.hydrate_page(self, page);
         self.forget_loaded_pages(loader_at, &*guard, [page]);
+        drop(guard);
         if changed {
             self.mark_tree_full_dirty();
+            // A record takes a sync of the instance, which asks the loader: only once it is released.
+            record_requested_imported_layouts(self);
         }
         changed
     }
@@ -896,8 +905,10 @@ impl Document {
         if guard.unexpanded_instances() == 0 && guard.last_error().is_none() && self.unloaded_pages(loader_at, &*guard).is_empty() {
             self.page_hydrator = None;
         }
+        drop(guard);
         if changed {
             self.mark_tree_full_dirty();
+            record_requested_imported_layouts(self);
         }
         changed
     }
