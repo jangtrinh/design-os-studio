@@ -2009,8 +2009,15 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
 
     // Geometry blobs.
     if !matches!(node.kind, NodeKind::Text(_)) {
+        // A vector's own `paths` go out as its fill outline unless they are the stored stroke outline. They are
+        // written anyway when that outline is stale and there is no vector network to rebuild the shape from, or the
+        // reopened layer would have no geometry at all.
         let fill_paths = node.fill_geometry.as_ref().or(match &node.kind {
-            NodeKind::Vector { paths, .. } if !paths.is_empty() && node.stroke_geometry.as_ref() != Some(paths) => Some(paths),
+            NodeKind::Vector { paths, network } if !paths.is_empty() => {
+                let is_stored_outline = node.stroke_geometry.as_ref() == Some(paths);
+                let shape_needs_paths = network.as_ref().is_none_or(|net| net.vertices.is_empty()) && node.live_stroke_outline().is_none();
+                (!is_stored_outline || shape_needs_paths).then_some(paths)
+            }
             _ => None,
         });
         if let Some(paths) = fill_paths {
@@ -3104,7 +3111,8 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                 if n.stroke.miter_limit >= 1.0 {
                     ov.push(("miterLimit", fl(n.stroke.miter_limit)));
                 }
-                if let Some(paths) = &n.stroke_geometry {
+                // Only an outline that still matches the layer's size and stroke, as for a layer outside an instance.
+                if let Some(paths) = n.live_stroke_outline() {
                     let geometry = encode_geometry_blobs(cx, paths);
                     if !geometry.is_empty() {
                         ov.push(("strokeGeometry", V::Array(geometry)));
