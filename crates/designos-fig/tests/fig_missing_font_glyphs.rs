@@ -293,3 +293,33 @@ fn write_the_missing_font_fixture_for_a_screenshot() {
     nodes.push(big((1, 3), "b", "Stand-in font", "Aspect", 24.0, 180.0, V::Array(vec![]), (432.0, 80.0), 64.0));
     std::fs::write(out, fig_file(nodes, vec![square, diamond])).unwrap();
 }
+
+/// A blob of 1,999 bytes: a move and 221 lines, then a close.
+fn long_blob() -> Vec<u8> {
+    let mut b = vec![1];
+    b.extend(0f32.to_le_bytes());
+    b.extend(0f32.to_le_bytes());
+    for i in 0..221 {
+        b.push(2);
+        b.extend((i as f32 / 221.0).to_le_bytes());
+        b.extend(1f32.to_le_bytes());
+    }
+    b.push(0);
+    b
+}
+
+fn text_using_one_blob(times: usize) -> Node {
+    let glyphs: Vec<(u32, f32)> = (0..times).map(|i| (0, i as f32)).collect();
+    let mut nodes = document_and_page();
+    nodes.push(glyph_text((1, 11), (0, 1), "a", "Long", FAMILY, "\u{e900}", &glyphs, vec![]));
+    let doc = import_fig(&fig_file(nodes, vec![long_blob()])).unwrap();
+    doc.nodes.values().find(|n| n.name == "Long").unwrap().clone()
+}
+
+#[test]
+fn a_blob_shared_by_many_glyphs_counts_once_per_glyph_against_the_size_limit() {
+    assert_eq!(long_blob().len(), 1999);
+    // 1,000 uses decode 1,999,000 bytes, under the 2 MB a text may decode; 1,001 uses go over it.
+    assert!(text_using_one_blob(1000).fig_text_geometry.is_some(), "under the limit the saved glyphs are kept");
+    assert!(text_using_one_blob(1001).fig_text_geometry.is_none(), "a shared blob still costs its bytes for every glyph that draws it");
+}

@@ -417,13 +417,14 @@ fn fig_text_geometry(node: &Node, blobs: &[&[u8]], shared: &mut HashMap<usize, A
         };
         let blob_index = usize::try_from(blob_index).ok()?;
         let blob = *blobs.get(blob_index)?;
+        // every glyph decodes its blob into the path, so a shared blob counts once per glyph
+        blob_bytes = blob_bytes.checked_add(blob.len())?;
+        if blob_bytes > 2_000_000 {
+            return None;
+        }
         let slot = match slot_of.get(&blob_index) {
             Some(&slot) => slot,
             None => {
-                blob_bytes = blob_bytes.checked_add(blob.len())?;
-                if blob_bytes > 2_000_000 {
-                    return None;
-                }
                 let slot = u32::try_from(unique.len()).ok()?;
                 unique.push(Arc::clone(shared.entry(blob_index).or_insert_with(|| Arc::from(blob))));
                 slot_of.insert(blob_index, slot);
