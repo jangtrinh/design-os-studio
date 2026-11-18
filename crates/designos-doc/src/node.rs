@@ -1,6 +1,10 @@
 use crate::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
+mod fig_text_geometry;
+pub use fig_text_geometry::FigTextGeometry;
 
 fn default_true() -> bool {
     true
@@ -115,6 +119,10 @@ pub struct Node {
     /// the style leaves these alone; "Reapply text style" clears them.
     #[serde(default, skip_serializing_if = "OwnedFieldSet::is_empty")]
     pub text_style_overrides: OwnedFieldSet,
+    /// Figma's cached glyph outlines for a text layer. Used only while the requested font is
+    /// unavailable and the text/style/size still match the imported layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fig_text_geometry: Option<Arc<FigTextGeometry>>,
     /// Precomputed fill outline in local space (Figma `fillGeometry`). When
     /// present, renderers may use it instead of deriving geometry, e.g. for
     /// boolean operations whose result was computed by Figma.
@@ -222,6 +230,8 @@ struct NodeSer<'a> {
     #[serde(skip_serializing_if = "OwnedFieldSet::is_empty")]
     text_style_overrides: &'a OwnedFieldSet,
     #[serde(skip_serializing_if = "Option::is_none")]
+    fig_text_geometry: &'a Option<Arc<FigTextGeometry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     fill_geometry: &'a Option<Vec<Path>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stroke_geometry: &'a Option<Vec<Path>>,
@@ -281,6 +291,7 @@ impl Serialize for Node {
             mask_type,
             style_refs,
             text_style_overrides,
+            fig_text_geometry,
             fill_geometry,
             stroke_geometry,
             stroke_geometry_for: _,
@@ -322,6 +333,7 @@ impl Serialize for Node {
             mask_type,
             style_refs,
             text_style_overrides,
+            fig_text_geometry,
             fill_geometry,
             stroke_geometry,
             stroke_geometry_for: self.stale_stroke_geometry_stamp(),
@@ -800,6 +812,7 @@ impl Node {
             mask_type: MaskType::default(),
             style_refs: BTreeMap::new(),
             text_style_overrides: OwnedFieldSet::default(),
+            fig_text_geometry: None,
             fill_geometry: None,
             stroke_geometry: None,
             stroke_geometry_for: None,

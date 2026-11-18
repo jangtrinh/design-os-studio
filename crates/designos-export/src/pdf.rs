@@ -1186,7 +1186,7 @@ mod vector_page {
 
         /// Glyph outlines as filled paths, then the invisible text layer.
         fn text(&mut self, n: &Node, tp: &TextProps, alpha: f32) {
-            let out = text::layout(tp, n.size);
+            let Some(out) = text::layout_node(n) else { return };
             for (i, style) in out.styles.iter().enumerate() {
                 let cmds: Vec<PathCmd> =
                     out.lines.iter().flat_map(|l| l.spans.iter().filter(|s| s.style == i)).flat_map(|s| s.outline.iter().copied()).collect();
@@ -1229,8 +1229,9 @@ mod vector_page {
         /// Only the invisible text of a subtree, for flattened pages.
         fn text_layer(&mut self, n: &Node) {
             if let NodeKind::Text(tp) = &n.kind {
-                let out = text::layout(tp, n.size);
-                self.text_runs(&out, tp);
+                if let Some(out) = text::layout_node(n) {
+                    self.text_runs(&out, tp);
+                }
                 return;
             }
             if !draws_children(n) {

@@ -1526,6 +1526,8 @@ impl Engine {
             if !names.is_empty() {
                 obj.insert("text_style_overrides".into(), json!(names));
             }
+            // Figma's cached glyph outlines and blobs are renderer input, not something an agent can act on.
+            obj.remove("fig_text_geometry");
         }
         v
     }

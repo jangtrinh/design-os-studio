@@ -4,7 +4,9 @@
 //! outlined glyph paths.
 
 use designos_doc as d;
-use designos_doc::{PathCmd, TextProps, Vec2};
+use designos_doc::PathCmd;
+#[cfg(test)]
+use designos_doc::{TextProps, Vec2};
 
 /// Kept for API compatibility: fonts registered with `designos_render::register_font` are what
 /// text export lays out with, so there is nothing more to do.
@@ -35,8 +37,18 @@ pub struct TextOut {
 }
 
 /// Lays out `props` in a box of `size`.
+#[cfg(test)]
 pub fn layout(props: &TextProps, size: Vec2) -> TextOut {
-    let o = designos_render::text_runs(props, size);
+    from_runs(designos_render::text_runs(props, size))
+}
+
+/// Lays out a text node like the canvas draws it: with the glyph outlines Figma embedded in the file
+/// while the node's font is not installed. `None` for a node that is not text.
+pub fn layout_node(node: &d::Node) -> Option<TextOut> {
+    designos_render::text_runs_for_node(node).map(from_runs)
+}
+
+fn from_runs(o: designos_render::TextRuns) -> TextOut {
     TextOut {
         styles: o.styles,
         lines: o

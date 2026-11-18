@@ -12,7 +12,8 @@ use crate::testkit::{self, en, figma_like_schema, guid, msg, st};
 use crate::FigError;
 use designos_doc::*;
 use serde_json::json;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::sync::Arc;
 
 mod carrier;
 mod grid;
@@ -253,6 +254,8 @@ struct ExportCtx<'a> {
     fingerprints: crate::component_fingerprint::Fingerprints,
     /// Outline id (see `PendingOutline`) -> its index in `blobs`, so an outline several entries share is stored once.
     shared_blobs: BTreeMap<u64, u32>,
+    /// Glyph command blob (by content) -> its index in `blobs`, so a glyph shared by many texts is stored once.
+    glyph_blob_slots: HashMap<Arc<[u8]>, u32>,
     coll_guids: BTreeMap<String, (u32, u32)>,
     mode_guids: BTreeMap<String, (u32, u32)>,
     var_guids: BTreeMap<String, (u32, u32)>,
@@ -350,6 +353,7 @@ impl<'a> ExportCtx<'a> {
             nodes_by_guid: None,
             fingerprints: Default::default(),
             shared_blobs: BTreeMap::new(),
+            glyph_blob_slots: HashMap::new(),
             coll_guids: BTreeMap::new(),
             mode_guids: BTreeMap::new(),
             var_guids: BTreeMap::new(),
@@ -745,6 +749,16 @@ impl<'a> ExportCtx<'a> {
     fn add_blob(&mut self, bytes: Vec<u8>) -> u32 {
         let idx = self.blobs.len() as u32;
         self.blobs.push(bytes);
+        idx
+    }
+
+    /// The table index of a glyph command blob, writing it the first time its bytes are seen.
+    fn add_glyph_blob(&mut self, blob: &Arc<[u8]>) -> u32 {
+        if let Some(&idx) = self.glyph_blob_slots.get(blob) {
+            return idx;
+        }
+        let idx = self.add_blob(blob.to_vec());
+        self.glyph_blob_slots.insert(Arc::clone(blob), idx);
         idx
     }
 
@@ -1370,6 +1384,22 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
 /// plugin data entry `slot-content-id`) and is never turned into a property assignment.
 fn def_slot_content_id<'a>(link: &'a ComponentLink, prop_name: &str) -> Option<&'a str> {
     link.slot_content_ids.get(prop_name).map(String::as_str)
+}
+
+/// `derivedTextData` of `node` with every glyph's `commandsBlob` pointing into this export's blob table, when
+/// the saved glyphs still describe the text. Each distinct glyph blob is written once however many glyphs, texts
+/// and instances use it.
+fn reindexed_derived_text(cx: &mut ExportCtx, node: &Node) -> Option<(Arc<str>, V)> {
+    let saved = node.fig_text_geometry.as_deref().filter(|saved| saved.matches(node))?;
+    let mut derived: serde_json::Value = serde_json::from_str(node.fig_metadata.get("derivedTextData")?).ok()?;
+    let glyphs = derived.get_mut("glyphs")?.as_array_mut().filter(|g| g.len() == saved.glyph_blobs.len())?;
+    let table: Vec<u32> = saved.blobs.iter().map(|blob| cx.add_glyph_blob(blob)).collect();
+    for (glyph, slot) in glyphs.iter_mut().zip(&saved.glyph_blobs) {
+        if let Some(slot) = slot {
+            glyph["commandsBlob"] = json!(*table.get(usize::try_from(*slot).ok()?)?);
+        }
+    }
+    cx.schema.def_field_from_json(cx.nc_def, "derivedTextData", &derived)
 }
 
 fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibling_idx: usize, parent_dir: Option<LayoutDirection>, in_component: bool) {
@@ -2318,7 +2348,18 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             msg_fields.push(pair);
         }
     }
-    append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, &node.fig_metadata);
+    // The original `commandsBlob` numbers refer to the imported file's blob table. Re-index them into this
+    // export's table before writing derived text. An edited text layer must not export its stale glyph cache.
+    // Only a layer that carries derived text pays for a copy of its metadata.
+    let derived_text_meta = (matches!(&node.kind, NodeKind::Text(_)) && node.fig_metadata.contains_key("derivedTextData")).then(|| {
+        if let Some(pair) = reindexed_derived_text(cx, &node) {
+            msg_fields.push(pair);
+        }
+        let mut meta = node.fig_metadata.clone();
+        meta.remove("derivedTextData");
+        meta
+    });
+    append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, derived_text_meta.as_ref().unwrap_or(&node.fig_metadata));
     cx.changes.push(V::Message(msg_fields));
 
     if let Some((lc, carrier_val)) = lowered_conn {

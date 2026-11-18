@@ -2080,6 +2080,9 @@ impl<'a> Ctx<'a> {
     }
 
     fn finish(&mut self, expand_instances: bool) -> Result<(), FigError> {
+        if !self.blobs.is_empty() {
+            crate::fig::attach_embedded_glyphs(&mut self.doc, self.blobs);
+        }
         let links = std::mem::take(&mut self.instances);
         let mut targets: BTreeMap<NodeId, NodeId> = BTreeMap::new();
         for (inst, cid) in links {

@@ -61,7 +61,7 @@ pub fn text_flatten_runs(doc: &Document, n: &Node) -> Vec<TextVectorRun> {
     let NodeKind::Text(tp) = &resolved.kind else {
         return Vec::new();
     };
-    let tl = crate::text::layout(tp, resolved.size);
+    let Some(tl) = crate::text::layout_node(&resolved) else { return Vec::new() };
     let mut out: Vec<TextVectorRun> = Vec::new();
     for (style_idx, (opt_path, style)) in tl.paths.iter().zip(tl.styles.iter()).enumerate() {
         let Some(sk_path) = opt_path.as_ref() else { continue };
@@ -88,7 +88,7 @@ pub fn text_style_runs(doc: &Document, n: &Node) -> Vec<TextVectorRun> {
     let NodeKind::Text(tp) = &resolved.kind else {
         return Vec::new();
     };
-    let tl = crate::text::layout(tp, resolved.size);
+    let Some(tl) = crate::text::layout_node(&resolved) else { return Vec::new() };
     let mut out = Vec::new();
     for (style_idx, (opt_path, style)) in tl.paths.iter().zip(tl.styles.iter()).enumerate() {
         let Some(sk_path) = opt_path.as_ref() else { continue };

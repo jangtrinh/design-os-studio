@@ -322,7 +322,7 @@ impl Svg<'_> {
                 self.depth += 1;
             }
             match (&n.kind, &geo) {
-                (NodeKind::Text(t), _) => self.text_node(n, t),
+                (NodeKind::Text(_), _) => self.text_node(n),
                 (_, Some(g)) => {
                     self.fills(n, g, as_mask);
                     if !as_mask && g.mask.is_none() {
@@ -979,8 +979,8 @@ impl Svg<'_> {
 
     // ---- text ---------------------------------------------------------------
 
-    fn text_node(&mut self, n: &Node, t: &TextProps) {
-        let out = text::layout(t, n.size);
+    fn text_node(&mut self, n: &Node) {
+        let Some(out) = text::layout_node(n) else { return };
         if self.opts.outline_text {
             for (i, style) in out.styles.iter().enumerate() {
                 let mut cmds = Vec::new();

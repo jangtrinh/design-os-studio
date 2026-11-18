@@ -11,9 +11,10 @@ use crate::kiwi::{self, KiwiValue, Schema};
 use crate::rest_import::{self, fnum, fstr};
 use crate::svgpath::write_path;
 use crate::FigError;
-use designos_doc::{Affine, Document, FillRule, Path, PathCmd, Vec2};
+use designos_doc::{Affine, Document, FigTextGeometry, FillRule, Node, NodeKind, Path, PathCmd, Vec2};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 struct Decoded {
     archive: Archive,
@@ -358,6 +359,107 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
         release_os_memory();
     }
     Ok((doc, report))
+}
+
+/// Keeps Figma's embedded glyph outlines on every single-style text layer of `doc` that carries them. Runs on
+/// the importer's nodes before instances are expanded, so a copy of a component's text starts with the glyphs of
+/// the component's own text: an instance that changes the characters or the style then no longer matches them.
+pub(crate) fn attach_embedded_glyphs(doc: &mut Document, blobs: &[&[u8]]) {
+    let mut shared: HashMap<usize, Arc<[u8]>> = HashMap::new();
+    for node in doc.nodes.values_mut() {
+        if matches!(node.kind, NodeKind::Text(_)) && node.fig_metadata.contains_key("derivedTextData") {
+            node.fig_text_geometry = fig_text_geometry(node, blobs, &mut shared).map(Arc::new);
+        }
+    }
+}
+
+/// Figma stores each shaped glyph's path in a blob, in font-em coordinates
+/// with the y axis pointing up. Keep its exact local outline for missing-font
+/// display; the editable text remains the source of truth after an edit.
+///
+/// `shared` holds each file blob once for the whole import: Figma shares one blob between every
+/// occurrence of a glyph, and so do the geometries built from it.
+fn fig_text_geometry(node: &Node, blobs: &[&[u8]], shared: &mut HashMap<usize, Arc<[u8]>>) -> Option<FigTextGeometry> {
+    let NodeKind::Text(text) = &node.kind else { return None };
+    if text.content.is_empty() || !text.runs.is_empty() {
+        return None;
+    }
+    let raw = node.fig_metadata.get("derivedTextData")?;
+    let derived: Value = serde_json::from_str(raw).ok()?;
+    let size = derived.get("layoutSize")?;
+    if (fnum(size, "x")? - node.size.x).abs() > 0.1 || (fnum(size, "y")? - node.size.y).abs() > 0.1 {
+        return None;
+    }
+    let fonts = derived.get("fontMetaData")?.as_array()?;
+    if fonts.len() != 1 || fstr(fonts.first()?.get("key")?, "family")?.to_lowercase() != text.style.font_family.to_lowercase() {
+        return None;
+    }
+    let glyphs = derived.get("glyphs")?.as_array()?;
+    if glyphs.is_empty() || glyphs.len() > 4096 {
+        return None;
+    }
+    let mut path = Path { cmds: Vec::new(), fill_rule: FillRule::NonZero };
+    let mut unique: Vec<Arc<[u8]>> = Vec::new();
+    let mut slot_of: HashMap<usize, u32> = HashMap::new();
+    let mut glyph_blobs = Vec::with_capacity(glyphs.len());
+    let mut blob_bytes = 0usize;
+    for glyph in glyphs {
+        let scale = fnum(glyph, "fontSize")?;
+        let pos = glyph.get("position")?;
+        let x = fnum(pos, "x")?;
+        let y = fnum(pos, "y")?;
+        if !scale.is_finite() || scale <= 0.0 || !x.is_finite() || !y.is_finite() || fnum(glyph, "rotation").unwrap_or(0.0).abs() > 1e-5 {
+            return None;
+        }
+        let Some(blob_index) = glyph.get("commandsBlob").and_then(Value::as_u64) else {
+            glyph_blobs.push(None);
+            continue;
+        };
+        let blob_index = usize::try_from(blob_index).ok()?;
+        let blob = *blobs.get(blob_index)?;
+        // every glyph decodes its blob into the path, so a shared blob counts once per glyph
+        blob_bytes = blob_bytes.checked_add(blob.len())?;
+        if blob_bytes > 2_000_000 {
+            return None;
+        }
+        let slot = match slot_of.get(&blob_index) {
+            Some(&slot) => slot,
+            None => {
+                let slot = u32::try_from(unique.len()).ok()?;
+                unique.push(Arc::clone(shared.entry(blob_index).or_insert_with(|| Arc::from(blob))));
+                slot_of.insert(blob_index, slot);
+                slot
+            }
+        };
+        glyph_blobs.push(Some(slot));
+        let mut glyph_path = commands_blob_to_path(blob, false);
+        let mut finite = true;
+        for cmd in &mut glyph_path.cmds {
+            let mut point = |p: &mut Vec2| {
+                p.x = x + p.x * scale;
+                p.y = y - p.y * scale;
+                finite &= p.x.is_finite() && p.y.is_finite();
+            };
+            match cmd {
+                PathCmd::MoveTo(p) | PathCmd::LineTo(p) => point(p),
+                PathCmd::QuadTo(a, b) => {
+                    point(a);
+                    point(b);
+                }
+                PathCmd::CubicTo(a, b, c) => {
+                    point(a);
+                    point(b);
+                    point(c);
+                }
+                PathCmd::Close => {}
+            }
+        }
+        if !finite {
+            return None;
+        }
+        path.cmds.extend(glyph_path.cmds);
+    }
+    (!path.cmds.is_empty()).then(|| FigTextGeometry { text: text.clone(), size: node.size, path, blobs: unique, glyph_blobs })
 }
 
 /// How many `VARIABLE_OVERRIDE` nodes (node type 35) `entries` hold. The importer reads none of them: the field layout
