@@ -90,3 +90,26 @@ fn deleting_the_first_layer_of_a_group_outside_auto_layout_keeps_the_other_layer
     app.undo();
     assert_eq!(stored(&app), before);
 }
+
+/// The agent side deletes the layer and the open editor replays the patch: both documents end with the same group
+/// bounds and the same flow around it, because the editor's replay is a history step that refits the group too.
+#[test]
+fn an_agent_delete_inside_a_group_reaches_the_editor_with_the_same_layout() {
+    use designos_doc::live_patch::{live_ops_for_command, LivePatch};
+    use designos_doc::{Command, History};
+
+    let Fixture { mut app, group, a, tail, .. } = fixture(true);
+    let mut agent_doc = app.doc.clone();
+    let cmd = Command::Remove { id: a };
+    let ops = live_ops_for_command(&agent_doc, &cmd).expect("the delete can be mirrored");
+    let patch: LivePatch = serde_json::from_str(&serde_json::to_string(&LivePatch::new(ops)).unwrap()).unwrap();
+    History::default().exec_agent(&mut agent_doc, cmd).expect("the agent applies it");
+    assert_eq!(agent_doc.get(group).unwrap().size.x, 40.0, "precondition: the agent side refit the group");
+
+    crate::live_patch_apply::apply_live_patches(&mut app, &[patch]);
+
+    let editor: Vec<_> = stored(&app);
+    let agent: Vec<_> = agent_doc.nodes.values().map(|n| (n.id, [n.transform.tx, n.transform.ty, n.size.x, n.size.y])).collect();
+    assert_eq!(editor, agent);
+    assert_eq!(app.doc.get(tail).unwrap().transform.ty, 20.0);
+}

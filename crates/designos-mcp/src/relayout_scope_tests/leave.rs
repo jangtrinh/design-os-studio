@@ -498,3 +498,23 @@ fn undoing_the_delete_of_the_first_layer_of_a_group_restores_both_page_positions
     assert_eq!(page_x(&e, a), a_before, "the restored layer is back");
     assert_eq!(page_x(&e, b), b_before, "and so is the one that stayed");
 }
+
+/// A batch that deletes the layer at the group's origin and edits the one next to it commits what its trial copy holds:
+/// the committed hash is checked inside `designos_apply_batch`, and the layer that is left is not moved a second time.
+#[test]
+fn a_batch_that_deletes_the_first_layer_of_a_group_and_edits_the_next_matches_its_trial() {
+    let Holder { mut e, holder, b, tail, .. } = holder_with(NodeKind::Group, Rect::new(0.0, 0.0, 80.0, 20.0));
+    e.doc.get_mut(b).unwrap().transform.tx = 40.0;
+    let a = e.doc.get(holder).unwrap().children[0];
+    let stored = geometry(&e.doc);
+
+    e.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": a.0 }, { "op": "update", "node": b.0, "fill": "#ff0000" }] })).unwrap();
+
+    assert_eq!(e.doc.get(holder).unwrap().size.x, 40.0, "the group fits the layer that is left");
+    assert_eq!(page_x(&e, b), 0.0, "the layer moved with its group once, as for a delete alone");
+    assert_eq!(ty(&e, tail), 20.0);
+    assert!(e.doc.get(a).is_none());
+
+    e.call("designos_undo", json!({})).unwrap();
+    assert_eq!(geometry(&e.doc), stored, "undo puts every layer back where the document stored it");
+}
