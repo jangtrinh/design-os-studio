@@ -366,3 +366,33 @@ fn a_child_past_an_unclipped_frames_box_still_reaches_further() {
     let (d, f) = holder_with_frame(false, false, Some(150.0));
     assert_eq!(size(render_bounds(&d, f)), (470.0, 100.0));
 }
+
+// ---- float noise ----------------------------------------------------------------------------------
+
+#[test]
+fn noise_far_below_a_pixel_does_not_add_a_pixel_to_the_export() {
+    // A layout that ends a hair past a whole pixel (the kit's Dashboards ends at 1524.0002) must not export
+    // one pixel wider, and a hair before the origin must not move it.
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let rid = d.alloc_id();
+    let root = d.insert(page, Node::frame(rid, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+    let cid = d.alloc_id();
+    d.insert(root, Node::rectangle(cid, Rect::new(-0.0003, 60.0, 100.0006, 50.0002))).unwrap();
+    let b = render_bounds(&d, root);
+    assert_eq!((b.x, b.y, b.w, b.h), (0.0, 0.0, 100.0, 110.0));
+    assert_eq!(png_size(&d, root), (100, 110));
+    let svg = export_svg(&d, root, &SvgOptions::default());
+    assert!(svg.contains("viewBox=\"0 0 100 110\""), "{svg}");
+}
+
+#[test]
+fn a_real_fraction_still_rounds_up() {
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let rid = d.alloc_id();
+    let root = d.insert(page, Node::frame(rid, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+    let cid = d.alloc_id();
+    d.insert(root, Node::rectangle(cid, Rect::new(0.0, 60.0, 100.5, 50.0))).unwrap();
+    assert_eq!(png_size(&d, root), (101, 110));
+}
