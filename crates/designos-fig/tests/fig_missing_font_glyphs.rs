@@ -229,3 +229,67 @@ fn styled_text_keeps_its_glyphs_through_the_rest_of_the_import() {
     let copy = child_text(&doc, "Plain copy");
     assert!(draws_saved_triangle(copy), "a copy that overrides nothing draws the component's glyphs");
 }
+
+/// Writes a small `.fig` for looking at the result on screen: a card with Figma's saved glyphs for a font that is
+/// not installed, above the same family laid out by the stand-in font. Run with
+/// `DESIGNOS_MISSING_FONT_FIXTURE=<out.fig> cargo test -p designos-fig --test fig_missing_font_glyphs -- --ignored`.
+#[test]
+#[ignore = "writes a fixture for the screenshot check"]
+fn write_the_missing_font_fixture_for_a_screenshot() {
+    let Ok(out) = std::env::var("DESIGNOS_MISSING_FONT_FIXTURE") else { panic!("set DESIGNOS_MISSING_FONT_FIXTURE to the output path") };
+    // M(0,0) L(1,0) L(1,1) L(0,1) Z in em space, and a diamond.
+    let blob = |pts: &[(f32, f32)]| {
+        let mut b = Vec::new();
+        for (i, (x, y)) in pts.iter().enumerate() {
+            b.push(if i == 0 { 1 } else { 2 });
+            b.extend(x.to_le_bytes());
+            b.extend(y.to_le_bytes());
+        }
+        b.push(0);
+        b
+    };
+    let square = blob(&[(0.1, 0.0), (0.9, 0.0), (0.9, 0.8), (0.1, 0.8)]);
+    let diamond = blob(&[(0.5, 0.0), (1.0, 0.4), (0.5, 0.8), (0.0, 0.4)]);
+    let mut nodes = document_and_page();
+    nodes.push(node(
+        (1, 1),
+        (0, 1),
+        "a",
+        "FRAME",
+        "Card",
+        vec![("size", vec2(480.0, 300.0)), ("fillPaints", V::Array(vec![designos_fig::testkit::solid(1.0, 1.0, 1.0)])), ("frameMaskDisabled", V::Bool(false))],
+    ));
+    let big = |id: (u32, u32), pos: &str, name: &str, chars: &str, x: f32, y: f32, glyphs: V, size: (f32, f32), font_size: f32| {
+        let mut fields = vec![
+            ("transform", designos_fig::testkit::matrix(x, y)),
+            ("size", vec2(size.0, size.1)),
+            ("fontSize", fl(font_size)),
+            ("fontName", font_key(FAMILY)),
+            ("fillPaints", V::Array(vec![designos_fig::testkit::solid(0.1, 0.2, 0.6)])),
+            ("textData", msg(vec![("characters", V::String(chars.into()))])),
+        ];
+        if let V::Array(g) = &glyphs {
+            if !g.is_empty() {
+                fields.push((
+                    "derivedTextData",
+                    msg(vec![("layoutSize", vec2(size.0, size.1)), ("fontMetaData", V::Array(vec![msg(vec![("key", font_key(FAMILY))])])), ("glyphs", glyphs)]),
+                ));
+            }
+        }
+        node(id, (1, 1), pos, "TEXT", name, fields)
+    };
+    let glyph = |blob: u32, x: f32| msg(vec![("commandsBlob", V::Uint(blob)), ("position", vec2(x, 130.0)), ("fontSize", fl(130.0))]);
+    nodes.push(big(
+        (1, 2),
+        "a",
+        "Saved glyphs",
+        "\u{e900}\u{e901}\u{e900}",
+        24.0,
+        16.0,
+        V::Array(vec![glyph(0, 0.0), glyph(1, 130.0), glyph(0, 260.0)]),
+        (390.0, 130.0),
+        130.0,
+    ));
+    nodes.push(big((1, 3), "b", "Stand-in font", "Aspect", 24.0, 180.0, V::Array(vec![]), (432.0, 80.0), 64.0));
+    std::fs::write(out, fig_file(nodes, vec![square, diamond])).unwrap();
+}
