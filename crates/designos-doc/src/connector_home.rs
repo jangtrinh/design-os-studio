@@ -1,7 +1,7 @@
 //! Connectable-layer eligibility, home-container resolution and default ink for connectors.
 
 use crate::lint::rules::contrast::contrast_ratio;
-use crate::{Color, Document, DocumentKind, Node, NodeId, NodeKind, PaintKind};
+use crate::{Color, Document, DocumentKind, NodeId, NodeKind, PaintKind};
 
 fn strict_ancestors(doc: &Document, id: NodeId) -> Vec<NodeId> {
     let mut out = Vec::new();
@@ -104,60 +104,110 @@ pub fn connector_home(doc: &Document, a: Option<NodeId>, b: Option<NodeId>, page
 /// Contrast a connector needs against the surface it is drawn on.
 const CONNECTOR_INK_MIN_CONTRAST: f64 = 3.0;
 
-/// A fill must keep at least this much of its colour (colour alpha x paint opacity) to count as
-/// the surface behind a connector. The layer opacity of the layer that holds the fill is not
-/// counted: the connector sits inside that layer, so it fades the line and the fill together.
-const SURFACE_MIN_ALPHA: f32 = 0.5;
-
 /// Default ink of a connector on a light surface: the ink [`Node::connector`] is created with.
 fn connector_ink_on_light() -> Color {
     Color::rgb(0x1E, 0x1E, 0x1E)
 }
 
-/// The colour `n` paints as a surface: its topmost visible solid fill that keeps at least
-/// [`SURFACE_MIN_ALPHA`] of its colour. Images, gradients and faint fills are not a surface.
-fn opaque_solid_fill(n: &Node) -> Option<Color> {
-    n.fills.iter().rev().filter(|p| p.visible).find_map(|p| match p.kind {
-        PaintKind::Solid(c) if c.a * p.opacity >= SURFACE_MIN_ALPHA => Some(c),
-        _ => None,
-    })
+/// A paint must keep at least this much of its colour (colour alpha x paint opacity) to count as
+/// part of the surface behind a connector. The layer opacity of the layer that holds the fill is not
+/// counted: the connector sits inside that layer, so it fades the line and the fill together.
+const SURFACE_MIN_ALPHA: f32 = 0.35;
+
+/// The mean colour and effective alpha of a paint, or `None` when it is not a usable surface. This
+/// is a small estimator, not a renderer: connector ink is chosen once when a connector is created,
+/// and a gradient is read as the mean of its stops because the connector's geometry is not known yet.
+fn paint_surface(doc: &Document, paint: &crate::Paint) -> Option<(Color, f32)> {
+    // The connector decision runs in the document crate, before a renderer is
+    // available.  Keep the estimator honest for blend modes whose result
+    // depends on the destination: skipping them falls back to the next known
+    // surface instead of silently treating Screen/Multiply as Normal.
+    if !matches!(paint.blend, crate::BlendMode::Normal | crate::BlendMode::PassThrough) {
+        return None;
+    }
+    let (color, alpha) = match &paint.kind {
+        PaintKind::Solid(c) => (*c, c.a * paint.opacity),
+        PaintKind::LinearGradient { stops, .. }
+        | PaintKind::RadialGradient { stops, .. }
+        | PaintKind::AngularGradient { stops, .. }
+        | PaintKind::DiamondGradient { stops, .. } => {
+            if stops.is_empty() {
+                return None;
+            }
+            let count = stops.len() as f32;
+            let mut color = Color::TRANSPARENT;
+            for stop in stops {
+                color.r += stop.color.r / count;
+                color.g += stop.color.g / count;
+                color.b += stop.color.b / count;
+                color.a += stop.color.a / count;
+            }
+            (color, color.a * paint.opacity)
+        }
+        // Images are read through a caller-supplied sampler; see the next change.
+        PaintKind::Image { .. } | PaintKind::Shader(_) => return None,
+    };
+    (alpha >= SURFACE_MIN_ALPHA).then_some((Color { a: 1.0, ..color }, alpha.clamp(0.0, 1.0)))
 }
 
-/// The surface a connector homed in `home` is drawn on: the nearest ancestor of the connector,
-/// from `home` upward, with a mostly opaque solid fill, else the page background.
+fn paint_over(top: (Color, f32), below: Color) -> Color {
+    let (top, alpha) = top;
+    Color { r: top.r * alpha + below.r * (1.0 - alpha), g: top.g * alpha + below.g * (1.0 - alpha), b: top.b * alpha + below.b * (1.0 - alpha), a: 1.0 }
+}
+
+/// The surface a connector homed in `home` is drawn on. Visible solid and gradient paints are
+/// composited from the page toward the connector; a translucent paint therefore affects the
+/// contrast check without hiding the surface underneath it. Unsupported blend modes, images and
+/// shaders are skipped explicitly and fall back to the next known surface.
 fn surface_behind(doc: &Document, home: NodeId) -> Option<Color> {
-    let mut cur = Some(home);
-    for _ in 0..=doc.nodes.len() {
-        let n = doc.get(cur?)?;
-        if let NodeKind::Page { background } = &n.kind {
-            return Some(*background);
+    let mut ancestors = strict_ancestors(doc, home);
+    ancestors.reverse();
+    ancestors.push(home);
+    let page = ancestors.iter().find_map(|id| match &doc.get(*id)?.kind {
+        NodeKind::Page { background } => Some(*background),
+        _ => None,
+    })?;
+    let mut surface = page;
+    for id in ancestors {
+        let Some(n) = doc.get(id) else { continue };
+        if matches!(n.kind, NodeKind::Page { .. }) {
+            continue;
         }
-        if let Some(c) = opaque_solid_fill(n) {
-            return Some(c);
+        for paint in n.fills.iter().filter(|p| p.visible) {
+            if let Some(surface_paint) = paint_surface(doc, paint) {
+                surface = paint_over(surface_paint, surface);
+            }
         }
-        cur = n.parent;
     }
-    None
+    Some(surface)
 }
 
 /// The ink of a new connector homed in `home` when nobody picked one: the dark board ink, or
 /// white when that ink would fall below 3:1 contrast against the surface behind the connector (a
-/// dark page, or a dark screen). See [`connector_ink_on`].
+/// dark page, a dark screen or a dark gradient). See [`connector_ink_on`].
 pub fn default_connector_ink(doc: &Document, home: NodeId) -> Color {
     connector_ink_on(doc, home, connector_ink_on_light(), Color::WHITE)
 }
 
 /// Picks `on_light`, or `on_dark` when `on_light` would fall below 3:1 contrast against the
-/// surface a connector homed in `home` is drawn on: the nearest ancestor of the connector, from
-/// `home` upward, with a mostly opaque solid fill, else the page background. A board file is drawn
-/// on its own light canvas, so it always gets `on_light`.
+/// surface a connector homed in `home` is drawn on and `on_dark` reads better there. The surface is
+/// the page background with the visible fills of the connector's ancestors painted over it, from the
+/// page down to `home`. A board file is drawn on its own light canvas, so it always gets `on_light`.
 pub fn connector_ink_on(doc: &Document, home: NodeId, on_light: Color, on_dark: Color) -> Color {
     if doc.kind == DocumentKind::Board {
         return on_light;
     }
     match surface_behind(doc, home) {
-        Some(surface) if contrast_ratio(on_light, surface) < CONNECTOR_INK_MIN_CONTRAST => on_dark,
-        _ => on_light,
+        Some(surface) => {
+            let light_ratio = contrast_ratio(on_light, surface);
+            let dark_ratio = contrast_ratio(on_dark, surface);
+            if light_ratio >= CONNECTOR_INK_MIN_CONTRAST || light_ratio >= dark_ratio {
+                on_light
+            } else {
+                on_dark
+            }
+        }
+        None => on_light,
     }
 }
 
@@ -466,7 +516,32 @@ mod tests {
             blend: crate::BlendMode::Normal,
         };
         doc.get_mut(wrapper).expect("wrapper").fills = vec![gradient];
-        assert_eq!(default_connector_ink(&doc, wrapper), dark, "a gradient is not a solid surface");
+        assert_eq!(default_connector_ink(&doc, wrapper), dark, "an empty gradient is not a surface");
+    }
+
+    #[test]
+    fn connector_ink_reads_gradient_mean_and_blends_translucent_fills() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (screen, wrapper) = make_screen_with_wrapper(&mut doc, page);
+        let gradient = Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [crate::Vec2::new(0.0, 0.5), crate::Vec2::new(1.0, 0.5), crate::Vec2::new(0.0, 1.0)],
+                stops: vec![crate::GradientStop { pos: 0.0, color: Color::BLACK }, crate::GradientStop { pos: 1.0, color: Color::BLACK }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: crate::BlendMode::Normal,
+        };
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![gradient];
+        assert_eq!(default_connector_ink(&doc, wrapper), Color::WHITE, "a dark gradient is a dark surface");
+
+        let mut translucent = Paint::solid(Color::WHITE);
+        translucent.opacity = 0.45;
+        doc.get_mut(screen).expect("screen").fills.clear();
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![translucent];
+        let chosen = default_connector_ink(&doc, wrapper);
+        assert_eq!(chosen, Color::rgb(0x1E, 0x1E, 0x1E), "the translucent white paint must be blended over the dark page");
     }
 
     #[test]
@@ -490,6 +565,18 @@ mod tests {
         let screen = make_frame(&mut doc, page, "Screen");
         doc.get_mut(screen).expect("screen").fills = vec![Paint::solid(Color::WHITE), Paint::solid(Color::BLACK)];
         assert_eq!(default_connector_ink(&doc, screen), Color::WHITE, "black is painted over white");
+    }
+
+    #[test]
+    fn connector_ink_skips_blend_modes_without_a_destination_model() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (screen, wrapper) = make_screen_with_wrapper(&mut doc, page);
+        let mut multiply = Paint::solid(Color::BLACK);
+        multiply.blend = crate::BlendMode::Multiply;
+        doc.get_mut(screen).expect("screen").fills = vec![Paint::solid(Color::WHITE)];
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![multiply];
+        assert_eq!(default_connector_ink(&doc, wrapper), Color::rgb(0x1E, 0x1E, 0x1E), "unsupported blend modes fall back to the known underlying surface");
     }
 
     #[test]
