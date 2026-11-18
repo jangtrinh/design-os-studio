@@ -122,3 +122,20 @@ fn text_counts_a_baseline_off_the_stored_one() {
     assert_eq!(text::part(&[studio(0.0)], 0, &doc, &keys).bucket("total")[0], t(1, 1), "Figma's lines are Studio's");
     assert_eq!(text::part(&[studio(3.0)], 0, &doc, &keys).bucket("total")[0], t(0, 1), "a baseline 3 px lower");
 }
+
+#[test]
+fn regressions_list_a_visible_item_that_matched_before_and_fails_now() {
+    use super::board::{part_json, regressions, Part};
+    let mut before = Part::new("auto_layout", "Auto layout", "rule");
+    before.record("1:2".into(), false, true, &["total".into()]);
+    before.record("1:3".into(), false, true, &["total".into()]);
+    before.record("1:4".into(), true, true, &["total".into()]);
+    let prev = serde_json::json!({ "parts": [part_json(&before)] });
+    let mut now = Part::new("auto_layout", "Auto layout", "rule");
+    now.record("1:2".into(), false, false, &["total".into()]);
+    now.record("1:3".into(), false, true, &["total".into()]);
+    now.record("1:4".into(), true, false, &["total".into()]);
+    now.record("1:5".into(), false, false, &["total".into()]);
+    let r = regressions(&[now], &prev);
+    assert_eq!(r.get("auto_layout"), Some(&vec!["1:2".to_string()]), "only the visible item that matched before");
+}
