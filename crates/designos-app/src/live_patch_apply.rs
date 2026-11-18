@@ -519,14 +519,69 @@ fn collect_command_node_ids(cmd: &designos_doc::Command, out: &mut Vec<u64>) {
     }
 }
 
+/// The containers whose children `cmd` adds, removes or moves between, read before it is applied (the old parent of a
+/// removed or moved layer is still there to read). A connector is not a layout input of the frame that holds it.
+fn collect_structural_parents(doc: &Document, cmd: &designos_doc::Command, out: &mut Vec<NodeId>) {
+    use designos_doc::Command;
+    let is_connector = |id: NodeId| doc.get(id).is_some_and(|n| matches!(n.kind, designos_doc::NodeKind::Connector(_)));
+    let mut push = |id: NodeId| {
+        if !out.contains(&id) {
+            out.push(id);
+        }
+    };
+    match cmd {
+        Command::Insert { parent, nodes, .. } => {
+            if !nodes.first().is_some_and(|n| matches!(n.kind, designos_doc::NodeKind::Connector(_))) {
+                push(*parent);
+            }
+        }
+        Command::Remove { id } if !is_connector(*id) => {
+            if let Some(parent) = doc.get(*id).and_then(|n| n.parent) {
+                push(parent);
+            }
+        }
+        Command::Reparent { id, parent, .. } if !is_connector(*id) => {
+            if let Some(old) = doc.get(*id).and_then(|n| n.parent) {
+                push(old);
+            }
+            push(*parent);
+        }
+        Command::Batch(cmds) => {
+            let mut inner = Vec::new();
+            cmds.iter().for_each(|c| collect_structural_parents(doc, c, &mut inner));
+            inner.into_iter().for_each(push);
+        }
+        _ => {}
+    }
+}
+
+/// Refits every group on the chain above each of `parents` (and the parent itself) with the editor's own group fit,
+/// through `ed` so the writes are part of the transaction.
+fn refit_groups_above(doc: &mut Document, ed: &mut crate::edit::Edit, parents: &[NodeId]) {
+    let cap = doc.nodes.len();
+    for &start in parents {
+        let mut cur = Some(start);
+        let mut steps = 0usize;
+        while let Some(id) = cur.filter(|_| steps < cap) {
+            steps += 1;
+            if doc.get(id).is_some_and(|n| matches!(n.kind, designos_doc::NodeKind::Group)) {
+                crate::layout::fit_group(doc, ed, id);
+            }
+            cur = doc.get(id).and_then(|n| n.parent);
+        }
+    }
+}
+
 fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(LivePatchReport, bool), String> {
     let saved = app.terminal.live_patch.state.clone();
     let (pre_names, pre_fps) = crate::agent_turn_ledger::snapshot_pre_step(&app.doc, patch);
     let saved_in_progress = app.doc.in_progress.clone();
     let mut tx = Tx::new();
     let mut touched_ids = Vec::new();
+    let mut structural_parents = Vec::new();
     let replayed = replay_live_patch(&mut app.doc, patch, &mut app.terminal.live_patch.state, &mut |doc, cmd| {
         collect_command_node_ids(&cmd, &mut touched_ids);
+        collect_structural_parents(doc, &cmd, &mut structural_parents);
         tx.cmd(doc, cmd)
     });
     let mut report = match replayed {
@@ -537,6 +592,9 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
             return Err(e.to_string());
         }
     };
+    // The groups the patch's layers were added to, removed from or moved between are refitted inside this step, as the
+    // agent side does (see `History::exec`), so the step's undo puts them back exactly.
+    refit_groups_above(&mut app.doc, &mut tx.ed, &structural_parents);
     let post_replay_in_progress = app.doc.in_progress.clone();
     let mut solved_before_commit = false;
     let has_connectors = !touched_ids.is_empty() && designos_doc::with_index(&app.doc, |idx| !idx.is_empty());
