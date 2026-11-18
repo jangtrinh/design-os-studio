@@ -1419,7 +1419,7 @@ impl Engine {
     /// for what it wrote.
     pub(crate) fn relayout_seeds(&mut self, leaves: &[NodeId], containers: &[NodeId]) {
         let ep = self.doc.mutation_epoch();
-        crate::tools::batch::relayout_seeds(&mut self.doc, leaves, containers);
+        self.solve_after_step(|doc| crate::tools::batch::relayout_seeds(doc, leaves, containers));
         if self.doc.mutation_epoch() != ep && designos_doc::with_index(&self.doc, |idx| !idx.is_empty()) {
             let mut dirty = Vec::new();
             let mut removed = Vec::new();
@@ -1506,6 +1506,16 @@ impl Engine {
             self.doc.walk(root, |n, _| scope.push(n.id));
         }
         scope
+    }
+
+    /// Runs a solve that follows the step just committed. The step already holds the layout its own command caused;
+    /// when this solve reaches a node that command did not, its write is in no step, so the last step stops
+    /// counting as layout-recorded and undo solves again.
+    pub(crate) fn solve_after_step(&mut self, solve: impl FnOnce(&mut Document)) {
+        let ((), written) = self.doc.record_node_writes(solve);
+        if written.iter().any(|(id, before)| self.doc.get(*id) != Some(before)) {
+            self.history.forget_last_layout_recorded();
+        }
     }
 
     /// Finishes any auto-layout the document still has deferred. Callers that serialize or
@@ -1672,10 +1682,12 @@ impl Engine {
             };
             cmds.extend(reroute_parts);
             let combined = if cmds.len() == 1 { cmds.pop().unwrap() } else { Command::Batch(cmds) };
-            self.history.exec_labeled(&mut self.doc, combined, label).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+            // The folded step holds the geometry the re-route planned and the layout of the step it joins; a
+            // solve of its own would put a flow-child connector back in its slot (see `reroute_after_batch_layout`).
+            self.history.exec_laid_out(&mut self.doc, combined, label).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
         } else {
             let cmd = if reroute_parts.len() == 1 { reroute_parts.pop().unwrap() } else { Command::Batch(reroute_parts) };
-            self.history.exec(&mut self.doc, cmd).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+            self.history.exec_laid_out(&mut self.doc, cmd, None).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
         }
         self.record(ops);
         Ok(true)

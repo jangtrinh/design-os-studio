@@ -633,7 +633,8 @@ fn reroute_into_last_step(app: &mut App, written: &[NodeId], touched_ids: &mut V
         other => vec![other],
     };
     commands.extend(updates);
-    app.hist.exec_labeled(&mut app.doc, designos_doc::Command::Batch(commands), label).map_err(|e| e.to_string())?;
+    // The step already holds its layout, and a solve here would put a flow-child connector back in its slot.
+    app.hist.exec_laid_out(&mut app.doc, designos_doc::Command::Batch(commands), label).map_err(|e| e.to_string())?;
     app.hist.mark_last_undo_as_agent();
     Ok(())
 }

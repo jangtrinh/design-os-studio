@@ -428,7 +428,8 @@ impl Tx {
         let cmd = if all.len() == 1 { all.pop().unwrap() } else { Command::Batch(all) };
         // Edits to a main component also update its instances, in the same undo step.
         let cmd = crate::comp_ops::with_sync(doc, cmd);
-        hist.exec_labeled(doc, cmd, label)?;
+        // The updates above hold every layout write the edit made: a solve inside the step would write outside them.
+        hist.exec_laid_out(doc, cmd, label)?;
         hist.mark_last_undo_as_user();
         self.ed.before.retain(|id, _| doc.get(*id).is_some());
         Ok((true, self.ed.before))

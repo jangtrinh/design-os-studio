@@ -341,6 +341,10 @@ pub struct Document {
     /// Count of layout writes made to this document outside any history step; see [`Self::layout_epoch`].
     #[serde(skip)]
     layout_epoch: u64,
+    /// While a recorder is open (see [`Self::record_node_writes`]): each node written through [`Self::get_mut`], as it
+    /// was before its first write. Runtime only; a clone starts without one.
+    #[serde(skip)]
+    write_log: Option<BTreeMap<NodeId, Node>>,
     /// Optional on-demand hydrator that expands deferred component instances on inactive pages when switched to or exported.
     #[serde(skip)]
     pub page_hydrator: Option<std::sync::Arc<std::sync::Mutex<dyn PageHydrator>>>,
@@ -846,6 +850,7 @@ impl Document {
             dirty: self.dirty.clone(),
             pending_relayout: self.pending_relayout.clone(),
             layout_epoch: self.layout_epoch,
+            write_log: None,
             page_hydrator: self.page_hydrator.clone(),
             deferred: self.deferred.clone(),
             derived_id: DerivedId::default(),
@@ -1379,8 +1384,27 @@ impl Document {
     pub fn get_mut(&mut self, id: NodeId) -> Option<&mut Node> {
         if self.nodes.contains_key(&id) {
             self.mark_node_dirty(id);
+            if let (Some(log), Some(node)) = (self.write_log.as_mut(), self.nodes.get(&id)) {
+                log.entry(id).or_insert_with(|| node.clone());
+            }
         }
         self.nodes.get_mut(&id)
+    }
+
+    /// Runs `f` and returns what it wrote to nodes through [`Self::get_mut`], each as it was before its first write
+    /// (a write that put the old value back is still listed; compare with the node to tell). The layout solver
+    /// writes only through `get_mut`, so a history step can put back exactly what a solve changed. A recorder
+    /// opened inside another also reports to it.
+    pub fn record_node_writes<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> (R, BTreeMap<NodeId, Node>) {
+        let outer = self.write_log.replace(BTreeMap::new());
+        let result = f(self);
+        let inner = std::mem::replace(&mut self.write_log, outer).unwrap_or_default();
+        if let Some(outer_log) = self.write_log.as_mut() {
+            for (id, node) in &inner {
+                outer_log.entry(*id).or_insert_with(|| node.clone());
+            }
+        }
+        (result, inner)
     }
 
     /// Removes `id` and its subtree, returning the removed nodes (root first).

@@ -481,8 +481,22 @@ impl History {
         self.exec_labeled(doc, cmd, None)
     }
     /// Executes `cmd` and records an optional human-readable label on the resulting undo step.
+    ///
+    /// The step owns the layout its command causes: the auto-layout parents the command reached are solved, and
+    /// the groups whose children it added, removed or moved are refitted, before this returns. The refit is
+    /// part of the step's inverse, so undo puts the groups and their children back exactly.
     pub fn exec_labeled(&mut self, doc: &mut Document, cmd: Command, label: Option<String>) -> Result<(), DocError> {
-        let inv = guarded(doc, cmd, true, apply_with_table_relayout).map_err(|refused| refused.0)?;
+        let (inv, layout_recorded) = run_exec(doc, cmd, true)?;
+        self.push_step(inv, UndoStepMeta { origin: StepOrigin::Unspecified, label, layout_recorded, ..Default::default() });
+        Ok(())
+    }
+
+    /// Executes a `cmd` that already holds every layout write its caller made (an editor transaction that solved
+    /// inside its edit, a re-route folded into the step before it), so the step solves nothing of its own. A solve
+    /// here would write outside the geometry `cmd` stores and move the layout epoch, so the step could no longer
+    /// be marked with [`Self::mark_last_undo_as_layout_recorded`].
+    pub fn exec_laid_out(&mut self, doc: &mut Document, cmd: Command, label: Option<String>) -> Result<(), DocError> {
+        let (inv, _) = run_exec(doc, cmd, false)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Unspecified, label, ..Default::default() });
         Ok(())
     }
@@ -491,15 +505,16 @@ impl History {
     /// [`Self::fold_since`] can fold the contiguous agent tail on stop without folding
     /// intervening user edits.
     pub fn exec_agent(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
-        let inv = guarded(doc, cmd, true, apply_with_table_relayout).map_err(|refused| refused.0)?;
+        // An agent step never counts as layout-recorded (see `mark_last_undo_as_agent`).
+        let (inv, _) = run_exec(doc, cmd, true)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Agent, ..Default::default() });
         Ok(())
     }
 
     /// Executes an edit explicitly marked as a user edit.
     pub fn exec_user(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
-        let inv = guarded(doc, cmd, true, apply_with_table_relayout).map_err(|refused| refused.0)?;
-        self.push_step(inv, UndoStepMeta { origin: StepOrigin::User, ..Default::default() });
+        let (inv, layout_recorded) = run_exec(doc, cmd, true)?;
+        self.push_step(inv, UndoStepMeta { origin: StepOrigin::User, layout_recorded, ..Default::default() });
         Ok(())
     }
 
@@ -570,6 +585,16 @@ impl History {
                 true
             }
             None => false,
+        }
+    }
+
+    /// Takes the layout-recorded mark off the most recently pushed undo step. A caller that wrote layout after
+    /// [`Self::exec`] returned (a solve over seeds the command did not name) calls this when that write changed
+    /// a node: the step's inverse does not hold it, so undo has to solve again.
+    pub fn forget_last_layout_recorded(&mut self) {
+        self.sync_meta_lengths();
+        if let Some(m) = self.undo_meta.last_mut() {
+            m.layout_recorded = false;
         }
     }
 
@@ -900,54 +925,178 @@ pub(crate) fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut 
     }
 }
 
-/// Seeds the layout work that belongs to a fresh history step. A plain child edit changes the
-/// inputs its auto-layout parent reads, so the parent must be solved before the step is visible to
-/// callers. Auto-layout frame edits keep their existing recorder-owned solve path; re-solving those
-/// here would change the layout epoch before a caller can mark the step as layout-recorded.
-fn collect_exec_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>) {
+/// The layout a command causes, found before the command is applied (its parents and old places are still
+/// there to read).
+#[derive(Default)]
+struct ExecLayout {
+    /// Containers whose children, or the size of one child, changed. Each is solved when it is an auto-layout
+    /// frame, and the climb goes up only while a frame's own size changes.
+    seeds: Vec<NodeId>,
+    /// Containers that lost or gained a child. A group among them, or above them, is refitted to its children.
+    structural: Vec<NodeId>,
+}
+
+impl ExecLayout {
+    fn is_empty(&self) -> bool {
+        self.seeds.is_empty() && self.structural.is_empty()
+    }
+}
+
+/// Collects what [`apply_exec_layout`] has to solve for `cmd`: the parent of a child whose layout inputs
+/// changed, and both parents of a layer that was inserted, removed or moved. Only the parents are named, so
+/// the solve never reaches a frame the command did not touch. An auto-layout frame edit keeps its caller's solve
+/// (the editor's transaction and the headless update tool both solve the frame and the frames above it). A group
+/// is refitted when a layer is added, removed or moved, never for a change of a layer's own box: an ordinary edit
+/// keeps the bounds an imported group was stored with. A caller that solved inside its own command uses
+/// [`History::exec_laid_out`] and solves nothing here. A connector names nothing:
+/// its box follows its ends and the re-route owns it, so drawing, moving or routing one is not a layout input
+/// of the frame that holds it.
+fn collect_exec_layout(doc: &Document, cmd: &Command, out: &mut ExecLayout) {
+    let is_connector = |n: &Node| matches!(n.kind, NodeKind::Connector(_));
+    let structural = |out: &mut ExecLayout, parent: NodeId| {
+        out.seeds.push(parent);
+        out.structural.push(parent);
+    };
     match cmd {
         Command::Update { node } => {
             let Some(cur) = doc.get(node.id) else { return };
             let node_is_auto_layout = node.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some();
-            if layout_inputs_changed(cur, node) && !node_is_auto_layout {
+            if layout_inputs_changed(cur, node) && !node_is_auto_layout && !is_connector(node) {
                 if let Some(parent) = cur.parent {
-                    seeds.push(parent);
+                    out.seeds.push(parent);
                 }
             }
         }
-        Command::Insert { parent, .. } => seeds.push(*parent),
+        Command::Insert { parent, nodes, .. } => {
+            if !nodes.first().is_some_and(is_connector) {
+                structural(out, *parent);
+            }
+        }
         Command::Remove { id } => {
-            if let Some(parent) = doc.get(*id).and_then(|n| n.parent) {
-                seeds.push(parent);
+            if let Some(cur) = doc.get(*id).filter(|n| !is_connector(n)) {
+                if let Some(parent) = cur.parent {
+                    structural(out, parent);
+                }
             }
         }
         Command::Reparent { id, parent, .. } => {
-            if let Some(old_parent) = doc.get(*id).and_then(|n| n.parent) {
-                seeds.push(old_parent);
+            let moved = doc.get(*id);
+            if !moved.is_some_and(is_connector) {
+                if let Some(old_parent) = moved.and_then(|n| n.parent) {
+                    structural(out, old_parent);
+                }
+                structural(out, *parent);
             }
-            seeds.push(*parent);
         }
         Command::Batch(cmds) => {
             for c in cmds {
-                collect_exec_relayout_seeds(doc, c, seeds);
+                collect_exec_layout(doc, c, out);
             }
         }
         _ => {}
     }
 }
 
+/// Solves the layout `layout` names on `doc`, which already holds the command: the auto-layout parents are
+/// solved and the groups whose children changed are refitted, from the inside out, until a container's box holds.
+/// Returns the command that puts every node the solve wrote back as it was, for the step's inverse, so undo does
+/// not need a solve of its own: a document that was not at the solver's fixed point (an import, a hand-placed
+/// layer) comes back exactly as stored. A group is refitted here and not in the undo and redo replay
+/// ([`apply_and_relayout`]), because a replay that refits would reshape an imported group whose stored bounds
+/// differ from its children's.
+fn apply_exec_layout(doc: &mut Document, layout: &ExecLayout) -> Option<Command> {
+    if layout.is_empty() {
+        return None;
+    }
+    let (mut old_nodes, written) =
+        doc.record_node_writes(|d| crate::component_prop_variables::climb_containers_and_relayout(d, &layout.structural, &layout.seeds));
+    // The recorder holds each node as it was before the first write, which is older than the group fit's own copy
+    // when a solve wrote the node first.
+    old_nodes.extend(written);
+    old_nodes.retain(|id, old| doc.get(*id) != Some(old));
+    (!old_nodes.is_empty()).then(|| Command::Batch(old_nodes.into_values().map(|n| Command::Update { node: Box::new(n) }).collect()))
+}
+
+/// Gives `after`, a copy of `before` that `cmds` were applied to one at a time with [`Command::apply`], the layout a
+/// history step would give the committed document: the same parents are solved and the same groups refitted. A
+/// trial copy that runs the commands without a history calls this once at the end, so it holds what the committed
+/// document will, as [`crate::settle_bound_props_after`] does for bound component properties.
+pub fn settle_layout_after(before: &Document, after: &mut Document, cmds: &[Command]) {
+    let mut layout = ExecLayout::default();
+    cmds.iter().for_each(|c| collect_exec_layout(before, c, &mut layout));
+    let _ = apply_exec_layout(after, &layout);
+}
+
+/// The inverse of a step that wrote layout, as one flat list: nested batches are spliced in, and an `Update` that a
+/// later `Update` of the same node overwrites is dropped (an `Update` replaces everything but the child list, so the
+/// later one decides the node, and redo is read back from the nodes as undo found them). The live-patch recorder
+/// reads a flat batch of distinct updates against the document as it is; any other batch costs it a clone of the
+/// whole document. A batch that holds a page command is left as it is: its inverse pairs page stashes by position.
+fn flatten_step(steps: Vec<Command>) -> Vec<Command> {
+    fn holds_page_command(c: &Command) -> bool {
+        match c {
+            Command::InsertPage { .. } | Command::RemovePage { .. } => true,
+            Command::Batch(cmds) => cmds.iter().any(holds_page_command),
+            _ => false,
+        }
+    }
+    fn splice(c: Command, flat: &mut Vec<Command>) {
+        match c {
+            Command::Batch(cmds) if !cmds.iter().any(holds_page_command) => cmds.into_iter().for_each(|c| splice(c, flat)),
+            other => flat.push(other),
+        }
+    }
+    let mut flat = Vec::with_capacity(steps.len());
+    steps.into_iter().for_each(|c| splice(c, &mut flat));
+    let mut last_update: std::collections::HashMap<NodeId, usize> = std::collections::HashMap::new();
+    for (i, c) in flat.iter().enumerate() {
+        if let Command::Update { node } = c {
+            last_update.insert(node.id, i);
+        }
+    }
+    let keep = |i: usize, c: &Command| !matches!(c, Command::Update { node } if last_update.get(&node.id) != Some(&i));
+    let flat: Vec<Command> = flat.into_iter().enumerate().filter(|(i, c)| keep(*i, c)).map(|(_, c)| c).collect();
+    if flat.len() == 1 {
+        flat
+    } else {
+        vec![Command::Batch(flat)]
+    }
+}
+
+/// Executes `cmd` through [`guarded`], with or without the layout solve, and returns the step's inverse with
+/// whether that inverse holds all the layout the step caused.
+fn run_exec(doc: &mut Document, cmd: Command, solve_layout: bool) -> Result<(Command, bool), DocError> {
+    let mut layout_recorded = false;
+    let inv = guarded(doc, cmd, solve_layout, |d, c| {
+        let (inv, recorded) = apply_with_table_relayout(d, c, solve_layout)?;
+        layout_recorded = recorded;
+        Ok(inv)
+    })
+    .map_err(|refused| refused.0)?;
+    Ok((inv, layout_recorded))
+}
+
 /// Applies `c`, then re-solves every table whose cell text it changed and re-applies the values of component
 /// properties bound to variables that `c` moved (a mode switch, a variable edit, a binding edit), as part of the same
 /// undo step. The row heights follow the text whoever wrote it. Nothing changes without a layout measurer (the stored
 /// heights are kept) or when the rows already fit.
-fn apply_with_table_relayout(doc: &mut Document, c: Command) -> Result<Command, DocError> {
+///
+/// With `solve_layout`, the auto-layout parents `c` reached are solved and the groups it changed are refitted last
+/// (see [`apply_exec_layout`]), and what that wrote is part of the returned inverse. The flag returned with the
+/// inverse says the step then holds every layout write it caused, so undo and redo replay it as stored: the solve
+/// ran, nothing is left deferred, and no bound property was re-applied (that re-application solves outside the
+/// inverse, see [`apply_prop_resync_and_relayout`]).
+fn apply_with_table_relayout(doc: &mut Document, c: Command, solve_layout: bool) -> Result<(Command, bool), DocError> {
     let mut edited = std::collections::BTreeSet::new();
     table::text_edited_tables(doc, &c, &mut edited);
     let mut edited_cells = std::collections::BTreeMap::new();
     table::text_edited_cells(doc, &c, &mut edited_cells);
-    let mut layout_seeds = Vec::new();
-    collect_exec_relayout_seeds(doc, &c, &mut layout_seeds);
+    let mut layout = ExecLayout::default();
+    if solve_layout {
+        collect_exec_layout(doc, &c, &mut layout);
+    }
     let prop_scope = prop_resync_scope(doc, &c);
+    let prop_scope_was_empty = prop_scope.is_empty();
     let inv = c.apply_atomic(doc)?;
     let mut steps = vec![inv];
     if !prop_scope.is_empty() {
@@ -965,7 +1114,9 @@ fn apply_with_table_relayout(doc: &mut Document, c: Command) -> Result<Command, 
         .flat_map(|&t| edited_cells.get(&t).and_then(|cells| table::relayout_text_edit(doc, t, cells)).unwrap_or_else(|| table::relayout(doc, t)))
         .collect();
     if !fix.is_empty() {
-        collect_exec_relayout_seeds(doc, &Command::Batch(fix.clone()), &mut layout_seeds);
+        if solve_layout {
+            fix.iter().for_each(|c| collect_exec_layout(doc, c, &mut layout));
+        }
         match Command::Batch(fix).apply_atomic(doc) {
             Ok(fix_inv) => steps.insert(0, fix_inv),
             Err(e) => {
@@ -974,8 +1125,13 @@ fn apply_with_table_relayout(doc: &mut Document, c: Command) -> Result<Command, 
             }
         }
     }
-    doc.relayout_seeds_upward(&layout_seeds);
-    Ok(if steps.len() == 1 { steps.remove(0) } else { Command::Batch(steps) })
+    let solved = !layout.is_empty();
+    if let Some(layout_inv) = apply_exec_layout(doc, &layout) {
+        steps.insert(0, layout_inv);
+        steps = flatten_step(steps);
+    }
+    let layout_recorded = solved && prop_scope_was_empty && doc.pending_relayout().is_empty();
+    Ok((if steps.len() == 1 { steps.remove(0) } else { Command::Batch(steps) }, layout_recorded))
 }
 
 /// Applies one undo or redo step. A layout-recorded step is replayed as stored while no deferred
@@ -1364,7 +1520,9 @@ mod tests {
         let mut h = History::default();
         let mut tall = d.get(leaf).unwrap().clone();
         tall.size.y = 30.0;
-        h.exec(&mut d, Command::Update { node: Box::new(tall) }).unwrap();
+        // A step that holds none of the layout around it, as a caller that lays out after the step records one: undo
+        // and redo solve the chain themselves (an `exec` step holds its own solve and replays it as stored).
+        h.exec_laid_out(&mut d, Command::Update { node: Box::new(tall) }, None).unwrap();
         d.relayout_subtree(top);
         assert_eq!((d.get(h2).unwrap().size.y, d.get(h1).unwrap().size.y), (30.0, 30.0));
         d.get_mut(card_child).unwrap().transform.tx = 15.0;
