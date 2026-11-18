@@ -102,10 +102,21 @@ fn settle(doc: &mut Document, page: NodeId, groups: &[NodeId]) -> bool {
     false
 }
 
+/// Whether a `move` may share a batch with other ops. `origin/main` already trips the batch tool's trial-versus-commit
+/// assertion on some of those batches (see [`MAIN_MIXED_MOVE_SEEDS`]), so the default rounds send a move alone.
+#[derive(Clone, Copy, PartialEq)]
+enum Moves {
+    Alone,
+    Mixed,
+}
+
 /// One to four ops that keep every group non-empty and name only layers that still exist.
-fn batch(rng: &mut Rng, tree: &mut Tree) -> Vec<Value> {
+fn batch(rng: &mut Rng, tree: &mut Tree, moves: Moves) -> Vec<Value> {
     let mut ops = Vec::new();
     for _ in 0..1 + rng.below(4) {
+        if moves == Moves::Alone && ops.iter().any(|op: &Value| op["op"] == "move") {
+            break;
+        }
         match rng.below(4) {
             0 => {
                 let c = rng.below(tree.containers.len());
@@ -127,7 +138,7 @@ fn batch(rng: &mut Rng, tree: &mut Tree) -> Vec<Value> {
                     ops.push(json!({ "op": "delete", "node": id.0 }));
                 }
             }
-            3 if !tree.leaves.is_empty() => {
+            3 if !tree.leaves.is_empty() && (moves == Moves::Mixed || ops.is_empty()) => {
                 let at = rng.below(tree.leaves.len());
                 let (id, from) = tree.leaves[at];
                 let to = rng.below(tree.containers.len());
@@ -154,10 +165,34 @@ enum Outcome {
     Unsettled,
     NoOps,
     ToolRefused,
-    TrialMismatch,
+    UndoInexact,
+    RedoInexact,
 }
 
-fn run_round(seed: u64, check_undo: bool) -> Outcome {
+/// What a round checks after the editor replayed the patch.
+#[derive(Clone, Copy, PartialEq)]
+enum Check {
+    /// The editor's document equals the agent's, node by node.
+    Equality,
+    /// The editor against itself: undo of the replayed step gives back its document from before the patch, and redo
+    /// gives back its own document from after it. A mismatch fails the round.
+    UndoExact,
+    /// The same, counted instead of failed, with the first seeds that differ printed.
+    UndoCount,
+}
+
+/// Names the seed and the batch when a round panics anywhere, in the agent's tool included.
+struct Round(String);
+
+impl Drop for Round {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!("round that panicked: {}", self.0);
+        }
+    }
+}
+
+fn run_round(seed: u64, check: Check, moves: Moves) -> Outcome {
     let mut rng = Rng(seed);
     let mut tree = Tree { containers: Vec::new(), leaves: Vec::new() };
     let (mut engine, mut app, settled) = pair(|doc, page| {
@@ -171,39 +206,53 @@ fn run_round(seed: u64, check_undo: bool) -> Outcome {
     if !settled {
         return Outcome::Unsettled;
     }
-    let ops = batch(&mut rng, &mut tree);
+    let ops = batch(&mut rng, &mut tree, moves);
     if ops.is_empty() {
         return Outcome::NoOps;
     }
     let before_patch = snapshot(&app);
     let args = json!({ "ops": ops });
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| engine.call("designos_apply_batch", args.clone()).is_err()));
-    match outcome {
-        Err(_) => {
-            eprintln!("TRIALMISMATCH seed {seed:#x} batch {args}");
-            return Outcome::TrialMismatch;
-        }
-        Ok(true) => return Outcome::ToolRefused,
-        Ok(false) => {}
+    let context = format!("seed {seed:#x}, batch {args}");
+    let _named = Round(context.clone());
+    if engine.call("designos_apply_batch", args.clone()).is_err() {
+        return Outcome::ToolRefused;
     }
     let live = engine.take_live_ops();
     let layout = engine.take_live_layout();
     if live.is_empty() {
         return Outcome::NoOps;
     }
-    let patch: LivePatch = serde_json::from_str(&serde_json::to_string(&LivePatch::new(live).with_layout(layout)).unwrap()).unwrap();
+    let mut patch: LivePatch = serde_json::from_str(&serde_json::to_string(&LivePatch::new(live).with_layout(layout)).unwrap()).unwrap();
+    // Test switch: send the patch without the layout the agent solved, as a build that predates the field would.
+    if std::env::var_os("PARITY_STRIP_LAYOUT").is_some() {
+        patch.layout = None;
+    }
     crate::live_patch_apply::apply_live_patches(&mut app, &[patch]);
 
-    let context = format!("seed {seed:#x}, batch {args}");
-    assert_same_documents_with(&engine, &app, &context);
-    if !check_undo {
+    if check == Check::Equality {
+        assert_same_documents_with(&engine, &app, &context);
         return Outcome::Ran;
     }
+    let after_patch = snapshot(&app);
     app.undo();
-    assert_eq!(snapshot(&app), before_patch, "undo of the replayed step restores the editor's document: {context}");
+    let undone = snapshot(&app) == before_patch;
     app.redo();
-    assert_same_documents_with(&engine, &app, &format!("after redo, {context}"));
-    Outcome::Ran
+    let redone = snapshot(&app) == after_patch;
+    if check == Check::UndoExact {
+        assert!(undone, "undo of the replayed step restores the editor's document: {context}");
+        assert!(redone, "redo of the replayed step restores the editor's document from after the patch: {context}");
+    }
+    match (undone, redone) {
+        (true, true) => Outcome::Ran,
+        (false, _) => {
+            eprintln!("UNDO INEXACT {context}");
+            Outcome::UndoInexact
+        }
+        (true, false) => {
+            eprintln!("REDO INEXACT {context}");
+            Outcome::RedoInexact
+        }
+    }
 }
 
 fn rounds_and_seed() -> (u64, u64) {
@@ -212,31 +261,68 @@ fn rounds_and_seed() -> (u64, u64) {
     (rounds, seed)
 }
 
-fn run_rounds(check_undo: bool) {
+/// `PARITY_MIXED_MOVES=1` lets a move share a batch with other ops, to replay a seed from before moves were sent alone.
+fn moves_from_env() -> Moves {
+    if std::env::var_os("PARITY_MIXED_MOVES").is_some() {
+        Moves::Mixed
+    } else {
+        Moves::Alone
+    }
+}
+
+fn run_rounds(check: Check) -> std::collections::BTreeMap<Outcome, u64> {
+    // `PARITY_ROUND_SEED` replays one round by the seed a failure printed.
+    if let Some(one) = std::env::var("PARITY_ROUND_SEED").ok().and_then(|v| u64::from_str_radix(v.trim_start_matches("0x"), 16).ok()) {
+        return [(run_round(one, check, moves_from_env()), 1)].into();
+    }
     let (rounds, seed) = rounds_and_seed();
     let mut tally = std::collections::BTreeMap::new();
     for round in 0..rounds {
         let mut mix = Rng(seed ^ round.wrapping_mul(0xD6E8_FEB8_6659_FD93).wrapping_add(1));
-        *tally.entry(run_round(mix.next() | 1, check_undo)).or_insert(0u64) += 1;
+        *tally.entry(run_round(mix.next() | 1, check, moves_from_env())).or_insert(0u64) += 1;
     }
     eprintln!("PARITY TALLY {tally:?}");
     let ran = tally.get(&Outcome::Ran).copied().unwrap_or(0);
-    assert!(ran * 2 >= rounds, "at least half the rounds ran a patch end to end: {tally:?}");
+    let counted: u64 = tally.iter().filter(|(o, _)| matches!(o, Outcome::UndoInexact | Outcome::RedoInexact)).map(|(_, n)| n).sum();
+    assert!((ran + counted) * 2 >= rounds, "at least half the rounds ran a patch end to end: {tally:?}");
+    tally
 }
 
-/// The editor's document equals the agent's after the patch. A batch whose trial copy and committed document differ
-/// inside the agent's own tool (a debug assertion in `designos_apply_batch`) is counted and skipped: that is the agent
-/// side alone and is not what this test measures.
+/// The editor's document equals the agent's after the patch, for every round the agent's tool accepts. A panic in the
+/// agent's tool (its trial and committed documents differing, for one) fails the test and names the seed.
 #[test]
 fn random_agent_batches_leave_the_editor_with_the_agents_document() {
-    run_rounds(false);
+    run_rounds(Check::Equality);
 }
 
-/// The same rounds, then undo of the replayed step must give back the editor's document from before the patch and redo
-/// the agent's. Does not hold yet: layout the editor writes after the commit is outside the step, so undo of an
-/// agent step solves again from the restored tree (`--ignored` shows the first seed).
+/// Undo of the replayed step gives back the editor's document from before the patch, and redo its own document from
+/// after it. Does not hold yet, and does not hold without the carried layout either: layout the editor writes after
+/// the commit is outside the step, so undo of an agent step solves again from the restored tree. `--ignored` shows
+/// the first seed.
 #[test]
 #[ignore = "undo of a replayed agent step is not exact yet: the solve after the commit is outside the step"]
 fn random_agent_batches_replayed_step_undoes_and_redoes_exactly() {
-    run_rounds(true);
+    run_rounds(Check::UndoExact);
+}
+
+/// The undo and redo rates, counted: run with `--ignored --nocapture`, and with `PARITY_STRIP_LAYOUT=1` to send the
+/// patches without the carried layout.
+#[test]
+#[ignore = "a probe that prints the undo and redo rates"]
+fn random_agent_batches_undo_and_redo_rates() {
+    run_rounds(Check::UndoCount);
+}
+
+/// Round seeds whose batch mixes a `move` with other ops and trips the batch tool's own assertion that the committed
+/// document equals its trial copy. The same five seeds do it on `origin/main` (a trial that solves per op against a
+/// commit that solves once), so this predates the group refit. They are generated with `Moves::Mixed`.
+const MAIN_MIXED_MOVE_SEEDS: [u64; 5] = [0x489a_7883_85b1_67c9, 0x8cee_48e8_ee40_2637, 0x2081_4e8e_d795_7365, 0x827d_5994_3d25_7e0f, 0xeeb2_c6db_2bb6_0c81];
+
+/// Red until the batch tool's trial and commit agree on those batches; run with `--ignored`.
+#[test]
+#[ignore = "the batch tool's trial and committed documents differ on these batches, as they do on origin/main"]
+fn batches_mixing_a_move_with_other_ops_commit_what_their_trial_holds() {
+    for seed in MAIN_MIXED_MOVE_SEEDS {
+        run_round(seed, Check::Equality, Moves::Mixed);
+    }
 }
