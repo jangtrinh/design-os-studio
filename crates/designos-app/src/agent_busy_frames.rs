@@ -397,6 +397,7 @@ mod tests {
             lock_aspect: false,
             hyperlink: None,
             plugin_data: BTreeMap::new(),
+            extra: BTreeMap::new(),
             detached_symbol_id: None,
             fig_metadata: BTreeMap::new(),
             motion: None,

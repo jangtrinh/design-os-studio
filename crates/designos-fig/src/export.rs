@@ -881,6 +881,14 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
         }
         m.insert("children".into(), Value::Array(kids));
     }
+    // Keys kept from the import come last and never replace one written above.
+    let connector_extra = match &node.kind {
+        NodeKind::Connector(c) => Some(&c.extra),
+        _ => None,
+    };
+    for (k, v) in node.extra.iter().chain(connector_extra.into_iter().flatten()) {
+        m.entry(k.clone()).or_insert_with(|| v.clone());
+    }
     Some(Value::Object(m))
 }
 

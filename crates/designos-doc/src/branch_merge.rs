@@ -1172,6 +1172,7 @@ fn copy_node_group(dst: &mut Node, src: &Node, group: Group) {
             dst.detached_symbol_id = src.detached_symbol_id.clone();
             dst.fig_metadata = src.fig_metadata.clone();
             dst.motion = src.motion.clone();
+            dst.extra = src.extra.clone();
         }
         Group::Position => {}
     }
@@ -2120,6 +2121,7 @@ mod tests {
                 start_cap: ConnectorCap::None,
                 end_cap: ConnectorCap::Arrow,
                 label: None,
+                ..Default::default()
             }),
         );
         conn_node.name = "Branch Connector".into();

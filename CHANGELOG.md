@@ -2,6 +2,54 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.7.16] - 2026-11-18
+
+A patch release from `main` that carries more fixes from @NamAIEngineer. A line you change in an imported Figma file is drawn where Figma draws it, saves refuse to write through a link, an agent can no longer widen its own tool list, and a `.fig` file with pages that were never opened keeps more of what you edited.
+
+### Added
+- **Components.** The Overrides list of an instance shows the overrides parked on a layer that the current variant lacks, each as "<layer> (not in variant)" with what changed and its own Reset; a cut-off heading shows the full layer path on hover. Resetting a layer's override now touches only that layer's overrides, so resetting the instance's own fill no longer drops a parked fill on another layer (#2048, PR #2073).
+
+### Changed
+- **Agent tools.** An agent in a Studio tab can no longer widen the designos tool list through its session folder: Studio keeps the list in its own data folder, and after the first start the list in force can only be narrowed. Adding tools back, deleting the key or writing a forged list counts as no narrowing; a start that cannot keep a restricted list privately is refused and names the folder to delete to widen the list again; by @NamAIEngineer (#1049, PR #2097).
+- **Command line.** `--out`, in-place saves and `--screenshot` refuse a symbolic link, a hard linked file and a wrong file ending (`.designos`, `.fig` or `.pen` for saves, `.png` for `--screenshot`) before anything loads, and the refusal suggests `--out <name>.designos`; `--export-spec` and `--export-variables` now need a `.json` file name (`.zip` or `.json` for variables) and refuse a symlinked target, including `/dev/stdout` on macOS; by @NamAIEngineer (#1009, PR #2110).
+
+### Fixed
+- **Saving.** An agent's `designos_save_file` and `designos_export_fig_file` overwrite never writes through a symbolic link and keeps the file's ACL, extended attributes and mode on macOS; a read-only file whose ACL grants write now saves, while a plain read-only file and a read-only folder are refused as before; by @NamAIEngineer (#1306, PR #2110).
+- **Components.**
+  - A new instance of a main that holds an instance whose own main sits on a `.fig` page that was never opened shows that nested instance's layers at once, instead of after the other page opens; undo and redo of the create take everything back in one step, and the unopened page's own instance and its saved entries stay as they were (#1887, PR #2064).
+  - When that expansion stops early, nothing half-built is created and the miss is counted with the layer ids that exist, so a later page-open toast names the right layer (#2065, PR #2069).
+  - A main component sync with no change keeps the instances imported from a `.fig` where Figma stored them: layers moved off Figma's geometry on the Untitled UI PRO v8.0 kit by a no-change sync drop from 119 to 40 (#1919, PR #2085).
+- **Figma files.**
+  - Editing the auto layout of an instance on a `.fig` page that was never opened (for example its spacing, 4 to 20) is saved; before, reopening the file brought back 4. An edit of one key restates only that key, so alignment, padding, clipping and grids are not reset; by @NamAIEngineer (#1699, PR #2099).
+  - A stroke outline Figma stored is no longer written back to a `.fig` file or to Figma REST JSON after the stroke weight was edited, so the stale outline does not return on reopen; a vector from REST JSON that has only an outline keeps its shape instead of reopening empty; by @NamAIEngineer (#1755, PR #2107).
+  - A `.jam` (FigJam) file opens as a Board document instead of a design file; by @NamAIEngineer (PR #2091).
+  - Keys of a Figma REST JSON file that Studio does not model are kept on open, save, undo and export, instead of being dropped; by @NamAIEngineer (#1709, PR #2109).
+- **Auto layout.**
+  - A wrapped auto layout can keep its line gap following item spacing, as in Figma: a `.fig` or REST import keeps it that way, an instance override of item spacing now moves the line gap with it (#1885), and a save no longer turns it into a fixed number; setting a line gap yourself still fixes it. A `.designos` file saved this way still opens in older builds; by @NamAIEngineer (#2046, #1885, PR #2082).
+  - In a wrapping row, a Fill title with small fixed siblings keeps them on its own line when they fit beside the title at its minimum width. The shared Fill sizing also judges every child frozen at its minimum against the same share, which keeps 18 children in the Untitled UI kit's blog-card frames at Figma's stored width (256, not 200); by @NamAIEngineer (PR #2092).
+- **Lines and strokes.**
+  - A line drawn live, after an edit dropped Figma's stored outline, lands where Figma draws it: a solid centred line with a butt or round cap sits as a band above its axis instead of half a stroke weight off, on the canvas, in SVG and PDF export, in export bounds and in click and hover hit testing; a round-cap line is hit on its rounded shape. On 8,227 kit lines, the live drawing now differs from Figma's stored outline on 0 pixels, where the old drawing differed on 27,249,471 (#953, #1753, #2004, PR #2087).
+  - A stored stroke outline is drawn only while it still matches the layer's size and stroke, on the CPU canvas, the GPU canvas and SVG, PDF and PNG export; a file saved by an earlier build opens and draws as before (#2004, PR #2063).
+- **Prototype player.** Setting a variable or switching a variable mode re-resolves the variants bound to it: the instance relayouts and the new variant's reactions and timers start again. Nested bound instances move only on the axes whose variable changed, an alias is followed from the value the active mode selects, and a variable change during While hovering or While pressing is applied when the pointer leaves; by @NamAIEngineer (#1904, PR #2079).
+- **Inspector.** A text colour edit reaches every layer in the selection that carries text, including a sticky note, in either order of the selection; picking a colour from the Fill swatch recolours sticky text too, and the picker shows the colour in force after undo; by @NamAIEngineer (PR #2101).
+- **Tables.** Editing one cell whose row keeps its height reshapes only that cell: on a 400 x 400 table an edit takes 0.03 to 0.05 ms instead of 1.37 s; edits that can change the layout still take the full solve; by @NamAIEngineer (#1806, PR #2077).
+- **Agents panel.**
+  - A press on the terminal right after a pick in the mode or attach menu starts a selection at once, and the @ popup you closed in one tab stays closed when you come back from another tab (#2059, PR #2072).
+  - A tab's approval script is rewritten only when it changes (a snapshot with four tabs takes 0.95 ms instead of 47 ms) and is removed with its tab, also when the tab fails to start; by @NamAIEngineer (#2009, PR #2076).
+  - The approval card says "Use up and down arrows and Enter in terminal to choose" only for CLIs that answer in their own menu (Codex, Grok, Gemini, Antigravity); a Claude request waiting on another tab is answered by Studio's own card and shows no hint; by @NamAIEngineer (#1096, PR #2104).
+  - A close request an agent sends right after you switch to its tab is no longer dropped as "the tab was no longer shown"; by @NamAIEngineer (#1382, PR #2108).
+- **App shell.** The prototype flow flag and the measure pill on the canvas use dark text on their orange fill, raising their contrast from 3.46:1 and 3.67:1 to 5.73:1 and 5.40:1; by @NamAIEngineer (#1762, PR #2098).
+- **Export.** Export bounds follow what Figma measures: each side of a stroke uses its own weight (outside adds the full weight on that side, centre half, inside nothing), and a frame's shadow also grows around its children, cut to the frame when it clips and cast from the children alone when the frame has no fill; the SVG shadow region follows the same shapes. With every page loaded, 8 of the 10 kit frames listed in the issue are within 1 px of Figma (#528, PR #2114).
+
+### Known issues
+- Imported arrow lines shift by half the stroke weight when resized, and per-end arrow caps in line outlines are not covered (#1753, #1757). Square caps, arrow caps, dashed lines and Inside or Outside lines still draw their live stroke centred, because Figma's placement for them is not measured yet. Converting a line to a vector (Flatten, point edit, Outline stroke) keeps the vertices on the axis (#2083).
+- On a `.fig` page that was never opened, clearing a layout value, changing the number of grid tracks and editing minimum or maximum size on an instance are not saved and revert on reopen; no current editing path edits such an instance (#2093).
+- Binding a colour variable from the text Fill row of a mixed selection writes the layer fills (#2096).
+- There is no button yet to widen an agent's tool list after it was narrowed; delete the folder named in the start notice (#2094).
+- A concurrent agent table edit can lose a column width the user changed in the editor (#2001).
+- Re-solving the imported Untitled UI PRO v8.0 kit still moves about 1% of its layers (#1920).
+- Export bounds of two kit frames still differ from Figma: Dashboards 01 Desktop is 4 px too wide and Settings pages 02 Mobile 5 px too wide (#528).
+
 ## [0.7.15] - 2026-11-15
 
 A patch release from `main` that carries more fixes from @NamAIEngineer. A nested instance and an instance whose variant is switched keep more of their overrides; a `.fig` file saved with pages that were never opened keeps more of its overrides, resets, moves and variable bindings, and imported lines keep their stroke outline on more kinds of resize.

@@ -100,6 +100,7 @@ pub fn rich_document() -> Document {
         start_cap: ConnectorCap::Arrow,
         end_cap: ConnectorCap::Triangle,
         label: None,
+        ..Default::default()
     };
     doc.insert(page, Node::connector(c, props)).unwrap();
     sync_connector(&mut doc, c);
@@ -112,6 +113,7 @@ pub fn rich_document() -> Document {
         start_cap: ConnectorCap::Circle,
         end_cap: ConnectorCap::Diamond,
         label: None,
+        ..Default::default()
     };
     let mut n = Node::connector(round, props);
     n.name = "RoundCaps".into();

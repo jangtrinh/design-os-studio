@@ -599,6 +599,9 @@ pub(crate) fn node_fingerprint(node: &designos_doc::Node) -> u64 {
     if let Some(motion) = &node.motion {
         let _ = motion.serialize(HashSerializer(&mut h));
     }
+    if !node.extra.is_empty() {
+        let _ = node.extra.serialize(HashSerializer(&mut h));
+    }
     if let Some(stamp) = node.effective_stroke_geometry_stamp() {
         let _ = stamp.serialize(HashSerializer(&mut h));
     }
@@ -2000,5 +2003,33 @@ mod import_notice_tests {
         stale.nodes.get_mut(&id).unwrap().stroke_geometry_for.as_mut().unwrap().weight = 8.0;
         assert_ne!(doc_hash(&stale), doc_hash(&d), "doc_hash distinguishes a stale stamp");
         assert_ne!(node_fingerprint(stale.get(id).unwrap()), node_fingerprint(d.get(id).unwrap()), "node_fingerprint distinguishes a stale stamp");
+    }
+
+    #[test]
+    fn doc_hash_and_node_fingerprint_see_extra_without_allocating() {
+        use super::{doc_hash, node_fingerprint};
+        use crate::test_alloc_count::allocations_in;
+        use designos_doc::{Document, Node, Rect};
+
+        let mut d = Document::new("extra-hash");
+        let page = d.add_page("P");
+        let id = d.alloc_id();
+        d.insert(page, Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 20.0))).unwrap();
+        let bare = d.clone();
+        d.get_mut(id).unwrap().extra.insert("futureKey".into(), serde_json::json!({"a": [1, 2.5, null], "b": "text"}));
+
+        assert_ne!(doc_hash(&d), doc_hash(&bare), "a change to extra is a change to the document");
+        assert_ne!(node_fingerprint(d.get(id).unwrap()), node_fingerprint(bare.get(id).unwrap()), "and to the node");
+        let mut other = d.clone();
+        other.get_mut(id).unwrap().extra.insert("futureKey".into(), serde_json::json!({"a": [1, 2.5, 0], "b": "text"}));
+        assert_ne!(doc_hash(&other), doc_hash(&d));
+
+        let ((), doc_allocs) = allocations_in(|| {
+            std::hint::black_box(doc_hash(&d));
+        });
+        let ((), node_allocs) = allocations_in(|| {
+            std::hint::black_box(node_fingerprint(d.get(id).unwrap()));
+        });
+        assert_eq!((doc_allocs, node_allocs), (0, 0), "hashing extra must not allocate");
     }
 }

@@ -384,6 +384,7 @@ mod tests {
                         start_cap: ConnectorCap::None,
                         end_cap: ConnectorCap::Arrow,
                         label: Some(TextProps { content: "next".into(), ..Default::default() }),
+                        ..Default::default()
                     },
                 );
                 cn.name = "ConnectorWire".into();
