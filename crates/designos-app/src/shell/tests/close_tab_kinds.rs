@@ -293,8 +293,15 @@ fn assert_tab_closed_at_once(s: &mut Sim, session: &mut designos_mcp::server::Se
     assert!(started.elapsed() < Duration::from_secs(2), "{what}: answered without waiting for an editor that is not there ({:?})", started.elapsed());
     assert_eq!(err["code"], "EDITOR_NOT_NOTIFIED", "{what}: {err}");
     assert_eq!(err["safe_to_retry"], false, "{what}: asking again can never work: {err}");
-    assert!(next_step(&err).contains("already closed"), "{what}: {err}");
+    assert_stops_the_agent(&err, what);
     wait(s, SETTLED);
+}
+
+/// The next step of every "already closed" answer: the agent stops and tells the user, and is not sent to another call, which would
+/// be refused the same way.
+fn assert_stops_the_agent(err: &Value, what: &str) {
+    let next = next_step(err);
+    assert!(next.contains("already closed") && next.contains("tell the user") && !next.contains("designos_"), "{what}: {err}");
 }
 
 #[test]
@@ -333,13 +340,103 @@ fn a_close_after_the_person_closed_an_untitled_tab_is_tab_closed_not_a_timeout()
         s.shell.app.request_leave(None, Leave::CloseTab(id));
         wait(&mut s, SETTLED);
         assert_eq!(s.app().tabs.entries.len(), 1, "the person closed the untitled tab");
-        assert!(!session_dir.exists(), "a scratch folder goes with its tab");
+        assert!(session_dir.join("tab-closed.json").is_file(), "a scratch folder keeps the mark of its closed tab");
         assert_tab_closed_at_once(&mut s, &mut session, args.clone(), &format!("the same process, {args}"));
         let mut fresh = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("a new process");
         assert_tab_closed_at_once(&mut s, &mut fresh, args.clone(), &format!("a new process, {args}"));
-        assert!(!session_dir.exists(), "the close did not bring the folder back");
+        assert!(session_dir.join("tab-closed.json").is_file(), "the mark is still there after the answers");
+        let _ = std::fs::remove_dir_all(&session_dir);
         finish(s, workspace);
     }
+}
+
+fn files_in(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> =
+        std::fs::read_dir(dir).map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+    names.sort();
+    names
+}
+
+/// What an agent whose MCP outlived the tab gets for an edit: the same answer as a close, and no file is written into the folder.
+fn assert_edit_refused_as_closed(session: &mut designos_mcp::server::Session, node: u64, folder: &Path, files: &[String], what: &str) {
+    let err = session.call("designos_update_node", json!({"node_id": node, "name": "Late edit"})).map_err(|e| e.to_json_value()).expect_err(what);
+    assert_eq!(err["code"], "EDITOR_NOT_NOTIFIED", "{what}: {err}");
+    assert_eq!(err["safe_to_retry"], false, "{what}: asking again can never work: {err}");
+    assert_stops_the_agent(&err, what);
+    let message = err["message"].as_str().unwrap_or("");
+    assert!(message.contains("already closed") && !message.contains("nothing to close"), "{what}: an edit is not a close: {err}");
+    assert_eq!(files_in(folder), files, "{what}: nothing was written into the folder");
+}
+
+#[test]
+fn an_edit_after_the_person_closed_an_untitled_tab_is_refused_and_writes_nothing() {
+    let dir = TmpDir::new();
+    let mut s = Sim::with(Options { library: Some(dir.0.join("lib")), ..Default::default() });
+    s.shell.app.tabs.always_visible = true;
+    let mut doc = two_rects();
+    doc.name = "Untitled".into();
+    s.shell.app.open_new_tab("Untitled", doc, crate::tabs::ProjectTabKind::Design);
+    wait(&mut s, SETTLED);
+    let (mut session, workspace) = mcp_on_the_shown_tab(&mut s, &dir);
+    let session_dir = s.app().terminal.session_dir.clone();
+    let node = s.app().doc.get(s.app().page).unwrap().children[0].0;
+    let id = tab_id(&s, s.app().tabs.active_idx);
+    s.shell.app.request_leave(None, Leave::CloseTab(id));
+    wait(&mut s, SETTLED);
+    let left = ["owner.json".to_string(), "tab-closed.json".to_string()];
+    assert_eq!(files_in(&session_dir), left, "the closed tab left only its mark");
+    assert_edit_refused_as_closed(&mut session, node, &session_dir, &left, "the same process");
+    let mut fresh = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("a new process");
+    assert_edit_refused_as_closed(&mut fresh, node, &session_dir, &left, "a new process");
+    wait(&mut s, SETTLED);
+    assert_eq!(files_in(&session_dir), left, "the editor wrote nothing either");
+    let _ = std::fs::remove_dir_all(&session_dir);
+    finish(s, workspace);
+}
+
+#[test]
+fn an_edit_after_the_person_closed_a_library_file_tab_is_refused_and_writes_nothing() {
+    let (mut s, dir) = library_sim();
+    let (mut session, workspace) = mcp_on_the_shown_tab(&mut s, &dir);
+    let session_dir = s.app().terminal.session_dir.clone();
+    let node = s.app().doc.get(s.app().page).unwrap().children[0].0;
+    let id = tab_id(&s, 0);
+    s.shell.app.request_leave(None, Leave::CloseTab(id));
+    wait(&mut s, SETTLED);
+    assert!(session_dir.join("tab-closed.json").is_file(), "the closed tab left its mark");
+    let files = files_in(&session_dir);
+    assert_edit_refused_as_closed(&mut session, node, &session_dir, &files, "the same process");
+    let mut fresh = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("a new process");
+    assert_edit_refused_as_closed(&mut fresh, node, &session_dir, &files, "a new process");
+    finish(s, workspace);
+}
+
+/// A session whose tab the person closed stays refused after the file is opened again: the new tab clears the mark on the same folder,
+/// and an edit from the old session, made on the document it held before the close, must not reach the new tab.
+#[test]
+fn an_edit_from_a_session_whose_tab_closed_stays_refused_after_the_file_is_opened_again() {
+    let (mut s, dir) = library_sim();
+    let (mut session, workspace) = mcp_on_the_shown_tab(&mut s, &dir);
+    let session_dir = s.app().terminal.session_dir.clone();
+    let file_id = s.app().lib_file.as_ref().expect("library file").id.clone();
+    let node = s.app().doc.get(s.app().page).unwrap().children[0].0;
+    let id = tab_id(&s, 0);
+    s.shell.app.request_leave(None, Leave::CloseTab(id));
+    wait(&mut s, SETTLED);
+    let files = files_in(&session_dir);
+    assert_edit_refused_as_closed(&mut session, node, &session_dir, &files, "while the tab is closed");
+    crate::home::apply(&mut s.shell.app, crate::home::Act::Open(file_id));
+    wait(&mut s, SETTLED);
+    assert_eq!(s.app().terminal.session_dir, session_dir, "the file is open again on the same folder");
+    assert!(!session_dir.join("tab-closed.json").exists(), "the new tab cleared the mark");
+    let log = s.app().terminal.live_patch.path.clone();
+    let before = std::fs::metadata(&log).map_or(0, |m| m.len());
+    let err = session.call("designos_update_node", json!({"node_id": node, "name": "Late edit"})).map_err(|e| e.to_json_value()).expect_err("still refused");
+    assert_eq!(err["code"], "EDITOR_NOT_NOTIFIED", "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
+    assert_stops_the_agent(&err, "after the file is opened again");
+    assert_eq!(std::fs::metadata(&log).map_or(0, |m| m.len()), before, "nothing reached the new tab's log");
+    finish(s, workspace);
 }
 
 #[test]

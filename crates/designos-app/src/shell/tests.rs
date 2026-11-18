@@ -1340,6 +1340,7 @@ mod screenshot_capture;
 mod screenshot_targets;
 mod select_cli;
 mod select_cli_watermark;
+mod shown_tab_close_boundary;
 mod slot_canvas_edits;
 mod stale_canvas_after_agent_edit;
 mod stray_layers;

@@ -95,3 +95,46 @@ fn a_session_file_name_that_is_a_folder_or_a_link_to_one_is_not_written_through(
     assert!(atomic_write_session_file(&session.join("GEMINI.md"), b"studio").is_err(), "a folder is not replaced by a file");
     assert!(only_entry_is_the_sentinel(&target));
 }
+
+fn sorted_names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir).expect("list").flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    names.sort();
+    names
+}
+
+/// The path helpers place a file by the session folder above it, and in a real build nothing above a session folder is one: the folder
+/// itself is no place for them. So a closed tab's folder is marked and emptied through a handle of the folder itself, which works the
+/// same in a test build, where a path in no session folder would be let through.
+#[test]
+fn a_session_folder_is_marked_and_emptied_through_its_own_handle() {
+    let (session, _session) = made_session_folder("mark-empty");
+    assert!(super::session_io::place_of_with(&session, false).is_err(), "a real build has no place for the session folder itself");
+    std::fs::write(session.join("doc-patch.jsonl"), b"{}\n").expect("a log");
+    std::fs::create_dir_all(session.join("nested").join("deeper")).expect("a nested folder");
+    std::fs::write(session.join("close-result.json"), b"{}").expect("an answer");
+    let marked = mark_and_empty_session_folder(&session, "tab-closed.json", b"{\"tab_closed\":true}\n", &["owner.json", "close-result.json"]);
+    assert!(marked.expect("the folder is marked and emptied"), "a real folder is marked");
+    assert_eq!(sorted_names(&session), ["close-result.json", "owner.json", "tab-closed.json"]);
+    assert_eq!(std::fs::read(session.join("tab-closed.json")).expect("the mark"), b"{\"tab_closed\":true}\n");
+}
+
+/// A folder below a session folder is not one, and a link at a session folder's name is left alone with what it points at.
+#[test]
+fn only_a_real_session_folder_is_marked_and_emptied() {
+    let (session, _session) = made_session_folder("mark-below");
+    let below = session.join("image-jobs");
+    std::fs::create_dir(&below).expect("a folder below");
+    let e = mark_and_empty_session_folder(&below, "tab-closed.json", b"{}", &[]).expect_err("not a session folder");
+    assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput, "{e}");
+    assert!(below.is_dir() && !below.join("tab-closed.json").exists(), "nothing was written or removed");
+
+    let (target, _target) = target_with_sentinel("mark-link-target");
+    let link = ephemeral_session_dir(&format!("p{}-mark-link-{}", std::process::id(), crate::live_sync_tests::unique_tab_id()));
+    symlink(&target, &link).expect("a link at a session folder's name");
+    assert!(!mark_and_empty_session_folder(&link, "tab-closed.json", b"{}", &[]).expect("no folder to mark"), "a link is not marked");
+    assert!(only_entry_is_the_sentinel(&target), "nothing went through the link");
+    std::fs::remove_file(&link).expect("remove the link");
+    let gone = ephemeral_session_dir(&format!("p{}-mark-gone-{}", std::process::id(), crate::live_sync_tests::unique_tab_id()));
+    assert!(!mark_and_empty_session_folder(&gone, "tab-closed.json", b"{}", &[]).expect("nothing there"));
+    assert!(!gone.exists(), "a folder that is not there is not made");
+}

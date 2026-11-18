@@ -24,7 +24,7 @@ pub const FS_CALLS: &[Allowed] = &[
     Allowed { file: "src/server.rs", func: Some("fig_output_path"), why: WORKSPACE_PATH },
     Allowed {
         file: "src/server.rs",
-        func: Some("editor_tab_is_gone"),
+        func: Some("editor_session_dir_is_missing"),
         why: "asks only whether the tab folder still exists (NotFound); the marker file inside it is read through session_file_io::stat",
     },
     Allowed {

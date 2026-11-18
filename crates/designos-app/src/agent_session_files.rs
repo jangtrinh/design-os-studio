@@ -17,10 +17,17 @@ pub use folder::{default_sessions_root, ephemeral_session_dir, ephemeral_session
 pub(crate) use folder_owner::check_owner;
 pub use refusal::{files_not_updated_message, library_fallback_message, start_failure_message, with_next_step, with_set_aside_note};
 pub use session_io::{
-    added_while_starting, atomic_write_session_file, create_session_dir_all, create_session_file_exclusive, open_plain_file, open_session_file,
-    read_session_file, read_session_text, remove_session_dir_all, remove_session_file, rename_session_file, session_file_metadata, set_aside_entries_except,
-    set_aside_path, write_session_file_unless, write_session_file_verified, SetAside,
+    added_while_starting, atomic_write_session_file, create_session_dir_all, create_session_file_exclusive, mark_and_empty_session_folder, open_plain_file,
+    open_session_file, read_session_file, read_session_text, remove_session_dir_all, remove_session_file, rename_session_file, session_file_metadata,
+    set_aside_entries_except, set_aside_path, write_session_file_unless, write_session_file_verified, SetAside,
 };
+
+/// Runs `hook` once, just before the routed helpers remove the entry at `path`, so a test outside this module can see what the
+/// folder held at that exact point.
+#[cfg(all(test, unix))]
+pub(crate) fn set_before_remove_hook(path: &Path, hook: Box<dyn FnOnce() + Send>) {
+    no_follow::test_hooks::set_before_remove_hook(path, hook);
+}
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
@@ -152,6 +159,9 @@ pub fn is_ephemeral_session_dir(dir: &Path) -> bool {
     ephemeral_sessions_root().is_some_and(|root| dir.parent() == Some(root.as_path()))
 }
 
+/// The file in a scratch session folder that names the process that owns it.
+pub const OWNER_FILE: &str = "owner.json";
+
 /// Writes `<session_dir>/owner.json` with `{ "pid": <current pid>, "started_ms": <started_ms> }`.
 pub fn write_owner_marker(session_dir: &Path) -> std::io::Result<()> {
     let marker = OwnerMarker { pid: std::process::id(), started_ms: current_process_started_ms() };
@@ -170,10 +180,18 @@ pub fn read_owner_marker(session_dir: &Path) -> Option<OwnerMarker> {
 ///
 /// The folder is made with an exclusive `mkdir` (0700). A path that exists already is accepted only when it is a real
 /// folder owned by the user, so an existing link, file or foreign folder is an error and nothing is written there.
+///
+/// A scratch folder whose `owner.json` is not this process's (a folder an earlier Studio left under a name this one gets too, after the
+/// process id was recycled) is claimed: its owner marker is rewritten and the mark of that earlier closed tab is removed, so the new
+/// session does not read as closed and the sweep does not judge it by a process that is gone.
 pub fn ensure_session_dir(session_dir: &Path) -> std::io::Result<()> {
     folder::create_session_folder(session_dir)?;
-    if is_ephemeral_session_dir(session_dir) && !session_dir.join("owner.json").exists() {
-        write_owner_marker(session_dir)?;
+    if is_ephemeral_session_dir(session_dir) {
+        let ours = read_owner_marker(session_dir).is_some_and(|m| m.pid == std::process::id() && m.started_ms == current_process_started_ms());
+        if !ours {
+            let _ = remove_session_file(&session_dir.join(designos_doc::live_patch::CloseIntent::TAB_CLOSED_FILE));
+            write_owner_marker(session_dir)?;
+        }
     }
     Ok(())
 }
@@ -714,9 +732,11 @@ mod tests {
     #[test]
     fn two_windows_never_touch_each_others_session_files() {
         let mut win1 = TerminalState::for_tab(1);
-        win1.bind_session(&format!("p{}-w1-tab-1", std::process::id()));
+        // Not a `p<pid>-w1-tab-1` name: the window of every shell test has that one, and a test that closes it must not
+        // remove or fill the folder of this one.
+        win1.bind_session(&unique_test_id("two-windows-1"));
         let mut win2 = TerminalState::for_tab(1);
-        win2.bind_session(&format!("p{}-w2-tab-1", std::process::id()));
+        win2.bind_session(&unique_test_id("two-windows-2"));
         assert_ne!(win1.session_dir, win2.session_dir);
 
         let mut doc1 = Document::new("Window One Doc");
@@ -843,7 +863,8 @@ mod tests {
         st.flush_live_sync();
         assert!(session_dir.exists());
         st.shutdown();
-        assert!(!session_dir.exists(), "shutdown must remove the ephemeral session dir {}", session_dir.display());
+        assert_eq!(files_in(&session_dir), CLOSED_SCRATCH_FOLDER, "shutdown must leave only the mark of the closed tab in {}", session_dir.display());
+        let _ = std::fs::remove_dir_all(&session_dir);
     }
 
     /// The frame that closes a window (or the last tab) goes on to publish the document: that publish must
@@ -888,9 +909,10 @@ mod tests {
         st.start_bootstrap_job(doc.clone(), page, None, Some(Duration::from_millis(400)));
 
         st.shutdown();
-        assert!(!session_dir.exists(), "precondition: shutdown removed the folder");
+        assert_eq!(files_in(&session_dir), CLOSED_SCRATCH_FOLDER, "precondition: shutdown removed the folder's files");
         std::thread::sleep(Duration::from_millis(900));
-        assert!(!session_dir.exists(), "the bootstrap build re-created {}", session_dir.display());
+        assert_eq!(files_in(&session_dir), CLOSED_SCRATCH_FOLDER, "the bootstrap build wrote into {}", session_dir.display());
+        let _ = std::fs::remove_dir_all(&session_dir);
     }
 
     #[test]
@@ -908,12 +930,12 @@ mod tests {
         st.flush_live_sync();
         assert!(channel.join(crate::agent_approval_channel::HOOK_SCRIPT_NAME).is_file(), "the session installs its approval hook");
         st.shutdown();
-        assert!(!session_dir.exists(), "precondition: shutdown removed the folder");
+        assert_eq!(files_in(&session_dir), CLOSED_SCRATCH_FOLDER, "precondition: shutdown removed the folder's files");
         assert!(!channel.exists(), "shutdown removes the approval channel with the folder");
 
         st.sync_live_file_context(&doc, page, &[], None);
         st.flush_live_sync();
-        assert!(!session_dir.exists(), "the publish after shutdown re-created {}", session_dir.display());
+        assert_eq!(files_in(&session_dir), CLOSED_SCRATCH_FOLDER, "the publish after shutdown wrote into {}", session_dir.display());
         assert!(!channel.exists(), "the publish after shutdown re-created the approval channel {}", channel.display());
 
         // Binding to a session again (a document opened in this terminal) lifts the stop.
@@ -924,6 +946,18 @@ mod tests {
         assert!(next_dir.join("canvas.designos").is_file(), "a rebound terminal publishes again");
         st.shutdown();
         assert!(!crate::agent_approval_channel::channel_dir(&next_dir).expect("a private channel folder").exists());
+        let _ = std::fs::remove_dir_all(&session_dir);
+        let _ = std::fs::remove_dir_all(&next_dir);
+    }
+
+    /// What a closed scratch folder holds: the owner marker and the mark of the closed tab, nothing else.
+    const CLOSED_SCRATCH_FOLDER: [&str; 2] = ["owner.json", "tab-closed.json"];
+
+    fn files_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> =
+            std::fs::read_dir(dir).map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+        names.sort();
+        names
     }
 
     fn writer_test_job(session_dir: &Path, key: (u64, u64, u64)) -> SnapshotJob {
