@@ -80,21 +80,31 @@ pub struct TextLayout {
     pub line_box: Vec2,
 }
 
-/// Layout an imported text node. When its original font is unavailable, use
-/// the glyph paths Figma embedded in the file until the text is edited.
-pub fn layout_node(node: &d::Node) -> Rc<TextLayout> {
-    let d::NodeKind::Text(props) = &node.kind else { unreachable!("layout_node requires text") };
-    if let Some(saved) = node.fig_text_geometry.as_ref().filter(|saved| saved.matches(node)) {
-        let missing_font = resolve_font(&props.style.font_family, props.style.font_weight, props.style.italic)
-            .is_none_or(|resolved| !resolved.family.eq_ignore_ascii_case(&props.style.font_family));
-        if missing_font {
-            let shape = crate::geom::vector_paths(std::slice::from_ref(&saved.path));
-            if let Some((path, _)) = shape.paths.into_iter().next() {
-                return Rc::new(TextLayout { styles: vec![props.style.clone()], paths: vec![Some(path)], line_box: node.size });
-            }
+/// The glyphs Figma saved with an imported text node, when they are what the node must draw: they still
+/// describe the node, the requested font is not installed, and the text has no underline or strikethrough
+/// (the saved outlines carry no decoration bars, so shaping draws those).
+pub(crate) fn embedded_glyphs(node: &d::Node) -> Option<&d::FigTextGeometry> {
+    let d::NodeKind::Text(props) = &node.kind else { return None };
+    let saved = node.fig_text_geometry.as_deref().filter(|saved| saved.matches(node))?;
+    if props.style.decoration != d::TextDecoration::None {
+        return None;
+    }
+    let missing_font = resolve_font(&props.style.font_family, props.style.font_weight, props.style.italic)
+        .is_none_or(|resolved| !resolved.family.eq_ignore_ascii_case(&props.style.font_family));
+    missing_font.then_some(saved)
+}
+
+/// Layout an imported text node. When its original font is unavailable, use the glyph paths Figma embedded
+/// in the file until the text is edited. `None` for a node that is not text.
+pub fn layout_node(node: &d::Node) -> Option<Rc<TextLayout>> {
+    let d::NodeKind::Text(props) = &node.kind else { return None };
+    if let Some(saved) = embedded_glyphs(node) {
+        let shape = crate::geom::vector_paths(std::slice::from_ref(&saved.path));
+        if let Some((path, _)) = shape.paths.into_iter().next() {
+            return Some(Rc::new(TextLayout { styles: vec![props.style.clone()], paths: vec![Some(path)], line_box: node.size }));
         }
     }
-    layout(props, node.size)
+    Some(layout(props, node.size))
 }
 
 /// The line box of `props` laid out in a box of `size`, from its own small cache (one `Vec2` per text
@@ -822,6 +832,26 @@ fn path_cmds(path: &sk::Path, out: &mut Vec<d::PathCmd>) {
 /// order (right to left); the outlines are exact either way.
 pub fn text_runs(props: &TextProps, size: Vec2) -> TextRuns {
     with_fonts(|f| compute_runs(f, props, size))
+}
+
+/// [`text_runs`] of a text node for exporters. When the node draws Figma's embedded glyphs, the lines
+/// and styles are the shaped ones (so selectable text keeps its place) and the visible outlines are the
+/// saved ones, held by the first span. `None` for a node that is not text.
+pub fn text_runs_for_node(node: &d::Node) -> Option<TextRuns> {
+    let d::NodeKind::Text(props) = &node.kind else { return None };
+    let mut runs = text_runs(props, node.size);
+    if let Some(saved) = embedded_glyphs(node) {
+        for span in runs.lines.iter_mut().flat_map(|l| l.spans.iter_mut()) {
+            span.outline.clear();
+        }
+        match runs.lines.iter_mut().flat_map(|l| l.spans.iter_mut()).next() {
+            Some(first) => first.outline = saved.path.cmds.clone(),
+            None => runs
+                .lines
+                .push(RunLine { baseline: node.size.y, spans: vec![GlyphRun { style: 0, x: 0.0, text: String::new(), outline: saved.path.cmds.clone() }] }),
+        }
+    }
+    Some(runs)
 }
 
 fn compute_runs(fonts: &mut Fonts, props: &TextProps, size: Vec2) -> TextRuns {

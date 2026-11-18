@@ -41,7 +41,7 @@ pub fn text_outlines(props: &TextProps, size: Vec2) -> Vec<TextOutline> {
 /// Text outlines for a document node, including its original Figma glyphs
 /// when the font is missing.
 pub fn text_outlines_for_node(node: &Node) -> Vec<TextOutline> {
-    outlines_from_layout(text::layout_node(node))
+    text::layout_node(node).map(outlines_from_layout).unwrap_or_default()
 }
 
 fn outlines_from_layout(lay: Rc<text::TextLayout>) -> Vec<TextOutline> {

@@ -2,6 +2,7 @@
 mod missing_font_fig;
 
 use designos_doc::{Node, NodeKind, PathCmd, Vec2};
+use designos_fig::testkit::en;
 use designos_fig::{decode_fig_to_json, export_fig, import_fig};
 use missing_font_fig::*;
 
@@ -136,4 +137,38 @@ fn serialized_glyph_blobs_use_the_compact_hex_form() {
     assert!(json.contains("hex:"), "blob bytes are written as hex strings: {json}");
     let restored: Node = serde_json::from_str(&json).unwrap();
     assert_eq!(restored.fig_text_geometry, icon.fig_text_geometry);
+}
+
+#[test]
+fn underlined_text_is_shaped_until_decorations_are_drawn() {
+    let mut nodes = document_and_page();
+    nodes.push(glyph_text((1, 2), (0, 1), "a", "Icon text", FAMILY, "\u{e900}", &[(0, 0.0)], vec![("textDecoration", en("UNDERLINE"))]));
+    let doc = import_fig(&fig_file(nodes, vec![icon_blob()])).unwrap();
+    let icon = icon_node(&doc);
+    let NodeKind::Text(t) = &icon.kind else { unreachable!() };
+    assert_ne!(t.style.decoration, designos_doc::TextDecoration::None, "the fixture imports as underlined");
+    assert!(!draws_saved_triangle(icon), "the saved outlines carry no underline, so shaping draws the text");
+}
+
+#[test]
+fn text_outlines_of_a_non_text_node_are_empty() {
+    let doc = import_fig(&fixture()).unwrap();
+    let frame = doc.nodes.values().find(|n| n.name == "Clipping frame").unwrap();
+    assert!(designos_render::text_outlines_for_node(frame).is_empty());
+}
+
+#[test]
+fn flatten_turns_the_saved_glyph_into_vectors() {
+    let doc = import_fig(&fixture()).unwrap();
+    let runs = designos_render::vectorops::text_flatten_runs(&doc, icon_node(&doc));
+    let points: Vec<Vec2> = runs
+        .iter()
+        .flat_map(|r| r.path.cmds.iter())
+        .filter_map(|c| match *c {
+            PathCmd::MoveTo(p) | PathCmd::LineTo(p) | PathCmd::QuadTo(_, p) | PathCmd::CubicTo(_, _, p) => Some(p),
+            PathCmd::Close => None,
+        })
+        .collect();
+    let (left, right) = points.iter().fold((f32::MAX, f32::MIN), |(l, r), p| (l.min(p.x), r.max(p.x)));
+    assert!(!points.is_empty() && left.abs() < 1e-3 && (right - 20.0).abs() < 1e-3, "flatten keeps the saved glyph: x {left}..{right}");
 }

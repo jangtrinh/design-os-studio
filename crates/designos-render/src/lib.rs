@@ -47,7 +47,7 @@ pub use outline::{
 use paint::{blend_mode, fill_paths, stroke_paths, PaintEnv};
 pub use text::{
     available_families, font_features, font_generation, load_font_data, measure_text_box, register_font, resolve_font, shaping_runs, text_geometry, text_runs,
-    GlyphRun, GlyphSpan, LineGeom, RenderTextMeasure, ResolvedFont, RunLine, TextGeometry, TextRuns,
+    text_runs_for_node, GlyphRun, GlyphSpan, LineGeom, RenderTextMeasure, ResolvedFont, RunLine, TextGeometry, TextRuns,
 };
 pub use tiles::{Tile, TileBudget, TileCache, TileFrame, TileKey, TILE_SIZE};
 pub use tiny_skia;
@@ -303,7 +303,7 @@ pub fn render_text_mask(doc: &Document, node: NodeId, rect: designos_doc::Rect, 
     let NodeKind::Text(_) = &resolved.kind else {
         return None;
     };
-    let tl = text::layout_node(&resolved);
+    let tl = text::layout_node(&resolved)?;
     let mut chain = Vec::new();
     let mut cur = Some(node);
     while let Some(id) = cur {
@@ -613,7 +613,7 @@ impl Renderer<'_> {
             let scale = ts_scale(&ts);
             let shape = node_shape(self.doc, n, 0.15 / scale);
             let text_layout = match &n.kind {
-                NodeKind::Text(_) => Some(text::layout_node(n)),
+                NodeKind::Text(_) => text::layout_node(n),
                 _ => None,
             };
             let sil = |pm: &mut sk::Pixmap, dx: f32, dy: f32, grow: f32, mode: designos_doc::SilhouetteMode| {
@@ -627,7 +627,7 @@ impl Renderer<'_> {
         let scale = ts_scale(&ts);
         let shape = node_shape(self.doc, n, 0.15 / scale);
         let text_layout = match &n.kind {
-            NodeKind::Text(_) => Some(text::layout_node(n)),
+            NodeKind::Text(_) => text::layout_node(n),
             _ => None,
         };
         let bb = self.bbox(n, &ts);
@@ -762,7 +762,7 @@ impl Renderer<'_> {
             let scale = ts_scale(&ts);
             let shape = node_shape(self.doc, child, 0.15 / scale);
             let text_layout = match &child.kind {
-                NodeKind::Text(_) => Some(text::layout_node(child)),
+                NodeKind::Text(_) => text::layout_node(child),
                 _ => None,
             };
             self.draw_silhouette(child, ts, shape.as_ref(), text_layout.as_deref(), pm, 0.0, 0.0, 0.0, designos_doc::SilhouetteMode::Knockout);
