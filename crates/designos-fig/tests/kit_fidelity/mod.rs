@@ -13,6 +13,7 @@ pub mod report;
 pub mod run;
 pub mod save_loss;
 pub mod scratch;
+pub mod text;
 
 #[cfg(test)]
 mod fixtures;

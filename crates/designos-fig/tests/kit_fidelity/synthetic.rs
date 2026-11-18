@@ -5,7 +5,8 @@ use super::board::Tally;
 use super::fixtures::*;
 use super::keys::NodeKeys;
 use super::raw::{self, Raw};
-use super::{geometry, import_cov, instances, layout, save_loss};
+use super::text::{Baseline, TextTruth};
+use super::{geometry, import_cov, instances, layout, save_loss, text};
 use designos_doc::*;
 use designos_fig::kiwi::KiwiValue as V;
 use designos_fig::testkit::{en, fl, guid, msg, square_blob, triangle_blob};
@@ -100,4 +101,24 @@ fn instances_count_a_sublayer_off_its_derived_place() {
     let sub = doc.get(inst).unwrap().children[0];
     doc.get_mut(sub).unwrap().transform.tx += 3.0;
     assert_eq!(instances::part(&truth, &doc, &keys, &refused).bucket("total")[0], t(0, 1), "the sublayer moved 3 px");
+}
+
+#[test]
+fn text_counts_a_baseline_off_the_stored_one() {
+    let (r, doc, keys) = load(&text_fig(12.0));
+    let (truth, without) = text::truth(&r);
+    assert_eq!((truth.len(), without), (1, 0));
+    assert_eq!((truth[0].baselines[0].first, truth[0].baselines[0].y), (0, 12.0), "derivedTextData is read from the raw record");
+    let n = doc.get(keys.by_source["1:30"]).unwrap();
+    let NodeKind::Text(props) = &n.kind else { panic!("a text layer") };
+    let g = designos_render::text_geometry(props, n.size);
+    let studio = |shift: f32| TextTruth {
+        guid: "1:30".into(),
+        layout: Some(Vec2::new(g.width, g.height)),
+        baselines: g.lines.iter().map(|l| Baseline { first: l.start as u64, y: l.baseline + shift }).collect(),
+        line_height_unit: "absent".into(),
+        letter_spacing_unit: "absent".into(),
+    };
+    assert_eq!(text::part(&[studio(0.0)], 0, &doc, &keys).bucket("total")[0], t(1, 1), "Figma's lines are Studio's");
+    assert_eq!(text::part(&[studio(3.0)], 0, &doc, &keys).bucket("total")[0], t(0, 1), "a baseline 3 px lower");
 }

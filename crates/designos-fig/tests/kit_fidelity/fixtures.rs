@@ -90,6 +90,31 @@ pub fn instance_fig() -> Vec<u8> {
     fig(vec![main, rect, inst], vec![])
 }
 
+/// A text layer with stored derived text data: one line starting at character 0, baseline at `y`.
+pub fn text_fig(y: f32) -> Vec<u8> {
+    let font = st(vec![("family", V::String("Inter".into())), ("style", V::String("Regular".into())), ("postscript", V::String(String::new()))]);
+    let derived = msg(vec![
+        ("layoutSize", vec2(80.0, 20.0)),
+        ("baselines", V::Array(vec![msg(vec![("position", vec2(0.0, y)), ("width", fl(80.0)), ("firstCharacter", V::Uint(0)), ("endCharacter", V::Uint(5))])])),
+    ]);
+    let t = layer(
+        30,
+        (0, 1),
+        "!",
+        "TEXT",
+        (80.0, 20.0),
+        (0.0, 0.0),
+        vec![
+            ("textData", msg(vec![("characters", V::String("Hello".into()))])),
+            ("fontName", font),
+            ("fontSize", fl(16.0)),
+            ("textAutoResize", en("WIDTH_AND_HEIGHT")),
+            ("derivedTextData", derived),
+        ],
+    );
+    fig(vec![t], vec![])
+}
+
 /// A frame carrying the string field `version` (not in the importer's field list): kept as metadata when it has a
 /// value, dropped when it is empty.
 pub fn version_fig(value: &str) -> Vec<u8> {

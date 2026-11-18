@@ -3,12 +3,12 @@
 
 use super::board::{self, Part};
 use super::keys::NodeKeys;
-use super::{geometry, import_cov, instances, layout, raw, report, save_loss};
+use super::{geometry, import_cov, instances, layout, raw, report, save_loss, text};
 use serde_json::json;
 use std::collections::HashSet;
 use std::time::Instant;
 
-pub const PARTS: [&str; 5] = ["auto_layout", "import_coverage", "save_loss", "geometry", "instances"];
+pub const PARTS: [&str; 6] = ["auto_layout", "import_coverage", "save_loss", "geometry", "instances", "text_layout"];
 
 pub fn run_kit() {
     let Some(kit) = std::env::var_os("DESIGNOS_KIT_PATH").or_else(|| std::env::var_os("KIT_CLONE")) else {
@@ -34,6 +34,7 @@ pub fn run_kit() {
     let rec_keys = want("import_coverage").then(|| import_cov::truth(&r));
     let geo = want("geometry").then(|| geometry::truth(&r));
     let inst = want("instances").then(|| instances::truth(&r));
+    let txt = want("text_layout").then(|| text::truth(&r));
     let blobs = r.blobs;
     drop(r.records);
     lap("raw decode and truth extraction", &mut timings);
@@ -81,6 +82,11 @@ pub fn run_kit() {
         late.push(geometry::part(g, &blobs, &doc, &keys));
         lap("part 1 geometry", &mut timings);
     }
+    let mut text_part = None;
+    if let Some((t, without)) = &txt {
+        text_part = Some(text::part(t, *without, &doc, &keys));
+        lap("part 4 text layout", &mut timings);
+    }
     if let Some(t) = &inst {
         let refused = instances::refused(t, &doc, &keys);
         let synced = instances::sync_all(&mut doc);
@@ -97,6 +103,7 @@ pub fn run_kit() {
         late.push(p);
         lap("part 3 instances", &mut timings);
     }
+    late.extend(text_part);
     drop(doc);
     drop(keys);
     if let Some(saved) = saved {
