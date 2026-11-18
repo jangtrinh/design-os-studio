@@ -164,9 +164,12 @@ impl Default for BoardState {
 }
 
 /// The ink a new connector gets in a design file: `theme::BOARD_INK[0]`, or `theme::BOARD_INK_ON_DARK`
-/// where that falls below 3:1 contrast against the surface behind it.
+/// where that falls below 3:1 contrast against the surface behind it. An image fill counts as the
+/// mean of its decoded pixels.
 pub fn connector_ink_on(doc: &designos_doc::Document, home: NodeId) -> Color {
-    designos_doc::connector_ink_on(doc, home, color_of(crate::theme::BOARD_INK[0]), color_of(crate::theme::BOARD_INK_ON_DARK))
+    designos_doc::connector_ink_on(doc, home, color_of(crate::theme::BOARD_INK[0]), color_of(crate::theme::BOARD_INK_ON_DARK), &|image_ref| {
+        designos_render::decoded_image_mean(doc, image_ref)
+    })
 }
 
 /// `0xRRGGBB` as a document colour.
