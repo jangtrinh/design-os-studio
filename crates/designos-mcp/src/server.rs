@@ -985,7 +985,18 @@ impl Session {
         if v.get("close_id").and_then(Value::as_u64) != Some(close_id) {
             return None;
         }
+        // The editor says the tab is closed: this session is over as surely as when it reads the mark itself.
+        if Self::ack_says_tab_closed(&v) {
+            self.live_tab_closed = true;
+        }
         Some(Self::close_ack_to_result(v))
+    }
+
+    /// The editor refused a close because this session's tab is closed (or no tab is open at all).
+    fn ack_says_tab_closed(v: &Value) -> bool {
+        v.get("ok").and_then(Value::as_bool) == Some(false)
+            && v.get("code").and_then(Value::as_str).and_then(ErrorCode::from_code_str) == Some(ErrorCode::EditorNotNotified)
+            && v.get("reason").and_then(Value::as_str) == Some("tab_closed")
     }
 
     /// The wait ended with no answer. The close is cancelled, so the editor will not act on it later: for `save` and `fail`
@@ -1091,7 +1102,7 @@ impl Session {
                         "The document stayed open. Make the file writable and call designos_close_document again, or pass path to a new writable file.",
                     );
                 }
-                ErrorCode::EditorNotNotified if v.get("reason").and_then(Value::as_str) == Some("tab_closed") => {
+                ErrorCode::EditorNotNotified if Self::ack_says_tab_closed(&v) => {
                     // The tab is gone, so there is nothing to close and asking again can never work.
                     err = err.with_safe_to_retry(false).with_next_step(Self::TAB_CLOSED_NEXT_STEP);
                 }

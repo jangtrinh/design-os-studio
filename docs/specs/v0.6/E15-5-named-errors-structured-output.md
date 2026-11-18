@@ -98,13 +98,19 @@ itself with `designos_close_document`. A closed tab leaves `tab-closed.json` in 
 keeps only that mark, its owner marker and the answer to a close until the next sweep); that mark, or this session's
 own acknowledged close, is what tells a closed tab apart from a missing folder. A session that has seen the mark or made
 its own close stays refused, also after the file is opened again in a new tab that clears the mark on the same folder.
-A session that called nothing below between the close and the reopen cannot tell, because a library file's folder name
-carries no tab. Every refusal is `EDITOR_NOT_NOTIFIED` with `safe_to_retry: false` and `next_step` "This session's tab
-is already closed, so nothing more from this session reaches the editor. Stop and tell the user.": it names no other
-call, since each of them is refused the same way.
-- `designos_close_document` (also when the editor answers `reason: "tab_closed"`, and when the tab closes while the
-  close waits for its answer) has the message "The tab is already closed, so there is nothing to close.", at once and
-  without the wait.
+The editor's own `reason: "tab_closed"` answer to a close ends the session the same way. A session that called nothing
+below between the close and the reopen cannot tell, because a library file's folder name carries no tab. Every refusal
+is `EDITOR_NOT_NOTIFIED` with `safe_to_retry: false` and `next_step` "This session's tab is already closed, so nothing
+more from this session reaches the editor. Stop and tell the user.": it names no other call, since each of them is
+refused the same way.
+- `designos_close_document` of a tab that is already closed has the message "The tab is already closed, so there is
+  nothing to close.", at once and without the wait.
+- When the editor itself answers `reason: "tab_closed"`, the message is the editor's: "The tab is already closed, so
+  there is nothing to close." for a tab that is gone, or "No tab is open, so there is nothing to close." when no tab is
+  open at all.
+- When the tab closes while the close waits for its answer, the answer comes when the wait ends (2 s by default), not at
+  once: the message is "The tab is already closed, so there is nothing to close." unless the editor answered before it
+  closed the tab, and no `close-cancel.json` is written.
 - An edit, `designos_open_file` and `designos_new_document` have the message "The tab is already closed, so this change
   cannot reach the editor." They are refused before anything is changed.
 - Nothing is written into the folder of a closed tab, `session-options.json` and `close-cancel.json` included: no editor

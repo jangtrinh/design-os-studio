@@ -712,6 +712,14 @@ fn closing_an_already_closed_tab_is_not_retryable() {
         writer.join().unwrap();
         assert_already_closed(&err, policy);
         assert!(err["message"].as_str().unwrap_or("").contains("already closed"), "{policy}: {err}");
+        // The editor's answer ends the session as the mark does, also with no mark in the folder.
+        assert!(!session_dir.join(CloseIntent::TAB_CLOSED_FILE).exists(), "{policy}: precondition: only the answer says so");
+        let page = page_id(&mut s);
+        let before = files_in(&session_dir);
+        let late = json!({"parent_id": page, "kind": "frame", "name": "Late"});
+        let err = s.call("designos_create_node", late).map_err(|e| e.to_json_value()).expect_err("the session is over");
+        assert_write_refused_as_closed(&err, policy);
+        assert_eq!(files_in(&session_dir), before, "{policy}: nothing was written into the folder");
     }
 }
 

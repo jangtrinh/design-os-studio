@@ -3356,7 +3356,9 @@ impl TerminalState {
                         }
                     }
                     self.forget_tool_policy_of_removed_session_dir();
-                    // The session moves to its stable folder and its tab lives on: this scratch folder is not marked closed.
+                    // The session moves to its stable folder, so this scratch folder is removed unmarked. That holds when the tab
+                    // lives on and also when it closes (from `shutdown`): an MCP that was started on this scratch folder and outlives
+                    // the tab is then told the session folder is gone, not that the tab is closed. Both answers are non-retryable.
                     remove_scratch_dir_keeping_the_close_answer(&self.session_dir, false);
                     if self.tabs.is_empty() {
                         self.update_session_dir_paths(stable_dir);
@@ -3400,10 +3402,11 @@ impl TerminalState {
             self.persist_session_registry();
         }
         self.cleanup_ephemeral_session_dir(true);
-        self.release_lock();
-        // A library file's stable folder stays on disk, but this window no longer owns it: publish nothing more.
+        // A library file's stable folder stays on disk: publish nothing more, and mark it closed while this window still holds its
+        // lock, since another window may own the folder as soon as the lock is free.
         self.session_closed = true;
         self.mark_tab_closed();
+        self.release_lock();
     }
 
     /// Tells an agent whose MCP server outlives this tab that the tab is gone: a folder that is still on disk (a library file's) gets

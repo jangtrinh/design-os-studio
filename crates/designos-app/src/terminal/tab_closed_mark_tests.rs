@@ -166,3 +166,29 @@ fn a_folder_this_process_owns_keeps_its_mark_when_it_is_ensured_again() {
     assert!(dir.join(CloseIntent::TAB_CLOSED_FILE).is_file());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A library file's tab marks its folder closed before it gives up the folder's lock: once the lock is free another window may own
+/// the folder, and a mark written then would refuse that window's agents.
+#[cfg(unix)]
+#[test]
+fn a_library_tab_marks_its_folder_closed_before_it_releases_the_lock() {
+    let lib = std::env::temp_dir().join(format!("designos-closed-mark-lock-{}-{}", std::process::id(), crate::live_sync_tests::unique_tab_id()));
+    std::fs::create_dir_all(&lib).unwrap();
+    let mut st = TerminalState::default();
+    st.bind_library_file(&lib, "file-lock-order", &format!("p{}-wlock-{}", std::process::id(), crate::live_sync_tests::unique_tab_id()));
+    assert!(st.lock_owner.is_some(), "this window holds the folder's lock");
+    let dir = st.session_dir.clone();
+    assert_eq!(dir, crate::agent_sessions::stable_session_dir(&lib, "file-lock-order"), "the tab works in the file's own folder");
+    let lock = dir.join("session.lock");
+    assert!(lock.is_file(), "precondition: the lock is on disk");
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let (seen_at, dir_at) = (seen.clone(), dir.clone());
+    crate::agent_session_files::set_before_remove_hook(
+        &lock,
+        Box::new(move || *seen_at.lock().unwrap() = Some(dir_at.join(CloseIntent::TAB_CLOSED_FILE).is_file())),
+    );
+    st.shutdown();
+    assert_eq!(*seen.lock().unwrap(), Some(true), "the lock was released before the folder was marked closed");
+    assert!(!lock.exists(), "the lock is released");
+    let _ = std::fs::remove_dir_all(&lib);
+}
