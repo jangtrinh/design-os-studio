@@ -352,7 +352,7 @@ fn the_corpus_edits_every_field_a_populated_node_serializes() {
     let serialized: BTreeSet<&str> = map.keys().map(String::as_str).filter(|k| !matches!(*k, "id" | "parent" | "children")).collect();
     let edited: BTreeSet<&str> = field_edits().iter().map(|(f, _)| *f).collect();
     assert_eq!(serialized, edited, "every serialized field of a populated node needs edits here, and every edit names a serialized field");
-    assert_eq!(serialized.len(), 35);
+    assert_eq!(serialized.len(), 36);
 }
 
 #[test]
@@ -427,7 +427,7 @@ fn random_combinations_of_edits_are_reported_as_the_value_diff_reported_them() {
         seen_fields.extend(value_diff_oracle(&a, &b));
         assert_same_as_value_diff(&a, &b, &format!("round {round} of seed 0x5EED0993"));
     }
-    assert_eq!(seen_fields.len(), 35, "the random pairs differ in every field at least once, saw {seen_fields:?}");
+    assert_eq!(seen_fields.len(), 36, "the random pairs differ in every field at least once, saw {seen_fields:?}");
 }
 
 #[test]
