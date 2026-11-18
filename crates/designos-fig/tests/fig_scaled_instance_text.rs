@@ -440,6 +440,16 @@ fn a_reopened_save_keeps_the_scaled_size() {
     assert!(close(size, 11.2) && close(lh, 16.0), "a second save and reopen does not scale again: drawn {size} / {lh}");
 }
 
+#[test]
+fn a_native_save_keeps_the_factor() {
+    let doc = import_fig_node_changes(&badge_doc(vec![text((5, 2), (5, 1), "Rating", (8, 2), json!({}))], 0.8), "t").unwrap();
+    let back = Document::from_json(&doc.to_json().unwrap()).unwrap();
+    let (size, lh) = drawn(&back, scaled_rating(&back));
+    assert!(close(size, 11.2) && close(lh, 16.0), "after a native save and reopen: drawn {size} / {lh}");
+    let plain = Document::from_json(&doc.to_json().unwrap()).unwrap();
+    assert_eq!(text_of(child(&plain, find(&plain, "Badge"), "Rating")).uniform_scale, 1.0, "a main text has no factor");
+}
+
 /// A REST file with a component and an instance of it carrying `_uniformScale = scale`.
 fn rest_with_scale(scale: Value) -> String {
     json!({
