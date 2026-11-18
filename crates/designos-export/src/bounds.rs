@@ -158,6 +158,10 @@ fn paints(n: &Node) -> bool {
     }
 }
 
+fn clips(n: &Node) -> bool {
+    n.kind.frame_props().is_some_and(|f| f.clips_content)
+}
+
 /// The rectangles of the node's visible children in the node's space, cut to the node's box when it
 /// clips. `measure` gives a child's rectangle in the child's own space.
 fn child_rects(doc: &Document, n: &Node, measure: fn(&Document, &Node) -> Option<Rect>) -> Vec<Rect> {
@@ -165,7 +169,7 @@ fn child_rects(doc: &Document, n: &Node, measure: fn(&Document, &Node) -> Option
     if matches!(n.kind, NodeKind::BooleanOp(_)) {
         return Vec::new();
     }
-    let clip = n.kind.frame_props().is_some_and(|f| f.clips_content).then(|| Rect::new(0.0, 0.0, n.size.x, n.size.y));
+    let clip = clips(n).then(|| Rect::new(0.0, 0.0, n.size.x, n.size.y));
     let mut out = Vec::new();
     for cid in &n.children {
         let Some(c) = doc.get(*cid) else { continue };
@@ -192,6 +196,10 @@ fn painted_geometry(doc: &Document, n: &Node) -> Option<Rect> {
         return None;
     }
     let own = (!matches!(n.kind, NodeKind::Group) && paints(n)).then(|| grow(Rect::new(0.0, 0.0, n.size.x, n.size.y), ceil_reach(stroke_reach(n))));
+    // children cut to a box the node already paints cannot grow it
+    if own.is_some() && clips(n) {
+        return own;
+    }
     child_rects(doc, n, painted_geometry).into_iter().fold(own, union_into)
 }
 
@@ -202,6 +210,11 @@ fn effect_shapes(doc: &Document, n: &Node) -> Option<Rect> {
     let is_group = matches!(n.kind, NodeKind::Group);
     let mut acc = (!is_group && paints(n)).then(|| grow(Rect::new(0.0, 0.0, n.size.x, n.size.y), own_overflow(n)));
     let kids_reach = if is_group { own_overflow(n) } else { ceil_reach(effect_reach(n)) };
+    // a node that clips and paints already holds its box grown by its whole reach, which covers every
+    // child cut to that box and grown by the effect reach alone
+    if acc.is_some() && clips(n) {
+        return acc;
+    }
     if kids_reach != (0.0, 0.0, 0.0, 0.0) {
         for cr in child_rects(doc, n, painted_geometry) {
             acc = union_into(acc, grow(cr, kids_reach));
@@ -218,6 +231,10 @@ fn bounds_of(doc: &Document, n: &Node) -> Option<Rect> {
     let mut acc = if is_page { None } else { effect_shapes(doc, n) };
     if !is_page && !is_group && !paints(n) {
         acc = union_into(acc, Rect::new(0.0, 0.0, n.size.x, n.size.y));
+    }
+    // a clipping node's own box is already in `acc`, and its children are cut to that box
+    if !is_page && clips(n) {
+        return acc;
     }
     for cr in child_rects(doc, n, bounds_of) {
         acc = union_into(acc, cr);

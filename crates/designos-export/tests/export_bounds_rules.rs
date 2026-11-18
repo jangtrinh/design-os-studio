@@ -1,6 +1,6 @@
-//! Export bounds follow the rules measured in Figma: a shadow grows around the shape a frame paints
-//! together with the shapes its children paint, a layer that paints nothing adds no box, and a frame
-//! always adds its own.
+//! Export bounds follow the rules measured in Figma: each stroke side reaches by its own weight, and a
+//! frame's shadow grows around the shape it paints together with the shapes its children paint, cut
+//! to the frame when it clips, but not around the children's own shadows.
 
 use designos_doc::{Color, Document, Effect, Node, NodeId, NodeKind, Paint, Rect, StrokeAlign, Vec2};
 use designos_export::{export_png, export_svg, render_bounds, SvgOptions};
@@ -80,6 +80,16 @@ fn frame_without_fill_still_casts_its_shadow_around_its_children() {
     let (d, f) = OverflowFrame { fill: false, ..OverflowFrame::new() }.build();
     assert_eq!(size(render_bounds(&d, f)), (200.0, 164.0));
     assert_eq!(png_size(&d, f), (200, 164));
+}
+
+#[test]
+fn clipping_frame_without_fill_casts_its_shadow_around_the_cut_children() {
+    // Figma: 200x124. The frame paints nothing, so its shadow comes from the child cut to the frame's
+    // box (60..140 by 60..100), grown by the shadow: down to 124, inside the box everywhere else.
+    let (d, f) = OverflowFrame { clip: true, fill: false, ..OverflowFrame::new() }.build();
+    let b = render_bounds(&d, f);
+    assert_eq!((b.x, b.y, b.w, b.h), (0.0, 0.0, 200.0, 124.0));
+    assert_eq!(png_size(&d, f), (200, 124));
 }
 
 #[test]
