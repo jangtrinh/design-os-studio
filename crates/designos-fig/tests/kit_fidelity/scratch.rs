@@ -117,3 +117,24 @@ pub fn run_parallel<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync) -> Vec<T> 
     out.sort_by_key(|(i, _)| *i);
     out.into_iter().map(|(_, t)| t).collect()
 }
+
+/// Bounds of Studio's live outline before strokes: each node's box and vector paths, through the transforms of the
+/// subtree (the root drawn at the identity, as the scratch renderer draws it).
+pub fn studio_bounds(nodes: &[Node]) -> (f32, f32, f32, f32) {
+    let mut acc: std::collections::HashMap<NodeId, Affine> = std::collections::HashMap::new();
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+    for (i, n) in nodes.iter().enumerate() {
+        let t = if i == 0 { Affine::IDENTITY } else { n.parent.and_then(|p| acc.get(&p).copied()).unwrap_or(Affine::IDENTITY) * n.transform };
+        acc.insert(n.id, t);
+        let mut pts = vec![Vec2::new(0.0, 0.0), Vec2::new(n.size.x, 0.0), Vec2::new(0.0, n.size.y), n.size];
+        if let NodeKind::Vector { paths, .. } = &n.kind {
+            for b in paths.iter().filter_map(super::raster::to_sk).map(|p| p.bounds()) {
+                pts.extend([Vec2::new(b.left(), b.top()), Vec2::new(b.right(), b.bottom()), Vec2::new(b.left(), b.bottom()), Vec2::new(b.right(), b.top())]);
+            }
+        }
+        for q in pts.into_iter().map(|q| t.apply(q)) {
+            (x0, y0, x1, y1) = (x0.min(q.x), y0.min(q.y), x1.max(q.x), y1.max(q.y));
+        }
+    }
+    (x0, y0, x1, y1)
+}

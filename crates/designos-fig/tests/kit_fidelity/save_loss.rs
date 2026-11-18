@@ -1,4 +1,4 @@
-//! Part 6, save loss against Figma's original: a no-edit `.fig` save is decoded and compared, record by record and
+//! Save loss against Figma's original: a no-edit `.fig` save is decoded and compared, record by record and
 //! field by field, with the original file's records. Each key of each original record ends up equal, equal after a
 //! documented normalisation, changed, or lost.
 

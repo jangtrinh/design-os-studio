@@ -1,9 +1,9 @@
-//! Part 5, import coverage: for every `NodeChange` key the file uses, the share of its occurrences that the importer
+//! Import coverage: for every `NodeChange` key the file uses, the share of its occurrences that the importer
 //! maps to the model or keeps as metadata.
 //!
 //! - mapped: the key is in the importer's own list of the fields it reads (`MAPPED_NODE_CHANGE_FIELDS` in
 //!   `src/fig.rs`, read from the source so the list cannot drift). This is the importer's declaration, not a check
-//!   of each value; part 6 checks the values a save hands back.
+//!   of each value; the save-loss part checks the values a save hands back.
 //! - kept: the imported layer carries the key in its `fig_metadata`.
 //! - dropped: neither. Records that did not become a layer (variables, the document) count as mapped only for listed
 //!   keys.

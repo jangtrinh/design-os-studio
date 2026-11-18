@@ -1,5 +1,6 @@
-//! Part 3, instances: after every page is hydrated and every main is synced with no change, each sublayer Figma laid
-//! out for an instance (`derivedSymbolData`) must keep the size and transform Figma stored, within 0.5 px.
+//! Instances: after every page is hydrated and every main is synced with no change, each sublayer Figma laid out for
+//! an instance (`derivedSymbolData`) must keep the size and transform Figma stored, within 0.5 px. Only the fields the
+//! entry stores are compared; an entry that stores neither is not measured.
 //!
 //! Sublayers are found by walking the instance next to its main: override paths name a layer by its main record's
 //! `overrideKey` (or guid), and only nested instances add a step to the path.
@@ -55,44 +56,6 @@ pub fn truth(raw: &Raw) -> Truth {
     Truth { instances, path_key }
 }
 
-/// Instances whose stored derived data hydration refused: they carry derived data in the file, and after every page
-/// is loaded they hold no record of an imported layout.
-pub fn refused(t: &Truth, doc: &Document, keys: &NodeKeys) -> HashSet<String> {
-    t.instances
-        .iter()
-        .filter(|i| keys.by_source.get(&i.guid).and_then(|id| doc.get(*id)).is_some_and(|n| n.component.imported_layout.is_none()))
-        .map(|i| i.guid.clone())
-        .collect()
-}
-
-/// Instances with derived data that sit on a page the import deferred (called before the pages are hydrated).
-pub fn deferred(t: &Truth, doc: &Document) -> HashSet<String> {
-    let wanted: HashSet<&str> = t.instances.iter().map(|i| i.guid.as_str()).collect();
-    doc.nodes
-        .values()
-        .filter(|n| doc.is_pending_instance(n.id))
-        .filter_map(|n| n.source_id.as_deref())
-        .filter(|s| wanted.contains(s))
-        .map(str::to_string)
-        .collect()
-}
-
-/// A no-change sync of every main component that has instances.
-pub fn sync_all(doc: &mut Document) -> usize {
-    let mut mains: Vec<NodeId> = doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Component(_))).map(|n| n.id).collect();
-    mains.sort_by_key(|i| i.0);
-    let limit = std::env::var("SCOREBOARD_SYNC_LIMIT").ok().and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
-    let (mut n, t0) = (0usize, std::time::Instant::now());
-    for m in mains.into_iter().take(limit) {
-        drop(sync_instances(doc, m));
-        n += 1;
-        if n.is_multiple_of(1000) {
-            eprintln!("synced {n} mains in {:.0} s", t0.elapsed().as_secs_f64());
-        }
-    }
-    n
-}
-
 /// Each layer of instance `x` (laid out from main `m`) under the step keys an override path can name it by: its main
 /// record's `overrideKey` and its guid, scoped by the instance (or nested instance) the step is taken in.
 type Steps = HashMap<(NodeId, String), NodeId>;
@@ -131,17 +94,25 @@ fn resolve(steps: &Steps, inst: NodeId, inst_keys: &[&str], path: &[String]) -> 
     Some(cur)
 }
 
-fn close(e: &Entry, n: &Node, tol: f32) -> bool {
-    let fs = e.size.unwrap_or(n.size);
-    if (fs.x - n.size.x).abs() > tol || (fs.y - n.size.y).abs() > tol {
-        return false;
+/// Whether the sublayer keeps what the entry stores; `None` when the entry stores neither size nor transform.
+/// A missing field is never filled in from Studio's own value: with no size, the transform is checked on Studio's box;
+/// with no transform, the size alone is checked.
+fn close(e: &Entry, n: &Node, tol: f32) -> Option<bool> {
+    if e.size.is_none() && e.transform.is_none() {
+        return None;
     }
-    let ft = e.transform.unwrap_or(n.transform);
-    [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)].iter().all(|&(u, v)| {
+    if let Some(fs) = e.size {
+        if (fs.x - n.size.x).abs() > tol || (fs.y - n.size.y).abs() > tol {
+            return Some(false);
+        }
+    }
+    let Some(ft) = e.transform else { return Some(true) };
+    let fs = e.size.unwrap_or(n.size);
+    Some([(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)].iter().all(|&(u, v)| {
         let a = ft.apply(Vec2::new(u * fs.x, v * fs.y));
         let b = n.transform.apply(Vec2::new(u * n.size.x, v * n.size.y));
         (a.x - b.x).abs() <= tol && (a.y - b.y).abs() <= tol
-    })
+    }))
 }
 
 fn override_kind(field: &str) -> &'static str {
@@ -159,7 +130,7 @@ fn override_kind(field: &str) -> &'static str {
 
 pub fn part(t: &Truth, doc: &Document, keys: &NodeKeys, refused: &HashSet<String>) -> Part {
     let mut p = Part::new("instances", "Instances", "each derivedSymbolData sublayer within 0.5 px of the stored size and transform after a no-change sync");
-    p.note("geometry of sublayers is not compared here: shape outlines are part 1, on main records");
+    p.note("geometry of sublayers is not compared here: shape outlines are scored by the geometry part, on records Figma stores outlines for");
     let tol = if broken_comparator() { f32::INFINITY } else { TOL };
     for inst in &t.instances {
         let Some(&id) = keys.by_source.get(&inst.guid) else {
@@ -197,11 +168,26 @@ pub fn part(t: &Truth, doc: &Document, keys: &NodeKeys, refused: &HashSet<String
             b.push(format!("slot: {}", if n.component.is_slot || n.component.is_slot_content { "yes" } else { "no" }));
             b.push(format!("resized instance: {}", if resized { "yes" } else { "no" }));
             b.push(format!("refused hydration: {}", if is_refused { "yes" } else { "no" }));
-            let ok = close(e, n, tol);
+            let Some(ok) = close(e, n, tol) else {
+                p.unscored("derived entry storing neither size nor transform", "nothing Figma stored to compare with");
+                continue;
+            };
+            if e.size.is_none() {
+                p.unscored("derived entry without a size (its transform alone is scored)", "Figma stored no size there");
+            }
+            if e.transform.is_none() {
+                p.unscored("derived entry without a transform (its size alone is scored)", "Figma stored no transform there");
+            }
             if !ok && !keys.is_hidden(nid) {
-                let bin = |x: f32| format!("{:+.1}", (x * 2.0).round() / 2.0);
-                let (fs, ft) = (e.size.unwrap_or(n.size), e.transform.unwrap_or(n.transform));
-                let what = format!("w {} h {} x {} y {}", bin(n.size.x - fs.x), bin(n.size.y - fs.y), bin(n.transform.tx - ft.tx), bin(n.transform.ty - ft.ty));
+                let bin = |x: Option<f32>| x.map_or("n/a".to_string(), |x| format!("{:+.1}", (x * 2.0).round() / 2.0));
+                let (fs, ft) = (e.size, e.transform);
+                let what = format!(
+                    "w {} h {} x {} y {}",
+                    bin(fs.map(|f| n.size.x - f.x)),
+                    bin(fs.map(|f| n.size.y - f.y)),
+                    bin(ft.map(|f| n.transform.tx - f.tx)),
+                    bin(ft.map(|f| n.transform.ty - f.ty))
+                );
                 p.detail(&format!("failing sublayer delta (Studio minus Figma), refused hydration: {}", if is_refused { "yes" } else { "no" }), &what);
             }
             p.record(format!("{}>{}", inst.guid, e.path.join(">")), keys.is_hidden(nid), ok, &b);

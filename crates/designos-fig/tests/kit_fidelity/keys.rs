@@ -1,6 +1,8 @@
 //! Stable keys for the layers of an imported document, so two runs name the same layer the same way whatever ids
-//! hydration handed out: a layer with a source id is keyed by it, any other layer by its parent's key and its index
-//! (`12:34/0/3`). Also which layers sit in a hidden subtree.
+//! hydration handed out: a layer with a source id is keyed by it; a layer an instance copied from its main by its
+//! parent's key and the source id of the main-side layer it copies (`12:34>5:6`), so a change in a sibling count does
+//! not rename it; any other layer by its parent's key and its index (`12:34/3`). Also which layers sit in a hidden
+//! subtree.
 
 use designos_doc::{Document, NodeId};
 use std::collections::{HashMap, HashSet};
@@ -9,6 +11,19 @@ pub struct NodeKeys {
     pub key: HashMap<NodeId, String>,
     pub hidden: HashSet<NodeId>,
     pub by_source: HashMap<String, NodeId>,
+}
+
+/// The source id of the main-side layer `id` was copied from, following copies of copies.
+fn copied_from(doc: &Document, id: NodeId) -> Option<String> {
+    let mut cur = doc.get(id)?.component.source?;
+    for _ in 0..32 {
+        let n = doc.get(cur)?;
+        if let Some(s) = &n.source_id {
+            return Some(s.clone());
+        }
+        cur = n.component.source?;
+    }
+    None
 }
 
 impl NodeKeys {
@@ -32,7 +47,12 @@ impl NodeKeys {
                 by_source.entry(s.clone()).or_insert(id);
             }
             for (i, &c) in n.children.iter().enumerate().rev() {
-                let ck = doc.get(c).and_then(|cn| cn.source_id.clone()).filter(|s| !used.contains(s)).unwrap_or_else(|| format!("{k}/{i}"));
+                let ck = doc
+                    .get(c)
+                    .and_then(|cn| cn.source_id.clone())
+                    .or_else(|| copied_from(doc, c).map(|s| format!("{k}>{s}")))
+                    .filter(|s| !used.contains(s))
+                    .unwrap_or_else(|| format!("{k}/{i}"));
                 used.insert(ck.clone());
                 stack.push((c, ck, is_hidden, false));
             }

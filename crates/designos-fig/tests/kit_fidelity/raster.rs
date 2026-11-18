@@ -62,3 +62,22 @@ pub fn within(a: &[bool], b: &[bool], w: usize, h: usize, r: i32) -> bool {
     }
     true
 }
+
+/// Whether any covered pixel lies on the border of a `w` x `h` raster: the outline may run past the window.
+pub fn touches_border(m: &[bool], w: usize, h: usize) -> bool {
+    (0..w).any(|x| m[x] || m[(h - 1) * w + x]) || (0..h).any(|y| m[y * w] || m[y * w + w - 1])
+}
+
+/// Soft IoU of two coverage rasters: per pixel, the smaller coverage over the larger.
+pub fn soft_iou(a: &[u8], b: &[u8]) -> f32 {
+    let (mut lo, mut hi) = (0u64, 0u64);
+    for (x, y) in a.iter().zip(b) {
+        lo += u64::from(*x.min(y));
+        hi += u64::from(*x.max(y));
+    }
+    if hi == 0 {
+        1.0
+    } else {
+        lo as f32 / hi as f32
+    }
+}

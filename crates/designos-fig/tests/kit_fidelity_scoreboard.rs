@@ -1,7 +1,7 @@
 //! Kit fidelity scoreboard (ignored by default): Studio measured against the data Figma stored inside a `.fig`, one
 //! feature bucket at a time, visible and hidden subtrees apart.
 //!
-//! - `DESIGNOS_KIT_PATH` (or `KIT_CLONE`): the kit clone to read.
+//! - `DESIGNOS_KIT_PATH` (or `KIT_CLONE`): the kit clone to read. The run fails when neither is set.
 //! - `SCOREBOARD_OUT`: folder for `scoreboard.json` and `scoreboard.md` (outside the repository: kit data).
 //! - `SCOREBOARD_PREV`: an earlier `scoreboard.json`; every item that matched there and fails now is listed.
 //! - `SCOREBOARD_PARTS`: comma list of parts to run (default all).

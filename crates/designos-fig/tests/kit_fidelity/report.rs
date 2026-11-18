@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-pub fn write(out: &std::path::Path, parts: &[Part], meta: Value, regressions: Option<&BTreeMap<String, Vec<String>>>) {
+pub fn write(out: &std::path::Path, parts: &[Part], meta: Value, regressions: Option<&BTreeMap<String, Vec<String>>>, deltas: &[String]) {
     std::fs::create_dir_all(out).expect("create SCOREBOARD_OUT");
     for p in parts {
         for l in board::lines(p) {
@@ -15,6 +15,9 @@ pub fn write(out: &std::path::Path, parts: &[Part], meta: Value, regressions: Op
     if let Some(reg) = regressions {
         let total: usize = reg.values().map(Vec::len).sum();
         println!("REGRESSIONS vs SCOREBOARD_PREV: {total}");
+        for d in deltas {
+            println!("{d}");
+        }
         for (part, ids) in reg {
             println!("REGRESSIONS {part}: {}", ids.len());
             for id in ids.iter().take(200) {
@@ -29,6 +32,7 @@ pub fn write(out: &std::path::Path, parts: &[Part], meta: Value, regressions: Op
         "meta": meta,
         "parts": parts.iter().map(board::part_json).collect::<Vec<_>>(),
         "regressions": regressions,
+        "count_deltas": deltas,
     });
     std::fs::write(out.join("scoreboard.json"), serde_json::to_vec(&doc).expect("serialise")).expect("write scoreboard.json");
     std::fs::write(out.join("scoreboard.md"), markdown(parts, &meta, regressions)).expect("write scoreboard.md");
@@ -91,6 +95,9 @@ fn markdown(parts: &[Part], meta: &Value, regressions: Option<&BTreeMap<String, 
         );
         if let Some(ids) = regressions.and_then(|r| r.get(p.id)) {
             let _ = writeln!(s, "Regressions vs the previous run: {} ({})\n", ids.len(), ids.iter().take(50).cloned().collect::<Vec<_>>().join(", "));
+        }
+        if let Some(ids) = regressions.and_then(|r| r.get(&format!("{}: left measurement", p.id))) {
+            let _ = writeln!(s, "Matched before, no longer measured: {} ({})\n", ids.len(), ids.iter().take(50).cloned().collect::<Vec<_>>().join(", "));
         }
     }
     s

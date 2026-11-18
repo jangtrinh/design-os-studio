@@ -156,16 +156,46 @@ pub fn part_json(p: &Part) -> Value {
     })
 }
 
-/// Items that matched in `prev` and fail now, per part.
+/// Items that matched in `prev` and fail now (under the part's id), and items that matched in `prev` and are no longer
+/// measured as visible items at all (under `<id>: left measurement`): an item that turns unscored, hidden or unfound
+/// is a regression too.
 pub fn regressions(parts: &[Part], prev: &Value) -> BTreeMap<String, Vec<String>> {
     let mut out = BTreeMap::new();
     for p in parts {
-        let Some(pp) = prev.get("parts").and_then(Value::as_array).and_then(|a| a.iter().find(|x| x.get("id").and_then(Value::as_str) == Some(p.id))) else {
-            continue;
-        };
+        let Some(pp) = prev_part(prev, p.id) else { continue };
         let before: BTreeSet<&str> = pp.get("matched").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
-        let now: Vec<String> = p.failed.iter().filter(|k| before.contains(k.as_str())).cloned().collect();
-        out.insert(p.id.to_string(), now);
+        let failing: Vec<String> = p.failed.iter().filter(|k| before.contains(k.as_str())).cloned().collect();
+        let left: Vec<String> = before.iter().filter(|k| !p.matched.contains(**k) && !p.failed.contains(**k)).map(|k| k.to_string()).collect();
+        out.insert(p.id.to_string(), failing);
+        out.insert(format!("{}: left measurement", p.id), left);
     }
     out
+}
+
+fn prev_part<'a>(prev: &'a Value, id: &str) -> Option<&'a Value> {
+    prev.get("parts").and_then(Value::as_array).and_then(|a| a.iter().find(|x| x.get("id").and_then(Value::as_str) == Some(id)))
+}
+
+/// Per part: visible matched, failed and unscored item counts before and now.
+pub fn count_deltas(parts: &[Part], prev: &Value) -> Vec<String> {
+    let len = |v: &Value, k: &str| v.get(k).and_then(Value::as_array).map_or(0, Vec::len) as u64;
+    let unscored =
+        |v: &Value| v.get("unscored").and_then(Value::as_object).map_or(0, |m| m.values().filter_map(|e| e.get("items").and_then(Value::as_u64)).sum());
+    parts
+        .iter()
+        .filter_map(|p| {
+            let pp = prev_part(prev, p.id)?;
+            let now_unscored: u64 = p.unscored.values().map(|(n, _)| n).sum();
+            Some(format!(
+                "COUNTS {}: matched {} -> {}, failed {} -> {}, not measured {} -> {}",
+                p.id,
+                len(pp, "matched"),
+                p.matched.len(),
+                len(pp, "failed"),
+                p.failed.len(),
+                unscored(pp),
+                now_unscored
+            ))
+        })
+        .collect()
 }

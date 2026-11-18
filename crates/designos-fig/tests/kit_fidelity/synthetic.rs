@@ -5,8 +5,9 @@ use super::board::Tally;
 use super::fixtures::*;
 use super::keys::NodeKeys;
 use super::raw::{self, Raw};
+use super::scratch::Pass;
 use super::text::{Baseline, TextTruth};
-use super::{geometry, import_cov, instances, layout, save_loss, text};
+use super::{geometry, import_cov, instance_hydration, instances, layout, save_loss, text};
 use designos_doc::*;
 use designos_fig::kiwi::KiwiValue as V;
 use designos_fig::testkit::{en, fl, guid, msg, square_blob, triangle_blob};
@@ -27,9 +28,32 @@ fn t(matched: u64, measured: u64) -> Tally {
 #[test]
 fn auto_layout_counts_a_child_off_its_solved_place() {
     let (_, doc, keys) = load(&auto_layout_fig(30.0));
-    assert_eq!(layout::part(&doc, &keys).bucket("total")[0], t(2, 2), "children where the solve puts them");
+    let none = HashSet::new();
+    assert_eq!(layout::part(&doc, &keys, &none).bucket("child placement: total")[0], t(2, 2), "children where the solve puts them");
     let (_, doc, keys) = load(&auto_layout_fig(33.0));
-    assert_eq!(layout::part(&doc, &keys).bucket("total")[0], t(1, 2), "the second child stored 3 px off its solved place");
+    assert_eq!(layout::part(&doc, &keys, &none).bucket("child placement: total")[0], t(1, 2), "the second child stored 3 px off its solved place");
+}
+
+#[test]
+fn auto_layout_counts_a_hug_frame_off_its_solved_size() {
+    let none = HashSet::new();
+    let (_, doc, keys) = load(&hug_row_fig(50.0));
+    let p = layout::part(&doc, &keys, &none);
+    assert_eq!(p.bucket("frame size: hug width")[0], t(1, 1), "a hug row as wide as its content");
+    assert_eq!(p.bucket("child placement: total")[0], t(2, 2));
+    let (_, doc, keys) = load(&hug_row_fig(53.0));
+    let p = layout::part(&doc, &keys, &none);
+    assert_eq!(p.bucket("frame size: hug width")[0], t(0, 1), "a hug row stored 3 px wider than its content");
+    assert_eq!(p.bucket("child placement: total")[0], t(2, 2), "its children still sit where the solve puts them");
+}
+
+#[test]
+fn auto_layout_leaves_out_frames_inside_a_refused_instance() {
+    let (_, doc, keys) = load(&auto_layout_fig(33.0));
+    let frame = keys.by_source["1:1"];
+    let p = layout::part(&doc, &keys, &HashSet::from([frame]));
+    assert_eq!(p.bucket("child placement: total")[0], t(0, 0), "Studio's own layout is not Figma's truth");
+    assert_eq!(p.unscored.get("child inside an instance whose stored layout hydration refused").map(|u| u.0), Some(2));
 }
 
 #[test]
@@ -89,18 +113,74 @@ fn geometry_clips_a_stored_inside_band_by_the_fill_outline() {
 }
 
 #[test]
+fn geometry_counts_a_1_px_stroke_drawn_off_its_stored_band() {
+    let (r, doc, keys) = load(&stroke_fig("CENTER", 1.0, band_blob(0.5, 0.5)));
+    let p = geometry::part(&geometry::truth(&r), &r.blobs, &doc, &keys);
+    assert_eq!(p.bucket("stroke: total")[0], t(1, 1), "a centred 1 px stroke against its centred band");
+    let (r, doc, keys) = load(&stroke_fig("CENTER", 1.0, band_blob(0.0, 1.0)));
+    let p = geometry::part(&geometry::truth(&r), &r.blobs, &doc, &keys);
+    assert_eq!(p.bucket("stroke: total")[0], t(0, 1), "a centred 1 px stroke against an inside band: 0.5 px apart, a third overlapping");
+    let (r, doc, keys) = load(&stroke_fig("CENTER", 1.5, band_blob(0.5, 0.5)));
+    let p = geometry::part(&geometry::truth(&r), &r.blobs, &doc, &keys);
+    assert_eq!(p.bucket("stroke: total")[0], t(0, 1), "a 1.5 px stroke against a 1 px band");
+}
+
+#[test]
+fn geometry_counts_a_live_outline_beyond_the_stored_one() {
+    let square = |x: f32| Path {
+        cmds: vec![
+            PathCmd::MoveTo(Vec2::new(x, 0.0)),
+            PathCmd::LineTo(Vec2::new(x + 10.0, 0.0)),
+            PathCmd::LineTo(Vec2::new(x + 10.0, 10.0)),
+            PathCmd::LineTo(Vec2::new(x, 10.0)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    };
+    let node = |paths: Vec<Path>| {
+        let mut n = Node::new(NodeId(7), NodeKind::Vector { paths, network: None });
+        n.size = Vec2::new(10.0, 10.0);
+        n
+    };
+    let figma = vec![(super::raster::to_sk(&square(0.0)).unwrap(), false)];
+    let v = geometry::compare(&[node(vec![square(0.0)])], Pass::Fill, &figma, geometry::Clip::None);
+    assert!(matches!(v, geometry::Verdict::Match), "the same square");
+    let v = geometry::compare(&[node(vec![square(0.0), square(30.0)])], Pass::Fill, &figma, geometry::Clip::None);
+    assert!(matches!(v, geometry::Verdict::Mismatch(_)), "a second square 20 px past the stored outline and the layer box");
+}
+
+#[test]
 fn instances_count_a_sublayer_off_its_derived_place() {
     let (r, mut doc, keys) = load(&instance_fig());
     let truth = instances::truth(&r);
     assert_eq!(truth.instances.len(), 1);
-    let refused = instances::refused(&truth, &doc, &keys);
-    instances::sync_all(&mut doc);
+    let refused = instance_hydration::refused(&truth, &doc, &keys);
+    instance_hydration::sync_all(&mut doc);
     let keys = NodeKeys::build(&doc);
     assert_eq!(instances::part(&truth, &doc, &keys, &refused).bucket("total")[0], t(1, 1), "the sublayer where Figma laid it out");
     let inst = keys.by_source["1:20"];
     let sub = doc.get(inst).unwrap().children[0];
     doc.get_mut(sub).unwrap().transform.tx += 3.0;
     assert_eq!(instances::part(&truth, &doc, &keys, &refused).bucket("total")[0], t(0, 1), "the sublayer moved 3 px");
+}
+
+#[test]
+fn instances_never_score_a_field_figma_did_not_store() {
+    let (r, mut doc, keys) = load(&instance_fig());
+    let mut truth = instances::truth(&r);
+    let refused = instance_hydration::refused(&truth, &doc, &keys);
+    instance_hydration::sync_all(&mut doc);
+    let keys = NodeKeys::build(&doc);
+    let sub = doc.get(keys.by_source["1:20"]).unwrap().children[0];
+    doc.get_mut(sub).unwrap().transform.tx += 3.0;
+    truth.instances[0].entries[0].transform = None;
+    let p = instances::part(&truth, &doc, &keys, &refused);
+    assert_eq!(p.bucket("total")[0], t(1, 1), "with no stored transform only the size is scored");
+    assert_eq!(p.unscored.get("derived entry without a transform (its size alone is scored)").map(|u| u.0), Some(1));
+    truth.instances[0].entries[0].size = None;
+    let p = instances::part(&truth, &doc, &keys, &refused);
+    assert_eq!(p.bucket("total")[0], t(0, 0), "an entry storing neither is not a match");
+    assert_eq!(p.unscored.get("derived entry storing neither size nor transform").map(|u| u.0), Some(1));
 }
 
 #[test]
@@ -121,6 +201,19 @@ fn text_counts_a_baseline_off_the_stored_one() {
     };
     assert_eq!(text::part(&[studio(0.0)], 0, &doc, &keys).bucket("total")[0], t(1, 1), "Figma's lines are Studio's");
     assert_eq!(text::part(&[studio(3.0)], 0, &doc, &keys).bucket("total")[0], t(0, 1), "a baseline 3 px lower");
+    assert_eq!(text::part(&[studio(f32::NAN)], 0, &doc, &keys).bucket("total")[0], t(0, 1), "a baseline stored without a position");
+}
+
+#[test]
+fn text_font_check_reads_weight_and_style_not_only_the_family() {
+    let face = |family: &str, weight: u16, italic: bool| {
+        super::text_fonts::font_state(&TextStyle { font_family: family.into(), font_weight: weight, italic, ..TextStyle::default() })
+    };
+    assert!(face("Inter", 400, false) == super::text_fonts::FontState::Present, "embedded Inter regular");
+    assert!(face("Inter", 700, true) == super::text_fonts::FontState::Present, "embedded Inter bold italic");
+    assert!(face("Roboto Mono", 400, true) == super::text_fonts::FontState::Missing, "Roboto Mono has no embedded italic");
+    assert!(face("Roboto Mono", 900, false) == super::text_fonts::FontState::Missing, "embedded Roboto Mono stops at 700");
+    assert!(face("No Such Family Anywhere", 400, false) == super::text_fonts::FontState::Missing, "an unknown family");
 }
 
 #[test]
@@ -138,4 +231,9 @@ fn regressions_list_a_visible_item_that_matched_before_and_fails_now() {
     now.record("1:5".into(), false, false, &["total".into()]);
     let r = regressions(&[now], &prev);
     assert_eq!(r.get("auto_layout"), Some(&vec!["1:2".to_string()]), "only the visible item that matched before");
+    let mut later = Part::new("auto_layout", "Auto layout", "rule");
+    later.record("1:2".into(), false, true, &["total".into()]);
+    later.unscored("derived path not found", "gone");
+    let r = regressions(&[later], &prev);
+    assert_eq!(r.get("auto_layout: left measurement"), Some(&vec!["1:3".to_string()]), "an item that matched before and is no longer measured");
 }

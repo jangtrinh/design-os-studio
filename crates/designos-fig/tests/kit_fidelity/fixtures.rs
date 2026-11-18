@@ -43,11 +43,22 @@ pub fn rectangle_fig(size: f32) -> Vec<u8> {
     fig(vec![r], vec![designos_fig::testkit::square_blob()])
 }
 
-/// Commands blob of the band Figma stores for a weight-1 INSIDE stroke of a 10 x 10 box: the centred band of
-/// twice the weight, from -1 to 11 outside and 1 to 9 inside.
-pub fn double_band_blob() -> Vec<u8> {
+/// A row that hugs its width (no `stackPrimarySizing` is hug) stored `width` wide: two 20 px rectangles 10 px apart,
+/// which a solve sizes to 50.
+pub fn hug_row_fig(width: f32) -> Vec<u8> {
+    let frame = layer(1, (0, 1), "!", "FRAME", (width, 20.0), (0.0, 0.0), vec![("stackMode", en("HORIZONTAL")), ("stackSpacing", fl(10.0))]);
+    let a = layer(2, (1, 1), "!", "RECTANGLE", (20.0, 20.0), (0.0, 0.0), vec![]);
+    let b = layer(3, (1, 1), "\"", "RECTANGLE", (20.0, 20.0), (30.0, 0.0), vec![]);
+    fig(vec![frame, a, b], vec![])
+}
+
+/// Commands blob of a square band around a 10 x 10 box: from `-out` to `10 + out` outside and from `inn` to `10 - inn`
+/// inside. Figma stores a weight-1 INSIDE stroke as `band_blob(1.0, 1.0)` (the centred band of twice the weight), a
+/// weight-1 CENTER stroke as `band_blob(0.5, 0.5)`.
+pub fn band_blob(out: f32, inn: f32) -> Vec<u8> {
     let mut b = Vec::new();
-    for ring in [[(-1.0f32, -1.0f32), (11.0, -1.0), (11.0, 11.0), (-1.0, 11.0)], [(1.0, 1.0), (9.0, 1.0), (9.0, 9.0), (1.0, 9.0)]] {
+    let (o0, o1, i0, i1) = (-out, 10.0 + out, inn, 10.0 - inn);
+    for ring in [[(o0, o0), (o1, o0), (o1, o1), (o0, o1)], [(i0, i0), (i1, i0), (i1, i1), (i0, i1)]] {
         for (i, (x, y)) in ring.iter().enumerate() {
             b.push(if i == 0 { 1u8 } else { 2 });
             b.extend(x.to_le_bytes());
@@ -58,8 +69,8 @@ pub fn double_band_blob() -> Vec<u8> {
     b
 }
 
-/// A 10 x 10 rectangle with an INSIDE stroke of `weight`, stored as the band of a weight-1 stroke.
-pub fn inside_stroke_fig(weight: f32) -> Vec<u8> {
+/// A 10 x 10 rectangle with a stroke of `weight` and `align`, its stored band being `band`.
+pub fn stroke_fig(align: &str, weight: f32, band: Vec<u8>) -> Vec<u8> {
     let stroke = V::Array(vec![msg(vec![("windingRule", en("ODD")), ("commandsBlob", V::Uint(1)), ("styleID", V::Uint(0))])]);
     let r = layer(
         2,
@@ -68,9 +79,14 @@ pub fn inside_stroke_fig(weight: f32) -> Vec<u8> {
         "RECTANGLE",
         (10.0, 10.0),
         (0.0, 0.0),
-        vec![("strokeWeight", fl(weight)), ("strokeAlign", en("INSIDE")), ("fillGeometry", geometry(0)), ("strokeGeometry", stroke)],
+        vec![("strokeWeight", fl(weight)), ("strokeAlign", en(align)), ("fillGeometry", geometry(0)), ("strokeGeometry", stroke)],
     );
-    fig(vec![r], vec![designos_fig::testkit::square_blob(), double_band_blob()])
+    fig(vec![r], vec![designos_fig::testkit::square_blob(), band])
+}
+
+/// A 10 x 10 rectangle with an INSIDE stroke of `weight`, stored as the band of a weight-1 stroke.
+pub fn inside_stroke_fig(weight: f32) -> Vec<u8> {
+    stroke_fig("INSIDE", weight, band_blob(1.0, 1.0))
 }
 
 /// A main (100 x 40, one rectangle) and an instance of it whose derived data restates the rectangle.

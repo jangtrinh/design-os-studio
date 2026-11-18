@@ -1,11 +1,16 @@
-//! Part 2, auto layout: every auto-layout frame is solved again against the imported state, and each flow child must
-//! land within 0.5 px of the transform and size the file stored. Also the census of `kit_auto_layout_census.rs`
-//! (page-space movers after every frame is solved at once), run unchanged for the reconciliation.
+//! Auto layout: every auto-layout frame is solved again against the imported state. Each flow child must land within
+//! 0.5 px of the transform and size the file stored (placement), and on every axis the frame hugs, the frame's own
+//! solved size must be within 0.5 px of its stored size. Content-sized children (hugging frames, groups, auto-size
+//! text) enter their parent's solve at their stored size, so only the frame-size check can catch a wrong hug size.
+//!
+//! Frames inside an instance whose stored layout hydration refused are left out: their imported state is Studio's
+//! own layout, not Figma's, so a solve would be compared with itself. The instances part scores those sublayers
+//! against the layout Figma stored for them.
 
 use super::board::{broken_comparator, Part};
 use super::keys::NodeKeys;
 use designos_doc::*;
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 pub const TOL: f32 = 0.5;
 
@@ -25,20 +30,6 @@ pub fn bounds(wt: Affine, size: Vec2) -> [f32; 4] {
 
 pub fn edge_diff(a: &[f32; 4], b: &[f32; 4]) -> f32 {
     (a[0] - b[0]).abs().max((a[1] - b[1]).abs()).max((a[2] - b[2]).abs()).max((a[3] - b[3]).abs())
-}
-
-fn page_bounds(doc: &Document) -> HashMap<NodeId, [f32; 4]> {
-    let mut out = HashMap::new();
-    let mut stack: Vec<(NodeId, Affine, bool)> = doc.pages.iter().map(|&p| (p, Affine::IDENTITY, true)).collect();
-    while let Some((id, pwt, is_page)) = stack.pop() {
-        let Some(n) = doc.get(id) else { continue };
-        let wt = if is_page { Affine::IDENTITY } else { pwt * n.transform };
-        if !is_page {
-            out.insert(id, bounds(wt, n.size));
-        }
-        stack.extend(n.children.iter().map(|&c| (c, wt, false)));
-    }
-    out
 }
 
 pub fn auto_layout_of(doc: &Document, id: NodeId) -> Option<AutoLayout> {
@@ -67,68 +58,10 @@ pub fn solve(doc: &Document, fid: NodeId) -> Option<Solved> {
     Some((out.frame, ids.into_iter().zip(out.rects).collect()))
 }
 
-fn auto_frames(doc: &Document) -> Vec<NodeId> {
+pub fn auto_frames(doc: &Document) -> Vec<NodeId> {
     let mut ids: Vec<NodeId> = doc.nodes.keys().copied().filter(|&id| auto_layout_of(doc, id).is_some()).collect();
     ids.sort_by_key(|i| i.0);
     ids
-}
-
-fn in_hidden_subtree(doc: &Document, mut id: NodeId) -> bool {
-    loop {
-        let Some(n) = doc.get(id) else { return false };
-        if matches!(n.kind, NodeKind::Page { .. }) {
-            return false;
-        }
-        if !n.visible {
-            return true;
-        }
-        match n.parent {
-            Some(p) => id = p,
-            None => return false,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Census {
-    pub page_layers: usize,
-    pub auto_frames_on_pages: usize,
-    pub moved: usize,
-    pub moved_hidden: usize,
-}
-
-/// The census algorithm: solve every auto-layout frame, write all results at once in id order, and count the
-/// page-space layers whose bounds move by more than 0.5 px. The document is restored afterwards.
-pub fn census(doc: &mut Document) -> Census {
-    let before = page_bounds(doc);
-    let frames = auto_frames(doc);
-    let auto_frames_on_pages = frames.iter().filter(|f| before.contains_key(f)).count();
-    let solved: Vec<(NodeId, Solved)> = frames.iter().filter_map(|&f| solve(doc, f).map(|s| (f, s))).collect();
-    let mut saved: HashMap<NodeId, (Affine, Vec2)> = HashMap::new();
-    for (fid, (frame, rects)) in solved {
-        if let Some(f) = doc.get_mut(fid) {
-            saved.entry(fid).or_insert((f.transform, f.size));
-            f.size = frame;
-        }
-        for (cid, r) in rects {
-            if let Some(c) = doc.get_mut(cid) {
-                saved.entry(cid).or_insert((c.transform, c.size));
-                let w = designos_doc::slot_write(&c.transform, c.size, r);
-                c.transform = w.transform;
-                c.size = w.size;
-            }
-        }
-    }
-    let after = page_bounds(doc);
-    let moved: Vec<NodeId> = before.iter().filter(|(id, b0)| after.get(id).is_some_and(|b1| edge_diff(b0, b1) > TOL)).map(|(id, _)| *id).collect();
-    for (id, (t, s)) in saved {
-        if let Some(n) = doc.get_mut(id) {
-            n.transform = t;
-            n.size = s;
-        }
-    }
-    let moved_hidden = moved.iter().filter(|id| in_hidden_subtree(doc, **id)).count();
-    Census { page_layers: before.len(), auto_frames_on_pages, moved: moved.len(), moved_hidden }
 }
 
 fn sizing(s: Sizing) -> &'static str {
@@ -140,7 +73,7 @@ fn sizing(s: Sizing) -> &'static str {
 }
 
 fn child_buckets(al: &AutoLayout, c: &Node) -> Vec<String> {
-    let mut b = vec!["total".to_string()];
+    let mut b = vec!["child placement: total".to_string()];
     b.push(match al.direction {
         LayoutDirection::Horizontal => "direction: horizontal".into(),
         LayoutDirection::Vertical => "direction: vertical".into(),
@@ -154,8 +87,8 @@ fn child_buckets(al: &AutoLayout, c: &Node) -> Vec<String> {
     let lc = &c.layout_child;
     let fill_w = lc.horizontal == Sizing::Fill || (al.direction == LayoutDirection::Horizontal && lc.grow > 0.0);
     let fill_h = lc.vertical == Sizing::Fill || (al.direction == LayoutDirection::Vertical && lc.grow > 0.0);
-    b.push(format!("child width: {}", if fill_w { "fill" } else { sizing(lc.horizontal) }));
-    b.push(format!("child height: {}", if fill_h { "fill" } else { sizing(lc.vertical) }));
+    b.push(format!("child placement: width {}", if fill_w { "fill" } else { sizing(lc.horizontal) }));
+    b.push(format!("child placement: height {}", if fill_h { "fill" } else { sizing(lc.vertical) }));
     if lc.min_w.is_some() || lc.max_w.is_some() || lc.min_h.is_some() || lc.max_h.is_some() {
         b.push("min/max: set".into());
     }
@@ -172,9 +105,35 @@ fn child_buckets(al: &AutoLayout, c: &Node) -> Vec<String> {
     b
 }
 
-/// Scores each flow child of each auto-layout frame on the document (solved one frame at a time).
-pub fn part(doc: &Document, keys: &NodeKeys) -> Part {
-    let mut p = Part::new("auto_layout", "Auto layout", "each flow child within 0.5 px of its stored transform and size after its frame is solved again");
+/// Top-level instances that carry Figma's stored layout (`derivedSymbolData`, guids in `derived`) but hold no record of
+/// an imported layout after hydration: their sublayers carry Studio's own layout.
+pub fn refused_holders(doc: &Document, keys: &NodeKeys, derived: &HashSet<String>) -> HashSet<NodeId> {
+    derived.iter().filter_map(|g| keys.by_source.get(g).copied()).filter(|id| doc.get(*id).is_some_and(|n| n.component.imported_layout.is_none())).collect()
+}
+
+fn under(doc: &Document, mut id: NodeId, set: &HashSet<NodeId>) -> bool {
+    loop {
+        if set.contains(&id) {
+            return true;
+        }
+        match doc.get(id).and_then(|n| n.parent) {
+            Some(p) => id = p,
+            None => return false,
+        }
+    }
+}
+
+const REFUSED: &str = "inside an instance whose stored layout hydration refused";
+const REFUSED_WHY: &str = "the imported state there is Studio's own layout, not Figma's; the instances part scores it";
+
+/// Scores each flow child of each auto-layout frame (placement) and each frame's size on the axes it hugs, on the
+/// document, solving one frame at a time.
+pub fn part(doc: &Document, keys: &NodeKeys, refused: &HashSet<NodeId>) -> Part {
+    let mut p = Part::new(
+        "auto_layout",
+        "Auto layout",
+        "each flow child within 0.5 px of its stored transform and size, and each hugging frame within 0.5 px of its stored size on the axes it hugs, after the frame is solved again",
+    );
     let tol = if broken_comparator() { f32::INFINITY } else { TOL };
     for fid in auto_frames(doc) {
         if !keys.key.contains_key(&fid) {
@@ -182,14 +141,39 @@ pub fn part(doc: &Document, keys: &NodeKeys) -> Part {
         }
         let Some(al) = auto_layout_of(doc, fid) else { continue };
         let Some(n) = doc.get(fid) else { continue };
+        let inside_refused = under(doc, fid, refused);
         for &cid in &n.children {
             if doc.get(cid).is_some_and(|c| c.layout_child.absolute) {
                 p.unscored("absolute child", "not placed by the flow solve, so a solve can never move it");
             }
         }
-        let Some((_, rects)) = solve(doc, fid) else { continue };
+        let Some((frame, rects)) = solve(doc, fid) else { continue };
+        let (hug_w, hug_h) = layout_solver::hugged_axes(&al);
+        for (axis, hugs, solved, stored) in [("width", hug_w, frame.x, n.size.x), ("height", hug_h, frame.y, n.size.y)] {
+            if !hugs {
+                continue;
+            }
+            if inside_refused {
+                p.unscored(&format!("frame size {REFUSED}"), REFUSED_WHY);
+                continue;
+            }
+            let ok = (solved - stored).abs() <= tol;
+            if !ok && !keys.is_hidden(fid) {
+                p.detail(&format!("failing hug {axis} (Studio minus Figma)"), &format!("{:+.1}", ((solved - stored) * 2.0).round() / 2.0));
+            }
+            p.record(
+                format!("{}#hug-{axis}", keys.key_of(fid)),
+                keys.is_hidden(fid),
+                ok,
+                &[format!("frame size: hug {axis}"), "frame size: total".to_string()],
+            );
+        }
         for (cid, r) in rects {
             let Some(c) = doc.get(cid) else { continue };
+            if inside_refused {
+                p.unscored(&format!("child {REFUSED}"), REFUSED_WHY);
+                continue;
+            }
             let w = designos_doc::slot_write(&c.transform, c.size, r);
             let d = edge_diff(&bounds(c.transform, c.size), &bounds(w.transform, w.size));
             p.record(keys.key_of(cid), keys.is_hidden(cid), d <= tol, &child_buckets(&al, c));

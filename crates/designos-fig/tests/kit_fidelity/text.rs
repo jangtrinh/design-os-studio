@@ -1,11 +1,13 @@
-//! Part 4, text layout: Studio's shaping of a text layer against the `derivedTextData` Figma stored for it. Three
+//! Text layout: Studio's shaping of a text layer against the `derivedTextData` Figma stored for it. Three
 //! checks: the same line breaks (each line starts at the same character, counted in UTF-16 units as Figma counts),
 //! each baseline within 0.5 px, and the layout size within 0.5 px (width only where the text sizes its own width).
-//! Layers whose font is not installed are scored apart: shaping then uses a fallback font.
+//! Layers whose font face (family, weight and style) is not available are scored apart: shaping then uses another
+//! face. A baseline Figma stored without a position is a mismatch, never a pass.
 
 use super::board::{broken_comparator, Part};
 use super::keys::NodeKeys;
 use super::raw::{field_str, record_guid, u64_of, vec2_of, Raw};
+use super::text_fonts::{font_state, variable_weight_applied, FontState};
 use designos_doc::*;
 use designos_fig::kiwi::KiwiValue;
 use std::collections::BTreeSet;
@@ -59,10 +61,6 @@ fn utf16_at(s: &str, byte: usize) -> u64 {
     s.get(..byte.min(s.len())).map_or(0, |p| p.encode_utf16().count() as u64)
 }
 
-pub fn font_present(st: &TextStyle) -> bool {
-    designos_render::resolve_font(&st.font_family, st.font_weight, st.italic).is_some_and(|r| r.family.eq_ignore_ascii_case(&st.font_family))
-}
-
 /// The three checks for one text layer, and how far off Studio is where a check fails (Studio minus Figma).
 ///
 /// A truncated text (auto-resize Truncate, or a line limit) keeps only the lines Figma shows: Studio's untruncated
@@ -84,7 +82,7 @@ pub fn checks(props: &TextProps, size: Vec2, t: &TextTruth) -> Checks {
     let figma: Vec<u64> = t.baselines.iter().map(|b| b.first).collect();
     let n = if truncated { figma.len().min(starts.len()) } else { starts.len() };
     let breaks = if truncated { starts.len() >= figma.len() && starts[..n] == figma[..] } else { starts == figma };
-    let off = g.lines.iter().zip(&t.baselines).map(|(l, b)| l.baseline - b.y).find(|d| d.abs() > TOL);
+    let off = g.lines.iter().zip(&t.baselines).map(|(l, b)| l.baseline - b.y).find(|d| d.is_nan() || d.abs() > TOL);
     let same_count = if truncated { g.lines.len() >= t.baselines.len() } else { g.lines.len() == t.baselines.len() };
     let size_delta = t.layout.map(|ls| Vec2::new(g.width - ls.x, g.height - ls.y));
     let sizes_itself = !truncated && matches!(props.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height);
@@ -108,7 +106,8 @@ fn bin(x: f32) -> String {
 pub fn part(truth: &[TextTruth], without: usize, doc: &Document, keys: &NodeKeys) -> Part {
     let mut p = Part::new("text_layout", "Text layout", "same line breaks, every baseline and the layout size within 0.5 px of derivedTextData");
     p.note(format!("text records without derivedTextData: {without}"));
-    let mut fonts: BTreeSet<(String, bool)> = BTreeSet::new();
+    p.note(format!("embedded variable Inter drawn wider at weight 700 than 400 (weight applied by shaping): {}", variable_weight_applied()));
+    let mut fonts: BTreeSet<(String, u16, bool, FontState)> = BTreeSet::new();
     for t in truth {
         let Some(&id) = keys.by_source.get(&t.guid) else {
             p.unscored("text record with no layer", "the record did not become a layer on a page");
@@ -121,14 +120,15 @@ pub fn part(truth: &[TextTruth], without: usize, doc: &Document, keys: &NodeKeys
             continue;
         };
         let styles: Vec<&TextStyle> = std::iter::once(&props.style).chain(props.runs.iter().map(|r| &r.style)).collect();
-        let present = styles.iter().all(|s| font_present(s));
+        let state = styles.iter().map(|s| font_state(s)).max().unwrap_or(FontState::Missing);
+        let present = state == FontState::Present;
         for s in &styles {
-            fonts.insert((s.font_family.clone(), font_present(s)));
+            fonts.insert((s.font_family.clone(), s.font_weight, s.italic, font_state(s)));
         }
         let c = checks(props, n.size, t);
         let (breaks, baselines, size_ok) = (c.breaks, c.baselines, c.size.unwrap_or(true));
         let hidden = keys.is_hidden(id);
-        let scope = if present { "" } else { "missing font / " };
+        let scope = state.scope();
         let mut b = vec![format!("{scope}total")];
         if present {
             b.push(format!("auto-resize: {:?}", props.auto_resize));
@@ -158,8 +158,13 @@ pub fn part(truth: &[TextTruth], without: usize, doc: &Document, keys: &NodeKeys
         }
         p.record(t.guid.clone(), hidden, breaks && baselines && size_ok, &b);
     }
-    for (f, ok) in fonts {
-        p.detail("fonts used", &format!("{f}: {}", if ok { "installed" } else { "missing" }));
+    for (f, w, italic, st) in fonts {
+        let what = match st {
+            FontState::Present => "embedded face covers it",
+            FontState::WeightUnverified => "installed family, weight and style not verified",
+            FontState::Missing => "missing",
+        };
+        p.detail("fonts used", &format!("{f} {w}{}: {what}", if italic { " italic" } else { "" }));
     }
     p
 }
