@@ -447,6 +447,7 @@ fn live_close_when_the_tab_folder_is_gone_is_its_own_non_retryable_error() {
     assert_eq!(err["message"], json!("The session folder is gone, so the editor cannot be asked."), "{err}");
     let next = err["next_step"].as_str().unwrap_or("");
     assert!(next.contains("designos_get_document") && !next.contains("already closed"), "{err}");
+    assert!(!next.contains("designos_close_document"), "a retry of the close can never work and would only trip the loop guard: {err}");
     assert!(!session_dir.exists(), "the close did not bring the folder back");
 }
 
