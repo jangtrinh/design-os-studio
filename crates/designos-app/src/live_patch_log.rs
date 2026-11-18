@@ -270,6 +270,7 @@ impl LivePatchLog {
     pub fn poll_with_offsets(&mut self) -> (Vec<(u64, LiveLogLine)>, Vec<String>) {
         let Ok(meta) = crate::agent_session_files::session_file_metadata(&self.path) else { return Default::default() };
         let (len, id) = (meta.len(), identity(&meta));
+        // Fallback for a tab shown without `mark_shown`: every hidden-to-shown path calls it.
         if self.stale_close == StaleClose::Hidden {
             self.stale_close = StaleClose::Before(len);
         }
@@ -473,6 +474,17 @@ impl LivePatchLog {
             self.close_refused();
         }
         intent
+    }
+
+    /// The tab is shown again after `drop_close_on_hide`. A close line already in the log was written while the tab was
+    /// hidden: the agent was told that close would not run, so it stays dropped. Anything written from here on is for the
+    /// shown tab, even when it lands before the first poll. The boundary is taken here, not at that poll, because the
+    /// editor only polls inside a frame and an agent can write between the switch and that frame.
+    pub fn mark_shown(&mut self) {
+        if self.stale_close == StaleClose::Hidden {
+            let len = crate::agent_session_files::session_file_metadata(&self.path).map_or(0, |m| m.len());
+            self.stale_close = StaleClose::Before(len);
+        }
     }
 
     /// A close line is read as "the document is going away", so edits behind it are dropped. When the editor then
@@ -970,6 +982,48 @@ mod tests {
         append(&path, &line(4));
         read(&mut log);
         assert_eq!(pending_ids(&log), vec![4]);
+    }
+
+    fn close_line_with_id(close_id: u64) -> String {
+        let mut intent = CloseIntent::of("fail", None);
+        intent.close_id = Some(close_id);
+        serde_json::to_string(&intent).unwrap() + "\n"
+    }
+
+    #[test]
+    fn a_close_written_after_the_tab_is_shown_but_before_the_first_poll_is_delivered() {
+        let (_dir, path) = temp_log("close-after-show");
+        let mut log = LivePatchLog::bind(path.clone());
+        assert!(log.drop_close_on_hide().is_none());
+        log.mark_shown();
+        append(&path, &close_line_with_id(1));
+        read(&mut log);
+        assert!(log.pending_close.is_some(), "a close written after the tab was shown must be delivered");
+    }
+
+    #[test]
+    fn a_close_written_while_the_tab_was_hidden_is_still_dropped_and_answered() {
+        let (dir, path) = temp_log("close-while-hidden");
+        let mut log = LivePatchLog::bind(path.clone());
+        assert!(log.drop_close_on_hide().is_none());
+        append(&path, &close_line_with_id(1));
+        log.mark_shown();
+        read(&mut log);
+        assert!(log.pending_close.is_none(), "the agent was never told this close would run");
+        let answer: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.path().join(CloseIntent::RESULT_FILE)).unwrap()).unwrap();
+        assert_eq!(answer["code"], "EDITOR_NOT_NOTIFIED");
+        assert_eq!(answer["close_id"], 1);
+    }
+
+    #[test]
+    fn a_close_for_a_log_that_did_not_exist_when_the_tab_was_shown_is_delivered() {
+        let (_dir, path) = temp_log("close-new-log");
+        let mut log = LivePatchLog::bind(path.clone());
+        assert!(log.drop_close_on_hide().is_none());
+        log.mark_shown();
+        append(&path, &close_line_with_id(1));
+        read(&mut log);
+        assert!(log.pending_close.is_some());
     }
 
     #[test]

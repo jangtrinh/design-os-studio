@@ -2272,8 +2272,9 @@ impl<'a> Ctx<'a> {
             }
         }
         let mut self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>> = HashMap::new();
+        let mut layout_snapshots = crate::instance_self_digest::LayoutSnapshotLease::default();
         for &inst in pending_by_page.values().flatten() {
-            let digests = self.flag_pending_self_overrides(inst);
+            let digests = self.flag_pending_self_overrides(inst, &mut layout_snapshots);
             if !digests.is_empty() {
                 self_digests.insert(inst, digests);
             }
@@ -2356,6 +2357,7 @@ impl<'a> Ctx<'a> {
             live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             dropped_duplicate_records: 0,
+            _layout_snapshots: layout_snapshots,
         }));
         if let Ok(mut guard) = hydrator.lock() {
             guard.self_weak = std::sync::Arc::downgrade(&hydrator);
@@ -2366,13 +2368,18 @@ impl<'a> Ctx<'a> {
     /// Flags on the still childless instance `inst` the fields its file record overrides on the instance itself (the
     /// entry that names its main), as opening its page would, so that syncing a main component leaves them alone. Returns
     /// the digests of the instance's overridden fields as they are now (see [`crate::instance_self_digest`]).
-    fn flag_pending_self_overrides(&mut self, inst: NodeId) -> BTreeMap<OverrideField, u64> {
+    fn flag_pending_self_overrides(
+        &mut self,
+        inst: NodeId,
+        layout_snapshots: &mut crate::instance_self_digest::LayoutSnapshotLease,
+    ) -> BTreeMap<OverrideField, u64> {
         let mut flagged: Vec<OverrideField> = Vec::new();
+        let mut own_sets: Vec<Value> = Vec::new();
         if let Some(ov) = self.overrides.get(&inst) {
             // A field a save can restate is flagged by the keys the file's own entry carries, not by what the loader made
             // of them: it folds, renames and drops some (a style link without paints, for one).
             flagged.extend(ov.own_keys.iter().filter_map(|k| crate::own_entry_keys::field_stated_by(k)));
-            // The other fields (layout, text) are only kept from syncing; nothing restates them.
+            // The remaining fields (text and layout metadata without a restate path) are only kept from syncing.
             let mut no_maps = HashMap::new();
             for e in ov.set.iter().filter(|e| e.path.len() <= 1) {
                 if self.resolve_path_cached(inst, &e.path, &mut no_maps) != Some(inst) {
@@ -2381,11 +2388,59 @@ impl<'a> Ctx<'a> {
                 if let Some(obj) = e.set.as_object() {
                     flagged.extend(obj.keys().filter_map(|k| override_field(k, false)).filter(|f| !crate::instance_self_digest::SELF_FIELDS.contains(f)));
                 }
+                own_sets.push(e.set.clone());
             }
         }
         // The raw keys are spent once the fields are flagged; the hydrator keeps the rest of the record.
         if let Some(ov) = self.overrides.get_mut(&inst) {
             ov.own_keys = Vec::new();
+        }
+        let mut layout_snapshot = None;
+        if flagged.contains(&OverrideField::Layout) {
+            let outer_fp = self.doc.get(inst).and_then(|n| Some((n.kind.frame_props()?.clone(), n.component.layout_cleared)));
+            let was_no_al = self.no_auto_layout.contains(&inst);
+            let prev_col_ids = self.grid_col_track_ids.get(&inst).cloned();
+            let prev_row_ids = self.grid_row_track_ids.get(&inst).cloned();
+            if let Some(comp) = self.doc.get(inst).and_then(|n| match &n.kind {
+                NodeKind::Instance { component: Some(c), .. } => Some(*c),
+                _ => n.component.source,
+            }) {
+                self.inherit_grid_auto_layout(inst, comp);
+            }
+            for set in &own_sets {
+                self.apply_frame_layout_override(inst, set);
+            }
+            if was_no_al {
+                self.no_auto_layout.insert(inst);
+            } else {
+                self.no_auto_layout.remove(&inst);
+            }
+            match prev_col_ids {
+                Some(ids) => {
+                    self.grid_col_track_ids.insert(inst, ids);
+                }
+                None => {
+                    self.grid_col_track_ids.remove(&inst);
+                }
+            }
+            match prev_row_ids {
+                Some(ids) => {
+                    self.grid_row_track_ids.insert(inst, ids);
+                }
+                None => {
+                    self.grid_row_track_ids.remove(&inst);
+                }
+            }
+            if let (Some((outer_fp, outer_cleared)), Some(node)) = (outer_fp, self.doc.get(inst)) {
+                if let Some(seeded_fp) = node.kind.frame_props().cloned() {
+                    layout_snapshot = Some(crate::instance_self_digest::UnopenedLayoutSnapshot {
+                        outer_fp,
+                        outer_cleared,
+                        seeded_fp,
+                        seeded_cleared: node.component.layout_cleared,
+                    });
+                }
+            }
         }
         let holds_derived = self.overrides.get(&inst).is_some_and(|o| !o.fast_derived.is_empty());
         let Some(node) = self.doc.get_mut(inst) else { return BTreeMap::new() };
@@ -2393,6 +2448,9 @@ impl<'a> Ctx<'a> {
             node.component.add_fig_own_entry_flag(field);
         }
         let mut digests = crate::instance_self_digest::digests(node);
+        if let Some(snapshot) = layout_snapshot {
+            digests.insert(OverrideField::Layout, layout_snapshots.record(snapshot));
+        }
         // The derived data of the instance was computed for the size it has now, flagged or not.
         if holds_derived {
             digests.entry(OverrideField::Size).or_insert_with(|| crate::instance_self_digest::size_digest(node));
@@ -2992,17 +3050,143 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// Deep-copies the component's children under an empty instance.
-    fn expand_instance(&mut self, inst: NodeId, comp: NodeId) -> Result<(), FigError> {
-        if !self.doc.get(inst).map(|n| n.children.is_empty()).unwrap_or(false) || self.doc.is_ancestor(comp, inst) || comp == inst {
-            return Ok(());
+    fn apply_frame_layout_override(&mut self, id: NodeId, set: &Value) {
+        if fstr(set, "layoutMode") != Some("NONE") && !self.no_auto_layout.contains(&id) {
+            self.inherit_auto_layout_for_partial_override(id, set);
         }
-        let kids = self.doc.get(comp).map(|n| n.children.clone()).unwrap_or_default();
-        if !kids.is_empty() && (self.budget_exhausted || self.cloned_nodes >= self.clone_budget_total) {
-            self.budget_exhausted = true;
-            self.unexpanded_instances.insert(inst);
-            return Ok(());
+        let Some(n) = self.doc.get_mut(id) else { return };
+        let Some(fp) = n.kind.frame_props_mut() else { return };
+        let prev_tracks = (set.get("_gridColumnTrackIds").is_some() || set.get("_gridRowTrackIds").is_some())
+            .then(|| fp.auto_layout.as_ref().map(|al| (al.grid_col_tracks.clone(), al.grid_row_tracks.clone())))
+            .flatten();
+        if let Some(c) = fbool(set, "clipsContent") {
+            fp.clips_content = c;
         }
+        if set.get("layoutGrids").is_some() {
+            fp.grids = farr(set, "layoutGrids").iter().filter_map(parse_grid).collect();
+        }
+        if fstr(set, "layoutMode") == Some("NONE") {
+            fp.auto_layout = None;
+            n.component.layout_cleared = true;
+            self.no_auto_layout.insert(id);
+            self.grid_col_track_ids.remove(&id);
+            self.grid_row_track_ids.remove(&id);
+        } else if fp.auto_layout.is_none() && set.get("layoutMode").is_some() {
+            fp.auto_layout = frame_props(set).auto_layout;
+            n.component.layout_cleared = fp.auto_layout.is_none();
+            if fp.auto_layout.is_none() {
+                self.no_auto_layout.insert(id);
+                self.grid_col_track_ids.remove(&id);
+                self.grid_row_track_ids.remove(&id);
+            } else {
+                self.no_auto_layout.remove(&id);
+            }
+        } else if let Some(al) = fp.auto_layout.as_mut() {
+            if set.get("layoutMode").is_some() {
+                n.component.layout_cleared = false;
+                self.no_auto_layout.remove(&id);
+            }
+            match fstr(set, "layoutMode") {
+                Some("HORIZONTAL") => al.direction = LayoutDirection::Horizontal,
+                Some("VERTICAL") => al.direction = LayoutDirection::Vertical,
+                Some("GRID") => al.direction = LayoutDirection::Grid,
+                _ => {}
+            }
+            let align = |s: &str| match s {
+                "CENTER" => LayoutAlign::Center,
+                "MAX" => LayoutAlign::End,
+                "SPACE_BETWEEN" => LayoutAlign::SpaceBetween,
+                "SPACE_AROUND" => LayoutAlign::SpaceAround,
+                "SPACE_EVENLY" => LayoutAlign::SpaceEvenly,
+                "BASELINE" => LayoutAlign::Baseline,
+                _ => LayoutAlign::Start,
+            };
+            let sizing = |s: &str| if s == "AUTO" { Sizing::Hug } else { Sizing::Fixed };
+            if let Some(x) = fnum(set, "itemSpacing") {
+                al.item_spacing = x;
+            }
+            if let Some(x) = fnum(set, "counterAxisSpacing") {
+                al.counter_spacing = Some(x);
+            }
+            for (idx, k) in [(0, "paddingTop"), (1, "paddingRight"), (2, "paddingBottom"), (3, "paddingLeft")] {
+                if let Some(x) = fnum(set, k) {
+                    al.padding[idx] = x;
+                }
+            }
+            if let Some(s) = fstr(set, "primaryAxisAlignItems") {
+                al.primary_align = align(s);
+            }
+            if let Some(s) = fstr(set, "counterAxisAlignItems") {
+                al.counter_align = align(s);
+            }
+            if let Some(s) = fstr(set, "counterAxisAlignContent") {
+                al.counter_align_content = if s == "SPACE_BETWEEN" { CounterAlignContent::SpaceBetween } else { CounterAlignContent::Auto };
+            }
+            if let Some(n) = fnum(set, "stackLayoutVersion") {
+                al.layout_version = n.clamp(0.0, u8::MAX as f32) as u8;
+            }
+            if let Some(s) = fstr(set, "primaryAxisSizingMode") {
+                al.primary_sizing = sizing(s);
+            }
+            if let Some(s) = fstr(set, "counterAxisSizingMode") {
+                al.counter_sizing = sizing(s);
+            }
+            if let Some(w) = fstr(set, "layoutWrap") {
+                al.wrap = w == "WRAP";
+            }
+            if let Some(b) = fbool(set, "strokesIncludedInLayout") {
+                al.stroke_included = b;
+            }
+            if let Some(b) = fbool(set, "itemReverseZIndex") {
+                al.reverse_z = b;
+            }
+            if let Some(s) = fstr(set, "gridColumnsSizing") {
+                let (cols, tracks) = parse_grid_sizing(s);
+                if cols > 0 {
+                    al.grid_columns = cols;
+                    al.grid_col_tracks = tracks;
+                }
+            }
+            if let Some(s) = fstr(set, "gridRowsSizing") {
+                let (rows, tracks) = parse_grid_sizing(s);
+                if rows > 0 {
+                    al.grid_rows = rows;
+                    al.grid_row_tracks = tracks;
+                }
+            }
+            if let Some(c) = set.get("gridColumns").and_then(Value::as_u64) {
+                al.grid_columns = c as u32;
+            }
+            if let Some(r) = set.get("gridRows").and_then(Value::as_u64) {
+                al.grid_rows = r as u32;
+            }
+            if let Some(s) = fstr(set, "gridAutoTracks") {
+                al.grid_auto_tracks = parse_grid_auto_tracks(s);
+            }
+        }
+        if let Some(al) = fp.auto_layout.as_mut() {
+            let col_tracks: Vec<&str> = farr(set, "_gridColumnTrackIds").iter().filter_map(Value::as_str).collect();
+            if !col_tracks.is_empty() {
+                if set.get("gridColumnsSizing").is_none() {
+                    if let (Some((old_tracks, _)), Some(old_ids)) = (&prev_tracks, self.grid_col_track_ids.get(&id)) {
+                        al.grid_col_tracks = permute_tracks_by_ids(old_tracks, old_ids, &col_tracks);
+                    }
+                }
+                self.grid_col_track_ids.insert(id, col_tracks.into_iter().map(String::from).collect());
+            }
+            let row_tracks: Vec<&str> = farr(set, "_gridRowTrackIds").iter().filter_map(Value::as_str).collect();
+            if !row_tracks.is_empty() {
+                if set.get("gridRowsSizing").is_none() {
+                    if let (Some((_, old_tracks)), Some(old_ids)) = (&prev_tracks, self.grid_row_track_ids.get(&id)) {
+                        al.grid_row_tracks = permute_tracks_by_ids(old_tracks, old_ids, &row_tracks);
+                    }
+                }
+                self.grid_row_track_ids.insert(id, row_tracks.into_iter().map(String::from).collect());
+            }
+        }
+    }
+
+    fn inherit_grid_auto_layout(&mut self, inst: NodeId, comp: NodeId) {
         if !self.no_auto_layout.contains(&inst) {
             let comp_grid_al =
                 self.doc.get(comp).and_then(|n| n.kind.frame_props()).and_then(|fp| fp.auto_layout.clone()).filter(|al| al.direction == LayoutDirection::Grid);
@@ -3030,6 +3214,20 @@ impl<'a> Ctx<'a> {
                 self.grid_row_track_ids.entry(inst).or_insert(ids);
             }
         }
+    }
+
+    /// Deep-copies the component's children under an empty instance.
+    fn expand_instance(&mut self, inst: NodeId, comp: NodeId) -> Result<(), FigError> {
+        if !self.doc.get(inst).map(|n| n.children.is_empty()).unwrap_or(false) || self.doc.is_ancestor(comp, inst) || comp == inst {
+            return Ok(());
+        }
+        let kids = self.doc.get(comp).map(|n| n.children.clone()).unwrap_or_default();
+        if !kids.is_empty() && (self.budget_exhausted || self.cloned_nodes >= self.clone_budget_total) {
+            self.budget_exhausted = true;
+            self.unexpanded_instances.insert(inst);
+            return Ok(());
+        }
+        self.inherit_grid_auto_layout(inst, comp);
         let fast_clone = self.rest_overrides.is_empty() && self.doc.nodes.len() >= 10_000;
         let prefix = if fast_clone { String::new() } else { self.doc.get(inst).and_then(|n| n.source_id.clone()).unwrap_or_default() };
         let has_col_anchors = !self.col_anchor_guids.is_empty();
@@ -3732,136 +3930,10 @@ impl<'a> Ctx<'a> {
                 n.fill_geometry = None;
             }
         }
-        if let Some(fp) = n.kind.frame_props_mut() {
-            let prev_tracks = (set.get("_gridColumnTrackIds").is_some() || set.get("_gridRowTrackIds").is_some())
-                .then(|| fp.auto_layout.as_ref().map(|al| (al.grid_col_tracks.clone(), al.grid_row_tracks.clone())))
-                .flatten();
-            if let Some(c) = fbool(set, "clipsContent") {
-                fp.clips_content = c;
-            }
-            if set.get("layoutGrids").is_some() {
-                fp.grids = farr(set, "layoutGrids").iter().filter_map(parse_grid).collect();
-            }
-            if fstr(set, "layoutMode") == Some("NONE") {
-                fp.auto_layout = None;
-                n.component.layout_cleared = true;
-                self.no_auto_layout.insert(id);
-                self.grid_col_track_ids.remove(&id);
-                self.grid_row_track_ids.remove(&id);
-            } else if fp.auto_layout.is_none() && set.get("layoutMode").is_some() {
-                fp.auto_layout = frame_props(set).auto_layout;
-                n.component.layout_cleared = fp.auto_layout.is_none();
-                if fp.auto_layout.is_none() {
-                    self.no_auto_layout.insert(id);
-                    self.grid_col_track_ids.remove(&id);
-                    self.grid_row_track_ids.remove(&id);
-                } else {
-                    self.no_auto_layout.remove(&id);
-                }
-            } else if let Some(al) = fp.auto_layout.as_mut() {
-                if set.get("layoutMode").is_some() {
-                    n.component.layout_cleared = false;
-                    self.no_auto_layout.remove(&id);
-                }
-                match fstr(set, "layoutMode") {
-                    Some("HORIZONTAL") => al.direction = LayoutDirection::Horizontal,
-                    Some("VERTICAL") => al.direction = LayoutDirection::Vertical,
-                    Some("GRID") => al.direction = LayoutDirection::Grid,
-                    _ => {}
-                }
-                let align = |s: &str| match s {
-                    "CENTER" => LayoutAlign::Center,
-                    "MAX" => LayoutAlign::End,
-                    "SPACE_BETWEEN" => LayoutAlign::SpaceBetween,
-                    "SPACE_AROUND" => LayoutAlign::SpaceAround,
-                    "SPACE_EVENLY" => LayoutAlign::SpaceEvenly,
-                    "BASELINE" => LayoutAlign::Baseline,
-                    _ => LayoutAlign::Start,
-                };
-                let sizing = |s: &str| if s == "AUTO" { Sizing::Hug } else { Sizing::Fixed };
-                if let Some(x) = fnum(set, "itemSpacing") {
-                    al.item_spacing = x;
-                }
-                if let Some(x) = fnum(set, "counterAxisSpacing") {
-                    al.counter_spacing = Some(x);
-                }
-                for (idx, k) in [(0, "paddingTop"), (1, "paddingRight"), (2, "paddingBottom"), (3, "paddingLeft")] {
-                    if let Some(x) = fnum(set, k) {
-                        al.padding[idx] = x;
-                    }
-                }
-                if let Some(s) = fstr(set, "primaryAxisAlignItems") {
-                    al.primary_align = align(s);
-                }
-                if let Some(s) = fstr(set, "counterAxisAlignItems") {
-                    al.counter_align = align(s);
-                }
-                if let Some(s) = fstr(set, "counterAxisAlignContent") {
-                    al.counter_align_content = if s == "SPACE_BETWEEN" { CounterAlignContent::SpaceBetween } else { CounterAlignContent::Auto };
-                }
-                if let Some(n) = fnum(set, "stackLayoutVersion") {
-                    al.layout_version = n.clamp(0.0, u8::MAX as f32) as u8;
-                }
-                if let Some(s) = fstr(set, "primaryAxisSizingMode") {
-                    al.primary_sizing = sizing(s);
-                }
-                if let Some(s) = fstr(set, "counterAxisSizingMode") {
-                    al.counter_sizing = sizing(s);
-                }
-                if let Some(w) = fstr(set, "layoutWrap") {
-                    al.wrap = w == "WRAP";
-                }
-                if let Some(b) = fbool(set, "strokesIncludedInLayout") {
-                    al.stroke_included = b;
-                }
-                if let Some(b) = fbool(set, "itemReverseZIndex") {
-                    al.reverse_z = b;
-                }
-                if let Some(s) = fstr(set, "gridColumnsSizing") {
-                    let (cols, tracks) = parse_grid_sizing(s);
-                    if cols > 0 {
-                        al.grid_columns = cols;
-                        al.grid_col_tracks = tracks;
-                    }
-                }
-                if let Some(s) = fstr(set, "gridRowsSizing") {
-                    let (rows, tracks) = parse_grid_sizing(s);
-                    if rows > 0 {
-                        al.grid_rows = rows;
-                        al.grid_row_tracks = tracks;
-                    }
-                }
-                if let Some(c) = set.get("gridColumns").and_then(Value::as_u64) {
-                    al.grid_columns = c as u32;
-                }
-                if let Some(r) = set.get("gridRows").and_then(Value::as_u64) {
-                    al.grid_rows = r as u32;
-                }
-                if let Some(s) = fstr(set, "gridAutoTracks") {
-                    al.grid_auto_tracks = parse_grid_auto_tracks(s);
-                }
-            }
-            if let Some(al) = fp.auto_layout.as_mut() {
-                let col_tracks: Vec<&str> = farr(set, "_gridColumnTrackIds").iter().filter_map(Value::as_str).collect();
-                if !col_tracks.is_empty() {
-                    if set.get("gridColumnsSizing").is_none() {
-                        if let (Some((old_tracks, _)), Some(old_ids)) = (&prev_tracks, self.grid_col_track_ids.get(&id)) {
-                            al.grid_col_tracks = permute_tracks_by_ids(old_tracks, old_ids, &col_tracks);
-                        }
-                    }
-                    self.grid_col_track_ids.insert(id, col_tracks.into_iter().map(String::from).collect());
-                }
-                let row_tracks: Vec<&str> = farr(set, "_gridRowTrackIds").iter().filter_map(Value::as_str).collect();
-                if !row_tracks.is_empty() {
-                    if set.get("gridRowsSizing").is_none() {
-                        if let (Some((_, old_tracks)), Some(old_ids)) = (&prev_tracks, self.grid_row_track_ids.get(&id)) {
-                            al.grid_row_tracks = permute_tracks_by_ids(old_tracks, old_ids, &row_tracks);
-                        }
-                    }
-                    self.grid_row_track_ids.insert(id, row_tracks.into_iter().map(String::from).collect());
-                }
-            }
+        if !derived_only {
+            self.apply_frame_layout_override(id, set);
         }
+        let Some(n) = self.doc.get_mut(id) else { return Ok(swapped) };
         let non_fill_sizing = |kind: &NodeKind, dir_h: bool| -> Sizing {
             match kind {
                 NodeKind::Text(t) => match t.auto_resize {
@@ -4170,6 +4242,7 @@ struct DeferredFigHydrator {
     live_stash_records: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     /// Count of override records dropped during page duplication because their layer was missing in the copy.
     dropped_duplicate_records: usize,
+    _layout_snapshots: crate::instance_self_digest::LayoutSnapshotLease,
 }
 
 impl DeferredFigHydrator {
@@ -4284,6 +4357,17 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         };
         let mut hydration_err: Option<FigError> = None;
         for &inst in &insts {
+            if let Some(opened) = self.self_digests.get(&inst) {
+                let layout_edited = cx.doc.get(inst).is_some_and(|n| crate::instance_self_digest::edited_fields(n, opened).contains(&OverrideField::Layout));
+                if !layout_edited {
+                    if let (Some(snap), Some(n)) = (crate::instance_self_digest::unopened_layout_snapshot(opened), cx.doc.get_mut(inst)) {
+                        if let Some(fp) = n.kind.frame_props_mut() {
+                            *fp = snap.outer_fp;
+                        }
+                        n.component.layout_cleared = snap.outer_cleared;
+                    }
+                }
+            }
             let res = if self.targets.contains_key(&inst) {
                 cx.expand_rec(inst, &self.targets, &mut self.done)
             } else if !self.done.contains(&inst) {
@@ -4327,6 +4411,11 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             if let Some(derived) = cleared_derived.remove(&inst) {
                 if let Some(ov) = cx.overrides.get_mut(&inst) {
                     ov.fast_derived = derived;
+                }
+            }
+            if cx.doc.get(inst).is_some_and(|n| n.children.is_empty()) {
+                if let Some((_, saved)) = saved_insts.iter().find(|&&(id, _)| id == inst) {
+                    cx.doc.nodes.insert(inst, saved.clone());
                 }
             }
         }
@@ -5956,6 +6045,7 @@ mod expand_depth_tests {
             live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             dropped_duplicate_records: 0,
+            _layout_snapshots: crate::instance_self_digest::LayoutSnapshotLease::default(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
         assert!(!doc_h.ensure_page_hydrated(p2), "hydration that hits u64::MAX must fail cleanly");
@@ -6007,6 +6097,7 @@ mod expand_depth_tests {
             live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             dropped_duplicate_records: 0,
+            _layout_snapshots: crate::instance_self_digest::LayoutSnapshotLease::default(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator_b)));
         assert!(doc_h.ensure_page_hydrated(p2));
@@ -6107,6 +6198,7 @@ mod expand_depth_tests {
             live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             dropped_duplicate_records: 0,
+            _layout_snapshots: crate::instance_self_digest::LayoutSnapshotLease::default(),
         }));
         doc.page_hydrator = Some(hydrator.clone());
         (doc, hydrator, p1, p2, outer_comp, nested_inst)

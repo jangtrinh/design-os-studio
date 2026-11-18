@@ -2816,7 +2816,8 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             | "gridRowAnchor"
             | "gridRowAnchorIndex"
             | "gridChildHorizontalAlign"
-            | "gridChildVerticalAlign" => {
+            | "gridChildVerticalAlign"
+            | "layoutGrids" => {
                 has_layout = true;
             }
             "fontName"
@@ -2939,10 +2940,21 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             m.insert("layoutMode".into(), mode.into());
         }
         convert_stack_extras(&mut m, o);
-        if let Some(x) = fnum(o, "gridColumnGap").or_else(|| fnum(o, "gridColumnsGap")).or_else(|| fnum(o, "stackSpacing")) {
+        let is_stack = matches!(fstr(o, "stackMode"), Some("HORIZONTAL" | "VERTICAL"));
+        let item_gap = if is_stack {
+            fnum(o, "stackSpacing").or_else(|| fnum(o, "gridColumnGap")).or_else(|| fnum(o, "gridColumnsGap"))
+        } else {
+            fnum(o, "gridColumnGap").or_else(|| fnum(o, "gridColumnsGap")).or_else(|| fnum(o, "stackSpacing"))
+        };
+        if let Some(x) = item_gap {
             m.insert("itemSpacing".into(), x.into());
         }
-        if let Some(x) = fnum(o, "gridRowGap").or_else(|| fnum(o, "gridRowsGap")).or_else(|| fnum(o, "stackCounterSpacing")) {
+        let counter_gap = if is_stack {
+            fnum(o, "stackCounterSpacing").or_else(|| fnum(o, "gridRowGap")).or_else(|| fnum(o, "gridRowsGap"))
+        } else {
+            fnum(o, "gridRowGap").or_else(|| fnum(o, "gridRowsGap")).or_else(|| fnum(o, "stackCounterSpacing"))
+        };
+        if let Some(x) = counter_gap {
             m.insert("counterAxisSpacing".into(), x.into());
         }
         let p = fnum(o, "stackPadding");
@@ -3012,6 +3024,13 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         }
         if let Some(r) = obj.get("gridRowAnchor").or_else(|| obj.get("gridRowAnchorIndex")) {
             m.insert("gridRowAnchorIndex".into(), r.clone());
+        }
+        // A grid style link alone leaves the nested frame's grids as its component has them; it is read only next to
+        // the explicit grids the entry states.
+        if obj.contains_key("layoutGrids") {
+            if let Some(g) = convert_grids(lk.style_node_of(o, "styleIdForGrid", "inheritGridStyleID").unwrap_or(o)) {
+                m.insert("layoutGrids".into(), g);
+            }
         }
     }
     if has_text {

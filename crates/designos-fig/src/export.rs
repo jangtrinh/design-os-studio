@@ -701,7 +701,8 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
     if let Some(g) = &node.fill_geometry {
         m.insert("fillGeometry".into(), geometry(g));
     }
-    if let Some(g) = &node.stroke_geometry {
+    // Only an outline that still matches the layer's size and stroke: a stale one would be read back as its stroke.
+    if let Some(g) = node.live_stroke_outline() {
         m.insert("strokeGeometry".into(), geometry(g));
     }
 

@@ -1622,8 +1622,9 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     fields.push(("verticalConstraint", en(cname(node.constraints.vertical))));
 
     // Frame & Auto-Layout properties.
-    let my_dir = node.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|a| a.direction);
-    if let Some(fp) = node.kind.frame_props() {
+    let (export_fp, export_layout_cleared) = export_outer_frame_props(cx.doc, id, &node);
+    let my_dir = export_fp.as_ref().and_then(|f| f.auto_layout.as_ref()).map(|a| a.direction);
+    if let Some(fp) = export_fp.as_deref() {
         fields.push(("frameMaskDisabled", V::Bool(!fp.clips_content)));
         if !fp.grids.is_empty() {
             fields.push(("layoutGrids", V::Array(fp.grids.iter().map(encode_grid).collect())));
@@ -1679,7 +1680,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             fields.push(("stackWrap", en(if al.wrap { "WRAP" } else { "NO_WRAP" })));
             fields.push(("bordersTakeSpace", V::Bool(al.stroke_included)));
             fields.push(("stackReverseZIndex", V::Bool(al.reverse_z)));
-        } else if clears_inherited_auto_layout(&node) {
+        } else if export_layout_cleared {
             // An instance without auto layout over a component that has it must say so, or an importer
             // would hand the component's layout back to it.
             fields.push(("stackMode", en("NONE")));
@@ -2009,8 +2010,15 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
 
     // Geometry blobs.
     if !matches!(node.kind, NodeKind::Text(_)) {
+        // A vector's own `paths` go out as its fill outline unless they are the stored stroke outline. They are
+        // written anyway when that outline is stale and there is no vector network to rebuild the shape from, or the
+        // reopened layer would have no geometry at all.
         let fill_paths = node.fill_geometry.as_ref().or(match &node.kind {
-            NodeKind::Vector { paths, .. } if !paths.is_empty() && node.stroke_geometry.as_ref() != Some(paths) => Some(paths),
+            NodeKind::Vector { paths, network } if !paths.is_empty() => {
+                let is_stored_outline = node.stroke_geometry.as_ref() == Some(paths);
+                let shape_needs_paths = network.as_ref().is_none_or(|net| net.vertices.is_empty()) && node.live_stroke_outline().is_none();
+                (!is_stored_outline || shape_needs_paths).then_some(paths)
+            }
             _ => None,
         });
         if let Some(paths) = fill_paths {
@@ -2019,7 +2027,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 fields.push(("fillGeometry", V::Array(fgs)));
             }
         }
-        if let Some(paths) = &node.stroke_geometry {
+        // Only an outline that still matches the layer's size and stroke: a stale one would be read back as its stroke.
+        if let Some(paths) = node.live_stroke_outline() {
             let sgs = encode_geometry_blobs(cx, paths);
             if !sgs.is_empty() {
                 fields.push(("strokeGeometry", V::Array(sgs)));
@@ -2586,6 +2595,19 @@ fn clears_inherited_auto_layout(n: &Node) -> bool {
     n.component.layout_cleared && n.kind.frame_props().is_some_and(|fp| fp.auto_layout.is_none())
 }
 
+pub(crate) fn export_outer_frame_props<'a>(doc: &Document, id: NodeId, n: &'a Node) -> (Option<std::borrow::Cow<'a, FrameProps>>, bool) {
+    let Some(fp) = n.kind.frame_props() else { return (None, false) };
+    if matches!(n.kind, NodeKind::Instance { .. }) && n.children.is_empty() && doc.pending_instance_overrides(id).is_some() {
+        if let Some(opened) = doc.pending_instance_self_digests(id) {
+            if let Some(snap) = crate::instance_self_digest::unopened_layout_snapshot(&opened) {
+                let clears = snap.outer_cleared && snap.outer_fp.auto_layout.is_none();
+                return (Some(std::borrow::Cow::Owned(snap.outer_fp)), clears);
+            }
+        }
+    }
+    (Some(std::borrow::Cow::Borrowed(fp)), clears_inherited_auto_layout(n))
+}
+
 fn encode_node_var_entries_skipping(cx: &ExportCtx, vars: &NodeVariables, skip_fields: &HashSet<String>) -> Vec<V> {
     encode_var_entries_from_bindings_skipping(cx, &vars.bindings, skip_fields)
 }
@@ -3103,7 +3125,8 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                 if n.stroke.miter_limit >= 1.0 {
                     ov.push(("miterLimit", fl(n.stroke.miter_limit)));
                 }
-                if let Some(paths) = &n.stroke_geometry {
+                // Only an outline that still matches the layer's size and stroke, as for a layer outside an instance.
+                if let Some(paths) = n.live_stroke_outline() {
                     let geometry = encode_geometry_blobs(cx, paths);
                     if !geometry.is_empty() {
                         ov.push(("strokeGeometry", V::Array(geometry)));
@@ -3186,6 +3209,9 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
             if ovs.contains(&OverrideField::Layout) {
                 if let Some(fp) = n.kind.frame_props() {
                     ov.push(("frameMaskDisabled", V::Bool(!fp.clips_content)));
+                    if !fp.grids.is_empty() {
+                        ov.push(("layoutGrids", V::Array(fp.grids.iter().map(encode_grid).collect())));
+                    }
                     if let Some(al) = &fp.auto_layout {
                         let sm = match al.direction {
                             LayoutDirection::Horizontal => "HORIZONTAL",

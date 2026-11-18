@@ -1342,6 +1342,7 @@ mod select_cli_watermark;
 mod slot_canvas_edits;
 mod stale_canvas_after_agent_edit;
 mod stray_layers;
+mod stroke_weight_baked_outline;
 mod style_edit;
 mod svg;
 mod system_paste_and_drop;
