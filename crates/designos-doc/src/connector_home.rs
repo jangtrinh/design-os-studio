@@ -134,14 +134,19 @@ fn paint_surface(doc: &Document, paint: &crate::Paint) -> Option<(Color, f32)> {
             if stops.is_empty() {
                 return None;
             }
-            let count = stops.len() as f32;
+            // Colour is weighted by each stop's alpha, so a stop that fades to transparent pulls the
+            // mean alpha down without darkening the mean colour.
+            let alpha_sum: f32 = stops.iter().map(|stop| stop.color.a).sum();
+            if alpha_sum <= 0.0 {
+                return None;
+            }
             let mut color = Color::TRANSPARENT;
             for stop in stops {
-                color.r += stop.color.r / count;
-                color.g += stop.color.g / count;
-                color.b += stop.color.b / count;
-                color.a += stop.color.a / count;
+                color.r += stop.color.r * stop.color.a / alpha_sum;
+                color.g += stop.color.g * stop.color.a / alpha_sum;
+                color.b += stop.color.b * stop.color.a / alpha_sum;
             }
+            color.a = alpha_sum / stops.len() as f32;
             (color, color.a * paint.opacity)
         }
         // Images are read through a caller-supplied sampler; see the next change.
@@ -542,6 +547,30 @@ mod tests {
         doc.get_mut(wrapper).expect("wrapper").fills = vec![translucent];
         let chosen = default_connector_ink(&doc, wrapper);
         assert_eq!(chosen, Color::rgb(0x1E, 0x1E, 0x1E), "the translucent white paint must be blended over the dark page");
+    }
+
+    #[test]
+    fn connector_ink_reads_a_gradient_that_fades_out_by_the_colour_it_keeps() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        set_page_background(&mut doc, page, Color::BLACK);
+        let (screen, wrapper) = make_screen_with_wrapper(&mut doc, page);
+        doc.get_mut(screen).expect("screen").fills.clear();
+        let fade = Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [crate::Vec2::new(0.0, 0.5), crate::Vec2::new(1.0, 0.5), crate::Vec2::new(0.0, 1.0)],
+                stops: vec![crate::GradientStop { pos: 0.0, color: Color::WHITE }, crate::GradientStop { pos: 1.0, color: Color::TRANSPARENT }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: crate::BlendMode::Normal,
+        };
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![fade];
+        assert_eq!(
+            default_connector_ink(&doc, wrapper),
+            Color::rgb(0x1E, 0x1E, 0x1E),
+            "white fading out over a black page is a mid-light surface, not a dark one"
+        );
     }
 
     #[test]
