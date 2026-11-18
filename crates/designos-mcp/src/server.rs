@@ -158,8 +158,33 @@ pub struct Session {
     next_close_id: u64,
     /// The last close was cancelled or refused by the editor: the close line it left in the log is no change to the document.
     close_retry_safe: bool,
-    /// A live close of this session's tab succeeded: the tab is gone, so another close can only be refused.
+    /// This session's tab is known to be closed: its own live close succeeded, or the editor's mark was seen. It stays set, so every
+    /// later call that would reach the editor is refused, even after the file is opened again in a new tab on the same folder.
     live_tab_closed: bool,
+}
+
+/// Why a write meant for the editor did not go out.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PublishError {
+    /// The editor's tab is closed: nothing reads the session folder any more, so nothing was written into it.
+    TabClosed,
+    /// The write failed, for the reason given.
+    Failed(String),
+}
+
+impl From<String> for PublishError {
+    fn from(reason: String) -> Self {
+        PublishError::Failed(reason)
+    }
+}
+
+impl std::fmt::Display for PublishError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PublishError::TabClosed => f.write_str("the tab is already closed"),
+            PublishError::Failed(reason) => f.write_str(reason),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -369,6 +394,10 @@ impl Session {
     /// Saves the session's options in the session folder. The options stay in force for this session whatever happens; a
     /// failed save is told to the agent, because they would not survive a reconnect.
     fn save_session_options(&mut self) {
+        // A closed tab's folder is read by no editor, and nothing is written into it: the options stay in force in memory only.
+        if self.tab_is_closed() {
+            return;
+        }
         let Some(dir) = self.bridge.session_dir.as_deref() else {
             return;
         };
@@ -614,22 +643,25 @@ impl Session {
     /// Appends the edits recorded since the last call as one [`LivePatch`] line to
     /// `doc-patch.jsonl`, which the editor replays on its full document. The editor's canvas may be
     /// a scoped copy (large files), so the whole `self.engine.doc` must never be sent for an edit.
-    pub fn publish_live_patch(&mut self) -> Result<(), String> {
+    pub fn publish_live_patch(&mut self) -> Result<(), PublishError> {
         let ops = self.engine.take_live_ops();
         let label = self.engine.live_patch_label.take();
-        let Some(path) = self.bridge.live_doc_patch_path.as_ref().filter(|_| !ops.is_empty()) else {
+        let Some(path) = self.bridge.live_doc_patch_path.clone().filter(|_| !ops.is_empty()) else {
             return Ok(());
         };
+        self.refuse_write_into_closed_tab()?;
         // An edit logged behind a switch the editor never heard of would land on the wrong document.
         // Because `self.engine.doc` already holds the edit, publishing the unannounced switch sends it
         // in full and must not also append the patch line after the switch mark.
         if self.bridge.doc_unannounced {
-            return self.publish_live_doc_sync().map_err(|e| format!("the editor still shows the previous document: {e}"));
+            return self.publish_live_doc_sync().map_err(|e| match e {
+                PublishError::TabClosed => PublishError::TabClosed,
+                PublishError::Failed(e) => PublishError::Failed(format!("the editor still shows the previous document: {e}")),
+            });
         }
         let base = self.canvas_base_nanos();
         let line = live_patch_line(&LivePatch::new(ops).with_base(base).with_label(label), self.max_live_patch_bytes)?;
-        let path = path.clone();
-        append_log_line(&path, &line)
+        Ok(append_log_line(&path, &line)?)
     }
 
     /// Reverts the tool call `name` whose edit could not be sent to the editor, without recording
@@ -667,10 +699,11 @@ impl Session {
     /// The editor reads that one log in order: edits above the mark were made on the previous
     /// document and are dropped, edits below it belong to this one. Edits go through
     /// [`Self::publish_live_patch`].
-    pub fn publish_live_doc_sync(&mut self) -> Result<(), String> {
+    pub fn publish_live_doc_sync(&mut self) -> Result<(), PublishError> {
         if self.bridge.live_doc_sync_path.is_none() && self.bridge.live_canvas_path.is_none() {
             return Ok(());
         }
+        self.refuse_write_into_closed_tab()?;
         // Until the mark is in the log the editor does not know about this document.
         self.bridge.doc_unannounced = true;
         self.engine.settle_layout();
@@ -930,6 +963,11 @@ impl Session {
                 return out;
             }
             if Instant::now() >= deadline {
+                if self.tab_is_closed() {
+                    // The tab closed while this close waited. Its folder is read by no one, so no cancel goes into it; an answer the
+                    // editor wrote before it closed the tab still counts.
+                    return self.read_close_ack(&result_path, close_id).unwrap_or_else(|| Err(Self::tab_already_closed_error()));
+                }
                 let bytes = json!({"close_id": close_id}).to_string();
                 self.file_problems.wrote(&cancel_path, session_file_io::write_atomic(&cancel_path, bytes.as_bytes(), false));
                 if let Some(out) = self.read_close_ack(&result_path, close_id) {
@@ -947,7 +985,18 @@ impl Session {
         if v.get("close_id").and_then(Value::as_u64) != Some(close_id) {
             return None;
         }
+        // The editor says the tab is closed: this session is over as surely as when it reads the mark itself.
+        if Self::ack_says_tab_closed(&v) {
+            self.live_tab_closed = true;
+        }
         Some(Self::close_ack_to_result(v))
+    }
+
+    /// The editor refused a close because this session's tab is closed (or no tab is open at all).
+    fn ack_says_tab_closed(v: &Value) -> bool {
+        v.get("ok").and_then(Value::as_bool) == Some(false)
+            && v.get("code").and_then(Value::as_str).and_then(ErrorCode::from_code_str) == Some(ErrorCode::EditorNotNotified)
+            && v.get("reason").and_then(Value::as_str) == Some("tab_closed")
     }
 
     /// The wait ended with no answer. The close is cancelled, so the editor will not act on it later: for `save` and `fail`
@@ -962,24 +1011,77 @@ impl Session {
         }
     }
 
+    /// The next step of every answer once the tab is closed. It names no other call: each of them is refused the same way.
     const TAB_CLOSED_NEXT_STEP: &'static str =
-        "That tab is already closed, so there is nothing to close. Open the document again with designos_open_file, or ask the user.";
+        "This session's tab is already closed, so nothing more from this session reaches the editor. Stop and tell the user.";
 
-    /// Whether the editor tab this session's folder belonged to is closed, learnt from the folder itself, so a tab the person closed, and
-    /// a tab closed before this process started, are told apart from a tab that is merely slow to answer. A scratch folder is removed
-    /// with its tab; a library file's folder stays and carries the editor's `tab-closed.json` until the file is opened again.
-    fn editor_tab_is_gone(&self) -> bool {
-        let Some(dir) = self.bridge.session_dir.clone().or_else(|| self.bridge.live_doc_patch_path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)))
-        else {
-            return false;
-        };
-        let missing = matches!(std::fs::symlink_metadata(&dir), Err(e) if e.kind() == std::io::ErrorKind::NotFound);
-        missing || crate::session_file_io::stat(&dir.join(CloseIntent::TAB_CLOSED_FILE)).is_ok()
+    /// The folder the editor shares with this session, where its log, answers and `tab-closed.json` live.
+    fn editor_session_dir(&self) -> Option<PathBuf> {
+        self.bridge.session_dir.clone().or_else(|| self.bridge.live_doc_patch_path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)))
     }
 
-    /// A close of a tab this session already closed: no editor is asked, and the answer is not retryable.
+    /// Whether the editor tab this session's folder belonged to is known to be closed. Only the editor's `tab-closed.json` says so: a
+    /// tab the person closed leaves that mark (a scratch folder keeps only it), so a folder that is merely missing does not count.
+    fn editor_tab_is_gone(&self) -> bool {
+        self.editor_session_dir().is_some_and(|dir| crate::session_file_io::stat(&dir.join(CloseIntent::TAB_CLOSED_FILE)).is_ok())
+    }
+
+    /// Whether the session folder does not exist at all (removed by hand, or never made). The editor cannot be asked through it.
+    fn editor_session_dir_is_missing(&self) -> bool {
+        let Some(dir) = self.editor_session_dir() else {
+            return false;
+        };
+        matches!(std::fs::symlink_metadata(&dir), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+    }
+
+    /// The folder this session shares with the editor is gone and nothing says the tab was closed: no editor can be asked, so a retry
+    /// can never work.
+    fn session_folder_gone_error() -> ToolError {
+        ToolError::new(ErrorCode::EditorNotNotified, "", "The session folder is gone, so the editor cannot be asked.")
+            .with_safe_to_retry(false)
+            .with_next_step("Check the document state with designos_get_document, or ask the user.")
+    }
+
+    /// Whether this session's editor tab is closed, by the person or by this session's own close. Its session is then over for good:
+    /// nothing that would reach the editor is done, and nothing is written into its folder. The first sight of the editor's mark is
+    /// kept, because a new tab of the same file clears the mark and its edits must not take this session's.
+    fn tab_is_closed(&mut self) -> bool {
+        if !self.live_editor() {
+            return false;
+        }
+        if !self.live_tab_closed && self.editor_tab_is_gone() {
+            self.live_tab_closed = true;
+        }
+        self.live_tab_closed
+    }
+
+    /// Refuses an edit, an open or a new document once the tab is closed, before anything is changed.
+    fn ensure_editor_tab_open(&mut self) -> Result<(), ToolError> {
+        if self.tab_is_closed() {
+            return Err(Self::tab_closed_write_error());
+        }
+        Ok(())
+    }
+
+    /// The last check before the first byte goes into the session folder. It narrows the race with a tab that closes during the call,
+    /// but does not close it: an edit appended after the editor's last read of the log and before the tab is marked closed is lost.
+    fn refuse_write_into_closed_tab(&mut self) -> Result<(), PublishError> {
+        if self.tab_is_closed() {
+            return Err(PublishError::TabClosed);
+        }
+        Ok(())
+    }
+
+    /// A close of a tab that is already closed: no editor is asked, and the answer is not retryable.
     fn tab_already_closed_error() -> ToolError {
         ToolError::new(ErrorCode::EditorNotNotified, "", "The tab is already closed, so there is nothing to close.")
+            .with_safe_to_retry(false)
+            .with_next_step(Self::TAB_CLOSED_NEXT_STEP)
+    }
+
+    /// An edit, an open or a new document after the tab is closed: nothing was changed, and the answer is not retryable.
+    fn tab_closed_write_error() -> ToolError {
+        ToolError::new(ErrorCode::EditorNotNotified, "", "The tab is already closed, so this change cannot reach the editor.")
             .with_safe_to_retry(false)
             .with_next_step(Self::TAB_CLOSED_NEXT_STEP)
     }
@@ -1000,7 +1102,7 @@ impl Session {
                         "The document stayed open. Make the file writable and call designos_close_document again, or pass path to a new writable file.",
                     );
                 }
-                ErrorCode::EditorNotNotified if v.get("reason").and_then(Value::as_str) == Some("tab_closed") => {
+                ErrorCode::EditorNotNotified if Self::ack_says_tab_closed(&v) => {
                     // The tab is gone, so there is nothing to close and asking again can never work.
                     err = err.with_safe_to_retry(false).with_next_step(Self::TAB_CLOSED_NEXT_STEP);
                 }
@@ -1347,8 +1449,9 @@ impl Session {
                     let code = if e.contains("layer limit") { ErrorCode::FileTooLarge } else { ErrorCode::DocumentInvalid };
                     ToolError::new(code, "/path", e).with_received(json!(a.path))
                 })?;
+                // Before the open document is replaced: a closed tab's folder must not receive the new one.
+                self.ensure_editor_tab_open()?;
                 let next_rev = self.engine.revision.wrapping_add(1);
-                self.live_tab_closed = false;
                 self.engine = Engine {
                     revision: next_rev,
                     active_page_id: doc.pages.first().copied(),
@@ -1363,13 +1466,14 @@ impl Session {
                 self.engine.file_path = Some(a.path.clone());
                 self.ledger.clear();
                 self.pending_load_warning = None;
-                self.publish_live_doc_sync().map_err(|e| {
-                    ToolError::new(
+                self.publish_live_doc_sync().map_err(|e| match e {
+                    PublishError::TabClosed => Self::tab_closed_write_error(),
+                    PublishError::Failed(e) => ToolError::new(
                         ErrorCode::EditorNotNotified,
                         "",
                         format!("Opened the design, but the editor was not told, so it still shows the previous document: {e}"),
                     )
-                    .with_next_step("Call designos_get_document before editing.")
+                    .with_next_step("Call designos_get_document before editing."),
                 })?;
                 let mut summary = self.engine.call("designos_get_document", json!({}))?;
                 // Numbers saved as `null` were read as their neutral value. They carry no data to lose, so
@@ -1405,8 +1509,9 @@ impl Session {
                     return Err(ToolError::new(ErrorCode::UnsavedChanges, "/discard_changes", "Unsaved changes: stop and tell the user. Do not discard them.")
                         .with_received(json!(false)));
                 }
+                // Before the open document is replaced: a closed tab's folder must not receive the new one.
+                self.ensure_editor_tab_open()?;
                 let next_rev = self.engine.revision.wrapping_add(1);
-                self.live_tab_closed = false;
                 self.engine = Engine { revision: next_rev, enabled_tools: self.enabled_tools_config.enabled.clone(), ..Engine::default() };
                 self.engine.doc.name = a.name;
                 self.engine.file_path = None;
@@ -1415,13 +1520,14 @@ impl Session {
                 self.record_live_ops();
                 self.dirty = true;
                 self.ledger.clear();
-                self.publish_live_doc_sync().map_err(|e| {
-                    ToolError::new(
+                self.publish_live_doc_sync().map_err(|e| match e {
+                    PublishError::TabClosed => Self::tab_closed_write_error(),
+                    PublishError::Failed(e) => ToolError::new(
                         ErrorCode::EditorNotNotified,
                         "",
                         format!("Created the document, but the editor was not told, so it still shows the previous document: {e}"),
                     )
-                    .with_next_step("Call designos_get_document before editing.")
+                    .with_next_step("Call designos_get_document before editing."),
                 })?;
                 let mut summary = self.engine.call("designos_get_document", json!({}))?;
                 self.attach_enabled_tools_warnings(&mut summary);
@@ -1447,8 +1553,11 @@ impl Session {
                         .with_next_step("Wait for the person at the editor, or call designos_save_file."));
                 }
                 let live = self.live_editor();
-                if live && (self.live_tab_closed || self.editor_tab_is_gone()) {
+                if self.tab_is_closed() {
                     return Err(Self::tab_already_closed_error());
+                }
+                if live && self.editor_session_dir_is_missing() {
+                    return Err(Self::session_folder_gone_error());
                 }
                 if !live && self.dirty && policy == UnsavedPolicy::Fail {
                     return Err(ToolError::new(ErrorCode::UnsavedChanges, "/unsaved", "Unsaved changes. The document stayed open.")
@@ -1512,8 +1621,9 @@ impl Session {
                         }
                     };
                     if out.get("closed").and_then(Value::as_bool) == Some(true) {
-                        self.reset_closed_session();
+                        // First: the session that follows is over too, so its reset writes nothing into the folder.
                         self.live_tab_closed = true;
+                        self.reset_closed_session();
                     }
                     return Ok(out);
                 }
@@ -1681,6 +1791,10 @@ impl Session {
                     if idempotency_key.is_some() { self.engine.doc.nodes.keys().map(|id| id.0).collect() } else { BTreeSet::new() };
 
                 let live = mutating && !is_dry_run_req && self.bridge.live_doc_patch_path.is_some();
+                if live {
+                    // Before the edit is made at all: a closed tab has no editor to receive it.
+                    self.ensure_editor_tab_open()?;
+                }
                 // What a failed write to the editor rolls back to. Undo and redo revert each other.
                 let snapshot = (live && !matches!(name, "designos_undo" | "designos_redo")).then(|| EditSnapshot {
                     doc: self.engine.doc.clone(),
@@ -1706,6 +1820,11 @@ impl Session {
                 if mutating && changed {
                     if let Err(e) = self.publish_live_patch() {
                         self.roll_back(name, snapshot);
+                        let e = match e {
+                            // The tab closed between the check above and this write.
+                            PublishError::TabClosed => return Err(Self::tab_closed_write_error()),
+                            PublishError::Failed(e) => e,
+                        };
                         let code = if e.contains("over the") && e.contains("MiB") { ErrorCode::PatchTooLarge } else { ErrorCode::EditorPublishFailed };
                         return Err(ToolError::new(code, "", format!("The open editor could not receive this edit, so it was undone: {e}")));
                     }

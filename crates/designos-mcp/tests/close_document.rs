@@ -430,20 +430,24 @@ fn live_close_save_that_cannot_reach_the_editor_log_is_retryable() {
     assert!(err["message"].as_str().unwrap_or("").contains("could not be told"), "{err}");
 }
 
-/// The tab's folder is gone (a scratch folder goes with its tab): there is no editor to ask, so the answer is that the tab is closed
-/// and asking again can never work, at once and not after the wait.
+/// The tab's folder is gone and holds no `tab-closed.json`: a closed scratch tab leaves that marker, so this folder was removed by hand
+/// or never existed. The editor cannot be asked and asking again can never work, so the answer is its own error, at once and not after
+/// the wait, and it does not claim the tab is closed.
 #[test]
-fn live_close_when_the_tab_folder_is_gone_is_tab_closed_not_retryable() {
+fn live_close_when_the_tab_folder_is_gone_is_its_own_non_retryable_error() {
     let dir = Workspace::new();
     let (session_dir, mut s) = live_session(&dir, 6);
     s.set_close_ack_timeout(Duration::from_secs(10));
     fs::remove_dir_all(&session_dir).unwrap();
     let started = std::time::Instant::now();
     let err = s.call("designos_close_document", json!({"unsaved": "save"})).unwrap_err().to_json_value();
-    assert!(started.elapsed() < Duration::from_secs(2), "no wait for an editor that is gone");
+    assert!(started.elapsed() < Duration::from_secs(2), "no wait for an editor that cannot be asked");
     assert_eq!(err["code"], json!("EDITOR_NOT_NOTIFIED"), "{err}");
-    assert_eq!(err["safe_to_retry"], false, "{err}");
-    assert!(err["next_step"].as_str().unwrap_or("").contains("already closed"), "{err}");
+    assert_eq!(err["safe_to_retry"], false, "asking again can never work: {err}");
+    assert_eq!(err["message"], json!("The session folder is gone, so the editor cannot be asked."), "{err}");
+    let next = err["next_step"].as_str().unwrap_or("");
+    assert!(next.contains("designos_get_document") && !next.contains("already closed"), "{err}");
+    assert!(!next.contains("designos_close_document"), "a retry of the close can never work and would only trip the loop guard: {err}");
     assert!(!session_dir.exists(), "the close did not bring the folder back");
 }
 
@@ -457,9 +461,90 @@ fn live_close_when_the_tab_left_its_mark_is_tab_closed_not_retryable() {
     let started = std::time::Instant::now();
     let err = s.call("designos_close_document", json!({"unsaved": "discard"})).unwrap_err().to_json_value();
     assert!(started.elapsed() < Duration::from_secs(2), "no wait for an editor that is gone");
-    assert_eq!(err["safe_to_retry"], false, "{err}");
-    assert!(err["next_step"].as_str().unwrap_or("").contains("already closed"), "{err}");
+    assert_already_closed(&err, "close");
+    assert_eq!(err["message"], json!("The tab is already closed, so there is nothing to close."), "{err}");
     assert!(!session_dir.join("doc-patch.jsonl").exists(), "nothing was written to a log nobody reads");
+}
+
+fn files_in(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir).map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+    names.sort();
+    names
+}
+
+/// A session folder a closed tab left behind: the owner marker and the mark of the closed tab.
+fn closed_tab_folder(dir: &Workspace, tab_id: u64) -> (PathBuf, Session) {
+    let (session_dir, s) = live_session(dir, tab_id);
+    fs::write(session_dir.join("owner.json"), b"{}").unwrap();
+    fs::write(session_dir.join(CloseIntent::TAB_CLOSED_FILE), b"{\"tab_closed\":true}\n").unwrap();
+    (session_dir, s)
+}
+
+/// What every call gets once the tab is closed: not retryable, and a next step that stops the agent and sends it to the user, never
+/// to another call (each of them is refused the same way).
+fn assert_already_closed(err: &Value, what: &str) {
+    assert_eq!(err["code"], json!("EDITOR_NOT_NOTIFIED"), "{what}: {err}");
+    assert_eq!(err["safe_to_retry"], false, "{what}: asking again can never work: {err}");
+    let next = err["next_step"].as_str().unwrap_or("");
+    assert!(next.contains("already closed"), "{what}: {err}");
+    assert!(next.contains("tell the user") && !next.contains("designos_"), "{what}: the next step stops the agent and names no call: {err}");
+}
+
+/// [`assert_already_closed`] for a refused edit, open or new document: its message is about the change, not about a close.
+fn assert_write_refused_as_closed(err: &Value, what: &str) {
+    assert_already_closed(err, what);
+    let message = err["message"].as_str().unwrap_or("");
+    assert!(message.contains("already closed") && !message.contains("nothing to close"), "{what}: {err}");
+}
+
+/// The tab is closed and its folder stays: an edit would be appended to a log nobody reads and answered "ok". It is refused as
+/// "already closed", nothing is written into the folder, and the agent's document is not changed.
+#[test]
+fn an_edit_after_the_tab_left_its_mark_is_refused_and_writes_nothing() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = closed_tab_folder(&dir, 8);
+    let page = page_id(&mut s);
+    let nodes = node_count(&mut s);
+    let before = files_in(&session_dir);
+    for (process, mut session) in [("the same process", s), ("a new process", Session::with_session_dir(&dir.0, &session_dir).unwrap())] {
+        let err = session.call("designos_create_node", json!({"parent_id": page, "kind": "frame", "name": "Late"})).unwrap_err().to_json_value();
+        assert_write_refused_as_closed(&err, process);
+        assert_eq!(node_count(&mut session), nodes, "{process}: the edit was not kept");
+        assert_eq!(files_in(&session_dir), before, "{process}: nothing was written into the folder");
+    }
+}
+
+/// A new tab of the same file clears the mark on the same folder. A session that saw its tab closed stays refused and writes nothing
+/// there; a new session on that folder is the new tab's and works, since nothing in the folder tells it of the earlier tab.
+#[test]
+fn a_session_that_saw_its_tab_closed_stays_refused_after_the_mark_is_cleared() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = closed_tab_folder(&dir, 22);
+    let page = page_id(&mut s);
+    let edit = json!({"parent_id": page, "kind": "frame", "name": "Late"});
+    let err = s.call("designos_create_node", edit.clone()).unwrap_err().to_json_value();
+    assert_write_refused_as_closed(&err, "while the mark is there");
+    fs::remove_file(session_dir.join(CloseIntent::TAB_CLOSED_FILE)).unwrap();
+    let before = files_in(&session_dir);
+    let err = s.call("designos_create_node", edit.clone()).map_err(|e| e.to_json_value()).expect_err("still refused");
+    assert_write_refused_as_closed(&err, "after the mark is cleared");
+    assert_eq!(files_in(&session_dir), before, "nothing was written into the folder");
+    let mut fresh = Session::with_session_dir(&dir.0, &session_dir).unwrap();
+    fresh.call("designos_create_node", edit).expect("a new session on the folder works");
+}
+
+/// Opening or creating a document writes the whole document into the folder: refused the same way, and the open document stays.
+#[test]
+fn opening_or_creating_a_document_after_the_tab_left_its_mark_is_refused_and_writes_nothing() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = closed_tab_folder(&dir, 9);
+    s.call("designos_save_file", json!({"path": "other.designos"})).unwrap();
+    let before = files_in(&session_dir);
+    let err = s.call("designos_open_file", json!({"path": "other.designos"})).unwrap_err().to_json_value();
+    assert_write_refused_as_closed(&err, "open");
+    let err = s.call("designos_new_document", json!({"name": "Late", "discard_changes": true})).unwrap_err().to_json_value();
+    assert_write_refused_as_closed(&err, "new");
+    assert_eq!(files_in(&session_dir), before, "nothing was written into the folder");
 }
 
 /// The editor itself answers that the tab is not the one shown: nothing changed, so it is retryable too.
@@ -625,11 +710,16 @@ fn closing_an_already_closed_tab_is_not_retryable() {
         });
         let err = s.call("designos_close_document", json!({"unsaved": policy})).unwrap_err().to_json_value();
         writer.join().unwrap();
-        assert_eq!(err["code"], json!("EDITOR_NOT_NOTIFIED"), "{policy}: {err}");
-        assert_eq!(err["safe_to_retry"], false, "{policy}: {err}");
-        let next = err["next_step"].as_str().unwrap_or("");
-        assert!(next.contains("already closed") && !next.contains("close_document again"), "{policy}: {err}");
+        assert_already_closed(&err, policy);
         assert!(err["message"].as_str().unwrap_or("").contains("already closed"), "{policy}: {err}");
+        // The editor's answer ends the session as the mark does, also with no mark in the folder.
+        assert!(!session_dir.join(CloseIntent::TAB_CLOSED_FILE).exists(), "{policy}: precondition: only the answer says so");
+        let page = page_id(&mut s);
+        let before = files_in(&session_dir);
+        let late = json!({"parent_id": page, "kind": "frame", "name": "Late"});
+        let err = s.call("designos_create_node", late).map_err(|e| e.to_json_value()).expect_err("the session is over");
+        assert_write_refused_as_closed(&err, policy);
+        assert_eq!(files_in(&session_dir), before, "{policy}: nothing was written into the folder");
     }
 }
 
@@ -647,9 +737,83 @@ fn a_second_close_after_a_successful_live_close_is_not_retryable() {
         assert_eq!(first["closed"], true, "{first}");
         let sent = last_close_id(&session_dir);
         let err = s.call("designos_close_document", json!({"unsaved": policy})).unwrap_err().to_json_value();
-        assert_eq!(err["code"], json!("EDITOR_NOT_NOTIFIED"), "{policy}: {err}");
-        assert_eq!(err["safe_to_retry"], false, "{policy}: {err}");
-        assert!(err["next_step"].as_str().unwrap_or("").contains("already closed"), "{policy}: {err}");
+        assert_already_closed(&err, policy);
         assert_eq!(last_close_id(&session_dir), sent, "{policy}: no second close was published");
+    }
+}
+
+/// The editor's answer to this session's own close, as the editor writes it.
+fn closed_answer(close_id: u64, tab_id: u64) -> Value {
+    json!({"close_id": close_id, "ok": true, "closed": true, "saved": false, "unsaved": "discard", "doc_revision": 1u64, "tab_id": tab_id})
+}
+
+/// The agent closed its own tab: that session is over just as when the person closes the tab. Opening or creating a document is
+/// refused, even before the editor has left its mark in the folder, and nothing is written into the folder.
+#[test]
+fn after_the_agents_own_close_opening_or_creating_a_document_is_refused() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = live_session(&dir, 18);
+    s.set_close_ack_timeout(Duration::from_secs(10));
+    s.call("designos_save_file", json!({"path": "other.designos"})).unwrap();
+    let writer = editor_answers(session_dir.clone(), |id| vec![closed_answer(id, 18)]);
+    let out = s.call("designos_close_document", json!({"unsaved": "discard"})).expect("the close");
+    writer.join().unwrap();
+    assert_eq!(out["closed"], true, "{out}");
+    assert!(!session_dir.join(CloseIntent::TAB_CLOSED_FILE).exists(), "precondition: no mark yet, only this session knows");
+    let before = files_in(&session_dir);
+    let err = s.call("designos_open_file", json!({"path": "other.designos"})).unwrap_err().to_json_value();
+    assert_write_refused_as_closed(&err, "open");
+    let err = s.call("designos_new_document", json!({"name": "Late", "discard_changes": true})).unwrap_err().to_json_value();
+    assert_write_refused_as_closed(&err, "new");
+    assert_eq!(files_in(&session_dir), before, "nothing was written into the folder");
+}
+
+/// The answer to the agent's own close ends the session, so the options of the new, empty session are not saved into the folder.
+#[test]
+fn the_agents_own_close_saves_no_session_options_into_the_folder() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = live_session(&dir, 19);
+    s.set_close_ack_timeout(Duration::from_secs(10));
+    let options = session_dir.join("session-options.json");
+    assert!(!options.exists(), "precondition: no options saved yet");
+    let writer = editor_answers(session_dir.clone(), |id| vec![closed_answer(id, 19)]);
+    let out = s.call("designos_close_document", json!({"unsaved": "discard"})).expect("the close");
+    writer.join().unwrap();
+    assert_eq!(out["closed"], true, "{out}");
+    assert!(!options.exists(), "the closed tab's folder got the options of a session that has ended");
+}
+
+/// Options set after the tab is closed stay in force for the session, but are not written into the closed tab's folder.
+#[test]
+fn configuring_the_session_after_the_tab_left_its_mark_writes_nothing() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = closed_tab_folder(&dir, 20);
+    let before = files_in(&session_dir);
+    s.call("designos_configure_session", json!({"issues": {"mode": "off"}})).expect("the options apply to the session");
+    assert_eq!(files_in(&session_dir), before, "nothing was written into the folder");
+}
+
+/// The person closes the tab while the agent's close waits for its answer: the close is not cancelled through the folder (nothing
+/// reads it any more) and the answer is the same "already closed" as for any later call, not a retryable time-out.
+#[test]
+fn a_tab_closed_while_a_close_waits_writes_no_cancel_and_is_already_closed() {
+    for policy in ["save", "fail", "discard"] {
+        let dir = Workspace::new();
+        let (session_dir, mut s) = live_session(&dir, 21);
+        // Long enough that the mark is surely there when the wait ends, on a loaded runner too.
+        s.set_close_ack_timeout(Duration::from_secs(2));
+        let marker_dir = session_dir.clone();
+        let editor = thread::spawn(move || {
+            let end = Instant::now() + Duration::from_secs(5);
+            while last_close_id(&marker_dir).is_none() {
+                assert!(Instant::now() < end, "close line with close_id never appeared");
+                thread::sleep(Duration::from_millis(3));
+            }
+            fs::write(marker_dir.join(CloseIntent::TAB_CLOSED_FILE), b"{\"tab_closed\":true}\n").unwrap();
+        });
+        let err = s.call("designos_close_document", json!({"unsaved": policy})).unwrap_err().to_json_value();
+        editor.join().unwrap();
+        assert_already_closed(&err, policy);
+        assert!(!session_dir.join(CloseIntent::CANCEL_FILE).exists(), "{policy}: a cancel was written into the closed tab's folder");
     }
 }

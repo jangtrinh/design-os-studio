@@ -87,6 +87,8 @@ impl Dir {
 
     /// Removes the file or link `name`; a link is removed itself.
     pub(in crate::agent_session_files) fn remove_file(&self, name: &OsStr) -> io::Result<()> {
+        #[cfg(test)]
+        super::test_hooks::run_before_remove(&self.path.join(name));
         self.unlink(&c_name(name)?, 0).map_err(|e| cannot("removed", &self.path.join(name), e, Fix::CheckPermissions))
     }
 

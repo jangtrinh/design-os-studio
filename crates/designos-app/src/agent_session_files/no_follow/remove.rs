@@ -17,6 +17,8 @@ impl Dir {
 
     fn remove_all_at(&self, name: &OsStr, depth: usize) -> io::Result<()> {
         let (c, path) = (c_name(name)?, self.path.join(name));
+        #[cfg(test)]
+        super::test_hooks::run_before_remove(&path);
         let unremovable = |e: io::Error| cannot("removed", &path, e, Fix::CheckPermissions);
         let is_folder = match self.kind_of(&c) {
             Ok((_, is_folder)) => is_folder,

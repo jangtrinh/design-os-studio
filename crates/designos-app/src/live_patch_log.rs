@@ -76,6 +76,9 @@ pub struct LivePatchLog {
     /// The agent closed the document. Applied after held patches, never as a quit of other tabs.
     pub pending_close: Option<CloseIntent>,
     stale_close: StaleClose,
+    /// How many times the stale-close boundary was taken at a poll instead of by `mark_shown`: each is a switch path that skipped
+    /// the un-park helper, and the one-poll-late boundary it falls back to is what `mark_shown` exists to avoid.
+    late_boundaries: u32,
     /// Where the agent's documents are written: `doc-sync.designos` next to the log.
     doc_sync_path: PathBuf,
     /// Edits dropped because they were made on a document the agent had already left, or on one
@@ -190,6 +193,7 @@ impl LivePatchLog {
             pending_doc: None,
             pending_close: None,
             stale_close: StaleClose::None,
+            late_boundaries: 0,
             wake: Default::default(),
             doc_sync_path: path.with_file_name("doc-sync.designos"),
             dropped_old_epoch: 0,
@@ -270,9 +274,17 @@ impl LivePatchLog {
     pub fn poll_with_offsets(&mut self) -> (Vec<(u64, LiveLogLine)>, Vec<String>) {
         let Ok(meta) = crate::agent_session_files::session_file_metadata(&self.path) else { return Default::default() };
         let (len, id) = (meta.len(), identity(&meta));
-        // Fallback for a tab shown without `mark_shown`: every hidden-to-shown path calls it.
+        // Fallback for a tab shown without `mark_shown`: every hidden-to-shown path calls it, so reaching this is a bug that is said
+        // out loud and counted, not absorbed.
         if self.stale_close == StaleClose::Hidden {
             self.stale_close = StaleClose::Before(len);
+            self.late_boundaries += 1;
+            #[cfg(not(test))]
+            eprintln!(
+                "design:os studio: a tab was shown without taking the stale-close boundary; taking it at the first poll ({}, {} time(s) for this log)",
+                self.path.display(),
+                self.late_boundaries
+            );
         }
         if len == self.offset && self.identity == Some(id) {
             return Default::default();
@@ -474,6 +486,12 @@ impl LivePatchLog {
             self.close_refused();
         }
         intent
+    }
+
+    /// How many times the boundary was taken late, at a poll (see the field).
+    #[cfg(test)]
+    pub fn late_boundaries(&self) -> u32 {
+        self.late_boundaries
     }
 
     /// The tab is shown again after `drop_close_on_hide`. A close line already in the log was written while the tab was
@@ -994,11 +1012,26 @@ mod tests {
     fn a_close_written_after_the_tab_is_shown_but_before_the_first_poll_is_delivered() {
         let (_dir, path) = temp_log("close-after-show");
         let mut log = LivePatchLog::bind(path.clone());
+        // A log that already holds an edit when the tab is shown: the boundary is its length, not zero.
+        append(&path, &line(1));
         assert!(log.drop_close_on_hide().is_none());
         log.mark_shown();
         append(&path, &close_line_with_id(1));
         read(&mut log);
         assert!(log.pending_close.is_some(), "a close written after the tab was shown must be delivered");
+        assert_eq!(log.late_boundaries(), 0, "the boundary was taken when the tab was shown");
+    }
+
+    #[test]
+    fn a_tab_shown_without_taking_the_boundary_is_counted_and_still_drops_the_close_written_before_its_first_poll() {
+        let (_dir, path) = temp_log("close-late-boundary");
+        let mut log = LivePatchLog::bind(path.clone());
+        append(&path, &line(1));
+        assert!(log.drop_close_on_hide().is_none());
+        append(&path, &close_line_with_id(1));
+        read(&mut log);
+        assert_eq!(log.late_boundaries(), 1, "a switch path that skips mark_shown is visible");
+        assert!(log.pending_close.is_none(), "the one-poll-late boundary is the old behaviour");
     }
 
     #[test]
@@ -1019,6 +1052,7 @@ mod tests {
     fn a_close_for_a_log_that_did_not_exist_when_the_tab_was_shown_is_delivered() {
         let (_dir, path) = temp_log("close-new-log");
         let mut log = LivePatchLog::bind(path.clone());
+        assert!(!path.exists(), "no log yet when the tab is shown");
         assert!(log.drop_close_on_hide().is_none());
         log.mark_shown();
         append(&path, &close_line_with_id(1));
