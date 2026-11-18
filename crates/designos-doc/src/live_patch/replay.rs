@@ -53,7 +53,7 @@ impl LivePatchState {
     }
 
     /// The editor-side id for an id from the agent's document.
-    fn target(&self, doc: &Document, id: NodeId) -> NodeId {
+    pub fn target(&self, doc: &Document, id: NodeId) -> NodeId {
         resolve_id(&self.remap, &self.replaced, doc, id).0
     }
 }

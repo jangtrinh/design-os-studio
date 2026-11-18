@@ -181,3 +181,29 @@ fn a_patch_without_the_layout_field_replays_with_the_solve_after_the_commit_only
     assert_eq!(size(&app.doc, card).1, 60.0, "the solve after the commit grows the hug frame");
     assert_eq!(size(&app.doc, group).1, 40.0, "and nothing fits the group, as before the field existed");
 }
+
+/// The agent's step named a container it created, and the editor refused that insert (its parent is gone). The id is not
+/// the agent's container then, whatever layer the editor holds under it, so the carried layout leaves that layer alone.
+#[test]
+fn a_carried_container_the_editor_refused_to_create_does_not_reach_an_unrelated_layer() {
+    use designos_doc::live_patch::{LiveOp, SiblingHint};
+    use designos_doc::ExecLayout;
+    let (_engine, mut app, group) = pair(|doc, page| {
+        // A user's group stored wider than its one child: a refit would change it.
+        let group = frame_of(doc, page, Rect::new(0.0, 0.0, 300.0, 80.0), NodeKind::Group);
+        rect_in(doc, group, Rect::new(0.0, 0.0, 50.0, 30.0));
+        group
+    });
+    // The agent's container carries the id the editor holds for that group.
+    let clash = group;
+    let stored = serde_json::to_value(app.doc.get(group).unwrap()).unwrap();
+    let mut container = designos_doc::Node::frame(clash, Rect::new(0.0, 0.0, 10.0, 10.0));
+    container.name = "agent container".into();
+    let missing_parent = NodeId(9_999);
+    let patch = LivePatch::new(vec![LiveOp::Insert { parent: missing_parent, at: SiblingHint::default(), nodes: vec![container] }])
+        .with_layout(Some(ExecLayout { seeds: vec![clash], structural: vec![clash] }));
+
+    crate::live_patch_apply::apply_live_patches(&mut app, &[patch]);
+
+    assert_eq!(serde_json::to_value(app.doc.get(group).unwrap()).unwrap(), stored, "the editor's own group is untouched");
+}
