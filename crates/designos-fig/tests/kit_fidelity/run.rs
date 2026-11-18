@@ -3,12 +3,12 @@
 
 use super::board::{self, Part};
 use super::keys::NodeKeys;
-use super::{geometry, import_cov, layout, raw, report, save_loss};
+use super::{geometry, import_cov, instances, layout, raw, report, save_loss};
 use serde_json::json;
 use std::collections::HashSet;
 use std::time::Instant;
 
-pub const PARTS: [&str; 4] = ["auto_layout", "import_coverage", "save_loss", "geometry"];
+pub const PARTS: [&str; 5] = ["auto_layout", "import_coverage", "save_loss", "geometry", "instances"];
 
 pub fn run_kit() {
     let Some(kit) = std::env::var_os("DESIGNOS_KIT_PATH").or_else(|| std::env::var_os("KIT_CLONE")) else {
@@ -33,6 +33,7 @@ pub fn run_kit() {
     }
     let rec_keys = want("import_coverage").then(|| import_cov::truth(&r));
     let geo = want("geometry").then(|| geometry::truth(&r));
+    let inst = want("instances").then(|| instances::truth(&r));
     let blobs = r.blobs;
     drop(r.records);
     lap("raw decode and truth extraction", &mut timings);
@@ -45,6 +46,7 @@ pub fn run_kit() {
         lap("no-edit save", &mut timings);
     }
     let census_before = want("auto_layout").then(|| layout::census(&mut doc));
+    let deferred = inst.as_ref().map(|t| instances::deferred(t, &doc)).unwrap_or_default();
     doc.hydrate_all_pages();
     let keys = NodeKeys::build(&doc);
     lap("census before hydration, hydrate all pages", &mut timings);
@@ -78,6 +80,22 @@ pub fn run_kit() {
     if let Some(g) = &geo {
         late.push(geometry::part(g, &blobs, &doc, &keys));
         lap("part 1 geometry", &mut timings);
+    }
+    if let Some(t) = &inst {
+        let refused = instances::refused(t, &doc, &keys);
+        let synced = instances::sync_all(&mut doc);
+        lap("no-change sync of every main", &mut timings);
+        let keys_after = NodeKeys::build(&doc);
+        let mut p = instances::part(t, &doc, &keys_after, &refused);
+        p.note(format!(
+            "instances whose stored derived data hydration refused (derived data in the file, no imported-layout record after hydration): {}, of which {} on pages the import deferred and {} on pages loaded at import",
+            refused.len(),
+            refused.intersection(&deferred).count(),
+            refused.difference(&deferred).count()
+        ));
+        p.note(format!("instance records with derived data: {}; mains synced: {synced}", t.instances.len()));
+        late.push(p);
+        lap("part 3 instances", &mut timings);
     }
     drop(doc);
     drop(keys);

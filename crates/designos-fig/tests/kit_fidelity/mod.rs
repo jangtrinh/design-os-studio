@@ -4,6 +4,7 @@ pub mod board;
 pub mod feature;
 pub mod geometry;
 pub mod import_cov;
+pub mod instances;
 pub mod keys;
 pub mod layout;
 pub mod raster;

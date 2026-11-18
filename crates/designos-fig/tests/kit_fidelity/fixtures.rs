@@ -2,7 +2,7 @@
 
 use designos_fig::container::{self, Compression};
 use designos_fig::kiwi::KiwiValue as V;
-use designos_fig::testkit::{en, figma_like_schema, fl, matrix, msg, node, st, vec2};
+use designos_fig::testkit::{en, figma_like_schema, fl, guid, matrix, msg, node, st, vec2};
 
 pub fn fig(mut changes: Vec<V>, blobs: Vec<Vec<u8>>) -> Vec<u8> {
     let mut all = vec![node((0, 0), (0, 0), "", "DOCUMENT", "Document", vec![]), node((0, 1), (0, 0), "!", "CANVAS", "Page", vec![])];
@@ -23,6 +23,10 @@ pub fn layer(id: u32, parent: (u32, u32), pos: &str, ty: &str, size: (f32, f32),
 
 pub fn geometry(blob: u32) -> V {
     V::Array(vec![msg(vec![("windingRule", en("NONZERO")), ("commandsBlob", V::Uint(blob)), ("styleID", V::Uint(0))])])
+}
+
+pub fn guid_path(ids: &[u32]) -> V {
+    msg(vec![("guids", V::Array(ids.iter().map(|i| guid(1, *i)).collect()))])
 }
 
 /// A horizontal auto-layout frame (gap 10) holding two 20 x 20 rectangles; the second sits at `second_x`.
@@ -67,6 +71,23 @@ pub fn inside_stroke_fig(weight: f32) -> Vec<u8> {
         vec![("strokeWeight", fl(weight)), ("strokeAlign", en("INSIDE")), ("fillGeometry", geometry(0)), ("strokeGeometry", stroke)],
     );
     fig(vec![r], vec![designos_fig::testkit::square_blob(), double_band_blob()])
+}
+
+/// A main (100 x 40, one rectangle) and an instance of it whose derived data restates the rectangle.
+pub fn instance_fig() -> Vec<u8> {
+    let main = layer(10, (0, 1), "!", "SYMBOL", (100.0, 40.0), (0.0, 0.0), vec![]);
+    let rect = layer(11, (1, 10), "!", "RECTANGLE", (100.0, 40.0), (0.0, 0.0), vec![]);
+    let derived = msg(vec![("guidPath", guid_path(&[11])), ("size", vec2(100.0, 40.0)), ("transform", matrix(0.0, 0.0))]);
+    let inst = layer(
+        20,
+        (0, 1),
+        "\"",
+        "INSTANCE",
+        (100.0, 40.0),
+        (0.0, 200.0),
+        vec![("symbolData", msg(vec![("symbolID", guid(1, 10))])), ("derivedSymbolData", V::Array(vec![derived]))],
+    );
+    fig(vec![main, rect, inst], vec![])
 }
 
 /// A frame carrying the string field `version` (not in the importer's field list): kept as metadata when it has a

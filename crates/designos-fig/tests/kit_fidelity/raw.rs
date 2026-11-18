@@ -2,6 +2,7 @@
 //! `derivedSymbolData`, `fillGeometry`, `strokeGeometry`), and the blob table as bytes. This is the decode
 //! `decode_fig_to_json` runs, kept as kiwi values so geometry blobs stay bytes instead of hex strings.
 
+use designos_doc::{Affine, Vec2};
 use designos_fig::container;
 use designos_fig::kiwi::{KiwiValue, Schema};
 
@@ -70,6 +71,19 @@ pub fn record_guid(r: &KiwiValue) -> Option<String> {
     r.get("guid").and_then(guid_of)
 }
 
+pub fn override_key(r: &KiwiValue) -> Option<String> {
+    r.get("overrideKey").and_then(guid_of).or_else(|| record_guid(r))
+}
+
+pub fn f32_of(v: &KiwiValue, k: &str) -> Option<f32> {
+    match v.get(k)? {
+        KiwiValue::Float(f) => f.is_finite().then_some(*f),
+        KiwiValue::Uint(u) => Some(*u as f32),
+        KiwiValue::Int(i) => Some(*i as f32),
+        _ => None,
+    }
+}
+
 pub fn str_of(v: &KiwiValue) -> Option<&str> {
     match v {
         KiwiValue::String(s) => Some(s.as_str()),
@@ -82,6 +96,17 @@ pub fn field_str<'a>(v: &'a KiwiValue, k: &str) -> Option<&'a str> {
     v.get(k).and_then(str_of)
 }
 
+pub fn vec2_of(v: &KiwiValue, k: &str) -> Option<Vec2> {
+    let s = v.get(k)?;
+    Some(Vec2::new(f32_of(s, "x")?, f32_of(s, "y")?))
+}
+
+pub fn affine_of(v: &KiwiValue, k: &str) -> Option<Affine> {
+    let t = v.get(k)?;
+    let g = |k: &str, d: f32| f32_of(t, k).unwrap_or(d);
+    Some(Affine { a: g("m00", 1.0), c: g("m01", 0.0), tx: g("m02", 0.0), b: g("m10", 0.0), d: g("m11", 1.0), ty: g("m12", 0.0) })
+}
+
 /// Entries of a `fillGeometry` / `strokeGeometry` array: (blob index, even-odd).
 pub fn geometry_of(v: &KiwiValue, key: &str) -> Vec<(usize, bool)> {
     let Some(arr) = v.get(key).and_then(KiwiValue::as_array) else { return Vec::new() };
@@ -92,6 +117,13 @@ pub fn geometry_of(v: &KiwiValue, key: &str) -> Vec<(usize, bool)> {
             Some((idx, odd))
         })
         .collect()
+}
+
+/// The guids of a `guidPath` (`{guids: [...]}` or a bare array).
+pub fn guid_path(o: &KiwiValue) -> Vec<String> {
+    let p = o.get("guidPath");
+    let list = p.and_then(|p| p.get("guids")).or(p).and_then(KiwiValue::as_array);
+    list.map(|a| a.iter().filter_map(guid_of).collect()).unwrap_or_default()
 }
 
 /// Top-level field names of a record.

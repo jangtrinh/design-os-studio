@@ -5,7 +5,7 @@ use super::board::Tally;
 use super::fixtures::*;
 use super::keys::NodeKeys;
 use super::raw::{self, Raw};
-use super::{geometry, import_cov, layout, save_loss};
+use super::{geometry, import_cov, instances, layout, save_loss};
 use designos_doc::*;
 use designos_fig::kiwi::KiwiValue as V;
 use designos_fig::testkit::{en, fl, guid, msg, square_blob, triangle_blob};
@@ -85,4 +85,19 @@ fn geometry_clips_a_stored_inside_band_by_the_fill_outline() {
     let (r, doc, keys) = load(&inside_stroke_fig(2.0));
     let p = geometry::part(&geometry::truth(&r), &r.blobs, &doc, &keys);
     assert_eq!(p.bucket("stroke: align INSIDE")[0], t(0, 1), "a weight-2 inside stroke against a weight-1 band");
+}
+
+#[test]
+fn instances_count_a_sublayer_off_its_derived_place() {
+    let (r, mut doc, keys) = load(&instance_fig());
+    let truth = instances::truth(&r);
+    assert_eq!(truth.instances.len(), 1);
+    let refused = instances::refused(&truth, &doc, &keys);
+    instances::sync_all(&mut doc);
+    let keys = NodeKeys::build(&doc);
+    assert_eq!(instances::part(&truth, &doc, &keys, &refused).bucket("total")[0], t(1, 1), "the sublayer where Figma laid it out");
+    let inst = keys.by_source["1:20"];
+    let sub = doc.get(inst).unwrap().children[0];
+    doc.get_mut(sub).unwrap().transform.tx += 3.0;
+    assert_eq!(instances::part(&truth, &doc, &keys, &refused).bucket("total")[0], t(0, 1), "the sublayer moved 3 px");
 }
