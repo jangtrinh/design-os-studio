@@ -27,8 +27,24 @@ fn transform_rect(t: &Affine, r: Rect) -> Rect {
     Rect::new(x0, y0, x1 - x0, y1 - y0)
 }
 
-fn grow(r: Rect, l: f32, t: f32, rt: f32, b: f32) -> Rect {
+fn grow(r: Rect, (l, t, rt, b): Reach) -> Rect {
     Rect::new(r.x - l, r.y - t, r.w + l + rt, r.h + t + b)
+}
+
+fn union_into(acc: Option<Rect>, r: Rect) -> Option<Rect> {
+    Some(match acc {
+        Some(a) => a.union(&r),
+        None => r,
+    })
+}
+
+/// The overlap of `a` and `b`, or `None` when they do not overlap.
+fn intersect(a: Rect, b: Rect) -> Option<Rect> {
+    let x0 = a.x.max(b.x);
+    let y0 = a.y.max(b.y);
+    let x1 = (a.x + a.w).min(b.x + b.w);
+    let y1 = (a.y + a.h).min(b.y + b.h);
+    (x1 > x0 && y1 > y0).then(|| Rect::new(x0, y0, x1 - x0, y1 - y0))
 }
 
 /// How far a table's border reaches outside its box. A table draws its grid as one centred stroke,
@@ -115,43 +131,109 @@ pub fn own_overflow(n: &Node) -> (f32, f32, f32, f32) {
     ceil_reach(add_reach(stroke_reach(n), effect_reach(n)))
 }
 
+fn has_visible_paint(paints: &[designos_doc::Paint]) -> bool {
+    paints.iter().any(|p| p.visible && p.silhouette_alpha() > 0.0)
+}
+
+/// Whether the node paints anything of its own: a visible fill or stroke for a shape or a frame, a
+/// non-empty string for text. Every other kind (board items, tables, ...) paints through its own
+/// drawing, so it counts as painting.
+fn paints(n: &Node) -> bool {
+    match &n.kind {
+        NodeKind::Text(t) => !t.content.is_empty(),
+        NodeKind::Rectangle
+        | NodeKind::Ellipse(_)
+        | NodeKind::Line
+        | NodeKind::Polygon { .. }
+        | NodeKind::Star { .. }
+        | NodeKind::Vector { .. }
+        | NodeKind::BooleanOp(_)
+        | NodeKind::Frame(_)
+        | NodeKind::Component(_)
+        | NodeKind::ComponentSet(_)
+        | NodeKind::Instance { .. } => {
+            has_visible_paint(&n.fills) || ((n.stroke.weight > 0.0 || n.stroke.side_weights.is_some()) && has_visible_paint(&n.stroke.paints))
+        }
+        _ => true,
+    }
+}
+
+/// The rectangles of the node's visible children in the node's space, cut to the node's box when it
+/// clips. `measure` gives a child's rectangle in the child's own space.
+fn child_rects(doc: &Document, n: &Node, measure: fn(&Document, &Node) -> Option<Rect>) -> Vec<Rect> {
+    // Boolean operands are not drawn on their own.
+    if matches!(n.kind, NodeKind::BooleanOp(_)) {
+        return Vec::new();
+    }
+    let clip = n.kind.frame_props().is_some_and(|f| f.clips_content).then(|| Rect::new(0.0, 0.0, n.size.x, n.size.y));
+    let mut out = Vec::new();
+    for cid in &n.children {
+        let Some(c) = doc.get(*cid) else { continue };
+        let rc = designos_doc::resolve_node(doc, c);
+        if !rc.visible || rc.opacity <= 0.0 {
+            continue;
+        }
+        let Some(cb) = measure(doc, c) else { continue };
+        let cr = transform_rect(&rc.transform, cb);
+        match clip {
+            Some(clip) => out.extend(intersect(cr, clip)),
+            None => out.push(cr),
+        }
+    }
+    out
+}
+
+/// The shape the node and its children paint, with strokes but without any effect: the rectangle a
+/// shadow or blur is cast from.
+fn painted_geometry(doc: &Document, n: &Node) -> Option<Rect> {
+    let n = designos_doc::resolve_node(doc, n);
+    let n = n.as_ref();
+    if matches!(n.kind, NodeKind::Page { .. }) {
+        return None;
+    }
+    let own = (!matches!(n.kind, NodeKind::Group) && paints(n)).then(|| grow(Rect::new(0.0, 0.0, n.size.x, n.size.y), ceil_reach(stroke_reach(n))));
+    child_rects(doc, n, painted_geometry).into_iter().fold(own, union_into)
+}
+
+/// The shapes a node's effects are cast from, grown by the reach those effects give them: the shape the
+/// node paints, and the shapes its children paint (cut to the node's box when it clips), but not the
+/// children's own effects. A group has no shape of its own, so this is all of a group's effects.
+fn effect_shapes(doc: &Document, n: &Node) -> Option<Rect> {
+    let is_group = matches!(n.kind, NodeKind::Group);
+    let mut acc = (!is_group && paints(n)).then(|| grow(Rect::new(0.0, 0.0, n.size.x, n.size.y), own_overflow(n)));
+    let kids_reach = if is_group { own_overflow(n) } else { ceil_reach(effect_reach(n)) };
+    if kids_reach != (0.0, 0.0, 0.0, 0.0) {
+        for cr in child_rects(doc, n, painted_geometry) {
+            acc = union_into(acc, grow(cr, kids_reach));
+        }
+    }
+    acc
+}
+
 fn bounds_of(doc: &Document, n: &Node) -> Option<Rect> {
     let n = designos_doc::resolve_node(doc, n);
     let n = n.as_ref();
     let is_page = matches!(n.kind, NodeKind::Page { .. });
     let is_group = matches!(n.kind, NodeKind::Group);
-    let own = if is_page || is_group {
-        None
-    } else {
-        let (l, t, r, b) = own_overflow(n);
-        Some(grow(Rect::new(0.0, 0.0, n.size.x, n.size.y), l, t, r, b))
-    };
-    let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
-    let mut acc = own;
-    // Boolean operands are not drawn on their own.
-    let draws_kids = !matches!(n.kind, NodeKind::BooleanOp(_));
-    if draws_kids && !clips {
-        for cid in &n.children {
-            let Some(c) = doc.get(*cid) else { continue };
-            let rc = designos_doc::resolve_node(doc, c);
-            if !rc.visible || rc.opacity <= 0.0 {
-                continue;
-            }
-            let Some(cb) = bounds_of(doc, c) else { continue };
-            let cr = transform_rect(&rc.transform, cb);
-            acc = Some(match acc {
-                Some(a) => a.union(&cr),
-                None => cr,
-            });
-        }
+    let mut acc = if is_page { None } else { effect_shapes(doc, n) };
+    if !is_page && !is_group && !paints(n) {
+        acc = union_into(acc, Rect::new(0.0, 0.0, n.size.x, n.size.y));
     }
-    if is_group {
-        let (l, t, r, b) = own_overflow(n);
-        acc = acc.map(|a| grow(a, l, t, r, b));
-    } else if is_page {
+    for cr in child_rects(doc, n, bounds_of) {
+        acc = union_into(acc, cr);
+    }
+    if is_page {
         return Some(acc.unwrap_or_default());
     }
     acc
+}
+
+/// The area a node's shadows and blur are drawn in, in its own space: the shape it paints and its
+/// children's painted shapes, each grown by the reach of the node's effects and stroke.
+pub(crate) fn effect_region(doc: &Document, n: &Node) -> Rect {
+    let n = designos_doc::resolve_node(doc, n);
+    let n = n.as_ref();
+    effect_shapes(doc, n).unwrap_or_else(|| Rect::new(0.0, 0.0, n.size.x, n.size.y))
 }
 
 #[cfg(test)]

@@ -42,13 +42,7 @@ const KIT_FRAMES: &[FrameExpected] = &[
     FrameExpected { source_id: "6277:293415", name: "Settings pages 02 Mobile", expected_w: 391.0, expected_h: 1425.0, known_open: Some(MOBILE_UNEXPLAINED) },
     FrameExpected { source_id: "11627:254713", name: "_Date picker menu", expected_w: 370.0, expected_h: 582.0, known_open: None },
     FrameExpected { source_id: "12469:575669", name: "_Footer social proof badge", expected_w: 310.0, expected_h: 42.0, known_open: None },
-    FrameExpected {
-        source_id: "11547:540792",
-        name: "Context menu",
-        expected_w: 476.0,
-        expected_h: 1044.0,
-        known_open: Some("a frame's shadow is grown from its own box only"),
-    },
+    FrameExpected { source_id: "11547:540792", name: "Context menu", expected_w: 476.0, expected_h: 1044.0, known_open: None },
     FrameExpected { source_id: "9291:551743", name: "_Text editor icon", expected_w: 1690.0, expected_h: 343.0, known_open: None },
     FrameExpected { source_id: "9291:558536", name: "Text highlight", expected_w: 403.0, expected_h: 76.0, known_open: None },
 ];
