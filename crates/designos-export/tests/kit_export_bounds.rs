@@ -50,13 +50,7 @@ const KIT_FRAMES: &[FrameExpected] = &[
         known_open: Some("a frame's shadow is grown from its own box only"),
     },
     FrameExpected { source_id: "9291:551743", name: "_Text editor icon", expected_w: 1690.0, expected_h: 343.0, known_open: None },
-    FrameExpected {
-        source_id: "9291:558536",
-        name: "Text highlight",
-        expected_w: 403.0,
-        expected_h: 76.0,
-        known_open: Some("per-side stroke weights are folded to the largest"),
-    },
+    FrameExpected { source_id: "9291:558536", name: "Text highlight", expected_w: 403.0, expected_h: 76.0, known_open: None },
 ];
 
 fn svg_root_attr(svg: &str, name: &str) -> Option<f32> {
