@@ -10,12 +10,66 @@
 //! The loader flags each of those fields on the instance, so that syncing a main component leaves them alone. Without
 //! the flag a sync would reset a childless instance to its main's size and look like an edit.
 
-use designos_doc::{Node, OverrideField};
-use std::collections::BTreeMap;
+use designos_doc::{FrameProps, Node, OverrideField};
+use std::collections::{BTreeMap, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
+
+#[derive(Clone, Debug)]
+pub(crate) struct UnopenedLayoutSnapshot {
+    pub(crate) outer_fp: FrameProps,
+    pub(crate) outer_cleared: bool,
+    pub(crate) seeded_fp: FrameProps,
+    pub(crate) seeded_cleared: bool,
+}
+
+static NEXT_LAYOUT_SNAPSHOT_ID: AtomicU64 = AtomicU64::new(1);
+
+fn layout_snapshots() -> &'static Mutex<HashMap<u64, UnopenedLayoutSnapshot>> {
+    static SNAPSHOTS: OnceLock<Mutex<HashMap<u64, UnopenedLayoutSnapshot>>> = OnceLock::new();
+    SNAPSHOTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct LayoutSnapshotLease(Vec<u64>);
+
+impl LayoutSnapshotLease {
+    pub(crate) fn record(&mut self, snapshot: UnopenedLayoutSnapshot) -> u64 {
+        let id = NEXT_LAYOUT_SNAPSHOT_ID.fetch_add(1, Ordering::Relaxed);
+        if let Ok(mut map) = layout_snapshots().lock() {
+            map.insert(id, snapshot);
+        }
+        self.0.push(id);
+        id
+    }
+}
+
+impl Drop for LayoutSnapshotLease {
+    fn drop(&mut self) {
+        if let Ok(mut map) = layout_snapshots().lock() {
+            for id in &self.0 {
+                map.remove(id);
+            }
+        }
+    }
+}
+
+pub(crate) fn unopened_layout_snapshot(opened: &BTreeMap<OverrideField, u64>) -> Option<UnopenedLayoutSnapshot> {
+    let id = *opened.get(&OverrideField::Layout)?;
+    layout_snapshots().lock().ok()?.get(&id).cloned()
+}
+
+pub(crate) fn layout_digest_of(fp: Option<&FrameProps>, layout_cleared: bool) -> u64 {
+    let mut h = DefaultHasher::new();
+    let text =
+        fp.map_or_else(|| format!("none{:?}", layout_cleared), |fp| format!("{:?}{:?}{:?}{:?}", fp.clips_content, fp.auto_layout, fp.grids, layout_cleared));
+    text.hash(&mut h);
+    h.finish()
+}
 
 /// The fields an instance's own record entry can state, and that a save can restate from the node.
-pub(crate) const SELF_FIELDS: [OverrideField; 12] = [
+pub(crate) const SELF_FIELDS: [OverrideField; 13] = [
     OverrideField::Name,
     OverrideField::Visible,
     OverrideField::Locked,
@@ -28,6 +82,7 @@ pub(crate) const SELF_FIELDS: [OverrideField; 12] = [
     OverrideField::Stroke,
     OverrideField::Effects,
     OverrideField::CornerRadii,
+    OverrideField::Layout,
 ];
 
 /// A digest of what `node` holds for `field`, covering every value a save writes for that field.
@@ -51,6 +106,9 @@ fn digest(node: &Node, field: OverrideField) -> u64 {
         OverrideField::Stroke => format!("{:?}{:?}{:?}{:?}", node.stroke, node.stroke_geometry, bound("strokes/"), node.style_refs.get("stroke")),
         OverrideField::Effects => format!("{:?}{:?}{:?}", node.effects, bound("effects/"), node.style_refs.get("effect")),
         OverrideField::CornerRadii => format!("{:?}{:?}", node.corner_radii, node.corner_smoothing),
+        // The own-entry writer restates the frame's clipping and auto-layout fields, but not child layout
+        // constraints. Keep the explicit clear marker because it emits `stackMode: NONE`.
+        OverrideField::Layout => return layout_digest_of(node.kind.frame_props(), node.component.layout_cleared),
         _ => String::new(),
     };
     text.hash(&mut h);
@@ -93,7 +151,18 @@ pub(crate) fn digests(node: &Node) -> BTreeMap<OverrideField, u64> {
 /// The fields of `node` that differ from `opened`, the digests taken when the file was opened: a field overridden now
 /// that was not then counts as differing.
 pub(crate) fn edited_fields(node: &Node, opened: &BTreeMap<OverrideField, u64>) -> Vec<OverrideField> {
-    digests(node).into_iter().filter(|(f, d)| opened.get(f) != Some(d)).map(|(f, _)| f).collect()
+    digests(node)
+        .into_iter()
+        .filter(|&(f, d)| match opened.get(&f) {
+            Some(&od) if f == OverrideField::Layout => {
+                let baseline = unopened_layout_snapshot(opened).map(|s| layout_digest_of(Some(&s.seeded_fp), s.seeded_cleared)).unwrap_or(od);
+                baseline != d
+            }
+            Some(&od) => od != d,
+            None => true,
+        })
+        .map(|(f, _)| f)
+        .collect()
 }
 
 #[cfg(test)]

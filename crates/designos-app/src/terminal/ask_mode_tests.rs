@@ -37,6 +37,7 @@ const AUTO_APPROVE_KEYS: &[&str] = &[
 /// A window whose agent files were written for an agent started in `mode`.
 fn session_in(mode: PermissionMode) -> TerminalState {
     let mut st = TerminalState::for_tab(crate::live_sync_tests::unique_tab_id());
+    crate::agent_tool_policy::remove(&st.session_dir);
     let _ = std::fs::remove_dir_all(&st.session_dir);
     std::fs::create_dir_all(&st.session_dir).expect("session dir");
     st.permission_mode = mode;
@@ -45,6 +46,7 @@ fn session_in(mode: PermissionMode) -> TerminalState {
 }
 
 fn finish(st: TerminalState) {
+    crate::agent_tool_policy::remove(&st.session_dir);
     crate::agent_approval_channel::remove_channel(&st.session_dir);
     crate::agent_permissions::remove_auto_allow_log(&st.session_dir);
     let _ = std::fs::remove_dir_all(&st.session_dir);

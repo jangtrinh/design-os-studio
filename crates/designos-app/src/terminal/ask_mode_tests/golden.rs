@@ -123,6 +123,12 @@ fn normalized(st: &TerminalState, rel: &str) -> String {
         paths.push((canon.display().to_string(), "<SESSION>"));
     }
     paths.push((st.session_dir.display().to_string(), "<SESSION>"));
+    // The file `DESIGNOS_MCP_CONFIG` names is Studio's own, outside the session folder (`agent_tool_policy`).
+    let server_config = crate::agent_tool_policy::server_config_path(&st.session_dir).expect("a private folder for the server's config");
+    if let Ok(canon) = server_config.canonicalize() {
+        paths.push((canon.display().to_string(), "<MCP_CONFIG>"));
+    }
+    paths.push((server_config.display().to_string(), "<MCP_CONFIG>"));
     let untitled_workspace = crate::terminal::session_workspace_dir(None).expect("the untitled workspace");
     if let Ok(canon) = untitled_workspace.canonicalize() {
         paths.push((canon.display().to_string(), "<WORKSPACE>"));
@@ -166,7 +172,7 @@ fn golden_server_entry() -> Value {
             "DESIGNOS_LIVE_DOC_PATCH": "<SESSION>/doc-patch.jsonl",
             "DESIGNOS_LIVE_DOC_SYNC": "<SESSION>/doc-sync.designos",
             "DESIGNOS_LIVE_SPEC": "<SESSION>/live-spec.json",
-            "DESIGNOS_MCP_CONFIG": "<SESSION>/mcp-config.json",
+            "DESIGNOS_MCP_CONFIG": "<MCP_CONFIG>",
             "DESIGNOS_SESSION_DIR": "<SESSION>",
             "DESIGNOS_TARGET_PAGE_ID": "1"
         }
@@ -336,7 +342,7 @@ fn grok_launch_and_config_match_the_golden() {
             .collect::<Vec<_>>()
             .join("\n");
         let toml = toml.replace("DESIGNOS_IN_PROGRESS_STALE_MINUTES = \"15\"", "DESIGNOS_IN_PROGRESS_STALE_MINUTES = \"<MINUTES>\"");
-        let golden = "[mcp_servers.designos]\ncommand = \"<MCP_BIN>\"\nargs = [\"--workspace\", \"<WORKSPACE>\"]\nenabled = true\n\n[mcp_servers.designos.env]\nDESIGNOS_AGENT_RUNTIME = \"claude\"\nDESIGNOS_AGENT_RUN_ID = \"<SESSION_ID>-1-1\"\nDESIGNOS_CONTEXT_JSON = \"<SESSION>/context.json\"\nDESIGNOS_FILE = \"\"\nDESIGNOS_IN_PROGRESS_STALE_MINUTES = \"<MINUTES>\"\nDESIGNOS_LIVE_CANVAS = \"<SESSION>/canvas.designos\"\nDESIGNOS_LIVE_DOC_PATCH = \"<SESSION>/doc-patch.jsonl\"\nDESIGNOS_LIVE_DOC_SYNC = \"<SESSION>/doc-sync.designos\"\nDESIGNOS_LIVE_SPEC = \"<SESSION>/live-spec.json\"\nDESIGNOS_MCP_CONFIG = \"<SESSION>/mcp-config.json\"\nDESIGNOS_SESSION_DIR = \"<SESSION>\"\nDESIGNOS_TARGET_PAGE_ID = \"1\"";
+        let golden = "[mcp_servers.designos]\ncommand = \"<MCP_BIN>\"\nargs = [\"--workspace\", \"<WORKSPACE>\"]\nenabled = true\n\n[mcp_servers.designos.env]\nDESIGNOS_AGENT_RUNTIME = \"claude\"\nDESIGNOS_AGENT_RUN_ID = \"<SESSION_ID>-1-1\"\nDESIGNOS_CONTEXT_JSON = \"<SESSION>/context.json\"\nDESIGNOS_FILE = \"\"\nDESIGNOS_IN_PROGRESS_STALE_MINUTES = \"<MINUTES>\"\nDESIGNOS_LIVE_CANVAS = \"<SESSION>/canvas.designos\"\nDESIGNOS_LIVE_DOC_PATCH = \"<SESSION>/doc-patch.jsonl\"\nDESIGNOS_LIVE_DOC_SYNC = \"<SESSION>/doc-sync.designos\"\nDESIGNOS_LIVE_SPEC = \"<SESSION>/live-spec.json\"\nDESIGNOS_MCP_CONFIG = \"<MCP_CONFIG>\"\nDESIGNOS_SESSION_DIR = \"<SESSION>\"\nDESIGNOS_TARGET_PAGE_ID = \"1\"";
         assert_eq!(toml.trim_end(), golden, "Grok {mode:?}: .grok/config.toml");
         let expected = expected_shape("/hooks", CLAUDE_EVENTS, CLAUDE_LEAVES);
         assert_eq!(shape_of(&read_json(&st, ".grok/hooks/designos-status.json")), expected, "Grok {mode:?}: the keys of the status hooks changed");

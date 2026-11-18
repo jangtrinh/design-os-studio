@@ -575,7 +575,7 @@ impl SessionEnv {
             live_canvas_path: session_dir.join("canvas.designos"),
             context_json_path: session_dir.join("context.json"),
             selection_spec_path: session_dir.join("selection.spec.json"),
-            mcp_config_path: session_dir.join("mcp-config.json"),
+            mcp_config_path: server_config_path(&session_dir),
             hooks_json_path: session_dir.join("hooks.json"),
             skill_md_path: session_dir.join("SKILL.md"),
             session_dir,
@@ -1701,11 +1701,29 @@ fn spec_mtime(path: &Path) -> Option<std::time::SystemTime> {
     crate::agent_session_files::session_file_metadata(path).ok()?.modified().ok()
 }
 
-/// Tools the session's `mcp-config.json` enables: `None` when no custom list exists (every tool).
-/// `designos-mcp` reads the same file at start, so this is the set its `tools/list` exposes.
-fn session_enabled_tools(mcp_config_path: &Path) -> Option<std::collections::BTreeSet<String>> {
-    let raw = crate::agent_session_files::read_session_text(mcp_config_path);
-    designos_mcp::rules::reconcile_designos_block(raw.as_deref()).map(|custom| custom.enabled)
+/// The file `DESIGNOS_MCP_CONFIG` names for `session_dir`: the config Studio keeps outside the session folder (`agent_tool_policy`),
+/// so an agent that rewrites its folder cannot change the tool list the server reads. Only a platform with no private data folder
+/// names the folder's own copy, and a start with a restricted list is refused there.
+fn server_config_path(session_dir: &Path) -> PathBuf {
+    crate::agent_tool_policy::server_config_path(session_dir).unwrap_or_else(|| session_dir.join("mcp-config.json"))
+}
+
+/// The text of the `mcp-config.json` in the session folder, the tool list the user wrote there before an agent started.
+fn session_mcp_config_text(session_dir: &Path) -> Option<String> {
+    crate::agent_session_files::read_session_text(&session_dir.join("mcp-config.json"))
+}
+
+/// Tools the session enables: `None` when no custom list exists (every tool). This is the set the `tools/list` of `designos-mcp`
+/// exposes, taken from the list Studio keeps once an agent has started, and from the session's `mcp-config.json` before that.
+/// A list that cannot be read enables no tool.
+fn session_enabled_tools(session_dir: &Path) -> Option<std::collections::BTreeSet<String>> {
+    match crate::agent_tool_policy::effective(session_dir, session_mcp_config_text(session_dir).as_deref()) {
+        Ok(custom) => custom.map(|custom| custom.enabled),
+        Err(e) => {
+            eprintln!("design:os studio: no designos tool is documented for this session: {e}");
+            Some(std::collections::BTreeSet::new())
+        }
+    }
 }
 
 /// The `E15-15` rules pack for the tools a session enables. The session `SKILL.md` / `AGENTS.md` and the
@@ -2443,6 +2461,7 @@ impl TerminalState {
             if self.tabs.is_empty() && self.session_dir != expected_stable_dir {
                 if crate::agent_session_files::is_ephemeral_session_dir(&self.session_dir) {
                     self.snapshot_worker.cancel_and_wait();
+                    self.forget_tool_policy_of_removed_session_dir();
                     let _ = std::fs::remove_dir_all(&self.session_dir);
                 }
                 self.update_session_dir_paths(expected_stable_dir);
@@ -2484,6 +2503,7 @@ impl TerminalState {
                 if self.tabs.is_empty() {
                     if crate::agent_session_files::is_ephemeral_session_dir(&self.session_dir) && self.session_dir != dir {
                         self.snapshot_worker.cancel_and_wait();
+                        self.forget_tool_policy_of_removed_session_dir();
                         let _ = std::fs::remove_dir_all(&self.session_dir);
                     }
                     self.update_session_dir_paths(dir);
@@ -2495,6 +2515,7 @@ impl TerminalState {
                 if self.tabs.is_empty() {
                     if crate::agent_session_files::is_ephemeral_session_dir(&self.session_dir) && self.session_dir != dir {
                         self.snapshot_worker.cancel_and_wait();
+                        self.forget_tool_policy_of_removed_session_dir();
                         let _ = std::fs::remove_dir_all(&self.session_dir);
                     }
                     self.update_session_dir_paths(dir);
@@ -2623,7 +2644,7 @@ impl TerminalState {
             live_canvas_path: self.live_canvas_path.clone(),
             context_json_path: self.context_json_path.clone(),
             selection_spec_path: self.selection_spec_path.clone(),
-            mcp_config_path: self.session_dir.join("mcp-config.json"),
+            mcp_config_path: server_config_path(&self.session_dir),
             hooks_json_path: self.session_dir.join("hooks.json"),
             skill_md_path: self.session_dir.join("SKILL.md"),
             current_page_id: self.current_page_id,
@@ -2704,7 +2725,7 @@ impl TerminalState {
             active_style: None,
             in_progress: Default::default(),
         };
-        let enabled_tools = session_enabled_tools(&self.session_dir.join("mcp-config.json"));
+        let enabled_tools = session_enabled_tools(&self.session_dir);
         let doc = Arc::new(doc);
         let doc_bg = Arc::clone(&doc);
         let opts_bg = opts.clone();
@@ -2892,7 +2913,8 @@ impl TerminalState {
             if self.last_bootstrap_key.is_none() && !self.is_run_bootstrap_delivered() {
                 self.last_bootstrap_key = Some((doc.mutation_epoch(), page.0));
                 self.start_bootstrap_job(doc.clone_without_images(), page, file_path.map(Path::to_path_buf), None);
-                self.provision_session_agent_files(file_path);
+                // A sync is not a start: the tool list is kept only when an agent starts (`provision_session_agent_files_exact`).
+                self.provision_agent_files(file_path, None, false);
             }
             return;
         }
@@ -3075,6 +3097,28 @@ impl TerminalState {
         file_path: Option<&Path>,
         exact: Option<crate::agent_session_files::ExactProjectConfig>,
     ) -> Option<std::io::Error> {
+        self.provision_agent_files(file_path, exact, true)
+    }
+
+    /// Keeps the session's `designos` tool list where no agent can write it (`agent_tool_policy::capture`), from the session's own
+    /// `mcp-config.json` when no earlier start kept one. The error that comes back (`agent_tool_policy::is_refusal`) stops the start.
+    fn keep_tool_policy(&self) -> std::io::Result<()> {
+        crate::agent_tool_policy::capture(&self.session_dir, session_mcp_config_text(&self.session_dir).as_deref())
+    }
+
+    /// [`Self::provision_session_agent_files_exact`], which keeps the tool list first when `starting` an agent (the page sync that
+    /// rewrites the files while a design is being edited does not).
+    fn provision_agent_files(
+        &mut self,
+        file_path: Option<&Path>,
+        exact: Option<crate::agent_session_files::ExactProjectConfig>,
+        starting: bool,
+    ) -> Option<std::io::Error> {
+        if starting {
+            if let Err(e) = self.keep_tool_policy() {
+                return Some(e);
+            }
+        }
         self.snapshot_worker.cancel_and_wait();
         self.set_aside_note = None;
         self.session_closed = false;
@@ -3264,6 +3308,14 @@ impl TerminalState {
         }
     }
 
+    /// The tool list kept for a session folder that is about to be deleted goes with it, unless a tab still runs in it (that tab's
+    /// agent could write a new list into a folder that is made again, and the list kept then must still be the one it started with).
+    fn forget_tool_policy_of_removed_session_dir(&self) {
+        if self.tabs.is_empty() {
+            crate::agent_tool_policy::remove(&self.session_dir);
+        }
+    }
+
     /// Cancels/waits for any in-flight snapshot write and removes `self.session_dir` if it is an
     /// ephemeral `<data dir>/designos/sessions/<session_id>/` directory (never touching library
     /// `<lib_root>/agent-sessions/<file_id>/` folders or a scratch directory that still holds the
@@ -3285,6 +3337,7 @@ impl TerminalState {
                             return;
                         }
                     }
+                    self.forget_tool_policy_of_removed_session_dir();
                     remove_scratch_dir_keeping_the_close_answer(&self.session_dir);
                     if self.tabs.is_empty() {
                         self.update_session_dir_paths(stable_dir);
@@ -3294,6 +3347,7 @@ impl TerminalState {
                     return;
                 }
             }
+            self.forget_tool_policy_of_removed_session_dir();
             remove_scratch_dir_keeping_the_close_answer(&self.session_dir);
             self.last_synced_key = None;
             self.session_closed = true;
@@ -3497,6 +3551,14 @@ impl TerminalState {
         }
     }
 
+    /// The status line and the error of a start that `agent_tool_policy` refused.
+    fn refuse_start_over_tool_policy(&mut self, error: &std::io::Error) -> String {
+        let message = error.to_string();
+        self.set_aside_note = None;
+        self.status_msg = Some(message.clone());
+        message
+    }
+
     /// Spawns a custom CLI command tab (`"Other CLI…"` / `custom_clis`) in this file's session folder
     /// with the `DESIGNOS_*` environment, without registering a resumable session (`#652` §3 rule 7).
     pub fn spawn_custom_cli_tab(&mut self, label: &str, command: &str, file_path: Option<&Path>) -> Result<usize, String> {
@@ -3510,7 +3572,9 @@ impl TerminalState {
         }
         let id = self.next_tab_id.max(1);
         self.next_tab_id = id + 1;
-        self.provision_session_agent_files(file_path);
+        if let Some(e) = self.provision_session_agent_files(file_path).filter(crate::agent_tool_policy::is_refusal) {
+            return Err(self.refuse_start_over_tool_policy(&e));
+        }
         let provisioning_note = self.set_aside_note.take();
         let env = self.session_env();
         let mut cmd = match build_agent_shell_cmd_checked_for_tab(&default_shell_program(), command, AgentCliPreset::Claude, file_path, Some(&env)) {
@@ -3624,6 +3688,10 @@ impl TerminalState {
         } else {
             self.provision_session_agent_files(file_path)
         };
+        // The list of `designos` tools the agent may call could not be kept where it cannot change it: nothing starts, in any mode.
+        if let Some(e) = provisioned.as_ref().filter(|e| crate::agent_tool_policy::is_refusal(e)) {
+            return Err(self.refuse_start_over_tool_policy(e));
+        }
         // Gemini CLI, Grok and Antigravity load the files Studio just rewrote by themselves. In every mode with the approval hook,
         // files that could not be rewritten, or do not read back as written, or an entry that is not Studio's and could not be moved
         // aside, may be a copy an agent kept (hooks and servers included): the tab does not start.
@@ -5557,7 +5625,10 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
         LOGGED.call_once(|| eprintln!("design:os studio: no designos server for this untitled design's agents: {e}"));
         format!("No design tools in this session: {e}.")
     });
-    let mcp_config_path = job.session_dir.join("mcp-config.json");
+    // The copy in the session folder is for the CLIs that discover it there; the file the server reads is Studio's own, outside the
+    // folder the agent can write (`agent_tool_policy`).
+    let session_config_path = job.session_dir.join("mcp-config.json");
+    let mcp_config_path = server_config_path(&job.session_dir);
 
     // Ask mode: Claude's MCP config, hooks and skill go to a folder only Studio writes (made first, as the MCP config below
     // is copied into it). Claude starts the servers of its `--mcp-config` file as commands, and reads the hooks of its
@@ -5578,9 +5649,16 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
 
     // The default (every tool) is never written down: an absent `designos` key means "all", so a tool a later
     // build adds is on for sessions that survive an update. A user-edited `enabled_tools` list is kept across
-    // each page or selection sync, together with the `known_tools` snapshot that lets new tools be switched on.
-    let existing_config = crate::agent_session_files::read_session_text(&mcp_config_path);
-    let custom_tools = designos_mcp::rules::reconcile_designos_block(existing_config.as_deref());
+    // each page or selection sync, together with the `known_tools` snapshot that lets new tools be switched on. Once an agent has
+    // started in the folder the list can only be narrowed: it is the list Studio kept then, less what the folder's copy has taken
+    // out since, and tools put back in that copy stay off (`agent_tool_policy`). This write never leaves a wider list in the copy
+    // than the one in force.
+    let existing_config = crate::agent_session_files::read_session_text(&session_config_path);
+    let crate::agent_tool_policy::Resolved { custom: custom_tools, notice: tool_list_notice } =
+        crate::agent_tool_policy::resolve(&job.session_dir, existing_config.as_deref())?;
+    if let Some(notice) = &tool_list_notice {
+        eprintln!("design:os studio: {notice}");
+    }
 
     // The server's environment holds ids and paths, and no document or page name: every CLI loads this config by itself,
     // and `designos-mcp` reads neither name (the tab's shell still has `DESIGNOS_DOC_NAME` and `DESIGNOS_TARGET_PAGE_NAME`).
@@ -5614,7 +5692,10 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
         root.insert("designos".into(), custom.block.clone());
     }
     let bytes = serde_json::to_vec_pretty(&mcp_config).map_err(invalid_data)?;
-    atomic_write_session_file(&mcp_config_path, &bytes)?;
+    if mcp_config_path != session_config_path {
+        crate::agent_tool_policy::write_server_config(&job.session_dir, &bytes)?;
+    }
+    atomic_write_session_file(&session_config_path, &bytes)?;
     // The Ask-mode tab of Grok or Antigravity that is about to start gets its project config made exactly Studio's first, so that
     // is the error the tab reports; the plain writes of that CLI's files below are then skipped.
     let exact = if job.ask_mode { job.exact_project_config } else { None };
@@ -5742,7 +5823,7 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
     atomic_write_session_file(&job.session_dir.join("AGENTS.md"), skill_md.as_bytes())?;
     atomic_write_session_file(&job.session_dir.join("GEMINI.md"), skill_md.as_bytes())?;
     // The CLI whose tab is starting has had every one of its files checked above; another CLI's Gemini settings are not its concern.
-    let note = join_notes(set_aside_note, workspace_note);
+    let note = join_notes(join_notes(set_aside_note, workspace_note), tool_list_notice);
     if exact.is_some() {
         return Ok(note);
     }
@@ -6951,7 +7032,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                 ui.ctx().memory_mut(|m| m.surrender_focus(fid));
             }
         }
-        let card_preset = if in_active_terminal && banner_preset == AgentCliPreset::Claude { banner_preset } else { AgentCliPreset::Codex };
+        let card_preset = crate::agent_approval_card::approval_card_layout_preset(banner_preset, in_active_terminal);
         let has_session_grant = in_active_terminal
             && banner_preset == AgentCliPreset::Claude
             && reqs.first().is_some_and(|req| crate::agent_permissions::offer_session_grant(card_mode, req));
@@ -7694,6 +7775,9 @@ pub(crate) fn pin_installed_catalog_clis(st: &mut TerminalState, installed: &[Ag
 
 #[cfg(test)]
 mod ask_mode_tests;
+
+#[cfg(test)]
+mod tool_policy_tests;
 
 #[cfg(test)]
 mod ask_risky_start_tests;
@@ -9164,7 +9248,9 @@ mod tests {
         let mcp_cfg_path = st.session_dir.join("mcp-config.json");
         let initial_cfg = read_json(&mcp_cfg_path);
         assert!(initial_cfg.get("designos").is_none(), "the default (every tool) is never written down: {initial_cfg}");
-        assert_eq!(initial_cfg["mcpServers"]["designos"]["env"]["DESIGNOS_MCP_CONFIG"].as_str(), Some(mcp_cfg_path.display().to_string().as_str()));
+        // The server reads its tool list from the config Studio keeps outside the session folder, not from the folder's own copy.
+        let server_cfg_path = crate::agent_tool_policy::server_config_path(&st.session_dir).expect("a private folder for the server's config");
+        assert_eq!(initial_cfg["mcpServers"]["designos"]["env"]["DESIGNOS_MCP_CONFIG"].as_str(), Some(server_cfg_path.display().to_string().as_str()));
 
         // A restricted tool list written into mcp-config.json survives the next page sync.
         let mut custom_cfg = initial_cfg.clone();
@@ -9179,6 +9265,11 @@ mod tests {
             after_cfg["designos"]["enabled_tools"],
             serde_json::json!(["designos_get_document", "designos_list_nodes"]),
             "provision_session_agent_files must preserve configured designos.enabled_tools"
+        );
+        assert_eq!(
+            read_json(&server_cfg_path)["designos"]["enabled_tools"],
+            serde_json::json!(["designos_get_document", "designos_list_nodes"]),
+            "the config the server reads carries the same list"
         );
         let snapshot = after_cfg["designos"]["known_tools"].as_array().expect("known_tools snapshot recorded next to a custom list");
         assert_eq!(snapshot.len(), designos_mcp::server::tools().len());
@@ -10359,6 +10450,7 @@ mod tests {
     /// A terminal state on a cleared session folder, which is removed again when the test ends (see [`ScopedTerminalState`]).
     fn isolated_683_state(tab_id: u64) -> ScopedTerminalState {
         let dir = crate::agent_session_files::ephemeral_session_dir(&tab_session_id(&format!("p{}", std::process::id()), tab_id));
+        crate::agent_tool_policy::remove(&dir);
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
         ScopedTerminalState::new(TerminalState::for_tab(tab_id))
