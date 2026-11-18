@@ -102,8 +102,9 @@ fn settle(doc: &mut Document, page: NodeId, groups: &[NodeId]) -> bool {
     false
 }
 
-/// Whether a `move` may share a batch with other ops. `origin/main` already trips the batch tool's trial-versus-commit
-/// assertion on some of those batches (see [`MAIN_MIXED_MOVE_SEEDS`]), so the default rounds send a move alone.
+/// Whether a `move` may share a batch with other ops. The batch tool's trial-versus-commit assertion already tripped on
+/// some of those batches before the group refit existed (see [`MIXED_MOVE_TRIAL_MISMATCH_SEEDS`]), so the default rounds
+/// send a move alone.
 #[derive(Clone, Copy, PartialEq)]
 enum Moves {
     Alone,
@@ -167,6 +168,12 @@ enum Outcome {
     ToolRefused,
     UndoInexact,
     RedoInexact,
+    /// Mixed-move probe: the batch tool's trial check fired and the editor's document equals the agent's.
+    TrialCheckHitEqual,
+    /// Mixed-move probe: the trial check fired and the editor's document differs from the agent's.
+    TrialCheckHitDiffers,
+    /// Mixed-move probe: the trial check held and the editor's document differs from the agent's.
+    Differs,
 }
 
 /// What a round checks after the editor replayed the patch.
@@ -179,6 +186,18 @@ enum Check {
     UndoExact,
     /// The same, counted instead of failed, with the first seeds that differ printed.
     UndoCount,
+    /// Moves mixed with other ops. The batch tool's trial check may fire: that one panic is caught and the round goes on
+    /// to the editor comparison, which is counted rather than failed. Any other panic is raised again.
+    MixedProbe,
+}
+
+/// The text of the batch tool's trial-versus-commit assertion.
+const TRIAL_CHECK_MESSAGE: &str = "committed document hash must equal trial document hash";
+
+/// Whether a caught panic is the batch tool's trial-versus-commit assertion.
+fn is_trial_check(payload: &(dyn std::any::Any + Send)) -> bool {
+    let text = payload.downcast_ref::<String>().map(String::as_str).or_else(|| payload.downcast_ref::<&str>().copied());
+    text.is_some_and(|t| t.contains(TRIAL_CHECK_MESSAGE))
 }
 
 /// Names the seed and the batch when a round panics anywhere, in the agent's tool included.
@@ -214,7 +233,15 @@ fn run_round(seed: u64, check: Check, moves: Moves) -> Outcome {
     let args = json!({ "ops": ops });
     let context = format!("seed {seed:#x}, batch {args}");
     let _named = Round(context.clone());
-    if engine.call("designos_apply_batch", args.clone()).is_err() {
+    let mut trial_check_hit = false;
+    if check == Check::MixedProbe {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| engine.call("designos_apply_batch", args.clone()).is_err())) {
+            Ok(true) => return Outcome::ToolRefused,
+            Ok(false) => {}
+            Err(payload) if is_trial_check(payload.as_ref()) => trial_check_hit = true,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    } else if engine.call("designos_apply_batch", args.clone()).is_err() {
         return Outcome::ToolRefused;
     }
     let live = engine.take_live_ops();
@@ -232,6 +259,19 @@ fn run_round(seed: u64, check: Check, moves: Moves) -> Outcome {
     if check == Check::Equality {
         assert_same_documents_with(&engine, &app, &context);
         return Outcome::Ran;
+    }
+    if check == Check::MixedProbe {
+        let agent: Vec<(NodeId, Value)> = engine.doc.nodes.values().map(|n| (n.id, serde_json::to_value(n).unwrap())).collect();
+        let equal = agent == snapshot(&app);
+        if !equal {
+            eprintln!("EDITOR DIFFERS {context} (trial check hit: {trial_check_hit})");
+        }
+        return match (trial_check_hit, equal) {
+            (false, true) => Outcome::Ran,
+            (true, true) => Outcome::TrialCheckHitEqual,
+            (true, false) => Outcome::TrialCheckHitDiffers,
+            (false, false) => Outcome::Differs,
+        };
     }
     let after_patch = snapshot(&app);
     app.undo();
@@ -262,8 +302,8 @@ fn rounds_and_seed() -> (u64, u64) {
 }
 
 /// `PARITY_MIXED_MOVES=1` lets a move share a batch with other ops, to replay a seed from before moves were sent alone.
-fn moves_from_env() -> Moves {
-    if std::env::var_os("PARITY_MIXED_MOVES").is_some() {
+fn moves_for(check: Check) -> Moves {
+    if check == Check::MixedProbe || std::env::var_os("PARITY_MIXED_MOVES").is_some() {
         Moves::Mixed
     } else {
         Moves::Alone
@@ -273,17 +313,23 @@ fn moves_from_env() -> Moves {
 fn run_rounds(check: Check) -> std::collections::BTreeMap<Outcome, u64> {
     // `PARITY_ROUND_SEED` replays one round by the seed a failure printed.
     if let Some(one) = std::env::var("PARITY_ROUND_SEED").ok().and_then(|v| u64::from_str_radix(v.trim_start_matches("0x"), 16).ok()) {
-        return [(run_round(one, check, moves_from_env()), 1)].into();
+        return [(run_round(one, check, moves_for(check)), 1)].into();
     }
     let (rounds, seed) = rounds_and_seed();
     let mut tally = std::collections::BTreeMap::new();
     for round in 0..rounds {
         let mut mix = Rng(seed ^ round.wrapping_mul(0xD6E8_FEB8_6659_FD93).wrapping_add(1));
-        *tally.entry(run_round(mix.next() | 1, check, moves_from_env())).or_insert(0u64) += 1;
+        *tally.entry(run_round(mix.next() | 1, check, moves_for(check))).or_insert(0u64) += 1;
     }
     eprintln!("PARITY TALLY {tally:?}");
     let ran = tally.get(&Outcome::Ran).copied().unwrap_or(0);
-    let counted: u64 = tally.iter().filter(|(o, _)| matches!(o, Outcome::UndoInexact | Outcome::RedoInexact)).map(|(_, n)| n).sum();
+    let counted: u64 = tally
+        .iter()
+        .filter(|(o, _)| {
+            matches!(o, Outcome::UndoInexact | Outcome::RedoInexact | Outcome::TrialCheckHitEqual | Outcome::TrialCheckHitDiffers | Outcome::Differs)
+        })
+        .map(|(_, n)| n)
+        .sum();
     assert!((ran + counted) * 2 >= rounds, "at least half the rounds ran a patch end to end: {tally:?}");
     tally
 }
@@ -314,15 +360,25 @@ fn random_agent_batches_undo_and_redo_rates() {
 }
 
 /// Round seeds whose batch mixes a `move` with other ops and trips the batch tool's own assertion that the committed
-/// document equals its trial copy. The same five seeds do it on `origin/main` (a trial that solves per op against a
-/// commit that solves once), so this predates the group refit. They are generated with `Moves::Mixed`.
-const MAIN_MIXED_MOVE_SEEDS: [u64; 5] = [0x489a_7883_85b1_67c9, 0x8cee_48e8_ee40_2637, 0x2081_4e8e_d795_7365, 0x827d_5994_3d25_7e0f, 0xeeb2_c6db_2bb6_0c81];
+/// document equals its trial copy (a trial that solves per op against a commit that solves once). The same five
+/// seeds did it before the group refit existed. They are generated with `Moves::Mixed`.
+const MIXED_MOVE_TRIAL_MISMATCH_SEEDS: [u64; 5] =
+    [0x489a_7883_85b1_67c9, 0x8cee_48e8_ee40_2637, 0x2081_4e8e_d795_7365, 0x827d_5994_3d25_7e0f, 0xeeb2_c6db_2bb6_0c81];
 
 /// Red until the batch tool's trial and commit agree on those batches; run with `--ignored`.
 #[test]
-#[ignore = "the batch tool's trial and committed documents differ on these batches, as they do on origin/main"]
+#[ignore = "the batch tool's trial and committed documents differ on these batches, as they did before the group refit"]
 fn batches_mixing_a_move_with_other_ops_commit_what_their_trial_holds() {
-    for seed in MAIN_MIXED_MOVE_SEEDS {
+    for seed in MIXED_MOVE_TRIAL_MISMATCH_SEEDS {
         run_round(seed, Check::Equality, Moves::Mixed);
     }
+}
+
+/// Batches that mix a move with other ops: where the batch tool's trial check fires, does the editor still equal the
+/// agent? Counts `Ran`, `TrialCheckHitEqual`, `TrialCheckHitDiffers` and `Differs`, and prints the differing seeds. Run
+/// with `--ignored --nocapture`; `PARITY_ROUNDS` sets the rounds (600 gives the figures in the report).
+#[test]
+#[ignore = "a probe: counts mixed-move batches where the trial check fires and whether the editor still equals the agent"]
+fn mixed_move_batches_editor_equality_probe() {
+    run_rounds(Check::MixedProbe);
 }
