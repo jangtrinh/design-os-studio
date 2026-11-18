@@ -1659,6 +1659,8 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
                 b.paragraph = a.paragraph.clone();
                 b.lists = a.lists.clone();
                 b.direction = a.direction;
+                // Lengths copied into a layer of a scaled instance are drawn at its scale.
+                b.scale_metrics(b.scale_relative_to(a));
             }
             copy_style_ref_key("text", from, to);
             if matches!(to.kind, NodeKind::Text(_)) {
@@ -1809,6 +1811,11 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
                 b.max_lines = a.max_lines;
                 b.paragraph = a.paragraph.clone();
                 b.direction = a.direction;
+                // The runs stay the layer's own; the base style and paragraph come from the main.
+                let s = b.scale_relative_to(a);
+                b.style.scale_metrics(s);
+                b.paragraph.indent *= s;
+                b.paragraph.list_spacing *= s;
             }
             copy_style_ref_key("text", r, n);
             if matches!(n.kind, NodeKind::Text(_)) {

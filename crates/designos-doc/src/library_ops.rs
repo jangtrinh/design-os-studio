@@ -1321,6 +1321,21 @@ pub fn apply_style_values_with_fields(n: &mut Node, style: &Style, key: &str, pa
                         let (align_h, align_v) = (r.style.align_h, r.style.align_v);
                         r.style = TextStyle { fills: r.style.fills.clone(), align_h, align_v, ..ts.clone() };
                     }
+                    // A layer in a scaled instance draws the style at the instance's scale. Only what came
+                    // from the style is multiplied: a paragraph value the layer kept is already its own.
+                    let s = t.uniform_scale_factor();
+                    if s != 1.0 {
+                        t.style.scale_metrics(s);
+                        for r in &mut t.runs {
+                            r.style.scale_metrics(s);
+                        }
+                        if paragraph_fields.is_none_or(|bits| bits & 1 != 0) {
+                            t.paragraph.indent *= s;
+                        }
+                        if paragraph_fields.is_none_or(|bits| bits & 2 != 0) {
+                            t.paragraph.list_spacing *= s;
+                        }
+                    }
                 }
             }
         }
