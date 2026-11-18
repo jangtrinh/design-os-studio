@@ -48,3 +48,22 @@ fn an_image_with_nothing_to_read_has_no_mean() {
     let doc = doc_with("junk", b"not an image".to_vec());
     assert_eq!(decoded_image_mean(&doc, "junk"), None, "bytes that do not decode");
 }
+
+#[test]
+fn a_photo_past_sixteen_million_pixels_still_averages_every_pixel() {
+    // 17,000,000 black pixels then 8,000,000 white ones: a single-precision running count stops
+    // growing at 16,777,216 and would read this as a mid grey instead of the true third.
+    let (width, height, black_rows) = (5000u32, 5000u32, 3400u32);
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for row in 0..height {
+        let value = if row < black_rows { 0 } else { 255 };
+        for _ in 0..width {
+            rgba.extend_from_slice(&[value, value, value, 255]);
+        }
+    }
+    let doc = doc_with("big", png(width, height, &rgba));
+    let mean = decoded_image_mean(&doc, "big").expect("a large image has a mean");
+    let white_share = (height - black_rows) as f32 / height as f32;
+    assert!(close(mean.r, white_share) && close(mean.g, white_share) && close(mean.b, white_share), "expected grey {white_share}, got {mean:?}");
+    assert!(close(mean.a, 1.0), "got {}", mean.a);
+}

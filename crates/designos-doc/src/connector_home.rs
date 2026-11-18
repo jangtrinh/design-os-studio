@@ -1,7 +1,7 @@
 //! Connectable-layer eligibility, home-container resolution and default ink for connectors.
 
 use crate::lint::rules::contrast::contrast_ratio;
-use crate::{Color, Document, DocumentKind, NodeId, NodeKind, PaintKind};
+use crate::{resolve_node, BlendMode, Color, ColorProfile, Document, DocumentKind, GradientStop, NodeId, NodeKind, Paint, PaintKind};
 
 fn strict_ancestors(doc: &Document, id: NodeId) -> Vec<NodeId> {
     let mut out = Vec::new();
@@ -109,70 +109,125 @@ fn connector_ink_on_light() -> Color {
     Color::rgb(0x1E, 0x1E, 0x1E)
 }
 
-/// A paint must keep at least this much of its colour (colour alpha x paint opacity) to count as
-/// part of the surface behind a connector. The layer opacity of the layer that holds the fill is not
-/// counted: the connector sits inside that layer, so it fades the line and the fill together.
-const SURFACE_MIN_ALPHA: f32 = 0.35;
-
 /// The mean colour of an image, asked of the caller by image reference: the colour of the decoded
 /// pixels averaged and weighted by alpha, with `a` the mean alpha. `None` when the image cannot be
 /// read, which makes it an unknown surface. designos-doc decodes no images itself.
 pub type ImageMean<'a> = &'a dyn Fn(&str) -> Option<Color>;
 
-/// The mean colour and effective alpha of a paint, or `None` when it is not a usable surface. This
-/// is a small estimator, not a renderer: connector ink is chosen once when a connector is created,
-/// a gradient is read as the mean of its stops, and an image as the mean of its pixels, because the
-/// connector's geometry is not known yet.
-fn paint_surface(paint: &crate::Paint, image_mean: ImageMean) -> Option<(Color, f32)> {
-    // The connector decision runs in the document crate, before a renderer is
-    // available.  Keep the estimator honest for blend modes whose result
-    // depends on the destination: skipping them falls back to the next known
-    // surface instead of silently treating Screen/Multiply as Normal.
-    if !matches!(paint.blend, crate::BlendMode::Normal | crate::BlendMode::PassThrough) {
+/// A paint read as one flat colour laid over what is below it.
+struct SurfaceLayer {
+    color: Color,
+    /// Colour alpha (the mean alpha of a gradient or image) times the paint opacity, in `0..=1`.
+    alpha: f32,
+    blend: BlendMode,
+}
+
+impl SurfaceLayer {
+    /// Replaces what is below instead of mixing with it, so nothing under it can matter.
+    fn covers_what_is_below(&self) -> bool {
+        self.alpha >= 1.0 - 1e-4 && matches!(self.blend, BlendMode::Normal | BlendMode::PassThrough)
+    }
+
+    /// This layer painted over the opaque `below`. Only blend modes that act on each channel alone are
+    /// modelled; the others never reach here (see [`paint_layer`]).
+    fn over(&self, below: Color) -> Color {
+        let mix = |below: f32, top: f32| {
+            let blended = match self.blend {
+                BlendMode::Multiply => below * top,
+                BlendMode::Screen => below + top - below * top,
+                BlendMode::Darken => below.min(top),
+                BlendMode::Lighten => below.max(top),
+                _ => top,
+            };
+            below * (1.0 - self.alpha) + blended * self.alpha
+        };
+        Color { r: mix(below.r, self.color.r), g: mix(below.g, self.color.g), b: mix(below.b, self.color.b), a: 1.0 }
+    }
+}
+
+fn is_finite_color(c: &Color) -> bool {
+    c.r.is_finite() && c.g.is_finite() && c.b.is_finite() && c.a.is_finite()
+}
+
+/// The mean of a gradient along its length: the stops sorted by position (clamped to `0..=1`), the
+/// first stop's colour held back to the start and the last one's out to the end, colour and alpha
+/// interpolated premultiplied between stops. Returns the straight mean colour and the mean alpha, or
+/// `None` for no stops, a non-finite number, or a gradient that is transparent throughout.
+fn gradient_mean(stops: &[GradientStop], profile: &ColorProfile) -> Option<(Color, f32)> {
+    if stops.is_empty() || stops.iter().any(|s| !s.pos.is_finite() || !is_finite_color(&s.color)) {
         return None;
     }
+    let mut points: Vec<(f64, [f64; 4])> = stops
+        .iter()
+        .map(|s| {
+            let c = profile.to_srgb(&s.color);
+            let a = f64::from(c.a.clamp(0.0, 1.0));
+            (f64::from(s.pos.clamp(0.0, 1.0)), [f64::from(c.r) * a, f64::from(c.g) * a, f64::from(c.b) * a, a])
+        })
+        .collect();
+    points.sort_by(|x, y| x.0.total_cmp(&y.0));
+    let (first, last) = (points[0].1, points[points.len() - 1].1);
+    points.insert(0, (0.0, first));
+    points.push((1.0, last));
+    let mut mean = [0.0f64; 4];
+    for pair in points.windows(2) {
+        let width = pair[1].0 - pair[0].0;
+        for (m, (a, b)) in mean.iter_mut().zip(pair[0].1.iter().zip(&pair[1].1)) {
+            *m += width * (a + b) / 2.0;
+        }
+    }
+    let alpha = mean[3];
+    if alpha.is_nan() || alpha <= 0.0 {
+        return None;
+    }
+    let channel = |v: f64| (v / alpha).clamp(0.0, 1.0) as f32;
+    Some((Color { r: channel(mean[0]), g: channel(mean[1]), b: channel(mean[2]), a: 1.0 }, alpha as f32))
+}
+
+/// A paint as a [`SurfaceLayer`], or `None` when it is not a usable surface: a blend mode with no
+/// per-channel model, a shader, an unreadable image, a paint with nothing visible in it, or a number
+/// that is not finite. This is a small estimator, not a renderer: connector ink is chosen once when a
+/// connector is created, a gradient is read as the mean of its stops, and an image as the mean of its
+/// pixels, because the connector's geometry is not known yet.
+fn paint_layer(doc: &Document, paint: &Paint, image_mean: ImageMean) -> Option<SurfaceLayer> {
+    if !matches!(paint.blend, BlendMode::Normal | BlendMode::PassThrough | BlendMode::Multiply | BlendMode::Screen | BlendMode::Darken | BlendMode::Lighten) {
+        return None;
+    }
+    if !paint.opacity.is_finite() {
+        return None;
+    }
+    let profile = &doc.color_profile;
     let (color, alpha) = match &paint.kind {
-        PaintKind::Solid(c) => (*c, c.a * paint.opacity),
+        PaintKind::Solid(c) => {
+            if !is_finite_color(c) {
+                return None;
+            }
+            (profile.to_srgb(c), c.a)
+        }
         PaintKind::LinearGradient { stops, .. }
         | PaintKind::RadialGradient { stops, .. }
         | PaintKind::AngularGradient { stops, .. }
-        | PaintKind::DiamondGradient { stops, .. } => {
-            if stops.is_empty() {
-                return None;
-            }
-            // Colour is weighted by each stop's alpha, so a stop that fades to transparent pulls the
-            // mean alpha down without darkening the mean colour.
-            let alpha_sum: f32 = stops.iter().map(|stop| stop.color.a).sum();
-            if alpha_sum <= 0.0 {
-                return None;
-            }
-            let mut color = Color::TRANSPARENT;
-            for stop in stops {
-                color.r += stop.color.r * stop.color.a / alpha_sum;
-                color.g += stop.color.g * stop.color.a / alpha_sum;
-                color.b += stop.color.b * stop.color.a / alpha_sum;
-            }
-            color.a = alpha_sum / stops.len() as f32;
-            (color, color.a * paint.opacity)
-        }
+        | PaintKind::DiamondGradient { stops, .. } => gradient_mean(stops, profile)?,
         PaintKind::Image { image_ref, .. } => {
             let mean = image_mean(image_ref)?;
-            (mean, mean.a * paint.opacity)
+            if !is_finite_color(&mean) {
+                return None;
+            }
+            (mean, mean.a)
         }
         PaintKind::Shader(_) => return None,
     };
-    (alpha >= SURFACE_MIN_ALPHA).then_some((Color { a: 1.0, ..color }, alpha.clamp(0.0, 1.0)))
+    let alpha = (alpha * paint.opacity.clamp(0.0, 1.0)).clamp(0.0, 1.0);
+    (alpha > 0.0).then_some(SurfaceLayer { color: Color { a: 1.0, ..color }, alpha, blend: paint.blend })
 }
 
-fn paint_over(top: (Color, f32), below: Color) -> Color {
-    let (top, alpha) = top;
-    Color { r: top.r * alpha + below.r * (1.0 - alpha), g: top.g * alpha + below.g * (1.0 - alpha), b: top.b * alpha + below.b * (1.0 - alpha), a: 1.0 }
-}
-
-/// The surface a connector homed in `home` is drawn on. Visible solid and gradient paints are
-/// composited from the page toward the connector; a translucent paint therefore affects the
-/// contrast check without hiding the surface underneath it. Unsupported blend modes, shaders and
-/// images `image_mean` cannot read are skipped explicitly and fall back to the next known surface.
+/// The surface a connector homed in `home` is drawn on: the page background with the visible fills of
+/// `home` and its ancestors painted over it, from the page toward the connector, each node read with
+/// its variable and style bindings applied. A translucent paint therefore affects the contrast check
+/// without hiding the surface underneath it. The walk runs from `home` upward and stops at the first
+/// fill that covers what is below it, so a layer hidden behind an opaque card is never read (an image
+/// there is never decoded). Shaders, blend modes with no per-channel model and images `image_mean`
+/// cannot read are skipped explicitly and fall back to the next known surface.
 fn surface_behind(doc: &Document, home: NodeId, image_mean: ImageMean) -> Option<Color> {
     let mut ancestors = strict_ancestors(doc, home);
     ancestors.reverse();
@@ -181,19 +236,29 @@ fn surface_behind(doc: &Document, home: NodeId, image_mean: ImageMean) -> Option
         NodeKind::Page { background } => Some(*background),
         _ => None,
     })?;
-    let mut surface = page;
-    for id in ancestors {
-        let Some(n) = doc.get(id) else { continue };
-        if matches!(n.kind, NodeKind::Page { .. }) {
+    let mut base = page;
+    let mut layers = Vec::new();
+    'walk: for id in ancestors.iter().rev() {
+        let Some(node) = doc.get(*id) else { continue };
+        if matches!(node.kind, NodeKind::Page { .. }) {
             continue;
         }
-        for paint in n.fills.iter().filter(|p| p.visible) {
-            if let Some(surface_paint) = paint_surface(paint, image_mean) {
-                surface = paint_over(surface_paint, surface);
+        let node = resolve_node(doc, node);
+        if !node.visible {
+            continue;
+        }
+        // the last fill is painted on top
+        for paint in node.fills.iter().rev().filter(|p| p.visible) {
+            let Some(layer) = paint_layer(doc, paint, image_mean) else { continue };
+            if layer.covers_what_is_below() {
+                base = layer.color;
+                break 'walk;
             }
+            layers.push(layer);
         }
     }
-    Some(surface)
+    let surface = layers.iter().rev().fold(base, |below, layer| layer.over(below));
+    is_finite_color(&surface).then_some(surface)
 }
 
 /// The ink of a new connector homed in `home` when nobody picked one: the dark board ink, or
@@ -669,16 +734,53 @@ mod tests {
         assert_eq!(default_connector_ink(&doc, screen), Color::WHITE, "black is painted over white");
     }
 
-    #[test]
-    fn connector_ink_skips_blend_modes_without_a_destination_model() {
+    fn blended(color: Color, mode: crate::BlendMode) -> Paint {
+        let mut paint = Paint::solid(color);
+        paint.blend = mode;
+        paint
+    }
+
+    /// A doc whose screen holds `below` and whose wrapper holds `top`; the ink of a connector in the wrapper.
+    fn ink_of_stack(below: Paint, top: Paint) -> Color {
         let mut doc = Document::new("Test");
         let page = doc.add_page("Page 1");
         let (screen, wrapper) = make_screen_with_wrapper(&mut doc, page);
-        let mut multiply = Paint::solid(Color::BLACK);
-        multiply.blend = crate::BlendMode::Multiply;
-        doc.get_mut(screen).expect("screen").fills = vec![Paint::solid(Color::WHITE)];
-        doc.get_mut(wrapper).expect("wrapper").fills = vec![multiply];
-        assert_eq!(default_connector_ink(&doc, wrapper), Color::rgb(0x1E, 0x1E, 0x1E), "unsupported blend modes fall back to the known underlying surface");
+        doc.get_mut(screen).expect("screen").fills = vec![below];
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![top];
+        default_connector_ink(&doc, wrapper)
+    }
+
+    #[test]
+    fn connector_ink_composites_multiply_over_the_surface_below() {
+        let dark = Color::rgb(0x1E, 0x1E, 0x1E);
+        // black multiplied over white is black: main picked white here and so must this
+        assert_eq!(ink_of_stack(Paint::solid(Color::WHITE), blended(Color::BLACK, crate::BlendMode::Multiply)), Color::WHITE);
+        // white multiplied over anything leaves the surface as it was
+        assert_eq!(ink_of_stack(Paint::solid(Color::WHITE), blended(Color::WHITE, crate::BlendMode::Multiply)), dark);
+    }
+
+    #[test]
+    fn connector_ink_composites_screen_darken_and_lighten_over_the_surface_below() {
+        let dark = Color::rgb(0x1E, 0x1E, 0x1E);
+        assert_eq!(ink_of_stack(Paint::solid(Color::BLACK), blended(Color::WHITE, crate::BlendMode::Screen)), dark, "white screened over black is white");
+        assert_eq!(ink_of_stack(Paint::solid(Color::WHITE), blended(Color::BLACK, crate::BlendMode::Screen)), dark, "black screened over white leaves white");
+        assert_eq!(
+            ink_of_stack(Paint::solid(Color::WHITE), blended(Color::BLACK, crate::BlendMode::Darken)),
+            Color::WHITE,
+            "the darker of black and white is black"
+        );
+        assert_eq!(ink_of_stack(Paint::solid(Color::BLACK), blended(Color::WHITE, crate::BlendMode::Darken)), Color::WHITE, "darken keeps the black below");
+        assert_eq!(ink_of_stack(Paint::solid(Color::BLACK), blended(Color::WHITE, crate::BlendMode::Lighten)), dark, "the lighter of white and black is white");
+        assert_eq!(ink_of_stack(Paint::solid(Color::WHITE), blended(Color::BLACK, crate::BlendMode::Lighten)), dark, "lighten keeps the white below");
+    }
+
+    #[test]
+    fn connector_ink_skips_blend_modes_it_cannot_composite() {
+        assert_eq!(
+            ink_of_stack(Paint::solid(Color::WHITE), blended(Color::BLACK, crate::BlendMode::ColorBurn)),
+            Color::rgb(0x1E, 0x1E, 0x1E),
+            "a blend mode without a destination model falls back to the known underlying surface"
+        );
     }
 
     #[test]
@@ -697,5 +799,144 @@ mod tests {
         assert_eq!(connector_ink_on(&doc, page, light_ink, dark_ink, &|_| None), dark_ink, "the near-black ink is below 3:1 on the dark default page");
         set_page_background(&mut doc, page, Color::WHITE);
         assert_eq!(connector_ink_on(&doc, page, light_ink, dark_ink, &|_| None), light_ink);
+    }
+
+    fn gradient_paint(stops: Vec<crate::GradientStop>) -> Paint {
+        Paint {
+            kind: PaintKind::LinearGradient { handles: [crate::Vec2::new(0.0, 0.5), crate::Vec2::new(1.0, 0.5), crate::Vec2::new(0.0, 1.0)], stops },
+            opacity: 1.0,
+            visible: true,
+            blend: crate::BlendMode::Normal,
+        }
+    }
+
+    fn stop(pos: f32, color: Color) -> crate::GradientStop {
+        crate::GradientStop { pos, color }
+    }
+
+    #[test]
+    fn connector_ink_integrates_gradient_stops_over_their_positions() {
+        let grey_page = Color::rgb(0x5A, 0x5A, 0x5A);
+        let ink_over_page = |stops: Vec<crate::GradientStop>| {
+            let mut doc = Document::new("Test");
+            let page = doc.add_page("Page 1");
+            set_page_background(&mut doc, page, grey_page);
+            let (screen, wrapper) = make_screen_with_wrapper(&mut doc, page);
+            doc.get_mut(screen).expect("screen").fills.clear();
+            doc.get_mut(wrapper).expect("wrapper").fills = vec![gradient_paint(stops)];
+            default_connector_ink(&doc, wrapper)
+        };
+        // white for the first tenth, then black: the mean is a dark grey, not the middle grey of the stop count
+        assert_eq!(ink_over_page(vec![stop(0.0, Color::WHITE), stop(0.1, Color::BLACK)]), Color::WHITE);
+        // the same stops given out of order and past the ends read the same
+        assert_eq!(ink_over_page(vec![stop(0.1, Color::BLACK), stop(-3.0, Color::WHITE)]), Color::WHITE);
+        // opaque black that fades out over the whole length leaves half its weight on the grey page
+        assert_eq!(ink_over_page(vec![stop(0.0, Color::BLACK), stop(1.0, Color { a: 0.0, ..Color::WHITE })]), Color::WHITE);
+        // black that only starts at the last tenth leaves the white before it as the surface
+        assert_eq!(ink_over_page(vec![stop(0.0, Color::WHITE), stop(0.9, Color::WHITE), stop(1.0, Color::BLACK)]), Color::rgb(0x1E, 0x1E, 0x1E));
+    }
+
+    #[test]
+    fn connector_ink_reads_the_bound_value_of_a_variable_fill() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let card = make_frame(&mut doc, page, "Card");
+        doc.get_mut(card).expect("card").fills = vec![Paint::solid(Color::WHITE)];
+        doc.variable_collections.insert(
+            "c".into(),
+            crate::VariableCollection {
+                extensions: Default::default(),
+                id: "c".into(),
+                name: "Colours".into(),
+                modes: vec![crate::VariableMode { id: "m1".into(), name: "Default".into() }],
+                default_mode: "m1".into(),
+                variables: vec!["v".into()],
+                key: None,
+                source_library_key: None,
+            },
+        );
+        doc.variables.insert(
+            "v".into(),
+            crate::Variable {
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+                id: "v".into(),
+                name: "Surface".into(),
+                collection: "c".into(),
+                kind: crate::VariableKind::Color,
+                values: std::collections::BTreeMap::from([("m1".to_string(), crate::VariableValue::Color(Color::rgb(0x12, 0x12, 0x12)))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+            },
+        );
+        assert_eq!(default_connector_ink(&doc, card), Color::rgb(0x1E, 0x1E, 0x1E), "unbound, the raw white fill is the surface");
+        doc.get_mut(card).expect("card").variables.bindings.insert("fills/0".into(), "v".into());
+        assert_eq!(default_connector_ink(&doc, card), Color::WHITE, "bound, the variable's #121212 is the surface");
+    }
+
+    #[test]
+    fn connector_ink_skips_hidden_layers_and_counts_stacked_faint_fills() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (screen, wrapper) = make_screen_with_wrapper(&mut doc, page);
+        doc.get_mut(screen).expect("screen").fills = vec![Paint::solid(Color::WHITE)];
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![Paint::solid(Color::BLACK)];
+        doc.get_mut(wrapper).expect("wrapper").visible = false;
+        assert_eq!(default_connector_ink(&doc, wrapper), Color::rgb(0x1E, 0x1E, 0x1E), "a hidden layer paints nothing");
+
+        doc.get_mut(wrapper).expect("wrapper").visible = true;
+        let faint = || {
+            let mut p = Paint::solid(Color::BLACK);
+            p.opacity = 0.30;
+            p
+        };
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![faint(), faint(), faint()];
+        assert_eq!(default_connector_ink(&doc, wrapper), Color::WHITE, "three 30% black fills leave a surface about 66% black");
+    }
+
+    #[test]
+    fn connector_ink_lets_a_non_finite_number_fall_back_to_the_surface_below() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        set_page_background(&mut doc, page, Color::BLACK);
+        let (screen, wrapper) = make_screen_with_wrapper(&mut doc, page);
+        doc.get_mut(screen).expect("screen").fills.clear();
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            doc.get_mut(wrapper).expect("wrapper").fills = vec![gradient_paint(vec![stop(0.0, Color { r: bad, ..Color::WHITE }), stop(1.0, Color::WHITE)])];
+            assert_eq!(default_connector_ink(&doc, wrapper), Color::WHITE, "a {bad} channel in a stop leaves the black page as the surface");
+            doc.get_mut(wrapper).expect("wrapper").fills = vec![gradient_paint(vec![stop(bad, Color::WHITE), stop(1.0, Color::WHITE)])];
+            assert_eq!(default_connector_ink(&doc, wrapper), Color::WHITE, "a {bad} stop position leaves the black page as the surface");
+            let mut p = Paint::solid(Color::WHITE);
+            p.opacity = bad;
+            doc.get_mut(wrapper).expect("wrapper").fills = vec![p];
+            assert_eq!(default_connector_ink(&doc, wrapper), Color::WHITE, "a {bad} paint opacity leaves the black page as the surface");
+        }
+        let nan_photo = |_: &str| Some(Color { r: f32::NAN, ..Color::BLACK });
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![image_paint("photo")];
+        assert_eq!(default_connector_ink_with_images(&doc, wrapper, &nan_photo), Color::WHITE, "a sampler answer with a NaN channel is not a surface");
+    }
+
+    #[test]
+    fn connector_ink_never_reads_an_image_hidden_behind_an_opaque_card() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let hero = make_frame(&mut doc, page, "Hero");
+        doc.get_mut(hero).expect("hero").fills = vec![image_paint("photo")];
+        let card = make_frame(&mut doc, hero, "Card");
+        doc.get_mut(card).expect("card").fills = vec![Paint::solid(Color::WHITE)];
+        let calls = std::cell::Cell::new(0u32);
+        let sampler = |_: &str| {
+            calls.set(calls.get() + 1);
+            Some(Color::BLACK)
+        };
+        assert_eq!(default_connector_ink_with_images(&doc, card, &sampler), Color::rgb(0x1E, 0x1E, 0x1E), "the white card is the surface");
+        assert_eq!(calls.get(), 0, "the image behind an opaque card is not decoded");
+
+        doc.get_mut(card).expect("card").fills.clear();
+        assert_eq!(default_connector_ink_with_images(&doc, card, &sampler), Color::WHITE, "without the card the image is the surface");
+        assert_eq!(calls.get(), 1);
     }
 }
