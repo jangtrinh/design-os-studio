@@ -3,6 +3,9 @@
 
 use designos_doc::{Affine, Document, Effect, Node, NodeId, NodeKind, Rect, StrokeAlign, Vec2};
 
+/// How far something reaches past a box: (left, top, right, bottom).
+type Reach = (f32, f32, f32, f32);
+
 /// Bounds in the node's local space (origin = its top-left corner, so
 /// `x`/`y` are `<= 0` when effects spill to the top/left).
 pub fn render_bounds(doc: &Document, id: NodeId) -> Rect {
@@ -24,8 +27,24 @@ fn transform_rect(t: &Affine, r: Rect) -> Rect {
     Rect::new(x0, y0, x1 - x0, y1 - y0)
 }
 
-fn grow(r: Rect, l: f32, t: f32, rt: f32, b: f32) -> Rect {
+fn grow(r: Rect, (l, t, rt, b): Reach) -> Rect {
     Rect::new(r.x - l, r.y - t, r.w + l + rt, r.h + t + b)
+}
+
+fn union_into(acc: Option<Rect>, r: Rect) -> Option<Rect> {
+    Some(match acc {
+        Some(a) => a.union(&r),
+        None => r,
+    })
+}
+
+/// The overlap of `a` and `b`, or `None` when they do not overlap.
+fn intersect(a: Rect, b: Rect) -> Option<Rect> {
+    let x0 = a.x.max(b.x);
+    let y0 = a.y.max(b.y);
+    let x1 = (a.x + a.w).min(b.x + b.w);
+    let y1 = (a.y + a.h).min(b.y + b.h);
+    (x1 > x0 && y1 > y0).then(|| Rect::new(x0, y0, x1 - x0, y1 - y0))
 }
 
 /// How far a table's border reaches outside its box. A table draws its grid as one centred stroke,
@@ -39,73 +58,169 @@ pub(crate) fn table_stroke_outset(n: &Node) -> f32 {
     }
 }
 
-/// How far a node's own paint reaches outside its box: (left, top, right, bottom).
-pub fn own_overflow(n: &Node) -> (f32, f32, f32, f32) {
-    let (mut eff_l, mut eff_t, mut eff_r, mut eff_b) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+fn ceil_reach((l, t, r, b): Reach) -> Reach {
+    (l.max(0.0).ceil(), t.max(0.0).ceil(), r.max(0.0).ceil(), b.max(0.0).ceil())
+}
+
+fn add_reach(a: Reach, b: Reach) -> Reach {
+    (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3)
+}
+
+/// How far the node's stroke reaches outside its box, side by side: (left, top, right, bottom).
+/// Each side uses its own weight. Outside adds all of it, centre half of it, inside nothing.
+fn stroke_reach(n: &Node) -> Reach {
+    if matches!(n.kind, NodeKind::Table(_)) {
+        let o = table_stroke_outset(n);
+        return (o, o, o, o);
+    }
+    // [top, right, bottom, left]
+    let weights = n.stroke.side_weights.unwrap_or([n.stroke.weight; 4]);
+    let widest = weights.iter().fold(0.0f32, |m, &w| m.max(w));
+    if !n.stroke.paints.iter().any(|p| p.visible) || widest <= 0.0 {
+        return (0.0, 0.0, 0.0, 0.0);
+    }
+    let factor = match n.stroke.align {
+        StrokeAlign::Inside => 0.0,
+        StrokeAlign::Center => 0.5,
+        StrokeAlign::Outside => 1.0,
+    };
+    let [top, right, bottom, left] = weights.map(|w| w.max(0.0) * factor);
+    // a measured centred line (solid, butt or round cap) is stroked in the band y in [-weight, 0] (see
+    // `Node::line_centerline`): it hangs a full weight above the box and nothing below it. Square, arrow
+    // and dashed lines stay on the axis and keep the symmetric padding
+    match n.line_centerline() {
+        Some(c) if c.y < 0.0 => (left, -2.0 * c.y, right, 0.0),
+        _ => (left, top, right, bottom),
+    }
+}
+
+/// How far the node's effects reach past the shape they are cast from: (left, top, right, bottom).
+fn effect_reach(n: &Node) -> Reach {
+    let (mut l, mut t, mut r, mut b) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
     if matches!(n.kind, NodeKind::Sticky(_)) {
         // the soft shadow a sticky note draws
         let reach = designos_render::board::sticky_shadow_reach(n.size);
-        eff_l = reach;
-        eff_t = reach;
-        eff_r = reach;
-        eff_b = reach;
+        (l, t, r, b) = (reach, reach, reach, reach);
     }
-
-    let stroke_weight = n.stroke.side_weights.map(|s| s.iter().fold(0.0f32, |m, &w| m.max(w))).unwrap_or(n.stroke.weight);
-    let has_stroke = n.stroke.paints.iter().any(|p| p.visible) && stroke_weight > 0.0;
-    let stroke_outset = if matches!(n.kind, NodeKind::Table(_)) {
-        table_stroke_outset(n)
-    } else if has_stroke {
-        match n.stroke.align {
-            StrokeAlign::Inside => 0.0,
-            StrokeAlign::Center => stroke_weight / 2.0,
-            StrokeAlign::Outside => stroke_weight,
-        }
-    } else {
-        0.0
-    };
-
     for e in &n.effects {
         match e {
             Effect::DropShadow { offset, radius, spread, visible: true, .. } => {
                 let reach = radius.max(0.0) + spread;
-                eff_l = eff_l.max((reach - offset.x).max(0.0));
-                eff_r = eff_r.max((reach + offset.x).max(0.0));
-                eff_t = eff_t.max((reach - offset.y).max(0.0));
-                eff_b = eff_b.max((reach + offset.y).max(0.0));
+                l = l.max((reach - offset.x).max(0.0));
+                r = r.max((reach + offset.x).max(0.0));
+                t = t.max((reach - offset.y).max(0.0));
+                b = b.max((reach + offset.y).max(0.0));
             }
             Effect::LayerBlur { radius, visible: true } => {
                 let reach = radius.max(0.0);
-                eff_l = eff_l.max(reach);
-                eff_t = eff_t.max(reach);
-                eff_r = eff_r.max(reach);
-                eff_b = eff_b.max(reach);
+                (l, t, r, b) = (l.max(reach), t.max(reach), r.max(reach), b.max(reach));
             }
             // Texture displaces edges by up to `radius`.
             Effect::Texture(tx) if tx.visible && !tx.clip_to_shape => {
                 let reach = tx.radius.max(0.0);
-                eff_l = eff_l.max(reach);
-                eff_t = eff_t.max(reach);
-                eff_r = eff_r.max(reach);
-                eff_b = eff_b.max(reach);
+                (l, t, r, b) = (l.max(reach), t.max(reach), r.max(reach), b.max(reach));
             }
             _ => {}
         }
     }
+    (l, t, r, b)
+}
 
-    // a measured centred line (solid, butt or round cap) is stroked in the band y in [-weight, 0] (see
-    // `Node::line_centerline`): it hangs a full weight above the box and nothing below it. Square, arrow
-    // and dashed lines stay on the axis and keep the symmetric padding
-    let (line_top, line_bottom) = match n.line_centerline() {
-        Some(c) if has_stroke && c.y < 0.0 => (-2.0 * c.y, 0.0),
-        _ => (stroke_outset, stroke_outset),
-    };
-    let l = stroke_outset + eff_l;
-    let t = line_top + eff_t;
-    let r = stroke_outset + eff_r;
-    let b = line_bottom + eff_b;
+/// How far a node's own paint reaches outside its box: (left, top, right, bottom).
+pub fn own_overflow(n: &Node) -> (f32, f32, f32, f32) {
+    ceil_reach(add_reach(stroke_reach(n), effect_reach(n)))
+}
 
-    (l.max(0.0).ceil(), t.max(0.0).ceil(), r.max(0.0).ceil(), b.max(0.0).ceil())
+fn has_visible_paint(paints: &[designos_doc::Paint]) -> bool {
+    paints.iter().any(|p| p.visible && p.silhouette_alpha() > 0.0)
+}
+
+/// Whether the node paints anything of its own: a visible fill or stroke for a shape or a frame, a
+/// non-empty string for text. Every other kind (board items, tables, ...) paints through its own
+/// drawing, so it counts as painting.
+fn paints(n: &Node) -> bool {
+    match &n.kind {
+        NodeKind::Text(t) => !t.content.is_empty(),
+        NodeKind::Rectangle
+        | NodeKind::Ellipse(_)
+        | NodeKind::Line
+        | NodeKind::Polygon { .. }
+        | NodeKind::Star { .. }
+        | NodeKind::Vector { .. }
+        | NodeKind::BooleanOp(_)
+        | NodeKind::Frame(_)
+        | NodeKind::Component(_)
+        | NodeKind::ComponentSet(_)
+        | NodeKind::Instance { .. } => {
+            has_visible_paint(&n.fills) || ((n.stroke.weight > 0.0 || n.stroke.side_weights.is_some()) && has_visible_paint(&n.stroke.paints))
+        }
+        _ => true,
+    }
+}
+
+fn clips(n: &Node) -> bool {
+    n.kind.frame_props().is_some_and(|f| f.clips_content)
+}
+
+/// The rectangles of the node's visible children in the node's space, cut to the node's box when it
+/// clips. `measure` gives a child's rectangle in the child's own space.
+fn child_rects(doc: &Document, n: &Node, measure: fn(&Document, &Node) -> Option<Rect>) -> Vec<Rect> {
+    // Boolean operands are not drawn on their own.
+    if matches!(n.kind, NodeKind::BooleanOp(_)) {
+        return Vec::new();
+    }
+    let clip = clips(n).then(|| Rect::new(0.0, 0.0, n.size.x, n.size.y));
+    let mut out = Vec::new();
+    for cid in &n.children {
+        let Some(c) = doc.get(*cid) else { continue };
+        let rc = designos_doc::resolve_node(doc, c);
+        if !rc.visible || rc.opacity <= 0.0 {
+            continue;
+        }
+        let Some(cb) = measure(doc, c) else { continue };
+        let cr = transform_rect(&rc.transform, cb);
+        match clip {
+            Some(clip) => out.extend(intersect(cr, clip)),
+            None => out.push(cr),
+        }
+    }
+    out
+}
+
+/// The shape the node and its children paint, with strokes but without any effect: the rectangle a
+/// shadow or blur is cast from.
+fn painted_geometry(doc: &Document, n: &Node) -> Option<Rect> {
+    let n = designos_doc::resolve_node(doc, n);
+    let n = n.as_ref();
+    if matches!(n.kind, NodeKind::Page { .. }) {
+        return None;
+    }
+    let own = (!matches!(n.kind, NodeKind::Group) && paints(n)).then(|| grow(Rect::new(0.0, 0.0, n.size.x, n.size.y), ceil_reach(stroke_reach(n))));
+    // children cut to a box the node already paints cannot grow it
+    if own.is_some() && clips(n) {
+        return own;
+    }
+    child_rects(doc, n, painted_geometry).into_iter().fold(own, union_into)
+}
+
+/// The shapes a node's effects are cast from, grown by the reach those effects give them: the shape the
+/// node paints, and the shapes its children paint (cut to the node's box when it clips), but not the
+/// children's own effects. A group has no shape of its own, so this is all of a group's effects.
+fn effect_shapes(doc: &Document, n: &Node) -> Option<Rect> {
+    let is_group = matches!(n.kind, NodeKind::Group);
+    let mut acc = (!is_group && paints(n)).then(|| grow(Rect::new(0.0, 0.0, n.size.x, n.size.y), own_overflow(n)));
+    let kids_reach = if is_group { own_overflow(n) } else { ceil_reach(effect_reach(n)) };
+    // a node that clips and paints already holds its box grown by its whole reach, which covers every
+    // child cut to that box and grown by the effect reach alone
+    if acc.is_some() && clips(n) {
+        return acc;
+    }
+    if kids_reach != (0.0, 0.0, 0.0, 0.0) {
+        for cr in child_rects(doc, n, painted_geometry) {
+            acc = union_into(acc, grow(cr, kids_reach));
+        }
+    }
+    acc
 }
 
 fn bounds_of(doc: &Document, n: &Node) -> Option<Rect> {
@@ -113,38 +228,29 @@ fn bounds_of(doc: &Document, n: &Node) -> Option<Rect> {
     let n = n.as_ref();
     let is_page = matches!(n.kind, NodeKind::Page { .. });
     let is_group = matches!(n.kind, NodeKind::Group);
-    let own = if is_page || is_group {
-        None
-    } else {
-        let (l, t, r, b) = own_overflow(n);
-        Some(grow(Rect::new(0.0, 0.0, n.size.x, n.size.y), l, t, r, b))
-    };
-    let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
-    let mut acc = own;
-    // Boolean operands are not drawn on their own.
-    let draws_kids = !matches!(n.kind, NodeKind::BooleanOp(_));
-    if draws_kids && !clips {
-        for cid in &n.children {
-            let Some(c) = doc.get(*cid) else { continue };
-            let rc = designos_doc::resolve_node(doc, c);
-            if !rc.visible || rc.opacity <= 0.0 {
-                continue;
-            }
-            let Some(cb) = bounds_of(doc, c) else { continue };
-            let cr = transform_rect(&rc.transform, cb);
-            acc = Some(match acc {
-                Some(a) => a.union(&cr),
-                None => cr,
-            });
-        }
+    let mut acc = if is_page { None } else { effect_shapes(doc, n) };
+    if !is_page && !is_group && !paints(n) {
+        acc = union_into(acc, Rect::new(0.0, 0.0, n.size.x, n.size.y));
     }
-    if is_group {
-        let (l, t, r, b) = own_overflow(n);
-        acc = acc.map(|a| grow(a, l, t, r, b));
-    } else if is_page {
+    // a clipping node's own box is already in `acc`, and its children are cut to that box
+    if !is_page && clips(n) {
+        return acc;
+    }
+    for cr in child_rects(doc, n, bounds_of) {
+        acc = union_into(acc, cr);
+    }
+    if is_page {
         return Some(acc.unwrap_or_default());
     }
     acc
+}
+
+/// The area a node's shadows and blur are drawn in, in its own space: the shape it paints and its
+/// children's painted shapes, each grown by the reach of the node's effects and stroke.
+pub(crate) fn effect_region(doc: &Document, n: &Node) -> Rect {
+    let n = designos_doc::resolve_node(doc, n);
+    let n = n.as_ref();
+    effect_shapes(doc, n).unwrap_or_else(|| Rect::new(0.0, 0.0, n.size.x, n.size.y))
 }
 
 #[cfg(test)]
@@ -341,20 +447,87 @@ mod tests {
         assert_eq!((b.x, b.y, b.w, b.h), (-12.0, -12.0, 124.0, 74.0));
     }
 
-    #[test]
-    fn per_side_stroke_weights_gate_and_outset_agree() {
+    /// A 100x40 rectangle with the per-side stroke weights measured in Figma: top 1, right 4, bottom 2, left 8.
+    fn rect_with_side_weights(align: StrokeAlign) -> (Document, NodeId) {
         let mut d = Document::new("t");
         let page = d.add_page("p");
         let id = d.alloc_id();
-        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 50.0));
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 40.0));
         n.stroke.paints = vec![Paint::solid(Color::BLACK)];
-        n.stroke.align = StrokeAlign::Outside;
+        n.stroke.align = align;
         n.stroke.weight = 0.0;
         n.stroke.side_weights = Some([1.0, 4.0, 2.0, 8.0]);
         d.insert(page, n).unwrap();
+        (d, id)
+    }
+
+    fn png_size(d: &Document, id: NodeId) -> (u32, u32) {
+        let pm = crate::raster::render_export(d, id, 1.0).expect("export png");
+        (pm.width(), pm.height())
+    }
+
+    #[test]
+    fn outside_stroke_adds_each_sides_own_weight() {
+        // Figma: 112x43, the render box runs from -8 to 104 and from -1 to 42.
+        let (d, id) = rect_with_side_weights(StrokeAlign::Outside);
         let b = render_bounds(&d, id);
-        // outset 8 on every side
-        assert_eq!((b.x, b.y, b.w, b.h), (-8.0, -8.0, 116.0, 66.0));
+        assert_eq!((b.x, b.y, b.w, b.h), (-8.0, -1.0, 112.0, 43.0));
+        assert_eq!(png_size(&d, id), (112, 43));
+        let svg = crate::svg::export_svg(&d, id, &Default::default());
+        assert!(svg.contains("width=\"112\"") && svg.contains("height=\"43\""), "{svg}");
+    }
+
+    #[test]
+    fn centre_stroke_adds_half_of_each_sides_weight_rounded_out() {
+        // Figma: the render box is 106x41.5 (-4 to 102, -0.5 to 41) and the PNG rounds it out to 106x42.
+        let (d, id) = rect_with_side_weights(StrokeAlign::Center);
+        let b = render_bounds(&d, id);
+        assert_eq!((b.x, b.y, b.w, b.h), (-4.0, -1.0, 106.0, 42.0));
+        assert_eq!(png_size(&d, id), (106, 42));
+        let svg = crate::svg::export_svg(&d, id, &Default::default());
+        assert!(svg.contains("width=\"106\"") && svg.contains("height=\"42\""), "{svg}");
+    }
+
+    #[test]
+    fn inside_stroke_adds_nothing_whatever_the_side_weights() {
+        let (d, id) = rect_with_side_weights(StrokeAlign::Inside);
+        assert_eq!(render_bounds(&d, id), Rect::new(0.0, 0.0, 100.0, 40.0));
+        assert_eq!(png_size(&d, id), (100, 40));
+    }
+
+    #[test]
+    fn uniform_outside_stroke_is_unchanged_by_the_per_side_rule() {
+        // Figma: a uniform 8 outside stroke on 100x40 gives 116x56.
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 40.0));
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.align = StrokeAlign::Outside;
+        n.stroke.weight = 8.0;
+        d.insert(page, n).unwrap();
+        assert_eq!(render_bounds(&d, id), Rect::new(-8.0, -8.0, 116.0, 56.0));
+    }
+
+    #[test]
+    fn text_highlight_shape_one_sided_fractional_stroke_does_not_grow_the_other_axis() {
+        // The kit's Text highlight: a 400x24 component with an outside stroke on its left and right sides
+        // only (1.5 each), and a tooltip above it. Figma exports it at 403x76; folding the weights to the
+        // largest one gave 404x78.
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let mut root = Node::frame(id, Rect::new(0.0, 0.0, 400.0, 24.0));
+        root.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        root.stroke.align = StrokeAlign::Outside;
+        root.stroke.weight = 0.0;
+        root.stroke.side_weights = Some([0.0, 1.5, 0.0, 1.5]);
+        let root = d.insert(page, root).unwrap();
+        let tip = d.alloc_id();
+        d.insert(root, Node::rectangle(tip, Rect::new(100.0, -52.0, 80.0, 52.0))).unwrap();
+        let b = render_bounds(&d, root);
+        assert_eq!((b.y, b.h), (-52.0, 76.0));
+        assert!((b.w - 403.0).abs() <= 1.0, "width {} is not within 1 px of 403", b.w);
     }
 
     #[test]

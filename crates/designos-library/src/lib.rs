@@ -26,6 +26,9 @@ pub use publish::*;
 pub use store::*;
 pub use versions::*;
 
+/// Why a no-follow write refused its target (see [`write_atomic_with_no_follow`]).
+pub use designos_fonts::{no_follow_refusal, NoFollowRefusal};
+
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, thiserror::Error)]

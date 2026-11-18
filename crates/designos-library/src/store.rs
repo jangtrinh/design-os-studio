@@ -147,6 +147,16 @@ pub fn write_atomic_with(path: &Path, fill: impl FnOnce(&mut dyn std::io::Write)
     Ok(designos_fonts::write_atomic_with(path, fill)?)
 }
 
+/// [`write_atomic`] that never follows a link at the final path component (see [`designos_fonts::write_atomic_with_no_follow`]).
+pub fn write_atomic_no_follow(path: &Path, bytes: &[u8]) -> Result<()> {
+    Ok(designos_fonts::write_atomic_no_follow(path, bytes)?)
+}
+
+/// [`write_atomic_with`] that never follows a link at the final path component (see [`designos_fonts::write_atomic_with_no_follow`]).
+pub fn write_atomic_with_no_follow(path: &Path, fill: impl FnOnce(&mut dyn std::io::Write) -> std::io::Result<()>) -> Result<()> {
+    Ok(designos_fonts::write_atomic_with_no_follow(path, fill)?)
+}
+
 /// Streams `doc` into `path` atomically: the same bytes as `to_json_counted`, without the whole text in memory.
 /// Returns how many non-finite numbers were written as their neutral value. A document with unloaded pages is
 /// refused before any file is touched.

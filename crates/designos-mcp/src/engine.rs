@@ -1110,7 +1110,7 @@ impl Engine {
                     let second_name = std::os::unix::fs::MetadataExt::nlink(&m) > 1;
                     #[cfg(not(unix))]
                     let second_name = false;
-                    (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly(), second_name)
+                    (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), second_name)
                 });
                 validate_existing_output_target(target_meta, &a.output_path, "/output_path", EXPORT_FIG_EXTENSION, a.overwrite, true)?;
                 self.settle_layout();
@@ -2321,14 +2321,12 @@ pub const RENDER_EXTENSION: &str = "png";
 pub const EXPORT_FIG_EXTENSION: &str = "fig";
 
 /// Every file name ending the tools of this server create below the workspace (`--workspace`, the open file's folder). A tool refuses
-/// any other, so a file with none of these endings in the workspace is out of its reach, except for the temporary name below. Studio
-/// relies on it: its hook folder lies in the data folder, which can lie inside a workspace, and none of the names kept there ends in
-/// one of these or starts with the temporary prefix (`agent_hook_outputs`).
+/// any other, so a file with none of these endings in the workspace is out of its reach, except for the temporary name of an
+/// overwrite: `<the target's name>.save-<pid>-<n>.tmp`, made beside the target by the library's saver (`designos_library`,
+/// `is_save_temp_name`) with `create_new`, so it never replaces an existing file. Studio relies on it: its hook folder lies in the
+/// data folder, which can lie inside a workspace, and none of the names kept there ends in one of these or has the shape of that
+/// temporary name (`agent_hook_outputs`).
 pub const WORKSPACE_WRITE_EXTENSIONS: [&str; 3] = [SAVE_EXTENSION, RENDER_EXTENSION, EXPORT_FIG_EXTENSION];
-
-/// The start of the name of the temporary file an overwrite is written to before it replaces its target (`<prefix><pid>-<n>.tmp`,
-/// made with `create_new`, so it never replaces an existing file).
-pub const OUTPUT_TEMP_PREFIX: &str = ".designos-out-";
 
 pub(crate) fn open_import_extension_ok(display_path: &str) -> bool {
     std::path::Path::new(display_path)
@@ -2349,7 +2347,7 @@ pub(crate) fn unsupported_open_file_type(display_path: &str) -> ToolError {
 }
 
 pub(crate) fn validate_existing_output_target(
-    target_meta: Option<(bool, bool, bool, bool, bool)>,
+    target_meta: Option<(bool, bool, bool, bool)>,
     display_path: &str,
     ptr: &str,
     ext: &str,
@@ -2359,11 +2357,11 @@ pub(crate) fn validate_existing_output_target(
     let field_name = ptr.trim_start_matches('/');
     let case_insensitive_ext = ext == "fig";
     validate_output_name(display_path, ptr)?;
-    if target_meta.is_some_and(|(is_symlink, _, _, _, _)| is_symlink) {
+    if target_meta.is_some_and(|(is_symlink, _, _, _)| is_symlink) {
         return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
             .with_received(json!(display_path)));
     }
-    let looks_like_dir = target_meta.is_some_and(|(_, is_dir, _, _, _)| is_dir)
+    let looks_like_dir = target_meta.is_some_and(|(_, is_dir, _, _)| is_dir)
         || display_path == "."
         || display_path.ends_with('/')
         || display_path.ends_with("/.")
@@ -2388,7 +2386,7 @@ pub(crate) fn validate_existing_output_target(
         .with_received(json!(display_path))
         .with_expected(format!("*.{ext}")));
     }
-    if let Some((_, _, is_file, is_readonly, second_name)) = target_meta {
+    if let Some((_, _, is_file, second_name)) = target_meta {
         if !is_file {
             return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is not a plain file. Delete it, then try again."))
                 .with_received(json!(display_path)));
@@ -2410,14 +2408,8 @@ pub(crate) fn validate_existing_output_target(
             )
             .with_received(json!(display_path)));
         }
-        if is_readonly {
-            return Err(ToolError::new(
-                ErrorCode::InvalidArguments,
-                ptr,
-                format!("{display_path} is read-only. Make it writable first, or choose a new path."),
-            )
-            .with_received(json!(display_path)));
-        }
+        // A read-only mode is not checked here: on macOS an ACL can grant write where the mode does not, so the writer
+        // (`write_checked_output_file`) is the one that finds out, and says so in these words when the file is not writable.
     }
     Ok(())
 }
@@ -2452,40 +2444,50 @@ pub(crate) fn write_checked_output_file(
     overwrite: bool,
     supports_overwrite: bool,
 ) -> Result<(), ToolError> {
-    use std::io::Write;
-    let fill_file = |file: &mut std::fs::File| -> std::io::Result<()> {
-        let mut out = std::io::BufWriter::with_capacity(1 << 20, &mut *file);
-        fill(&mut out)?;
-        out.flush()?;
-        drop(out);
-        file.sync_all()
-    };
-    let map_io_err = |e: std::io::Error| match crate::session_file_io::refusal_of(&e) {
-        Some(crate::session_file_io::Refusal::Link) => {
+    let map_io_err = |e: std::io::Error| match (designos_library::no_follow_refusal(&e), crate::session_file_io::refusal_of(&e)) {
+        (Some(designos_library::NoFollowRefusal::Link), _) | (None, Some(crate::session_file_io::Refusal::Link)) => {
             ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
                 .with_received(json!(display_path))
         }
-        Some(crate::session_file_io::Refusal::SecondName) => {
+        (Some(designos_library::NoFollowRefusal::SecondName), _) | (None, Some(crate::session_file_io::Refusal::SecondName)) => {
             ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} has a second name (a hard link). Delete it, then try again."))
                 .with_received(json!(display_path))
         }
-        Some(crate::session_file_io::Refusal::NotPlainFile) => {
+        (Some(designos_library::NoFollowRefusal::Directory), _) => {
+            ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a folder, not a file. Choose a file path, then try again."))
+                .with_received(json!(display_path))
+        }
+        (Some(designos_library::NoFollowRefusal::NotRegularFile), _) | (None, Some(crate::session_file_io::Refusal::NotPlainFile)) => {
             ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is not a plain file. Delete it, then try again."))
                 .with_received(json!(display_path))
         }
+        // The file itself refuses the write (its mode, or an ACL or flag): the agent can make it writable or pick another path.
+        // A folder that refuses the write is not this: it carries no refusal and is `needs_human` below.
+        (Some(designos_library::NoFollowRefusal::NotWritable), _) => {
+            ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is read-only. Make it writable first, or choose a new path."))
+                .with_received(json!(display_path))
+        }
         // Permissions, a full disk, a read-only disk or a size limit: only the user can change those, so the agent stops.
-        None if write_needs_human(&e) => {
+        (None, None) if write_needs_human(&e) => {
             ToolError::new(ErrorCode::InternalError, ptr, format!("{display_path} can't be written: {e}. Check its permissions and free space."))
                 .with_error_kind(ErrorKind::NeedsHuman)
                 .with_next_step("Stop and tell the user: this file can't be written (permissions, free space, or a size limit). Do not retry.")
         }
-        None => ToolError::new(
+        (None, None) => ToolError::new(
             ErrorCode::InternalError,
             ptr,
             format!("{display_path} can't be written: {e}. Check its permissions and free space, then try again."),
         ),
     };
     if !overwrite {
+        use std::io::Write;
+        let fill_file = |file: &mut std::fs::File| -> std::io::Result<()> {
+            let mut out = std::io::BufWriter::with_capacity(1 << 20, &mut *file);
+            fill(&mut out)?;
+            out.flush()?;
+            drop(out);
+            file.sync_all()
+        };
         let mut opts = std::fs::OpenOptions::new();
         opts.write(true).create_new(true);
         #[cfg(unix)]
@@ -2516,78 +2518,18 @@ pub(crate) fn write_checked_output_file(
         return Ok(());
     }
 
-    let old = match std::fs::symlink_metadata(resolved) {
-        Ok(m) => Some(m),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return Err(map_io_err(e)),
-    };
-    if let Some(ref m) = old {
-        if m.file_type().is_symlink() {
-            return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
-                .with_received(json!(display_path)));
-        }
-        if m.is_dir() {
-            return Err(ToolError::new(
-                ErrorCode::InvalidArguments,
-                ptr,
-                format!("{display_path} is a folder, not a file. Choose a file path, then try again."),
-            )
-            .with_received(json!(display_path)));
-        }
-        if !m.file_type().is_file() {
-            return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is not a plain file. Delete it, then try again."))
-                .with_received(json!(display_path)));
-        }
-        #[cfg(unix)]
-        let second_name = std::os::unix::fs::MetadataExt::nlink(m) > 1;
-        #[cfg(not(unix))]
-        let second_name = false;
-        if second_name {
-            return Err(ToolError::new(
-                ErrorCode::InvalidArguments,
-                ptr,
-                format!("{display_path} has a second name (a hard link). Delete it, then try again."),
-            )
-            .with_received(json!(display_path)));
-        }
-        if m.permissions().readonly() {
-            return Err(ToolError::new(
-                ErrorCode::InvalidArguments,
-                ptr,
-                format!("{display_path} is read-only. Make it writable first, or choose a new path."),
-            )
-            .with_received(json!(display_path)));
-        }
-    }
-
-    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let dir = resolved.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| std::path::Path::new("."));
-    let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp = dir.join(format!("{OUTPUT_TEMP_PREFIX}{}-{seq}.tmp", std::process::id()));
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.custom_flags(libc::O_NOFOLLOW);
-        if old.is_some() {
-            opts.mode(0o600);
-        }
-    }
-    let mut file = opts.open(&tmp).map_err(&map_io_err)?;
-    let write_res = (|| -> std::io::Result<()> {
-        if let Some(ref old) = old {
-            file.set_permissions(old.permissions())?;
-        }
-        fill_file(&mut file)?;
-        drop(file);
-        std::fs::rename(&tmp, resolved)
-    })();
-    if let Err(e) = write_res {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(map_io_err(e));
-    }
-    Ok(())
+    // The replace is the library's no-follow writer: it opens the existing file without following a link and checks it (a link, a
+    // second name, a folder, a pipe, a file the process may not write are refused), streams `fill` into a temporary file beside it,
+    // copies the mode and, on macOS, the ACL and extended attributes, and renames over the target. A failed `fill` leaves the old
+    // file as it was. It makes no folder: the caller has checked that the parent exists.
+    designos_library::write_atomic_with_no_follow(resolved, fill).map_err(|err| match err {
+        designos_library::LibraryError::Io(io) => map_io_err(io),
+        other => ToolError::new(
+            ErrorCode::InternalError,
+            ptr,
+            format!("{display_path} can't be written: {other}. Check its permissions and free space, then try again."),
+        ),
+    })
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -7182,5 +7124,15 @@ mod tests {
                 }
             })
         );
+    }
+
+    /// A write that fails because the disk is read-only or full is for a person to fix. The no-follow writer hands such an error
+    /// on as it came (only a refusal by the file itself is its typed `NotWritable`), so a read-only volume lands here.
+    #[cfg(unix)]
+    #[test]
+    fn an_overwrite_on_a_read_only_volume_asks_for_a_human() {
+        let volume = std::io::Error::from_raw_os_error(libc::EROFS);
+        assert!(super::write_needs_human(&volume), "{volume}");
+        assert_eq!(designos_library::no_follow_refusal(&volume), None);
     }
 }
