@@ -102,8 +102,10 @@ fn an_agent_delete_inside_a_group_reaches_the_editor_with_the_same_layout() {
     let mut agent_doc = app.doc.clone();
     let cmd = Command::Remove { id: a };
     let ops = live_ops_for_command(&agent_doc, &cmd).expect("the delete can be mirrored");
-    let patch: LivePatch = serde_json::from_str(&serde_json::to_string(&LivePatch::new(ops)).unwrap()).unwrap();
-    History::default().exec_agent(&mut agent_doc, cmd).expect("the agent applies it");
+    let mut agent_history = History::default();
+    agent_history.exec_agent(&mut agent_doc, cmd).expect("the agent applies it");
+    let patch: LivePatch =
+        serde_json::from_str(&serde_json::to_string(&LivePatch::new(ops).with_layout(agent_history.take_last_exec_layout())).unwrap()).unwrap();
     assert_eq!(agent_doc.get(group).unwrap().size.x, 40.0, "precondition: the agent side refit the group");
 
     crate::live_patch_apply::apply_live_patches(&mut app, &[patch]);

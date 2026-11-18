@@ -109,7 +109,8 @@ fn a_newer_document_switch_is_still_a_switch() {
 #[test]
 fn a_line_without_the_layout_field_reads_and_replays_and_the_field_round_trips() {
     let (mut doc, frame) = doc_with_frame();
-    let old_line = format!(r#"{{"v":2,"ops":[{{"op":"remove","id":{}}}]}}"#, frame.0);
+    let old_line = serde_json::to_string(&remove_patch(frame, LIVE_PATCH_VERSION)).unwrap();
+    assert!(!old_line.contains("layout"), "a build that sent no layout writes no field: {old_line}");
     let patch: LivePatch = serde_json::from_str(&old_line).expect("a line from a build that sent no layout still reads");
     assert_eq!(patch.layout, None);
     assert_eq!(replay(&mut doc, &patch).applied, 1);
