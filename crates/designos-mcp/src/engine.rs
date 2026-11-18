@@ -80,6 +80,8 @@ pub struct Engine {
     /// Edits executed since the last [`Engine::take_live_ops`], recorded while an open editor
     /// mirrors this session (`None` = not recording).
     pub live_ops: Option<Vec<LiveOp>>,
+    /// The layout the history steps behind [`Self::live_ops`] solved, merged, until [`Engine::take_live_layout`].
+    pub live_layout: designos_doc::ExecLayout,
     /// Connector reroute warnings produced by the last mutating tool call.
     pub reroute_warnings: Vec<designos_doc::SpecWarning>,
     /// Undo-group label attached to the next [`designos_doc::live_patch::LivePatch`] line when set.
@@ -147,6 +149,7 @@ impl Default for Engine {
             default_run_id: None,
             default_agent: None,
             live_ops: None,
+            live_layout: designos_doc::ExecLayout::default(),
             reroute_warnings: Vec::new(),
             live_patch_label: None,
             owned_frames: None,
@@ -1419,7 +1422,7 @@ impl Engine {
     /// for what it wrote.
     pub(crate) fn relayout_seeds(&mut self, leaves: &[NodeId], containers: &[NodeId]) {
         let ep = self.doc.mutation_epoch();
-        crate::tools::batch::relayout_seeds(&mut self.doc, leaves, containers);
+        self.solve_after_step(|doc| crate::tools::batch::relayout_seeds(doc, leaves, containers));
         if self.doc.mutation_epoch() != ep && designos_doc::with_index(&self.doc, |idx| !idx.is_empty()) {
             let mut dirty = Vec::new();
             let mut removed = Vec::new();
@@ -1508,6 +1511,16 @@ impl Engine {
         scope
     }
 
+    /// Runs a solve that follows the step just committed. The step already holds the layout its own command caused;
+    /// when this solve reaches a node that command did not, its write is in no step, so the last step stops
+    /// counting as layout-recorded and undo solves again.
+    pub(crate) fn solve_after_step(&mut self, solve: impl FnOnce(&mut Document)) {
+        let ((), written) = self.doc.record_node_writes(solve);
+        if written.iter().any(|(id, before)| self.doc.get(*id) != Some(before)) {
+            self.history.forget_last_layout_recorded();
+        }
+    }
+
     /// Finishes any auto-layout the document still has deferred. Callers that serialize or
     /// export the document directly call this first.
     pub fn settle_layout(&mut self) {
@@ -1555,6 +1568,7 @@ impl Engine {
         }
         let ops = self.live_ops_for_parts(&w.parts)?;
         self.history.exec(&mut self.doc, w.cmd).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+        self.note_exec_layout();
         self.revision = self.revision.wrapping_add(1);
         self.record(ops);
         self.reroute_in_last_step(&touched)?;
@@ -1672,10 +1686,12 @@ impl Engine {
             };
             cmds.extend(reroute_parts);
             let combined = if cmds.len() == 1 { cmds.pop().unwrap() } else { Command::Batch(cmds) };
-            self.history.exec_labeled(&mut self.doc, combined, label).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+            // The folded step holds the geometry the re-route planned and the layout of the step it joins; a
+            // solve of its own would put a flow-child connector back in its slot (see `reroute_after_batch_layout`).
+            self.history.exec_laid_out(&mut self.doc, combined, label).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
         } else {
             let cmd = if reroute_parts.len() == 1 { reroute_parts.pop().unwrap() } else { Command::Batch(reroute_parts) };
-            self.history.exec(&mut self.doc, cmd).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+            self.history.exec_laid_out(&mut self.doc, cmd, None).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
         }
         self.record(ops);
         Ok(true)
@@ -1713,6 +1729,20 @@ impl Engine {
         if let Some(log) = &mut self.live_ops {
             log.extend(ops);
         }
+    }
+
+    /// Takes the layout the step just executed solved off the history and, while an open editor mirrors this
+    /// session, keeps it for the patch that carries the step's ops.
+    pub(crate) fn note_exec_layout(&mut self) {
+        let layout = self.history.take_last_exec_layout();
+        if let (Some(layout), Some(_)) = (layout, &self.live_ops) {
+            self.live_layout.merge(layout);
+        }
+    }
+
+    /// Drains the layout recorded since the last call (`None` when no step solved any).
+    pub fn take_live_layout(&mut self) -> Option<designos_doc::ExecLayout> {
+        Some(std::mem::take(&mut self.live_layout)).filter(|l| !l.is_empty())
     }
 
     /// Drains the edits recorded since the last call.

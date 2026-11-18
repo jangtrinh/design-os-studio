@@ -270,7 +270,8 @@ impl App {
             // Edits to a main component's layers carry over to its instances.
             cmd = crate::comp_ops::with_sync(&mut self.doc, cmd);
         }
-        match self.hist.exec(&mut self.doc, cmd) {
+        // The command holds the layout the bound edit reflowed on the trial copy, so the step solves nothing itself.
+        match self.hist.exec_laid_out(&mut self.doc, cmd, None) {
             Ok(()) => {
                 self.changed();
                 self.sanitize();

@@ -493,10 +493,19 @@ fn has_auto_layout(doc: &Document, id: NodeId) -> bool {
 /// alternating groups and auto-layout frames each read the updated size of the level below.
 /// Stops on any branch where a container's bounds did not change.
 pub(crate) fn climb_groups_and_relayout(doc: &mut Document, changed: &[NodeId], initial_seeds: &[NodeId]) -> BTreeMap<NodeId, Node> {
+    let containers: Vec<NodeId> = changed.iter().filter_map(|&id| doc.get(id).and_then(|n| n.parent)).collect();
+    climb_containers_and_relayout(doc, &containers, initial_seeds)
+}
+
+/// [`climb_groups_and_relayout`] starting from the containers themselves: each of `containers`, when it is a
+/// group, is fitted too, and so is every group above it. For a container that lost, gained or changed a child.
+/// Returns the nodes as they were before the fit (the groups and their children), so a history step can put
+/// them back; auto-layout frames are solved and are not in it.
+pub(crate) fn climb_containers_and_relayout(doc: &mut Document, containers: &[NodeId], initial_seeds: &[NodeId]) -> BTreeMap<NodeId, Node> {
     let cap = doc.nodes.len();
     let mut groups = BTreeSet::new();
-    for &id in changed {
-        let mut cur = doc.get(id).and_then(|n| n.parent);
+    for &start in containers {
+        let mut cur = Some(start);
         let mut steps = 0usize;
         while let Some(parent) = cur {
             if steps >= cap {
@@ -528,8 +537,8 @@ pub(crate) fn climb_groups_and_relayout(doc: &mut Document, changed: &[NodeId], 
     for &s in initial_seeds {
         worklist.insert((group_depth(doc, s), s));
     }
-    for &id in changed {
-        if let Some(p) = doc.get(id).and_then(|n| n.parent) {
+    for &p in containers {
+        if doc.get(p).is_some() {
             worklist.insert((group_depth(doc, p), p));
         }
     }
@@ -543,7 +552,7 @@ pub(crate) fn climb_groups_and_relayout(doc: &mut Document, changed: &[NodeId], 
         climb_steps += 1;
         if doc.get(cur).is_some_and(|n| matches!(n.kind, NodeKind::Group)) {
             let before_rect = doc.get(cur).map(|n| (n.size, n.transform));
-            let _ = apply_resize_to_fit_one(doc, cur, |d, touched| {
+            let _ = fit_group_to_children(doc, cur, |d, touched| {
                 if let Some(n) = before_group_fit.get(&touched).cloned().or_else(|| d.get(touched).cloned()) {
                     old_nodes.entry(touched).or_insert(n);
                 }

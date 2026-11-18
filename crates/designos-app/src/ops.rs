@@ -522,7 +522,9 @@ impl App {
         }
         let cmd = if updates.len() == 1 { updates.into_iter().next().unwrap() } else { Command::Batch(updates) };
         let cmd = crate::comp_ops::with_sync(&mut self.doc, cmd);
-        match self.hist.exec(&mut self.doc, cmd) {
+        // The scrub laid the document out while it ran: its updates hold that layout, and a solve of the step's
+        // own would write outside them (and mark a step over a partial snapshot as recorded).
+        match self.hist.exec_laid_out(&mut self.doc, cmd, None) {
             Ok(()) if whole_doc => {
                 self.hist.mark_last_undo_as_layout_recorded(&self.doc, self.scrub_opened_at);
             }
