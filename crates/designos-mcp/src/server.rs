@@ -158,7 +158,8 @@ pub struct Session {
     next_close_id: u64,
     /// The last close was cancelled or refused by the editor: the close line it left in the log is no change to the document.
     close_retry_safe: bool,
-    /// A live close of this session's tab succeeded: the tab is gone, so every later call that would reach the editor is refused.
+    /// This session's tab is known to be closed: its own live close succeeded, or the editor's mark was seen. It stays set, so every
+    /// later call that would reach the editor is refused, even after the file is opened again in a new tab on the same folder.
     live_tab_closed: bool,
 }
 
@@ -645,7 +646,7 @@ impl Session {
     pub fn publish_live_patch(&mut self) -> Result<(), PublishError> {
         let ops = self.engine.take_live_ops();
         let label = self.engine.live_patch_label.take();
-        let Some(path) = self.bridge.live_doc_patch_path.as_ref().filter(|_| !ops.is_empty()) else {
+        let Some(path) = self.bridge.live_doc_patch_path.clone().filter(|_| !ops.is_empty()) else {
             return Ok(());
         };
         self.refuse_write_into_closed_tab()?;
@@ -660,7 +661,6 @@ impl Session {
         }
         let base = self.canvas_base_nanos();
         let line = live_patch_line(&LivePatch::new(ops).with_base(base).with_label(label), self.max_live_patch_bytes)?;
-        let path = path.clone();
         Ok(append_log_line(&path, &line)?)
     }
 
@@ -1032,13 +1032,20 @@ impl Session {
     }
 
     /// Whether this session's editor tab is closed, by the person or by this session's own close. Its session is then over for good:
-    /// nothing that would reach the editor is done, and nothing is written into its folder.
-    fn tab_is_closed(&self) -> bool {
-        self.live_editor() && (self.live_tab_closed || self.editor_tab_is_gone())
+    /// nothing that would reach the editor is done, and nothing is written into its folder. The first sight of the editor's mark is
+    /// kept, because a new tab of the same file clears the mark and its edits must not take this session's.
+    fn tab_is_closed(&mut self) -> bool {
+        if !self.live_editor() {
+            return false;
+        }
+        if !self.live_tab_closed && self.editor_tab_is_gone() {
+            self.live_tab_closed = true;
+        }
+        self.live_tab_closed
     }
 
     /// Refuses an edit, an open or a new document once the tab is closed, before anything is changed.
-    fn ensure_editor_tab_open(&self) -> Result<(), ToolError> {
+    fn ensure_editor_tab_open(&mut self) -> Result<(), ToolError> {
         if self.tab_is_closed() {
             return Err(Self::tab_closed_write_error());
         }
@@ -1047,7 +1054,7 @@ impl Session {
 
     /// The last check before the first byte goes into the session folder. It narrows the race with a tab that closes during the call,
     /// but does not close it: an edit appended after the editor's last read of the log and before the tab is marked closed is lost.
-    fn refuse_write_into_closed_tab(&self) -> Result<(), PublishError> {
+    fn refuse_write_into_closed_tab(&mut self) -> Result<(), PublishError> {
         if self.tab_is_closed() {
             return Err(PublishError::TabClosed);
         }

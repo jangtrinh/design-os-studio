@@ -411,6 +411,34 @@ fn an_edit_after_the_person_closed_a_library_file_tab_is_refused_and_writes_noth
     finish(s, workspace);
 }
 
+/// A session whose tab the person closed stays refused after the file is opened again: the new tab clears the mark on the same folder,
+/// and an edit from the old session, made on the document it held before the close, must not reach the new tab.
+#[test]
+fn an_edit_from_a_session_whose_tab_closed_stays_refused_after_the_file_is_opened_again() {
+    let (mut s, dir) = library_sim();
+    let (mut session, workspace) = mcp_on_the_shown_tab(&mut s, &dir);
+    let session_dir = s.app().terminal.session_dir.clone();
+    let file_id = s.app().lib_file.as_ref().expect("library file").id.clone();
+    let node = s.app().doc.get(s.app().page).unwrap().children[0].0;
+    let id = tab_id(&s, 0);
+    s.shell.app.request_leave(None, Leave::CloseTab(id));
+    wait(&mut s, SETTLED);
+    let files = files_in(&session_dir);
+    assert_edit_refused_as_closed(&mut session, node, &session_dir, &files, "while the tab is closed");
+    crate::home::apply(&mut s.shell.app, crate::home::Act::Open(file_id));
+    wait(&mut s, SETTLED);
+    assert_eq!(s.app().terminal.session_dir, session_dir, "the file is open again on the same folder");
+    assert!(!session_dir.join("tab-closed.json").exists(), "the new tab cleared the mark");
+    let log = s.app().terminal.live_patch.path.clone();
+    let before = std::fs::metadata(&log).map_or(0, |m| m.len());
+    let err = session.call("designos_update_node", json!({"node_id": node, "name": "Late edit"})).map_err(|e| e.to_json_value()).expect_err("still refused");
+    assert_eq!(err["code"], "EDITOR_NOT_NOTIFIED", "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
+    assert_stops_the_agent(&err, "after the file is opened again");
+    assert_eq!(std::fs::metadata(&log).map_or(0, |m| m.len()), before, "nothing reached the new tab's log");
+    finish(s, workspace);
+}
+
 #[test]
 fn a_close_after_the_person_closed_a_library_file_tab_is_tab_closed_not_a_timeout() {
     for args in [json!({}), json!({"unsaved": "save"}), json!({"unsaved": "discard"})] {

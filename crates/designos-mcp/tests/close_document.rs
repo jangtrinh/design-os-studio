@@ -513,6 +513,25 @@ fn an_edit_after_the_tab_left_its_mark_is_refused_and_writes_nothing() {
     }
 }
 
+/// A new tab of the same file clears the mark on the same folder. A session that saw its tab closed stays refused and writes nothing
+/// there; a new session on that folder is the new tab's and works, since nothing in the folder tells it of the earlier tab.
+#[test]
+fn a_session_that_saw_its_tab_closed_stays_refused_after_the_mark_is_cleared() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = closed_tab_folder(&dir, 22);
+    let page = page_id(&mut s);
+    let edit = json!({"parent_id": page, "kind": "frame", "name": "Late"});
+    let err = s.call("designos_create_node", edit.clone()).unwrap_err().to_json_value();
+    assert_write_refused_as_closed(&err, "while the mark is there");
+    fs::remove_file(session_dir.join(CloseIntent::TAB_CLOSED_FILE)).unwrap();
+    let before = files_in(&session_dir);
+    let err = s.call("designos_create_node", edit.clone()).map_err(|e| e.to_json_value()).expect_err("still refused");
+    assert_write_refused_as_closed(&err, "after the mark is cleared");
+    assert_eq!(files_in(&session_dir), before, "nothing was written into the folder");
+    let mut fresh = Session::with_session_dir(&dir.0, &session_dir).unwrap();
+    fresh.call("designos_create_node", edit).expect("a new session on the folder works");
+}
+
 /// Opening or creating a document writes the whole document into the folder: refused the same way, and the open document stays.
 #[test]
 fn opening_or_creating_a_document_after_the_tab_left_its_mark_is_refused_and_writes_nothing() {
@@ -772,7 +791,8 @@ fn a_tab_closed_while_a_close_waits_writes_no_cancel_and_is_already_closed() {
     for policy in ["save", "fail", "discard"] {
         let dir = Workspace::new();
         let (session_dir, mut s) = live_session(&dir, 21);
-        s.set_close_ack_timeout(Duration::from_millis(400));
+        // Long enough that the mark is surely there when the wait ends, on a loaded runner too.
+        s.set_close_ack_timeout(Duration::from_secs(2));
         let marker_dir = session_dir.clone();
         let editor = thread::spawn(move || {
             let end = Instant::now() + Duration::from_secs(5);
