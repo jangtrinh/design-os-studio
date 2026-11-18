@@ -35,7 +35,7 @@ const KIT_FRAMES: &[FrameExpected] = &[
         name: "Dashboards 01 Desktop",
         expected_w: 1524.0,
         expected_h: 1257.0,
-        known_open: Some("fill-less children widen the frame"),
+        known_open: Some("the Series 2 frame inside reaches 1528; the rule that stops Figma at 1524 is not located yet"),
     },
     FrameExpected { source_id: "1689:439089", name: "Informational pages 01 Desktop", expected_w: 1440.0, expected_h: 966.0, known_open: None },
     FrameExpected { source_id: "1673:402973", name: "Settings pages 01 Desktop", expected_w: 1440.0, expected_h: 966.0, known_open: None },
