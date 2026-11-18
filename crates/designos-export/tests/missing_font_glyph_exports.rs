@@ -3,6 +3,8 @@
 
 #[path = "../../designos-fig/tests/common/missing_font_fig.rs"]
 mod missing_font_fig;
+// the shared PDF reader has more helpers than this file needs
+#[allow(dead_code)]
 mod pdf_probe;
 
 use designos_doc::{Document, NodeId};
