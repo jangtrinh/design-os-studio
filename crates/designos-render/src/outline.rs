@@ -66,6 +66,29 @@ pub fn decoded_image(doc: &Document, image_ref: &str) -> Option<Rc<sk::Pixmap>> 
     crate::paint::load_image(doc, image_ref, None)
 }
 
+/// The mean colour of a document image, or `None` when the image is missing, cannot be decoded or is
+/// fully transparent. The colour is the alpha-weighted mean of the pixels and `a` is their mean
+/// alpha, so the result reads as one translucent fill. This is the image sampler connector ink uses
+/// to pick a line colour (see `designos_doc::default_connector_ink_with_images`).
+pub fn decoded_image_mean(doc: &Document, image_ref: &str) -> Option<d::Color> {
+    let pixmap = decoded_image(doc, image_ref)?;
+    // The pixmap is premultiplied, so summing its colour channels already weights each pixel by its
+    // alpha: the straight mean colour is that sum over the summed alpha.
+    let (mut r, mut g, mut b, mut alpha) = (0u64, 0u64, 0u64, 0u64);
+    for px in pixmap.pixels() {
+        r += u64::from(px.red());
+        g += u64::from(px.green());
+        b += u64::from(px.blue());
+        alpha += u64::from(px.alpha());
+    }
+    if alpha == 0 {
+        return None;
+    }
+    let weight = alpha as f64;
+    let pixels = pixmap.pixels().len() as f64;
+    Some(d::Color { r: (r as f64 / weight) as f32, g: (g as f64 / weight) as f32, b: (b as f64 / weight) as f32, a: (weight / (pixels * 255.0)) as f32 })
+}
+
 /// True when `s` carries a non-zero dash pattern.
 pub fn has_dashes(s: &d::Stroke) -> bool {
     !s.dashes.is_empty() && s.dashes.iter().all(|d| *d >= 0.0) && s.dashes.iter().sum::<f32>() > 0.0

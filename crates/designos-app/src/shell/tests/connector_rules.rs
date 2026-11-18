@@ -421,6 +421,44 @@ fn default_ink_has_rendered_contrast_on_an_opaque_gradient() {
 }
 
 #[test]
+fn default_ink_has_rendered_contrast_on_a_dark_image_fill() {
+    use image::ImageEncoder;
+
+    let mut s = design_sim();
+    let page = s.app().page;
+    let screen = add(
+        &mut s,
+        page,
+        |id| {
+            let mut n = Node::frame(id, DRect::new(80.0, 80.0, 640.0, 360.0));
+            n.fills = vec![Paint::solid(Color::WHITE)];
+            n
+        },
+        "Light screen",
+    );
+    let wrapper = add(&mut s, screen, |id| Node::frame(id, DRect::new(0.0, 0.0, 640.0, 360.0)), "Image surface");
+    let mut bytes = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut bytes).write_image(&[0, 0, 0, 255], 1, 1, image::ExtendedColorType::Rgba8).expect("encode image fixture");
+    s.shell.app.doc.images.insert("dark-surface".into(), bytes);
+    set_connector_surface(
+        &mut s,
+        wrapper,
+        Paint {
+            kind: PaintKind::Image { image_ref: "dark-surface".into(), scale_mode: designos_doc::ImageScaleMode::Fill, params: Default::default() },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        },
+    );
+    let a = rectangle(&mut s, wrapper, "Image A", 40.0, 100.0);
+    let b = rectangle(&mut s, wrapper, "Image B", 420.0, 100.0);
+    let c = connect_deep(&mut s, a, b);
+    assert_eq!(ink_of(&s, c), Color::WHITE, "a dark image must select the light connector ink");
+    let ratio = rendered_line_contrast(&s, c);
+    assert!(ratio >= 3.0, "image connector pixels must reach 3:1, got {ratio:.2}:1");
+}
+
+#[test]
 fn default_ink_has_rendered_contrast_through_a_translucent_fill() {
     let mut s = design_sim();
     let page = s.app().page;

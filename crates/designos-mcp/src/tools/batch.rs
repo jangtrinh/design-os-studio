@@ -3136,7 +3136,9 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
 
                     let id = trial.alloc_id();
                     let mut node = designos_doc::Node::connector(id, props);
-                    node.stroke.paints = vec![designos_doc::Paint::solid(designos_doc::default_connector_ink(&trial, home))];
+                    node.stroke.paints = vec![designos_doc::Paint::solid(designos_doc::default_connector_ink_with_images(&trial, home, &|image_ref| {
+                        designos_render::decoded_image_mean(&trial, image_ref)
+                    }))];
                     if let Some(name) = &a.name {
                         node.name = name.clone();
                     }

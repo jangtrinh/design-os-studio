@@ -114,10 +114,16 @@ fn connector_ink_on_light() -> Color {
 /// counted: the connector sits inside that layer, so it fades the line and the fill together.
 const SURFACE_MIN_ALPHA: f32 = 0.35;
 
+/// The mean colour of an image, asked of the caller by image reference: the colour of the decoded
+/// pixels averaged and weighted by alpha, with `a` the mean alpha. `None` when the image cannot be
+/// read, which makes it an unknown surface. designos-doc decodes no images itself.
+pub type ImageMean<'a> = &'a dyn Fn(&str) -> Option<Color>;
+
 /// The mean colour and effective alpha of a paint, or `None` when it is not a usable surface. This
 /// is a small estimator, not a renderer: connector ink is chosen once when a connector is created,
-/// and a gradient is read as the mean of its stops because the connector's geometry is not known yet.
-fn paint_surface(doc: &Document, paint: &crate::Paint) -> Option<(Color, f32)> {
+/// a gradient is read as the mean of its stops, and an image as the mean of its pixels, because the
+/// connector's geometry is not known yet.
+fn paint_surface(paint: &crate::Paint, image_mean: ImageMean) -> Option<(Color, f32)> {
     // The connector decision runs in the document crate, before a renderer is
     // available.  Keep the estimator honest for blend modes whose result
     // depends on the destination: skipping them falls back to the next known
@@ -149,8 +155,11 @@ fn paint_surface(doc: &Document, paint: &crate::Paint) -> Option<(Color, f32)> {
             color.a = alpha_sum / stops.len() as f32;
             (color, color.a * paint.opacity)
         }
-        // Images are read through a caller-supplied sampler; see the next change.
-        PaintKind::Image { .. } | PaintKind::Shader(_) => return None,
+        PaintKind::Image { image_ref, .. } => {
+            let mean = image_mean(image_ref)?;
+            (mean, mean.a * paint.opacity)
+        }
+        PaintKind::Shader(_) => return None,
     };
     (alpha >= SURFACE_MIN_ALPHA).then_some((Color { a: 1.0, ..color }, alpha.clamp(0.0, 1.0)))
 }
@@ -162,9 +171,9 @@ fn paint_over(top: (Color, f32), below: Color) -> Color {
 
 /// The surface a connector homed in `home` is drawn on. Visible solid and gradient paints are
 /// composited from the page toward the connector; a translucent paint therefore affects the
-/// contrast check without hiding the surface underneath it. Unsupported blend modes, images and
-/// shaders are skipped explicitly and fall back to the next known surface.
-fn surface_behind(doc: &Document, home: NodeId) -> Option<Color> {
+/// contrast check without hiding the surface underneath it. Unsupported blend modes, shaders and
+/// images `image_mean` cannot read are skipped explicitly and fall back to the next known surface.
+fn surface_behind(doc: &Document, home: NodeId, image_mean: ImageMean) -> Option<Color> {
     let mut ancestors = strict_ancestors(doc, home);
     ancestors.reverse();
     ancestors.push(home);
@@ -179,7 +188,7 @@ fn surface_behind(doc: &Document, home: NodeId) -> Option<Color> {
             continue;
         }
         for paint in n.fills.iter().filter(|p| p.visible) {
-            if let Some(surface_paint) = paint_surface(doc, paint) {
+            if let Some(surface_paint) = paint_surface(paint, image_mean) {
                 surface = paint_over(surface_paint, surface);
             }
         }
@@ -189,20 +198,27 @@ fn surface_behind(doc: &Document, home: NodeId) -> Option<Color> {
 
 /// The ink of a new connector homed in `home` when nobody picked one: the dark board ink, or
 /// white when that ink would fall below 3:1 contrast against the surface behind the connector (a
-/// dark page, a dark screen or a dark gradient). See [`connector_ink_on`].
+/// dark page, a dark screen or a dark gradient). Images are not read here: use
+/// [`default_connector_ink_with_images`] where they can be decoded. See [`connector_ink_on`].
 pub fn default_connector_ink(doc: &Document, home: NodeId) -> Color {
-    connector_ink_on(doc, home, connector_ink_on_light(), Color::WHITE)
+    default_connector_ink_with_images(doc, home, &|_| None)
+}
+
+/// [`default_connector_ink`] that also reads image fills through `image_mean` (see [`ImageMean`]).
+pub fn default_connector_ink_with_images(doc: &Document, home: NodeId, image_mean: ImageMean) -> Color {
+    connector_ink_on(doc, home, connector_ink_on_light(), Color::WHITE, image_mean)
 }
 
 /// Picks `on_light`, or `on_dark` when `on_light` would fall below 3:1 contrast against the
 /// surface a connector homed in `home` is drawn on and `on_dark` reads better there. The surface is
 /// the page background with the visible fills of the connector's ancestors painted over it, from the
-/// page down to `home`. A board file is drawn on its own light canvas, so it always gets `on_light`.
-pub fn connector_ink_on(doc: &Document, home: NodeId, on_light: Color, on_dark: Color) -> Color {
+/// page down to `home`; an image fill counts as the mean `image_mean` returns for it. A board file
+/// is drawn on its own light canvas, so it always gets `on_light`.
+pub fn connector_ink_on(doc: &Document, home: NodeId, on_light: Color, on_dark: Color, image_mean: ImageMean) -> Color {
     if doc.kind == DocumentKind::Board {
         return on_light;
     }
-    match surface_behind(doc, home) {
+    match surface_behind(doc, home, image_mean) {
         Some(surface) => {
             let light_ratio = contrast_ratio(on_light, surface);
             let dark_ratio = contrast_ratio(on_dark, surface);
@@ -573,6 +589,63 @@ mod tests {
         );
     }
 
+    fn image_paint(image_ref: &str) -> Paint {
+        Paint {
+            kind: PaintKind::Image { image_ref: image_ref.into(), scale_mode: crate::ImageScaleMode::Fill, params: Default::default() },
+            opacity: 1.0,
+            visible: true,
+            blend: crate::BlendMode::Normal,
+        }
+    }
+
+    #[test]
+    fn connector_ink_reads_an_image_as_the_mean_the_sampler_gives() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (_, wrapper) = make_screen_with_wrapper(&mut doc, page);
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![image_paint("photo")];
+        let asked = std::cell::RefCell::new(Vec::new());
+        let dark_photo = |image_ref: &str| {
+            asked.borrow_mut().push(image_ref.to_string());
+            Some(Color::rgb(0x10, 0x10, 0x10))
+        };
+        assert_eq!(default_connector_ink_with_images(&doc, wrapper, &dark_photo), Color::WHITE, "a dark image is a dark surface");
+        assert_eq!(asked.into_inner(), vec!["photo".to_string()], "the sampler is asked for the image the paint references");
+
+        let light_photo = |_: &str| Some(Color::rgb(0xF0, 0xF0, 0xF0));
+        let mut dark_screen = Document::new("Test");
+        let dark_page = dark_screen.add_page("Page 1");
+        let (screen, wrapper) = make_screen_with_wrapper(&mut dark_screen, dark_page);
+        dark_screen.get_mut(screen).expect("screen").fills = vec![Paint::solid(Color::BLACK)];
+        dark_screen.get_mut(wrapper).expect("wrapper").fills = vec![image_paint("photo")];
+        assert_eq!(
+            default_connector_ink_with_images(&dark_screen, wrapper, &light_photo),
+            Color::rgb(0x1E, 0x1E, 0x1E),
+            "a light image on a dark screen is a light surface"
+        );
+    }
+
+    #[test]
+    fn connector_ink_treats_an_unreadable_or_faint_image_as_the_surface_below() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (screen, wrapper) = make_screen_with_wrapper(&mut doc, page);
+        doc.get_mut(screen).expect("screen").fills = vec![Paint::solid(Color::WHITE)];
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![image_paint("photo")];
+        let dark = Color::rgb(0x1E, 0x1E, 0x1E);
+        assert_eq!(default_connector_ink(&doc, wrapper), dark, "no sampler answer gives the result an image-blind document gets");
+        assert_eq!(default_connector_ink_with_images(&doc, wrapper, &|_| None), dark, "a sampler that cannot decode leaves the white screen as the surface");
+
+        let faint = |_: &str| Some(Color { a: 0.2, ..Color::BLACK });
+        assert_eq!(default_connector_ink_with_images(&doc, wrapper, &faint), dark, "an image that is mostly transparent is not a surface");
+
+        let mut half = image_paint("photo");
+        half.opacity = 0.2;
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![half];
+        let opaque_black = |_: &str| Some(Color::BLACK);
+        assert_eq!(default_connector_ink_with_images(&doc, wrapper, &opaque_black), dark, "paint opacity counts toward the surface alpha");
+    }
+
     #[test]
     fn connector_ink_gives_a_dark_wrapper_faded_by_its_layer_opacity_the_light_ink() {
         let mut doc = Document::new("Test");
@@ -621,8 +694,8 @@ mod tests {
         let mut doc = Document::new("Test");
         let page = doc.add_page("Page 1");
         let (light_ink, dark_ink) = (Color::rgb(0x10, 0x20, 0x30), Color::rgb(0xF0, 0xE0, 0xD0));
-        assert_eq!(connector_ink_on(&doc, page, light_ink, dark_ink), dark_ink, "the near-black ink is below 3:1 on the dark default page");
+        assert_eq!(connector_ink_on(&doc, page, light_ink, dark_ink, &|_| None), dark_ink, "the near-black ink is below 3:1 on the dark default page");
         set_page_background(&mut doc, page, Color::WHITE);
-        assert_eq!(connector_ink_on(&doc, page, light_ink, dark_ink), light_ink);
+        assert_eq!(connector_ink_on(&doc, page, light_ink, dark_ink, &|_| None), light_ink);
     }
 }
