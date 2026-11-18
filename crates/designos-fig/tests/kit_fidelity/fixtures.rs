@@ -33,6 +33,42 @@ pub fn auto_layout_fig(second_x: f32) -> Vec<u8> {
     fig(vec![frame, a, b], vec![])
 }
 
+/// A rectangle of `size` whose stored fill outline is the 10 x 10 square of blob 0.
+pub fn rectangle_fig(size: f32) -> Vec<u8> {
+    let r = layer(2, (0, 1), "!", "RECTANGLE", (size, size), (0.0, 0.0), vec![("fillGeometry", geometry(0))]);
+    fig(vec![r], vec![designos_fig::testkit::square_blob()])
+}
+
+/// Commands blob of the band Figma stores for a weight-1 INSIDE stroke of a 10 x 10 box: the centred band of
+/// twice the weight, from -1 to 11 outside and 1 to 9 inside.
+pub fn double_band_blob() -> Vec<u8> {
+    let mut b = Vec::new();
+    for ring in [[(-1.0f32, -1.0f32), (11.0, -1.0), (11.0, 11.0), (-1.0, 11.0)], [(1.0, 1.0), (9.0, 1.0), (9.0, 9.0), (1.0, 9.0)]] {
+        for (i, (x, y)) in ring.iter().enumerate() {
+            b.push(if i == 0 { 1u8 } else { 2 });
+            b.extend(x.to_le_bytes());
+            b.extend(y.to_le_bytes());
+        }
+        b.push(0);
+    }
+    b
+}
+
+/// A 10 x 10 rectangle with an INSIDE stroke of `weight`, stored as the band of a weight-1 stroke.
+pub fn inside_stroke_fig(weight: f32) -> Vec<u8> {
+    let stroke = V::Array(vec![msg(vec![("windingRule", en("ODD")), ("commandsBlob", V::Uint(1)), ("styleID", V::Uint(0))])]);
+    let r = layer(
+        2,
+        (0, 1),
+        "!",
+        "RECTANGLE",
+        (10.0, 10.0),
+        (0.0, 0.0),
+        vec![("strokeWeight", fl(weight)), ("strokeAlign", en("INSIDE")), ("fillGeometry", geometry(0)), ("strokeGeometry", stroke)],
+    );
+    fig(vec![r], vec![designos_fig::testkit::square_blob(), double_band_blob()])
+}
+
 /// A frame carrying the string field `version` (not in the importer's field list): kept as metadata when it has a
 /// value, dropped when it is empty.
 pub fn version_fig(value: &str) -> Vec<u8> {

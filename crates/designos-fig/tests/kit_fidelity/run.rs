@@ -3,12 +3,12 @@
 
 use super::board::{self, Part};
 use super::keys::NodeKeys;
-use super::{import_cov, layout, raw, report, save_loss};
+use super::{geometry, import_cov, layout, raw, report, save_loss};
 use serde_json::json;
 use std::collections::HashSet;
 use std::time::Instant;
 
-pub const PARTS: [&str; 3] = ["auto_layout", "import_coverage", "save_loss"];
+pub const PARTS: [&str; 4] = ["auto_layout", "import_coverage", "save_loss", "geometry"];
 
 pub fn run_kit() {
     let Some(kit) = std::env::var_os("DESIGNOS_KIT_PATH").or_else(|| std::env::var_os("KIT_CLONE")) else {
@@ -32,7 +32,9 @@ pub fn run_kit() {
         eprintln!("PRESENCE {k}: {}", board::thousands(*n));
     }
     let rec_keys = want("import_coverage").then(|| import_cov::truth(&r));
-    drop(r);
+    let geo = want("geometry").then(|| geometry::truth(&r));
+    let blobs = r.blobs;
+    drop(r.records);
     lap("raw decode and truth extraction", &mut timings);
 
     let mut doc = designos_fig::import_fig(&bytes).expect("import the kit");
@@ -72,6 +74,11 @@ pub fn run_kit() {
         lap("part 5 import coverage", &mut timings);
     }
     let hidden_guids: HashSet<String> = keys.by_source.iter().filter(|(_, id)| keys.is_hidden(**id)).map(|(g, _)| g.clone()).collect();
+    let mut late: Vec<Part> = Vec::new();
+    if let Some(g) = &geo {
+        late.push(geometry::part(g, &blobs, &doc, &keys));
+        lap("part 1 geometry", &mut timings);
+    }
     drop(doc);
     drop(keys);
     if let Some(saved) = saved {
@@ -80,6 +87,7 @@ pub fn run_kit() {
         parts.push(save_loss::part(&original, &saved_raw, &hidden_guids));
         lap("part 6 save loss", &mut timings);
     }
+    parts.extend(late);
     for &id in PARTS.iter().filter(|id| !want(id)) {
         let mut p = Part::new(id, id, "");
         p.not_measured = Some("left out of this run by SCOREBOARD_PARTS".into());

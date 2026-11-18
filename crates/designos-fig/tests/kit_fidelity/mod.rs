@@ -2,13 +2,16 @@
 
 pub mod board;
 pub mod feature;
+pub mod geometry;
 pub mod import_cov;
 pub mod keys;
 pub mod layout;
+pub mod raster;
 pub mod raw;
 pub mod report;
 pub mod run;
 pub mod save_loss;
+pub mod scratch;
 
 #[cfg(test)]
 mod fixtures;

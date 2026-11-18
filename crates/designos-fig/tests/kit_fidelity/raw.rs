@@ -82,6 +82,18 @@ pub fn field_str<'a>(v: &'a KiwiValue, k: &str) -> Option<&'a str> {
     v.get(k).and_then(str_of)
 }
 
+/// Entries of a `fillGeometry` / `strokeGeometry` array: (blob index, even-odd).
+pub fn geometry_of(v: &KiwiValue, key: &str) -> Vec<(usize, bool)> {
+    let Some(arr) = v.get(key).and_then(KiwiValue::as_array) else { return Vec::new() };
+    arr.iter()
+        .filter_map(|g| {
+            let idx = u64_of(g.get("commandsBlob")?)? as usize;
+            let odd = matches!(field_str(g, "windingRule"), Some("ODD" | "EVENODD"));
+            Some((idx, odd))
+        })
+        .collect()
+}
+
 /// Top-level field names of a record.
 pub fn keys_of(r: &KiwiValue) -> Vec<&str> {
     match r {

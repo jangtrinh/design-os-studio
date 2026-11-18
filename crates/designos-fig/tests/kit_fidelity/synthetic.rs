@@ -5,7 +5,7 @@ use super::board::Tally;
 use super::fixtures::*;
 use super::keys::NodeKeys;
 use super::raw::{self, Raw};
-use super::{import_cov, layout, save_loss};
+use super::{geometry, import_cov, layout, save_loss};
 use designos_doc::*;
 use designos_fig::kiwi::KiwiValue as V;
 use designos_fig::testkit::{en, fl, guid, msg, square_blob, triangle_blob};
@@ -65,4 +65,24 @@ fn save_loss_counts_a_changed_and_a_lost_key() {
     assert_eq!(p.details["key: opacity"].get("lost"), Some(&1));
     let other_bytes = Raw { records: vec![rect_record(Some(0.5), 0)], blobs: vec![triangle_blob()] };
     assert_eq!(save_loss::part(&original, &other_bytes, &HashSet::new()).bucket("key: fillGeometry")[0], t(0, 1), "an outline with other bytes");
+}
+
+#[test]
+fn geometry_counts_a_live_outline_off_the_stored_one() {
+    let (r, doc, keys) = load(&rectangle_fig(10.0));
+    let p = geometry::part(&geometry::truth(&r), &r.blobs, &doc, &keys);
+    assert_eq!(p.bucket("fill: total")[0], t(1, 1), "a 10 x 10 rectangle against its 10 x 10 outline");
+    let (r, doc, keys) = load(&rectangle_fig(20.0));
+    let p = geometry::part(&geometry::truth(&r), &r.blobs, &doc, &keys);
+    assert_eq!(p.bucket("fill: total")[0], t(0, 1), "a 20 x 20 rectangle against a 10 x 10 outline");
+}
+
+#[test]
+fn geometry_clips_a_stored_inside_band_by_the_fill_outline() {
+    let (r, doc, keys) = load(&inside_stroke_fig(1.0));
+    let p = geometry::part(&geometry::truth(&r), &r.blobs, &doc, &keys);
+    assert_eq!(p.bucket("stroke: align INSIDE")[0], t(1, 1), "a weight-1 inside stroke against the clipped stored band");
+    let (r, doc, keys) = load(&inside_stroke_fig(2.0));
+    let p = geometry::part(&geometry::truth(&r), &r.blobs, &doc, &keys);
+    assert_eq!(p.bucket("stroke: align INSIDE")[0], t(0, 1), "a weight-2 inside stroke against a weight-1 band");
 }
