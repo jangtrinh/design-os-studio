@@ -20,6 +20,14 @@ pub(crate) fn num(v: &Value) -> Option<f32> {
 pub(crate) fn fnum(v: &Value, k: &str) -> Option<f32> {
     v.get(k).and_then(num)
 }
+/// Largest instance scale factor the importer applies: well past anything the scale tool makes, small enough
+/// that a scaled position or size stays finite.
+const MAX_UNIFORM_SCALE: f32 = 1.0e4;
+/// Whether an instance's `uniformScaleFactor` is one to apply: finite, positive, at most [`MAX_UNIFORM_SCALE`],
+/// and not 1. A file is not trusted: an infinite factor would turn every zero coordinate into NaN.
+fn is_uniform_scale(s: f32) -> bool {
+    s.is_finite() && s > 0.0 && s <= MAX_UNIFORM_SCALE && (s - 1.0).abs() > 1e-4
+}
 /// Per-page deferred instances, pages already hydrated, instance targets and expanded instances.
 type DeferredHydration = (HashMap<NodeId, Vec<NodeId>>, HashSet<NodeId>, BTreeMap<NodeId, NodeId>, BTreeSet<NodeId>);
 
@@ -203,6 +211,7 @@ const KNOWN_KEYS: &[&str] = &[
     "variantPicks",
     "_overrideKey",
     "_uniformScale",
+    "textUniformScale",
     "_overrides",
     "_derived",
     "_keptOverrides",
@@ -1409,7 +1418,7 @@ impl<'a> Ctx<'a> {
             if let Some(cid) = fstr(&v, "componentId") {
                 self.instances.push((id, cid.to_string()));
             }
-            if let Some(s) = fnum(&v, "_uniformScale").filter(|s| *s > 0.0 && (*s - 1.0).abs() > 1e-4) {
+            if let Some(s) = fnum(&v, "_uniformScale").filter(|s| is_uniform_scale(*s)) {
                 self.scales.insert(id, s);
             }
             for e in farr(&v, "overrides") {
@@ -1528,7 +1537,7 @@ impl<'a> Ctx<'a> {
             if let Some(cid) = fstr(v, "componentId") {
                 self.instances.push((id, cid.to_string()));
             }
-            if let Some(s) = fnum(v, "_uniformScale").filter(|s| *s > 0.0 && (*s - 1.0).abs() > 1e-4) {
+            if let Some(s) = fnum(v, "_uniformScale").filter(|s| is_uniform_scale(*s)) {
                 self.scales.insert(id, s);
             }
             for e in farr(v, "overrides") {
@@ -2762,34 +2771,6 @@ impl<'a> Ctx<'a> {
     /// (`uniformScaleFactor`): positions, sizes, radii, strokes, text sizes,
     /// layout spacing, child margins and geometry. Overrides and derived data are applied after.
     fn scale_contents(&mut self, inst: NodeId, s: f32) {
-        fn is_text_style_binding(key: &str) -> bool {
-            matches!(
-                key,
-                "fontFamily"
-                    | "fontStyle"
-                    | "fontSize"
-                    | "fontWeight"
-                    | "lineHeight"
-                    | "letterSpacing"
-                    | "paragraphSpacing"
-                    | "paragraphIndent"
-                    | "listSpacing"
-                    | "leadingTrim"
-            )
-        }
-
-        fn scale_text_style(t: &mut TextStyle, s: f32) {
-            t.font_size *= s;
-            t.line_height = match t.line_height {
-                LineHeight::Pixels(px) => LineHeight::Pixels(px * s),
-                other => other,
-            };
-            t.letter_spacing *= s;
-            t.paragraph_spacing *= s;
-            t.paragraph_indent *= s;
-            t.list_spacing *= s;
-        }
-
         fn scale_path(p: &mut Path, s: f32) {
             let f = |v: &mut Vec2| *v = Vec2::new(v.x * s, v.y * s);
             for c in &mut p.cmds {
@@ -2825,20 +2806,10 @@ impl<'a> Ctx<'a> {
             }
             n.stamp_stroke_geometry();
             match &mut n.kind {
-                NodeKind::Text(t) => {
-                    // A uniformly scaled instance has its own text metrics in Figma. Keeping
-                    // the component's text style link would make `resolve_node` apply the
-                    // unscaled style bindings after these values have been scaled. Detach that
-                    // link and its inherited text bindings; paint bindings remain attached.
-                    n.style_refs.remove("text");
-                    n.variables.bindings.retain(|key, _| !is_text_style_binding(key));
-                    scale_text_style(&mut t.style, s);
-                    t.paragraph.indent *= s;
-                    t.paragraph.list_spacing *= s;
-                    for r in &mut t.runs {
-                        scale_text_style(&mut r.style, s);
-                    }
-                }
+                // Figma keeps the text style link of a text in a scaled instance and draws the style at the
+                // instance's scale: the factor goes with the layer, so a style or variable value applied
+                // to it later is multiplied too.
+                NodeKind::Text(t) => t.apply_uniform_scale(s),
                 NodeKind::Vector { paths, network } => {
                     paths.iter_mut().for_each(|p| scale_path(p, s));
                     if let Some(net) = network {
@@ -2999,14 +2970,19 @@ impl<'a> Ctx<'a> {
         let current_name_is_component_name =
             self.doc.get(d).and_then(|n| current.and_then(|c| self.doc.get(c)).map(|source| n.name == source.name)).unwrap_or(false);
         let pending_rest_name_override = self.has_pending_rest_name_override(d);
+        // Inside scaled instances the box of `d` is drawn at the scale of the instances around it, and its contents
+        // also at its own scale. Sizes are compared and laid out at the main's scale, then scaled back.
+        let around = self.uniform_scale_above(d);
+        let contents = around * self.instance_uniform_scale(d);
         if let Some(dn) = self.doc.get_mut(d) {
-            let keep_resized = current_size.is_some_and(|cs| (dn.size.x - cs.x).abs() > 1e-4 || (dn.size.y - cs.y).abs() > 1e-4);
+            let own = contents / around;
+            let keep_resized = current_size.is_some_and(|cs| (dn.size.x / around - cs.x * own).abs() > 1e-4 || (dn.size.y / around - cs.y * own).abs() > 1e-4);
             dn.kind = NodeKind::Instance { frame: target_fp.clone(), component: Some(target), component_key: None };
             if current_name_is_component_name && !dn.component.overrides.contains(&OverrideField::Name) && !pending_rest_name_override {
                 dn.name = target_node.name.clone();
             }
             if !keep_resized {
-                dn.size = target_node.size;
+                dn.size = Vec2::new(target_node.size.x * contents, target_node.size.y * contents);
             }
             dn.fills = target_node.fills;
             dn.stroke = target_node.stroke;
@@ -3024,11 +3000,60 @@ impl<'a> Ctx<'a> {
             dn.variables.bindings = target_node.variables.bindings;
             dn.component.variant_props = target_node.component.variant_props;
         }
-        self.expand_instance(d, target)?;
+        if contents == 1.0 {
+            self.expand_instance(d, target)?;
+        } else {
+            // The copy is laid out against the main at the main's scale (so its constraints resize nothing that the
+            // scale itself explains), then drawn at the scale the old contents had.
+            let drawn = self.doc.get(d).map(|n| n.size);
+            if let (Some(dn), Some(sz)) = (self.doc.get_mut(d), drawn) {
+                dn.size = Vec2::new(sz.x / contents, sz.y / contents);
+            }
+            self.expand_instance(d, target)?;
+            if let (Some(dn), Some(sz)) = (self.doc.get_mut(d), drawn) {
+                dn.size = sz;
+            }
+            if !self.unexpanded_instances.contains(&d) {
+                self.scale_contents(d, contents);
+            }
+        }
         if !self.unexpanded_instances.contains(&d) {
             self.apply_props(d, targets, done)?;
         }
         Ok(())
+    }
+
+    /// The scale instance `d` itself is drawn at: the product of the `uniformScaleFactor`s of the instances it sits
+    /// in (not its own). A copy of a scaled instance takes the factor of the instance it mirrors.
+    fn uniform_scale_above(&self, d: NodeId) -> f32 {
+        let mut s = 1.0f32;
+        let mut cur = self.doc.get(d).and_then(|n| n.parent);
+        for _ in 0..MAX_DEPTH {
+            let Some(id) = cur else { break };
+            let Some(n) = self.doc.get(id) else { break };
+            if matches!(n.kind, NodeKind::Instance { .. }) {
+                s *= self.instance_uniform_scale(id);
+            }
+            cur = n.parent;
+        }
+        if s.is_finite() && s > 0.0 {
+            s
+        } else {
+            1.0
+        }
+    }
+
+    /// The `uniformScaleFactor` of instance `inst`, or of the instance it is a copy of; 1 when it has none.
+    fn instance_uniform_scale(&self, inst: NodeId) -> f32 {
+        let mut cur = Some(inst);
+        for _ in 0..MAX_DEPTH {
+            let Some(id) = cur else { break };
+            if let Some(&s) = self.scales.get(&id) {
+                return s;
+            }
+            cur = self.doc.get(id).and_then(|n| n.component.source);
+        }
+        1.0
     }
 
     /// `.fig` library components of internal-only canvases become external
@@ -5523,6 +5548,10 @@ fn text_props(v: &Value) -> TextProps {
         _ => TextWrap::Auto,
     };
     let mut tp = TextProps { content, style, runs, auto_resize: auto, max_lines, auto_rename, decoration_skip_ink, text_wrap, ..Default::default() };
+    // A text Studio saved from a scaled instance: its lengths are already scaled, only the factor comes back.
+    if let Some(s) = fnum(v, "textUniformScale").filter(|s| s.is_finite() && *s > 0.0) {
+        tp.uniform_scale = s;
+    }
     if let Some(st) = st {
         crate::textfmt::apply_paragraph(&mut tp, st);
     }

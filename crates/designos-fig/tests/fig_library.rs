@@ -384,7 +384,8 @@ fn uniform_scale_keeps_scaled_text_size_when_linked_style_has_binding() {
     assert!((raw.style.font_size - 11.2).abs() < 1e-3, "scale_contents applies the instance scale");
     assert!(matches!(raw.style.line_height, LineHeight::Pixels(px) if (px - 14.4).abs() < 1e-3));
     assert!((raw.style.letter_spacing - 1.6).abs() < 1e-3);
-    assert!(!rating.style_refs.contains_key("text"), "scaled instance text detaches inherited style");
+    assert!(rating.style_refs.contains_key("text"), "Figma keeps the text style link in a scaled instance");
+    assert!(node_has_style_bindings(&doc, rating), "the size, line height and tracking still follow their variables");
     let resolved = resolve_node(&doc, rating);
     let NodeKind::Text(text) = &resolved.kind else { panic!("text") };
     assert!((text.style.font_size - 11.2).abs() < 1e-3, "linked style must not restore the unscaled 14px size; got {}", text.style.font_size);
