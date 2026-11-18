@@ -171,6 +171,41 @@ fn batch_deleting_inside_a_group_refits_and_preserves_the_remaining_child() {
     assert_eq!(ty(&e, tail), 20.0);
 }
 
+/// The delete leaves a layout the stored document was not at (the fixture is not a fixed point of the solver), so an
+/// undo that solved again would not bring the stored places back: the step has to hold what it wrote.
+fn assert_undo_restores_the_stored_layout(delete: impl FnOnce(&mut Engine, NodeId)) {
+    let Holder { mut e, holder, b, tail, .. } = holder_with(NodeKind::Group, Rect::new(0.0, 0.0, 80.0, 20.0));
+    e.doc.get_mut(b).unwrap().transform.tx = 40.0;
+    let stored = geometry(&e.doc);
+
+    delete(&mut e, b);
+    assert_eq!(e.doc.get(holder).unwrap().size.x, 40.0, "precondition: the delete refit the group");
+    assert_eq!(ty(&e, tail), 20.0, "precondition: the delete moved the tail");
+
+    e.call("designos_undo", json!({})).unwrap();
+    assert_eq!(geometry(&e.doc), stored, "undo puts every layer back where the document stored it");
+    assert_eq!(ty(&e, tail), 200.0);
+
+    e.call("designos_redo", json!({})).unwrap();
+    assert_eq!(e.doc.get(holder).unwrap().size.x, 40.0, "redo refits the group again");
+    assert_eq!(ty(&e, tail), 20.0);
+    assert!(e.doc.get(b).is_none());
+}
+
+#[test]
+fn undoing_a_delete_inside_a_group_restores_the_stored_layout() {
+    assert_undo_restores_the_stored_layout(|e, b| {
+        e.call("designos_delete_node", json!({ "node_id": b.0 })).unwrap();
+    });
+}
+
+#[test]
+fn undoing_a_batch_delete_inside_a_group_restores_the_stored_layout() {
+    assert_undo_restores_the_stored_layout(|e, b| {
+        e.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": b.0 }] })).unwrap();
+    });
+}
+
 #[test]
 fn a_batch_delete_inside_a_fixed_size_frame_moves_nothing_outside_it() {
     let Holder { mut e, holder, b, tail, .. } = fixed_holder();
@@ -425,18 +460,25 @@ fn page_x(e: &Engine, id: NodeId) -> f32 {
     e.doc.world_transform(id).tx
 }
 
-/// Deleting the layer at the group's origin refits the group to the one that is left, and that layer stays where it was on the page.
+/// Deleting the layer at the group's origin refits the group to the one that is left. Inside auto layout the editor's own
+/// delete (`group_delete_layout_tests` in designos-app) then lets the column place the narrower group at its own left edge,
+/// and the layer in it goes along: the tool does what the editor does, and undo puts both layers back where they were stored.
 #[test]
-fn deleting_the_first_layer_of_a_group_in_auto_layout_keeps_the_other_layer_in_place() {
-    let Holder { mut e, holder, b, .. } = holder_with(NodeKind::Group, Rect::new(0.0, 0.0, 80.0, 20.0));
+fn deleting_the_first_layer_of_a_group_in_auto_layout_matches_the_editor() {
+    let Holder { mut e, holder, b, tail, .. } = holder_with(NodeKind::Group, Rect::new(0.0, 0.0, 80.0, 20.0));
     e.doc.get_mut(b).unwrap().transform.tx = 40.0;
     let a = e.doc.get(holder).unwrap().children[0];
-    let b_before = page_x(&e, b);
-    assert_eq!(b_before, 40.0);
+    let stored = geometry(&e.doc);
+    assert_eq!(page_x(&e, b), 40.0);
 
     e.call("designos_delete_node", json!({ "node_id": a.0 })).unwrap();
 
-    assert_eq!(page_x(&e, b), b_before, "the remaining layer did not move on the page");
+    assert_eq!(e.doc.get(holder).unwrap().size.x, 40.0, "the group fits the layer that is left");
+    assert_eq!(page_x(&e, b), 0.0, "the column places the narrower group at its own left edge, and the layer inside goes with it");
+    assert_eq!(ty(&e, tail), 20.0, "the flow below follows the group");
+
+    e.call("designos_undo", json!({})).unwrap();
+    assert_eq!(geometry(&e.doc), stored, "undo puts every layer back where the document stored it");
 }
 
 /// Undoing a delete inside a group puts both layers back at their page positions.

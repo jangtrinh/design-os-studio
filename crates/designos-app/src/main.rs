@@ -73,6 +73,8 @@ mod fonts;
 mod gemini_dialog;
 mod gemini_screen;
 mod gemini_status_hooks;
+#[cfg(test)]
+mod group_delete_layout_tests;
 mod history;
 mod home;
 mod icons;
