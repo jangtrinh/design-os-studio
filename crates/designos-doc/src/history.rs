@@ -465,6 +465,8 @@ pub struct UndoStepMeta {
 /// see [`Self::mark_clean`] and [`Self::is_clean`].
 #[derive(Default)]
 pub struct History {
+    /// The layout the most recent `exec*` solved, until [`Self::take_last_exec_layout`] takes it.
+    last_exec_layout: Option<ExecLayout>,
     undo: Vec<Command>,
     redo: Vec<Command>,
     undo_meta: Vec<UndoStepMeta>,
@@ -486,7 +488,8 @@ impl History {
     /// the groups whose children it added, removed or moved are refitted, before this returns. The refit is
     /// part of the step's inverse, so undo puts the groups and their children back exactly.
     pub fn exec_labeled(&mut self, doc: &mut Document, cmd: Command, label: Option<String>) -> Result<(), DocError> {
-        let (inv, layout_recorded) = run_exec(doc, cmd, true)?;
+        let (inv, layout_recorded, layout) = run_exec(doc, cmd, true)?;
+        self.last_exec_layout = Some(layout).filter(|l| !l.is_empty());
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Unspecified, label, layout_recorded, ..Default::default() });
         Ok(())
     }
@@ -496,7 +499,8 @@ impl History {
     /// here would write outside the geometry `cmd` stores and move the layout epoch, so the step could no longer
     /// be marked with [`Self::mark_last_undo_as_layout_recorded`].
     pub fn exec_laid_out(&mut self, doc: &mut Document, cmd: Command, label: Option<String>) -> Result<(), DocError> {
-        let (inv, _) = run_exec(doc, cmd, false)?;
+        let (inv, _, _) = run_exec(doc, cmd, false)?;
+        self.last_exec_layout = None;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Unspecified, label, ..Default::default() });
         Ok(())
     }
@@ -506,16 +510,25 @@ impl History {
     /// intervening user edits.
     pub fn exec_agent(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
         // An agent step never counts as layout-recorded (see `mark_last_undo_as_agent`).
-        let (inv, _) = run_exec(doc, cmd, true)?;
+        let (inv, _, layout) = run_exec(doc, cmd, true)?;
+        self.last_exec_layout = Some(layout).filter(|l| !l.is_empty());
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Agent, ..Default::default() });
         Ok(())
     }
 
     /// Executes an edit explicitly marked as a user edit.
     pub fn exec_user(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
-        let (inv, layout_recorded) = run_exec(doc, cmd, true)?;
+        let (inv, layout_recorded, layout) = run_exec(doc, cmd, true)?;
+        self.last_exec_layout = Some(layout).filter(|l| !l.is_empty());
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::User, layout_recorded, ..Default::default() });
         Ok(())
+    }
+
+    /// Takes the layout the most recent `exec`, `exec_labeled`, `exec_user` or `exec_agent` solved (`None` after
+    /// [`Self::exec_laid_out`], or when the command reached no layout). A tool that publishes its edits to an open
+    /// editor sends it along, so the editor solves what this step solved.
+    pub fn take_last_exec_layout(&mut self) -> Option<ExecLayout> {
+        self.last_exec_layout.take()
     }
 
     /// Puts a new step on the undo stack and drops the redo stack, which a new edit supersedes.
@@ -926,19 +939,36 @@ pub(crate) fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut 
 }
 
 /// The layout a command causes, found before the command is applied (its parents and old places are still
-/// there to read).
-#[derive(Default)]
-struct ExecLayout {
+/// there to read). It is also what a live patch carries, so an open editor solves the containers the agent's
+/// step solved (see [`solve_exec_layout`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecLayout {
     /// Containers whose children, or the size of one child, changed. Each is solved when it is an auto-layout
     /// frame, and the climb goes up only while a frame's own size changes.
-    seeds: Vec<NodeId>,
+    pub seeds: Vec<NodeId>,
     /// Containers that lost or gained a child. A group among them, or above them, is refitted to its children.
-    structural: Vec<NodeId>,
+    pub structural: Vec<NodeId>,
 }
 
 impl ExecLayout {
-    fn is_empty(&self) -> bool {
+    /// Whether nothing is named.
+    pub fn is_empty(&self) -> bool {
         self.seeds.is_empty() && self.structural.is_empty()
+    }
+
+    /// Adds what `other` names, once each. One tool call can run several steps, and the container set is what
+    /// the solve reads, not the order.
+    pub fn merge(&mut self, other: ExecLayout) {
+        for id in other.seeds {
+            if !self.seeds.contains(&id) {
+                self.seeds.push(id);
+            }
+        }
+        for id in other.structural {
+            if !self.structural.contains(&id) {
+                self.structural.push(id);
+            }
+        }
     }
 }
 
@@ -1024,12 +1054,12 @@ fn solve_recorded(doc: &mut Document, layout: &ExecLayout) -> BTreeMap<NodeId, N
 }
 
 /// For a caller that applies a change through its own transaction (the editor replaying an agent patch): solves
-/// what [`History::exec`] solves for a command that added, removed or moved layers under `containers`, which
-/// already hold the change. The auto-layout frames and groups above are walked from the inside out until a
-/// container's box holds, exactly as the step does for the agent's own document. Returns every node the solve
-/// changed, as it was before, for the caller to record in its transaction.
-pub fn solve_structural_layout(doc: &mut Document, containers: &[NodeId]) -> BTreeMap<NodeId, Node> {
-    solve_recorded(doc, &ExecLayout { seeds: containers.to_vec(), structural: containers.to_vec() })
+/// `layout`, the containers the agent's [`History::exec`] solved for the same change, on `doc`, which already holds
+/// the change. The auto-layout frames and groups above are walked from the inside out until a container's box holds,
+/// exactly as the agent's step did. Returns every node the solve changed, as it was before, for the caller to
+/// record in its transaction.
+pub fn solve_exec_layout(doc: &mut Document, layout: &ExecLayout) -> BTreeMap<NodeId, Node> {
+    solve_recorded(doc, layout)
 }
 
 /// Whether a group sits at or above any of `containers`. The chain walk is capped by the node count.
@@ -1097,15 +1127,17 @@ fn flatten_step(steps: Vec<Command>) -> Vec<Command> {
 
 /// Executes `cmd` through [`guarded`], with or without the layout solve, and returns the step's inverse with
 /// whether that inverse holds all the layout the step caused.
-fn run_exec(doc: &mut Document, cmd: Command, solve_layout: bool) -> Result<(Command, bool), DocError> {
+fn run_exec(doc: &mut Document, cmd: Command, solve_layout: bool) -> Result<(Command, bool, ExecLayout), DocError> {
     let mut layout_recorded = false;
+    let mut solved = ExecLayout::default();
     let inv = guarded(doc, cmd, solve_layout, |d, c| {
-        let (inv, recorded) = apply_with_table_relayout(d, c, solve_layout)?;
+        let (inv, recorded, layout) = apply_with_table_relayout(d, c, solve_layout)?;
         layout_recorded = recorded;
+        solved = layout;
         Ok(inv)
     })
     .map_err(|refused| refused.0)?;
-    Ok((inv, layout_recorded))
+    Ok((inv, layout_recorded, solved))
 }
 
 /// Applies `c`, then re-solves every table whose cell text it changed and re-applies the values of component
@@ -1118,7 +1150,7 @@ fn run_exec(doc: &mut Document, cmd: Command, solve_layout: bool) -> Result<(Com
 /// inverse says the step then holds every layout write it caused, so undo and redo replay it as stored: the solve
 /// ran, nothing is left deferred, and no bound property was re-applied (that re-application solves outside the
 /// inverse, see [`apply_prop_resync_and_relayout`]).
-fn apply_with_table_relayout(doc: &mut Document, c: Command, solve_layout: bool) -> Result<(Command, bool), DocError> {
+fn apply_with_table_relayout(doc: &mut Document, c: Command, solve_layout: bool) -> Result<(Command, bool, ExecLayout), DocError> {
     let mut edited = std::collections::BTreeSet::new();
     table::text_edited_tables(doc, &c, &mut edited);
     let mut edited_cells = std::collections::BTreeMap::new();
@@ -1163,7 +1195,7 @@ fn apply_with_table_relayout(doc: &mut Document, c: Command, solve_layout: bool)
         steps = flatten_step(steps);
     }
     let layout_recorded = solved && prop_scope_was_empty && doc.pending_relayout().is_empty();
-    Ok((if steps.len() == 1 { steps.remove(0) } else { Command::Batch(steps) }, layout_recorded))
+    Ok((if steps.len() == 1 { steps.remove(0) } else { Command::Batch(steps) }, layout_recorded, layout))
 }
 
 /// Applies one undo or redo step. A layout-recorded step is replayed as stored while no deferred

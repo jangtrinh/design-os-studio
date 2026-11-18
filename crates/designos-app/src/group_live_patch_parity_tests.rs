@@ -15,7 +15,7 @@ fn auto_layout(direction: LayoutDirection, sizing: Sizing) -> NodeKind {
 }
 
 /// An agent engine and an open editor that start from one document, built by `build` under the default page.
-fn pair<T>(build: impl FnOnce(&mut Document, NodeId) -> T) -> (Engine, App, T) {
+pub(crate) fn pair<T>(build: impl FnOnce(&mut Document, NodeId) -> T) -> (Engine, App, T) {
     let mut engine = Engine::new();
     let page = engine.resolve_default_page().unwrap();
     let ids = build(&mut engine.doc, page);
@@ -29,14 +29,19 @@ fn run_agent_call(engine: &mut Engine, app: &mut App, tool: &str, args: Value) {
     engine.call(tool, args).unwrap();
     let ops = engine.take_live_ops();
     assert!(!ops.is_empty(), "the call recorded live ops");
-    let patch: LivePatch = serde_json::from_str(&serde_json::to_string(&LivePatch::new(ops)).unwrap()).unwrap();
+    let layout = engine.take_live_layout();
+    let patch: LivePatch = serde_json::from_str(&serde_json::to_string(&LivePatch::new(ops).with_layout(layout)).unwrap()).unwrap();
     crate::live_patch_apply::apply_live_patches(app, &[patch]);
 }
 
-fn assert_same_documents(engine: &Engine, app: &App) {
+pub(crate) fn assert_same_documents(engine: &Engine, app: &App) {
+    assert_same_documents_with(engine, app, "");
+}
+
+pub(crate) fn assert_same_documents_with(engine: &Engine, app: &App, context: &str) {
     let agent: Vec<(NodeId, Value)> = engine.doc.nodes.values().map(|n| (n.id, serde_json::to_value(n).unwrap())).collect();
     let editor: Vec<(NodeId, Value)> = app.doc.nodes.values().map(|n| (n.id, serde_json::to_value(n).unwrap())).collect();
-    assert_eq!(editor, agent, "the editor's document is the agent's, node by node");
+    assert!(editor == agent, "the editor's document is the agent's, node by node: {context}");
 }
 
 fn size(doc: &Document, id: NodeId) -> (f32, f32) {
@@ -121,4 +126,58 @@ fn the_agent_delete_and_the_editor_delete_leave_a_group_with_the_same_fields() {
     let agent = serde_json::to_value(engine.doc.get(group).unwrap()).unwrap();
     let editor = serde_json::to_value(editor_app.doc.get(group).unwrap()).unwrap();
     assert_eq!(agent, editor);
+}
+
+/// One batch that resizes a layer in a hug frame inside a group and adds a layer to the same group: the agent's step
+/// solves the frame (seeded by the resized layer) and then fits the group to it. The editor solves what the agent
+/// solved, so the group is fitted after the frame, as on the agent side.
+#[test]
+fn an_agent_batch_that_resizes_a_layer_in_a_hug_frame_and_adds_a_layer_to_its_group_matches_the_agent_side() {
+    let (mut engine, mut app, (group, r1)) = pair(|doc, page| {
+        let screen = frame_of(doc, page, Rect::new(0.0, 0.0, 400.0, 600.0), auto_layout(LayoutDirection::Vertical, Sizing::Fixed));
+        let group = frame_of(doc, screen, Rect::new(0.0, 0.0, 60.0, 40.0), NodeKind::Group);
+        let card = frame_of(doc, group, Rect::new(0.0, 0.0, 60.0, 40.0), auto_layout(LayoutDirection::Vertical, Sizing::Hug));
+        let r1 = rect_in(doc, card, Rect::new(0.0, 0.0, 60.0, 20.0));
+        rect_in(doc, card, Rect::new(0.0, 20.0, 60.0, 20.0));
+        rect_in(doc, screen, Rect::new(0.0, 300.0, 100.0, 30.0));
+        (group, r1)
+    });
+
+    run_agent_call(
+        &mut engine,
+        &mut app,
+        "designos_apply_batch",
+        json!({ "ops": [
+            { "op": "update", "node": r1.0, "height": 40 },
+            { "op": "create", "parent": group.0, "kind": "rectangle", "x": 0, "y": 0, "width": 10, "height": 10 }
+        ]}),
+    );
+
+    assert_eq!(size(&engine.doc, group).1, 60.0, "precondition: the agent side refits the group to the grown card");
+    assert_same_documents(&engine, &app);
+}
+
+/// A patch line from a build that sent no layout replays as it did before the field existed: the solve that follows
+/// the commit grows the hug frame, and nothing fits the group around it.
+#[test]
+fn a_patch_without_the_layout_field_replays_with_the_solve_after_the_commit_only() {
+    let (mut engine, mut app, (group, card)) = pair(|doc, page| {
+        let screen = frame_of(doc, page, Rect::new(0.0, 0.0, 400.0, 600.0), auto_layout(LayoutDirection::Vertical, Sizing::Fixed));
+        let group = frame_of(doc, screen, Rect::new(0.0, 0.0, 60.0, 40.0), NodeKind::Group);
+        let card = frame_of(doc, group, Rect::new(0.0, 0.0, 60.0, 40.0), auto_layout(LayoutDirection::Vertical, Sizing::Hug));
+        rect_in(doc, card, Rect::new(0.0, 0.0, 60.0, 20.0));
+        rect_in(doc, card, Rect::new(0.0, 20.0, 60.0, 20.0));
+        (group, card)
+    });
+    engine.call("designos_create_node", json!({ "kind": "rectangle", "parent_id": card.0, "width": 60, "height": 20 })).unwrap();
+    let ops = engine.take_live_ops();
+    assert!(engine.take_live_layout().is_some(), "precondition: the agent's step solved a layout");
+    let line = serde_json::to_string(&LivePatch::new(ops)).unwrap();
+    assert!(!line.contains("layout"), "the line carries no layout: {line}");
+    let patch: LivePatch = serde_json::from_str(&line).unwrap();
+
+    crate::live_patch_apply::apply_live_patches(&mut app, &[patch]);
+
+    assert_eq!(size(&app.doc, card).1, 60.0, "the solve after the commit grows the hug frame");
+    assert_eq!(size(&app.doc, group).1, 40.0, "and nothing fits the group, as before the field existed");
 }

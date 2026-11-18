@@ -67,11 +67,22 @@ pub struct LivePatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_label: Option<String>,
     pub ops: Vec<LiveOp>,
+    /// The containers the agent's own history step solved for these ops (its auto-layout parents and the groups
+    /// whose children changed), as the agent's ids. The editor solves them on its own document, inside the replay
+    /// step, with the same function. A line without the field (an older `designos-mcp`, or a call that reached no
+    /// layout) leaves the editor to the solve that follows the replay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<crate::ExecLayout>,
 }
 
 impl LivePatch {
     pub fn new(ops: Vec<LiveOp>) -> Self {
-        Self { v: LIVE_PATCH_VERSION, base: None, label: None, session_id: None, agent_label: None, ops }
+        Self { v: LIVE_PATCH_VERSION, base: None, label: None, session_id: None, agent_label: None, ops, layout: None }
+    }
+
+    pub fn with_layout(mut self, layout: Option<crate::ExecLayout>) -> Self {
+        self.layout = layout.filter(|l| !l.is_empty());
+        self
     }
 
     pub fn with_base(mut self, base: Option<u64>) -> Self {

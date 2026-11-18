@@ -3400,6 +3400,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 .history
                 .exec(&mut engine.doc, Command::Batch(collected_cmds))
                 .map_err(|e| batch_error(ErrorCode::InternalError, None, None, "", e.to_string()))?;
+            engine.note_exec_layout();
             engine.solve_after_step(|doc| {
                 relayout_seeds(doc, &relayout_targets, &container_targets);
                 doc.flush_pending_relayout();

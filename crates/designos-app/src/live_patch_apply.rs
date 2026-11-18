@@ -519,49 +519,16 @@ fn collect_command_node_ids(cmd: &designos_doc::Command, out: &mut Vec<u64>) {
     }
 }
 
-/// The containers whose children `cmd` adds, removes or moves between, read before it is applied (the old parent of a
-/// removed or moved layer is still there to read). A connector is not a layout input of the frame that holds it.
-fn collect_structural_parents(doc: &Document, cmd: &designos_doc::Command, out: &mut Vec<NodeId>) {
-    use designos_doc::Command;
-    let is_connector = |id: NodeId| doc.get(id).is_some_and(|n| matches!(n.kind, designos_doc::NodeKind::Connector(_)));
-    let mut push = |id: NodeId| {
-        if !out.contains(&id) {
-            out.push(id);
-        }
-    };
-    match cmd {
-        Command::Insert { parent, nodes, .. } => {
-            if !nodes.first().is_some_and(|n| matches!(n.kind, designos_doc::NodeKind::Connector(_))) {
-                push(*parent);
-            }
-        }
-        Command::Remove { id } if !is_connector(*id) => {
-            if let Some(parent) = doc.get(*id).and_then(|n| n.parent) {
-                push(parent);
-            }
-        }
-        Command::Reparent { id, parent, .. } if !is_connector(*id) => {
-            if let Some(old) = doc.get(*id).and_then(|n| n.parent) {
-                push(old);
-            }
-            push(*parent);
-        }
-        Command::Batch(cmds) => {
-            let mut inner = Vec::new();
-            cmds.iter().for_each(|c| collect_structural_parents(doc, c, &mut inner));
-            inner.into_iter().for_each(push);
-        }
-        _ => {}
-    }
-}
-
-/// Solves, inside the replay transaction, the layout above each of `parents`: the same walk the agent side's history
-/// step makes (a group is fitted to its children, an auto-layout frame is solved, and the walk stops where a box
-/// holds), by the same function, so both documents end alike field by field. Chains with no group above keep the
-/// solve that follows the commit.
-fn solve_structural_layout_in_tx(doc: &mut Document, ed: &mut crate::edit::Edit, parents: &[NodeId]) {
-    if designos_doc::group_at_or_above(doc, parents) {
-        let before = designos_doc::solve_structural_layout(doc, parents);
+/// Solves, inside the replay transaction, the layout the agent's own history step solved for this patch: the
+/// containers it carries, as the editor's ids, walked by the same function from the inside out (groups fitted,
+/// auto-layout frames solved, stopping where a box holds). The editor reads no seed rule of its own, so both
+/// documents solve the same set. A patch without the field, or one whose containers have no group above them,
+/// keeps the solve that follows the commit.
+fn solve_carried_layout_in_tx(doc: &mut Document, ed: &mut crate::edit::Edit, layout: &designos_doc::ExecLayout, state: &LivePatchState) {
+    let held = |ids: &[NodeId]| -> Vec<NodeId> { ids.iter().map(|&id| state.resolve_node_id(id)).filter(|id| doc.get(*id).is_some()).collect() };
+    let carried = designos_doc::ExecLayout { seeds: held(&layout.seeds), structural: held(&layout.structural) };
+    if designos_doc::group_at_or_above(doc, &carried.structural) {
+        let before = designos_doc::solve_exec_layout(doc, &carried);
         ed.adopt_before(doc, before);
     }
 }
@@ -572,10 +539,8 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
     let saved_in_progress = app.doc.in_progress.clone();
     let mut tx = Tx::new();
     let mut touched_ids = Vec::new();
-    let mut structural_parents = Vec::new();
     let replayed = replay_live_patch(&mut app.doc, patch, &mut app.terminal.live_patch.state, &mut |doc, cmd| {
         collect_command_node_ids(&cmd, &mut touched_ids);
-        collect_structural_parents(doc, &cmd, &mut structural_parents);
         tx.cmd(doc, cmd)
     });
     let mut report = match replayed {
@@ -586,9 +551,9 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
             return Err(e.to_string());
         }
     };
-    // The groups the patch's layers were added to, removed from or moved between are fitted inside this step, as the
-    // agent side does (see `History::exec`), so the step's undo puts them back exactly.
-    solve_structural_layout_in_tx(&mut app.doc, &mut tx.ed, &structural_parents);
+    if let Some(layout) = &patch.layout {
+        solve_carried_layout_in_tx(&mut app.doc, &mut tx.ed, layout, &app.terminal.live_patch.state);
+    }
     let post_replay_in_progress = app.doc.in_progress.clone();
     let mut solved_before_commit = false;
     let has_connectors = !touched_ids.is_empty() && designos_doc::with_index(&app.doc, |idx| !idx.is_empty());

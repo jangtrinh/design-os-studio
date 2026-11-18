@@ -105,3 +105,19 @@ fn a_newer_document_switch_is_still_a_switch() {
     let switch = format!(r#"{{"v":{},"doc_epoch":9,"bytes":3,"hash":4}}"#, LIVE_PATCH_VERSION + 1);
     assert!(matches!(LiveLogLine::parse(switch.as_bytes()), Ok(LiveLogLine::DocEpoch(e)) if e.v == LIVE_PATCH_VERSION + 1 && e.doc_epoch == 9));
 }
+
+#[test]
+fn a_line_without_the_layout_field_reads_and_replays_and_the_field_round_trips() {
+    let (mut doc, frame) = doc_with_frame();
+    let old_line = format!(r#"{{"v":2,"ops":[{{"op":"remove","id":{}}}]}}"#, frame.0);
+    let patch: LivePatch = serde_json::from_str(&old_line).expect("a line from a build that sent no layout still reads");
+    assert_eq!(patch.layout, None);
+    assert_eq!(replay(&mut doc, &patch).applied, 1);
+
+    let layout = crate::ExecLayout { seeds: vec![NodeId(4), NodeId(5)], structural: vec![NodeId(5)] };
+    let line = serde_json::to_string(&remove_patch(frame, LIVE_PATCH_VERSION).with_layout(Some(layout.clone()))).unwrap();
+    let back: LivePatch = serde_json::from_str(&line).unwrap();
+    assert_eq!(back.layout, Some(layout), "the containers the agent solved come back as sent");
+    let plain = serde_json::to_string(&remove_patch(frame, LIVE_PATCH_VERSION).with_layout(Some(crate::ExecLayout::default()))).unwrap();
+    assert!(!plain.contains("layout"), "an empty layout is not written: {plain}");
+}

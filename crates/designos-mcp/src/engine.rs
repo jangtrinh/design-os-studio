@@ -80,6 +80,8 @@ pub struct Engine {
     /// Edits executed since the last [`Engine::take_live_ops`], recorded while an open editor
     /// mirrors this session (`None` = not recording).
     pub live_ops: Option<Vec<LiveOp>>,
+    /// The layout the history steps behind [`Self::live_ops`] solved, merged, until [`Engine::take_live_layout`].
+    pub live_layout: designos_doc::ExecLayout,
     /// Connector reroute warnings produced by the last mutating tool call.
     pub reroute_warnings: Vec<designos_doc::SpecWarning>,
     /// Undo-group label attached to the next [`designos_doc::live_patch::LivePatch`] line when set.
@@ -147,6 +149,7 @@ impl Default for Engine {
             default_run_id: None,
             default_agent: None,
             live_ops: None,
+            live_layout: designos_doc::ExecLayout::default(),
             reroute_warnings: Vec::new(),
             live_patch_label: None,
             owned_frames: None,
@@ -1565,6 +1568,7 @@ impl Engine {
         }
         let ops = self.live_ops_for_parts(&w.parts)?;
         self.history.exec(&mut self.doc, w.cmd).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+        self.note_exec_layout();
         self.revision = self.revision.wrapping_add(1);
         self.record(ops);
         self.reroute_in_last_step(&touched)?;
@@ -1725,6 +1729,20 @@ impl Engine {
         if let Some(log) = &mut self.live_ops {
             log.extend(ops);
         }
+    }
+
+    /// Takes the layout the step just executed solved off the history and, while an open editor mirrors this
+    /// session, keeps it for the patch that carries the step's ops.
+    pub(crate) fn note_exec_layout(&mut self) {
+        let layout = self.history.take_last_exec_layout();
+        if let (Some(layout), Some(_)) = (layout, &self.live_ops) {
+            self.live_layout.merge(layout);
+        }
+    }
+
+    /// Drains the layout recorded since the last call (`None` when no step solved any).
+    pub fn take_live_layout(&mut self) -> Option<designos_doc::ExecLayout> {
+        Some(std::mem::take(&mut self.live_layout)).filter(|l| !l.is_empty())
     }
 
     /// Drains the edits recorded since the last call.
