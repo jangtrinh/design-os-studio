@@ -321,9 +321,20 @@ fn node_has_scoped_page_marker(n: &Node) -> bool {
 }
 
 fn detect_scoped_document(doc: &Document, options: &MetadataOptions) -> (bool, bool) {
-    let has_explicit_shell_markers = doc.nodes.values().any(node_has_scoped_shell_marker);
-    let scoped = options.scoped || has_explicit_shell_markers || doc.nodes.values().any(node_has_scoped_page_marker);
-    (scoped, has_explicit_shell_markers)
+    // One pass over the nodes: every node of a large document costs a cache miss, and a second pass for the page
+    // marker doubled that. The scan stops at the first shell marker, which also settles `scoped`.
+    let mut has_explicit_shell_markers = false;
+    let mut has_page_marker = false;
+    for n in doc.nodes.values() {
+        if node_has_scoped_shell_marker(n) {
+            has_explicit_shell_markers = true;
+            break;
+        }
+        if !has_page_marker && !options.scoped {
+            has_page_marker = node_has_scoped_page_marker(n);
+        }
+    }
+    (options.scoped || has_explicit_shell_markers || has_page_marker, has_explicit_shell_markers)
 }
 
 struct WalkCtx<'a> {
@@ -1615,6 +1626,31 @@ fn enforce_total_budget(sections: &mut [BootstrapSection], total_budget: usize) 
 mod tests {
     use super::*;
     use designos_doc::{ComponentLink, FrameProps, TextStyle, Variable, VariableCollection, VariableKind, VariableMode};
+
+    /// The scan makes one pass over the nodes; it must give what two separate scans gave.
+    #[test]
+    fn scoped_detection_matches_the_two_pass_definition() {
+        for (force, shell, page) in (0..8).map(|i| (i & 1 != 0, i & 2 != 0, i & 4 != 0)) {
+            let mut doc = Document::new("scoped");
+            let p = doc.add_page("P");
+            for i in 0..5 {
+                let id = doc.alloc_id();
+                doc.insert(p, Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 4.0, 4.0))).unwrap();
+                // the page marker comes first, the shell marker later, so the scan must go on after the first hit
+                if page && i == 1 {
+                    doc.get_mut(id).unwrap().plugin_data.insert("scoped".into(), "true".into());
+                }
+                if shell && i == 3 {
+                    doc.get_mut(id).unwrap().fig_metadata.insert("designos:scoped_shell".into(), "1".into());
+                }
+            }
+            let options = MetadataOptions { scoped: force, ..MetadataOptions::default() };
+            let reference_shell = doc.nodes.values().any(node_has_scoped_shell_marker);
+            let reference_scoped = force || reference_shell || doc.nodes.values().any(node_has_scoped_page_marker);
+            assert_eq!(detect_scoped_document(&doc, &options), (reference_scoped, reference_shell), "force={force} shell={shell} page={page}");
+            assert_eq!(reference_shell, shell);
+        }
+    }
 
     /// Small stand-in for the generated `E15-15` rules pack, which `designos-mcp` owns and passes to `bootstrap`.
     const TEST_RULES_PACK: &str = "# Agent Rules\n\n## Workflow\n1. Orient with `designos_get_app_state`.\n2. Build with `designos_apply_spec`.\n\n## Enabled MCP Tools\n\n### `designos_apply_spec`\n- **Purpose:** Build a subtree.\n\n### `NodeSpec`\n- **Purpose:** A header that names no tool.\n";
