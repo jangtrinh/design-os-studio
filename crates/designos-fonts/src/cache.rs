@@ -605,6 +605,19 @@ mod tests {
         assert!(e.to_string().contains("is read-only or not writable:"), "{e}");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_no_follow_write_whose_open_fails_for_the_path_returns_that_error_unchanged() {
+        let dir = std::env::temp_dir().join(format!("designos-no-follow-open-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let not_a_folder = dir.join("plain-file");
+        std::fs::write(&not_a_folder, b"x").unwrap();
+        let e = write_atomic_no_follow(&not_a_folder.join("doc.designos"), b"x").unwrap_err();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(no_follow_refusal(&e), None, "{e}");
+        assert_eq!(e.raw_os_error(), Some(libc::ENOTDIR), "{e}");
+    }
+
     #[test]
     fn the_temporary_name_shape_is_the_one_the_savers_create() {
         for name in ["doc.designos", "a.b.c", "x"] {
