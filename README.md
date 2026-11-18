@@ -111,7 +111,7 @@ To read the container version of an exported file, run `unzip -p out.fig canvas.
 
 ## Watch
 
-Four short films of DESIGN:OS Studio, starting with an agent editing a `.fig` headless, with no Figma app and no display. Writing `.fig` files is still [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834). Current release is v0.7.15. FREE and source-available (PolyForm Shield).
+Four short films of DESIGN:OS Studio, starting with an agent editing a `.fig` headless, with no Figma app and no display. Writing `.fig` files is still [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834). Current release is v0.7.16. FREE and source-available (PolyForm Shield).
 
 <p align="left">
   <a href="https://www.youtube.com/watch?v=_LtPH2uREr0"><img src="https://i.ytimg.com/vi/_LtPH2uREr0/mqdefault.jpg" alt="An agent edits a .fig headless, without Figma | DESIGN:OS Studio (YouTube, 0:57)" width="320"></a>
@@ -195,7 +195,16 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.15. The latest captures are from the 0.7.12 release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.16. The latest captures are from the 0.7.12 release build, and older releases are short lists.
+
+<a id="new-in-v0716"></a>
+### 0.7.16
+
+- **Lines and strokes.** A line you change in an imported Figma file is drawn where Figma draws it. A solid centred line with a butt or round cap sits as a band above its axis instead of half a stroke weight off, on the canvas, in SVG and PDF export, in export bounds and in click and hover hit testing. On 8,227 kit lines, the live drawing now differs from Figma's stored outline on 0 pixels, where the old drawing differed on 27,249,471. A stored stroke outline is drawn only while it still matches the layer's size and stroke. Square caps, arrow caps, dashed lines and Inside or Outside lines still draw centred, because Figma's placement for them is not measured yet.
+- **Export.** Export bounds follow what Figma measures. Each side of a stroke uses its own weight (outside adds the full weight on that side, centre half, inside nothing), and a frame's shadow also grows around its children: cut to the frame when it clips, and cast from the children alone when the frame has no fill. The SVG shadow region follows the same shapes. With every page loaded, 8 of the 10 kit frames checked are within 1 px of Figma; the other two are still 4 px and 5 px too wide.
+- **Figma files.** A `.fig` page that was never opened keeps more of what you edit: changing an instance's auto layout there (spacing 4 to 20, for example) is saved, where reopening used to bring back 4, and a new instance of a main that holds a nested instance from such a page shows that nested instance's layers at once. A main component sync with no change keeps instances where Figma stored them: layers moved off Figma's geometry on the Untitled UI PRO v8.0 kit drop from 119 to 40. Keys of a Figma REST JSON file that Studio does not model are kept on open, save, undo and export. A `.jam` (FigJam) file opens as a Board document, and a stroke outline Figma stored is no longer written back after the stroke weight was edited.
+- **Agents and saving.** An agent in a Studio tab can no longer widen its own designos tool list: after the first start, the list in force can only be narrowed. Saves from the command line refuse a symbolic link, a hard linked file and a wrong file ending, and an agent's save never writes through a symbolic link. On macOS an overwrite keeps the file's ACL, extended attributes and mode.
+- **Fixes.** The Overrides list of an instance shows the overrides parked on a layer the current variant lacks, each marked "(not in variant)" with its own Reset. A wrapped auto layout can keep its line gap following item spacing, as in Figma. Setting a variable or switching a variable mode in the prototype player re-resolves the variants bound to it. A text colour edit reaches every layer with text in the selection, sticky notes included. Editing one table cell on a 400 x 400 table takes 0.03 to 0.05 ms instead of 1.37 s. Many fixes were carried from pull requests by @NamAIEngineer.
 
 <a id="new-in-v0715"></a>
 ### 0.7.15
@@ -813,7 +822,7 @@ design-os-studio/
 - A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG ([#1278](https://github.com/jangtrinh/design-os-studio/issues/1278)).
 - Editing a text style in a file imported before 0.7.0 resets its linked layers' paragraph indent and list spacing to 0 ([#1279](https://github.com/jangtrinh/design-os-studio/issues/1279)).
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
-- The Windows test suite is advisory for 0.7.15. Releases are verified on macOS. Test (windows-latest) failed on the v0.7.15 release PR; Windows users are asked to test the published build and report in [#1843](https://github.com/jangtrinh/design-os-studio/issues/1843). Earlier Windows CI failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
+- The Windows test suite is advisory for 0.7.16. Releases are verified on macOS. Test (windows-latest) failed on the v0.7.16 release PR; Windows users are asked to test the published build and report in [#1843](https://github.com/jangtrinh/design-os-studio/issues/1843). Earlier Windows CI failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use
