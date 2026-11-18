@@ -175,3 +175,224 @@ fn svg_filter_region_of_a_frame_covers_the_shadow_around_its_children() {
     let svg = export_svg(&d, f, &SvgOptions::default());
     assert!(svg.contains("<filter id=\"shadow0\" x=\"-16\" y=\"-8\" width=\"232\" height=\"172\""), "{svg}");
 }
+
+// ---- which layers add a box ------------------------------------------------------------------------
+
+/// A 200x100 frame with no fill holding a visible 50x50 rectangle at (10, 10) and `child` placed at
+/// (300, 0), the way the Figma probes were laid out. The frame is the exported layer.
+fn holder_with(mut child: Node, clip: bool) -> (Document, NodeId) {
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let fid = d.alloc_id();
+    let mut f = Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 100.0));
+    f.fills.clear();
+    if let NodeKind::Frame(fp) = &mut f.kind {
+        fp.clips_content = clip;
+    }
+    let f = d.insert(page, f).unwrap();
+    let aid = d.alloc_id();
+    d.insert(f, Node::rectangle(aid, Rect::new(10.0, 10.0, 50.0, 50.0))).unwrap();
+    child.id = d.alloc_id();
+    child.transform.tx = 300.0;
+    child.transform.ty = 0.0;
+    d.insert(f, child).unwrap();
+    (d, f)
+}
+
+fn rect_40(id: u64) -> Node {
+    Node::rectangle(NodeId(id), Rect::new(0.0, 0.0, 40.0, 40.0))
+}
+
+#[test]
+fn a_layer_that_paints_nothing_adds_no_box() {
+    let hidden_paint = {
+        let mut n = rect_40(0);
+        let mut p = Paint::solid(Color::rgb(255, 0, 0));
+        p.visible = false;
+        n.fills = vec![p];
+        n
+    };
+    let transparent_fill = {
+        let mut n = rect_40(0);
+        n.fills = vec![Paint::solid(Color { r: 1.0, g: 0.0, b: 0.0, a: 0.0 })];
+        n
+    };
+    let no_paint = {
+        let mut n = rect_40(0);
+        n.fills.clear();
+        n
+    };
+    let zero_opacity = {
+        let mut n = rect_40(0);
+        n.opacity = 0.0;
+        n
+    };
+    let not_visible = {
+        let mut n = rect_40(0);
+        n.visible = false;
+        n
+    };
+    let vector_without_paint = {
+        let mut n = rect_40(0);
+        n.kind = NodeKind::Vector { paths: Vec::new(), network: None };
+        n.fills.clear();
+        n
+    };
+    let empty_text = Node::text(NodeId(0), Rect::new(0.0, 0.0, 40.0, 40.0), "", Default::default());
+    for (name, child) in [
+        ("rectangle with no fill and no stroke", no_paint),
+        ("fill with alpha 0", transparent_fill),
+        ("fill paint that is not visible", hidden_paint),
+        ("layer opacity 0", zero_opacity),
+        ("layer that is not visible", not_visible),
+        ("vector with no paint", vector_without_paint),
+        ("empty text", empty_text),
+    ] {
+        let (d, f) = holder_with(child, false);
+        assert_eq!(size(render_bounds(&d, f)), (200.0, 100.0), "{name} must not widen the frame");
+    }
+}
+
+#[test]
+fn a_painted_layer_adds_its_box() {
+    let (d, f) = holder_with(rect_40(0), false);
+    assert_eq!(size(render_bounds(&d, f)), (340.0, 100.0));
+}
+
+#[test]
+fn a_group_of_unpainted_layers_adds_no_box() {
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let fid = d.alloc_id();
+    let mut f = Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 100.0));
+    f.fills.clear();
+    let f = d.insert(page, f).unwrap();
+    let gid = d.alloc_id();
+    let mut g = Node::rectangle(gid, Rect::new(300.0, 0.0, 40.0, 40.0));
+    g.kind = NodeKind::Group;
+    g.fills.clear();
+    let g = d.insert(f, g).unwrap();
+    let rid = d.alloc_id();
+    let mut r = rect_40(0);
+    r.id = rid;
+    r.fills.clear();
+    d.insert(g, r).unwrap();
+    assert_eq!(size(render_bounds(&d, f)), (200.0, 100.0));
+}
+
+#[test]
+fn a_frame_always_adds_its_own_box_even_without_fill_and_children() {
+    // Figma: an empty frame with no fill at x=300 widens its parent to 340, clipping or not.
+    for clip in [false, true] {
+        let mut empty = Node::frame(NodeId(0), Rect::new(0.0, 0.0, 40.0, 40.0));
+        empty.fills.clear();
+        if let NodeKind::Frame(fp) = &mut empty.kind {
+            fp.clips_content = clip;
+        }
+        let (d, f) = holder_with(empty, false);
+        assert_eq!(size(render_bounds(&d, f)), (340.0, 100.0), "empty frame, clip={clip}");
+    }
+}
+
+#[test]
+fn a_clipping_frame_adds_its_own_box_and_cuts_its_children_to_it() {
+    // Figma: a 40x40 clipping frame at x=300 holding a painted rectangle at x=200 (outside the clip) is 340.
+    let mut clipper = Node::frame(NodeId(0), Rect::new(0.0, 0.0, 40.0, 40.0));
+    clipper.fills.clear();
+    if let NodeKind::Frame(fp) = &mut clipper.kind {
+        fp.clips_content = true;
+    }
+    let (mut d, f) = holder_with(clipper, false);
+    let clipper_id = *d.get(f).unwrap().children.last().unwrap();
+    let rid = d.alloc_id();
+    let mut far = rect_40(0);
+    far.id = rid;
+    far.transform.tx = 200.0;
+    far.transform.ty = 0.0;
+    d.insert(clipper_id, far).unwrap();
+    assert_eq!(size(render_bounds(&d, f)), (340.0, 100.0));
+}
+
+#[test]
+fn the_exported_layer_keeps_its_box_even_when_it_paints_nothing() {
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let rid = d.alloc_id();
+    let mut r = Node::rectangle(rid, Rect::new(5.0, 5.0, 200.0, 100.0));
+    r.fills.clear();
+    d.insert(page, r).unwrap();
+    assert_eq!(render_bounds(&d, rid), Rect::new(0.0, 0.0, 200.0, 100.0));
+    assert_eq!(png_size(&d, rid), (200, 100));
+}
+
+/// A 200x100 fill-less holder with a visible 50x50 rectangle, as above, plus a 100x100 child frame at
+/// (300, 0) holding a painted 20x20 rectangle at (`child_x`, 10). The holder is the exported layer.
+fn holder_with_frame(fill: bool, clip: bool, child: Option<f32>) -> (Document, NodeId) {
+    let mut frame = Node::frame(NodeId(0), Rect::new(0.0, 0.0, 100.0, 100.0));
+    if !fill {
+        frame.fills.clear();
+    }
+    if let NodeKind::Frame(fp) = &mut frame.kind {
+        fp.clips_content = clip;
+    }
+    let (mut d, holder) = holder_with(frame, false);
+    let frame_id = *d.get(holder).unwrap().children.last().unwrap();
+    if let Some(x) = child {
+        let rid = d.alloc_id();
+        d.insert(frame_id, Node::rectangle(rid, Rect::new(x, 10.0, 20.0, 20.0))).unwrap();
+    }
+    (d, holder)
+}
+
+#[test]
+fn a_fill_less_frame_adds_its_full_box_whatever_it_holds() {
+    // Figma, all measured at 400 wide: the frame ends at 300 + 100 although its painted child ends at 330.
+    for (what, d_f) in [
+        ("no fill, no clip, painted child inside", holder_with_frame(false, false, Some(10.0))),
+        ("no fill, clip, painted child inside", holder_with_frame(false, true, Some(10.0))),
+        ("fill, no clip, painted child inside", holder_with_frame(true, false, Some(10.0))),
+        ("no fill, no clip, empty", holder_with_frame(false, false, None)),
+        ("no fill, clip, child cut away", holder_with_frame(false, true, Some(150.0))),
+    ] {
+        let (d, f) = d_f;
+        assert_eq!(size(render_bounds(&d, f)), (400.0, 100.0), "{what}");
+        assert_eq!(png_size(&d, f), (400, 100), "{what}");
+    }
+}
+
+#[test]
+fn a_child_past_an_unclipped_frames_box_still_reaches_further() {
+    // Figma: 470 wide, the child at 300 + 150 ends at 470.
+    let (d, f) = holder_with_frame(false, false, Some(150.0));
+    assert_eq!(size(render_bounds(&d, f)), (470.0, 100.0));
+}
+
+// ---- float noise ----------------------------------------------------------------------------------
+
+#[test]
+fn noise_far_below_a_pixel_does_not_add_a_pixel_to_the_export() {
+    // A layout that ends a hair past a whole pixel (the kit's Dashboards ends at 1524.0002) must not export
+    // one pixel wider, and a hair before the origin must not move it.
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let rid = d.alloc_id();
+    let root = d.insert(page, Node::frame(rid, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+    let cid = d.alloc_id();
+    d.insert(root, Node::rectangle(cid, Rect::new(-0.0003, 60.0, 100.0006, 50.0002))).unwrap();
+    let b = render_bounds(&d, root);
+    assert_eq!((b.x, b.y, b.w, b.h), (0.0, 0.0, 100.0, 110.0));
+    assert_eq!(png_size(&d, root), (100, 110));
+    let svg = export_svg(&d, root, &SvgOptions::default());
+    assert!(svg.contains("viewBox=\"0 0 100 110\""), "{svg}");
+}
+
+#[test]
+fn a_real_fraction_still_rounds_up() {
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let rid = d.alloc_id();
+    let root = d.insert(page, Node::frame(rid, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+    let cid = d.alloc_id();
+    d.insert(root, Node::rectangle(cid, Rect::new(0.0, 60.0, 100.5, 50.0))).unwrap();
+    assert_eq!(png_size(&d, root), (101, 110));
+}

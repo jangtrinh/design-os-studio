@@ -15,7 +15,16 @@ pub fn render_bounds(doc: &Document, id: NodeId) -> Rect {
 /// Bounds in the node's local space, or `None` when the node has no painted
 /// bounds (for example, a missing node or a group whose children are all hidden).
 pub(crate) fn try_render_bounds(doc: &Document, id: NodeId) -> Option<Rect> {
-    bounds_of(doc, doc.get(id)?)
+    bounds_of(doc, doc.get(id)?, true).map(snap)
+}
+
+/// Rounds each edge to a thousandth of a pixel. Layout arithmetic leaves noise such as 1524.0002 that
+/// would otherwise round up to a whole extra pixel when the export size is rounded out.
+fn snap(r: Rect) -> Rect {
+    const STEP: f32 = 1000.0;
+    let edge = |v: f32| (v * STEP).round() / STEP;
+    let (x0, y0, x1, y1) = (edge(r.x), edge(r.y), edge(r.x + r.w), edge(r.y + r.h));
+    Rect::new(x0, y0, x1 - x0, y1 - y0)
 }
 
 fn transform_rect(t: &Affine, r: Rect) -> Rect {
@@ -223,26 +232,29 @@ fn effect_shapes(doc: &Document, n: &Node) -> Option<Rect> {
     acc
 }
 
-fn bounds_of(doc: &Document, n: &Node) -> Option<Rect> {
+/// `is_root` marks the layer being exported: it always keeps its own box.
+///
+/// A layer that paints nothing adds no box, except a frame: Figma counts a frame's own box whatever it
+/// holds, painted or not, clipping or not.
+fn bounds_of(doc: &Document, n: &Node, is_root: bool) -> Option<Rect> {
     let n = designos_doc::resolve_node(doc, n);
     let n = n.as_ref();
     let is_page = matches!(n.kind, NodeKind::Page { .. });
     let is_group = matches!(n.kind, NodeKind::Group);
-    let mut acc = if is_page { None } else { effect_shapes(doc, n) };
-    if !is_page && !is_group && !paints(n) {
+    if is_page {
+        let kids = child_rects(doc, n, |d, c| bounds_of(d, c, false));
+        return Some(kids.into_iter().fold(None, union_into).unwrap_or_default());
+    }
+    let mut acc = effect_shapes(doc, n);
+    let keeps_box = is_root || n.kind.frame_props().is_some();
+    if !is_group && !paints(n) && keeps_box {
         acc = union_into(acc, Rect::new(0.0, 0.0, n.size.x, n.size.y));
     }
     // a clipping node's own box is already in `acc`, and its children are cut to that box
-    if !is_page && clips(n) {
+    if clips(n) {
         return acc;
     }
-    for cr in child_rects(doc, n, bounds_of) {
-        acc = union_into(acc, cr);
-    }
-    if is_page {
-        return Some(acc.unwrap_or_default());
-    }
-    acc
+    child_rects(doc, n, |d, c| bounds_of(d, c, false)).into_iter().fold(acc, union_into)
 }
 
 /// The area a node's shadows and blur are drawn in, in its own space: the shape it paints and its
@@ -592,8 +604,9 @@ mod tests {
         let expected_w = 80.0 + 50.0 * cos;
         let expected_h = 80.0 + 50.0 * (sin + cos);
         assert_eq!((b.x, b.y), (0.0, 0.0));
-        assert!((b.w - expected_w).abs() < 1e-4, "expected w={expected_w}, got {}", b.w);
-        assert!((b.h - expected_h).abs() < 1e-4, "expected h={expected_h}, got {}", b.h);
+        // the bounds are snapped to a thousandth of a pixel
+        assert!((b.w - expected_w).abs() <= 1e-3, "expected w={expected_w}, got {}", b.w);
+        assert!((b.h - expected_h).abs() <= 1e-3, "expected h={expected_h}, got {}", b.h);
     }
 
     #[test]

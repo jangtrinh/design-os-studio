@@ -28,15 +28,11 @@ struct FrameExpected {
 
 const MOBILE_UNEXPLAINED: &str = "left edge reaches 5 px further than Figma and the cause is not located; Figma's bounds for this kit layer cannot be read";
 
+const DASHBOARDS_SERIES_2: &str = "Figma stops at the last bar (1524) but the fill-less clipping frame `Series 2`, nested in two instances, ends at 1528 and is counted here; plain frames of that kind do count in Figma, so the cause is not found";
+
 const KIT_FRAMES: &[FrameExpected] = &[
     FrameExpected { source_id: "9264:578567", name: "_Video timestamp indicator", expected_w: 172.0, expected_h: 141.0, known_open: None },
-    FrameExpected {
-        source_id: "8085:173260",
-        name: "Dashboards 01 Desktop",
-        expected_w: 1524.0,
-        expected_h: 1257.0,
-        known_open: Some("the Series 2 frame inside reaches 1528; the rule that stops Figma at 1524 is not located yet"),
-    },
+    FrameExpected { source_id: "8085:173260", name: "Dashboards 01 Desktop", expected_w: 1524.0, expected_h: 1257.0, known_open: Some(DASHBOARDS_SERIES_2) },
     FrameExpected { source_id: "1689:439089", name: "Informational pages 01 Desktop", expected_w: 1440.0, expected_h: 966.0, known_open: None },
     FrameExpected { source_id: "1673:402973", name: "Settings pages 01 Desktop", expected_w: 1440.0, expected_h: 966.0, known_open: None },
     FrameExpected { source_id: "6277:293415", name: "Settings pages 02 Mobile", expected_w: 391.0, expected_h: 1425.0, known_open: Some(MOBILE_UNEXPLAINED) },
