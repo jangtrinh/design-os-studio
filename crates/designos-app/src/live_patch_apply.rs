@@ -564,14 +564,17 @@ fn solve_carried_layout_in_tx(
             })
             .collect()
     };
-    let carried = designos_doc::ExecLayout { seeds: held(&layout.seeds), structural: held(&layout.structural) };
+    let carried = designos_doc::ExecLayout { seeds: held(&layout.seeds), structural: held(&layout.structural), scoped_solve_first: layout.scoped_solve_first };
     if designos_doc::group_at_or_above(doc, &carried.structural) {
-        // The agent's batch solves its own targets first and then climbs from the carried containers, so the
-        // editor's solve of what the replay touched comes first here too, inside the transaction.
-        let ((), solved) = doc.record_node_writes(|d| {
-            relayout_touched(d, needs_layout);
-        });
-        ed.adopt_before(doc, solved);
+        // A batch solves its own targets first and then climbs from the carried containers, and the patch says so:
+        // the editor's solve of what the replay touched comes first here too, inside the transaction. For any other
+        // step the climb comes first and that solve follows the commit, as it always did.
+        if carried.scoped_solve_first {
+            let ((), solved) = doc.record_node_writes(|d| {
+                relayout_touched(d, needs_layout);
+            });
+            ed.adopt_before(doc, solved);
+        }
         let before = designos_doc::solve_exec_layout(doc, &carried);
         ed.adopt_before(doc, before);
     }

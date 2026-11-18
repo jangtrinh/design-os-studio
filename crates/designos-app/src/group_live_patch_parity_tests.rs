@@ -201,9 +201,36 @@ fn a_carried_container_the_editor_refused_to_create_does_not_reach_an_unrelated_
     container.name = "agent container".into();
     let missing_parent = NodeId(9_999);
     let patch = LivePatch::new(vec![LiveOp::Insert { parent: missing_parent, at: SiblingHint::default(), nodes: vec![container] }])
-        .with_layout(Some(ExecLayout { seeds: vec![clash], structural: vec![clash] }));
+        .with_layout(Some(ExecLayout { seeds: vec![clash], structural: vec![clash], scoped_solve_first: false }));
 
     crate::live_patch_apply::apply_live_patches(&mut app, &[patch]);
 
     assert_eq!(serde_json::to_value(app.doc.get(group).unwrap()).unwrap(), stored, "the editor's own group is untouched");
+}
+
+/// `designos_create_node` into the hug frame refits the group around it (see the test above). The batch tool solves the
+/// frame with its own scoped solve before the climb, so the climb finds nothing moved and the group keeps its old box, on
+/// the agent side and in the editor alike. Red until the batch tool's solve and the climb agree on that case.
+#[test]
+#[ignore = "a batch that adds a layer to a hug frame inside a group leaves the group at its old box"]
+fn an_agent_batch_that_adds_a_layer_to_a_hug_frame_in_a_group_refits_the_group_like_create_node() {
+    let (mut engine, mut app, (group, card)) = pair(|doc, page| {
+        let screen = frame_of(doc, page, Rect::new(0.0, 0.0, 400.0, 600.0), auto_layout(LayoutDirection::Vertical, Sizing::Fixed));
+        let group = frame_of(doc, screen, Rect::new(0.0, 0.0, 60.0, 40.0), NodeKind::Group);
+        let card = frame_of(doc, group, Rect::new(0.0, 0.0, 60.0, 40.0), auto_layout(LayoutDirection::Vertical, Sizing::Hug));
+        rect_in(doc, card, Rect::new(0.0, 0.0, 60.0, 20.0));
+        rect_in(doc, card, Rect::new(0.0, 20.0, 60.0, 20.0));
+        (group, card)
+    });
+
+    run_agent_call(
+        &mut engine,
+        &mut app,
+        "designos_apply_batch",
+        json!({ "ops": [{ "op": "create", "parent": card.0, "kind": "rectangle", "x": 0, "y": 0, "width": 60, "height": 20 }]}),
+    );
+
+    assert_eq!(size(&engine.doc, card).1, 60.0, "precondition: the frame grew");
+    assert_eq!(size(&engine.doc, group).1, 60.0, "the group fits the grown frame");
+    assert_same_documents(&engine, &app);
 }

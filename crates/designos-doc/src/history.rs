@@ -505,7 +505,8 @@ impl History {
         label: Option<String>,
         pre_solve: impl FnOnce(&mut Document),
     ) -> Result<(), DocError> {
-        let (inv, layout_recorded, layout) = run_exec(doc, cmd, true, Some(Box::new(pre_solve)))?;
+        let (inv, layout_recorded, mut layout) = run_exec(doc, cmd, true, Some(Box::new(pre_solve)))?;
+        layout.scoped_solve_first = true;
         self.last_exec_layout = Some(layout).filter(|l| !l.is_empty());
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Unspecified, label, layout_recorded, ..Default::default() });
         Ok(())
@@ -965,6 +966,10 @@ pub struct ExecLayout {
     pub seeds: Vec<NodeId>,
     /// Containers that lost or gained a child. A group among them, or above them, is refitted to its children.
     pub structural: Vec<NodeId>,
+    /// The tool's own scoped solve ran before the climb (see [`History::exec_with_pre_solve`]); every other step
+    /// climbs first and leaves its tool's solve for after the step. An editor replaying the patch keeps the same order.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub scoped_solve_first: bool,
 }
 
 impl ExecLayout {
@@ -976,6 +981,7 @@ impl ExecLayout {
     /// Adds what `other` names, once each. One tool call can run several steps, and the container set is what
     /// the solve reads, not the order.
     pub fn merge(&mut self, other: ExecLayout) {
+        self.scoped_solve_first |= other.scoped_solve_first;
         for id in other.seeds {
             if !self.seeds.contains(&id) {
                 self.seeds.push(id);

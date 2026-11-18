@@ -115,7 +115,7 @@ fn a_line_without_the_layout_field_reads_and_replays_and_the_field_round_trips()
     assert_eq!(patch.layout, None);
     assert_eq!(replay(&mut doc, &patch).applied, 1);
 
-    let layout = crate::ExecLayout { seeds: vec![NodeId(4), NodeId(5)], structural: vec![NodeId(5)] };
+    let layout = crate::ExecLayout { seeds: vec![NodeId(4), NodeId(5)], structural: vec![NodeId(5)], scoped_solve_first: true };
     let line = serde_json::to_string(&remove_patch(frame, LIVE_PATCH_VERSION).with_layout(Some(layout.clone()))).unwrap();
     let back: LivePatch = serde_json::from_str(&line).unwrap();
     assert_eq!(back.layout, Some(layout), "the containers the agent solved come back as sent");
