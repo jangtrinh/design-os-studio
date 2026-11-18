@@ -3396,15 +3396,16 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
     if !batch_args.dry_run {
         let cmds_committed = !collected_cmds.is_empty() && changed.any();
         if cmds_committed {
+            // The trial copy ran the batch's own scoped solve and then the step's climb (`settle_layout_after`), so the
+            // commit runs them in that order, inside the step.
             engine
                 .history
-                .exec(&mut engine.doc, Command::Batch(collected_cmds))
+                .exec_with_pre_solve(&mut engine.doc, Command::Batch(collected_cmds), None, |doc| {
+                    relayout_seeds(doc, &relayout_targets, &container_targets);
+                    doc.flush_pending_relayout();
+                })
                 .map_err(|e| batch_error(ErrorCode::InternalError, None, None, "", e.to_string()))?;
             engine.note_exec_layout();
-            engine.solve_after_step(|doc| {
-                relayout_seeds(doc, &relayout_targets, &container_targets);
-                doc.flush_pending_relayout();
-            });
             engine.live_patch_label = Some(undo_label.clone());
         }
         if in_progress_changed {
