@@ -150,9 +150,12 @@ fn is_finite_color(c: &Color) -> bool {
 }
 
 /// The mean of a gradient along its length: the stops sorted by position (clamped to `0..=1`), the
-/// first stop's colour held back to the start and the last one's out to the end, colour and alpha
-/// interpolated premultiplied between stops. Returns the straight mean colour and the mean alpha, or
-/// `None` for no stops, a non-finite number, or a gradient that is transparent throughout.
+/// first stop's colour held back to the start and the last one's out to the end. Between two stops
+/// the straight colour and the alpha are interpolated separately and the colour is premultiplied
+/// afterwards, as the CPU and GPU renderers do, so a stop that fades to transparent weighs its colour
+/// by the alpha it still has at each point (not by the mean of its two end alphas). Returns the
+/// straight mean colour and the mean alpha, or `None` for no stops, a non-finite number, or a
+/// gradient that is transparent throughout.
 fn gradient_mean(stops: &[GradientStop], profile: &ColorProfile) -> Option<(Color, f32)> {
     if stops.is_empty() || stops.iter().any(|s| !s.pos.is_finite() || !is_finite_color(&s.color)) {
         return None;
@@ -161,27 +164,28 @@ fn gradient_mean(stops: &[GradientStop], profile: &ColorProfile) -> Option<(Colo
         .iter()
         .map(|s| {
             let c = profile.to_srgb(&s.color);
-            let a = f64::from(c.a.clamp(0.0, 1.0));
-            (f64::from(s.pos.clamp(0.0, 1.0)), [f64::from(c.r) * a, f64::from(c.g) * a, f64::from(c.b) * a, a])
+            (f64::from(s.pos.clamp(0.0, 1.0)), [f64::from(c.r), f64::from(c.g), f64::from(c.b), f64::from(c.a.clamp(0.0, 1.0))])
         })
         .collect();
     points.sort_by(|x, y| x.0.total_cmp(&y.0));
     let (first, last) = (points[0].1, points[points.len() - 1].1);
     points.insert(0, (0.0, first));
     points.push((1.0, last));
-    let mut mean = [0.0f64; 4];
+    // Over one segment of width `w`, with c(u) = c0 + (c1 - c0) u and a(u) = a0 + (a1 - a0) u for u in 0..1:
+    // the integral of c(u) a(u) is c0 a0 / 3 + c0 a1 / 6 + c1 a0 / 6 + c1 a1 / 3, and that of a(u) is (a0 + a1) / 2.
+    let (mut premultiplied, mut alpha) = ([0.0f64; 3], 0.0f64);
     for pair in points.windows(2) {
-        let width = pair[1].0 - pair[0].0;
-        for (m, (a, b)) in mean.iter_mut().zip(pair[0].1.iter().zip(&pair[1].1)) {
-            *m += width * (a + b) / 2.0;
+        let (width, [r0, g0, b0, a0], [r1, g1, b1, a1]) = (pair[1].0 - pair[0].0, pair[0].1, pair[1].1);
+        for (sum, (c0, c1)) in premultiplied.iter_mut().zip([(r0, r1), (g0, g1), (b0, b1)]) {
+            *sum += width * (c0 * a0 / 3.0 + c0 * a1 / 6.0 + c1 * a0 / 6.0 + c1 * a1 / 3.0);
         }
+        alpha += width * (a0 + a1) / 2.0;
     }
-    let alpha = mean[3];
     if alpha.is_nan() || alpha <= 0.0 {
         return None;
     }
     let channel = |v: f64| (v / alpha).clamp(0.0, 1.0) as f32;
-    Some((Color { r: channel(mean[0]), g: channel(mean[1]), b: channel(mean[2]), a: 1.0 }, alpha as f32))
+    Some((Color { r: channel(premultiplied[0]), g: channel(premultiplied[1]), b: channel(premultiplied[2]), a: 1.0 }, alpha as f32))
 }
 
 /// A paint as a [`SurfaceLayer`], or `None` when it is not a usable surface: a blend mode with no
@@ -649,8 +653,8 @@ mod tests {
         doc.get_mut(wrapper).expect("wrapper").fills = vec![fade];
         assert_eq!(
             default_connector_ink(&doc, wrapper),
-            Color::rgb(0x1E, 0x1E, 0x1E),
-            "white fading out over a black page is a mid-light surface, not a dark one"
+            Color::WHITE,
+            "the renderer lerps the straight colour then premultiplies, so white fading out over black stays a dark surface"
         );
     }
 

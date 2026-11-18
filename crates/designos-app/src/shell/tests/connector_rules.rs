@@ -478,6 +478,56 @@ fn default_ink_has_rendered_contrast_through_a_translucent_fill() {
     assert!(chosen >= alternate, "translucent surface must choose the better available ink ({chosen:.2} vs {alternate:.2})");
 }
 
+fn set_page_background(s: &mut Sim, background: Color) {
+    let page = s.app().page;
+    s.shell.app.doc.get_mut(page).expect("page").kind = NodeKind::Page { background };
+    s.shell.app.changed();
+    s.frame(vec![]);
+}
+
+#[test]
+fn default_ink_has_rendered_contrast_through_a_translucent_fill_on_a_dark_page() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    set_page_background(&mut s, Color::rgb(0x12, 0x12, 0x12));
+    let wrapper = add(&mut s, page, |id| Node::frame(id, DRect::new(80.0, 80.0, 640.0, 360.0)), "Translucent surface");
+    let mut white = Paint::solid(Color::WHITE);
+    white.opacity = 0.45;
+    set_connector_surface(&mut s, wrapper, white);
+    let a = rectangle(&mut s, wrapper, "Translucent A", 40.0, 100.0);
+    let b = rectangle(&mut s, wrapper, "Translucent B", 420.0, 100.0);
+    let c = connect_deep(&mut s, a, b);
+    assert_eq!(ink_of(&s, c), crate::board::color_of(crate::theme::BOARD_INK[0]), "45% white over a dark page is a mid-light surface: the dark ink");
+    let ratio = rendered_line_contrast(&s, c);
+    assert!(ratio >= 3.0, "the rendered line reaches 3:1 against the blended pixel next to it, got {ratio:.2}:1");
+}
+
+#[test]
+fn default_ink_has_rendered_contrast_on_a_gradient_that_fades_to_transparent() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    set_page_background(&mut s, Color::BLACK);
+    let wrapper = add(&mut s, page, |id| Node::frame(id, DRect::new(80.0, 80.0, 640.0, 360.0)), "Fading surface");
+    // white to transparent: Studio interpolates the straight colour and premultiplies after, so the
+    // surface under the middle of the line is about a quarter grey, not the half grey of a premultiplied lerp
+    let fade = Paint {
+        kind: PaintKind::LinearGradient {
+            handles: [DV::new(0.0, 0.5), DV::new(1.0, 0.5), DV::new(0.0, 1.0)],
+            stops: vec![designos_doc::GradientStop { pos: 0.0, color: Color::WHITE }, designos_doc::GradientStop { pos: 1.0, color: Color::TRANSPARENT }],
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    };
+    set_connector_surface(&mut s, wrapper, fade);
+    let a = rectangle(&mut s, wrapper, "Fading A", 40.0, 100.0);
+    let b = rectangle(&mut s, wrapper, "Fading B", 420.0, 100.0);
+    let c = connect_deep(&mut s, a, b);
+    assert_eq!(ink_of(&s, c), Color::WHITE, "white fading out over black leaves a dark surface");
+    let ratio = rendered_line_contrast(&s, c);
+    assert!(ratio >= 3.0, "the rendered line reaches 3:1 against the faded pixel next to it, got {ratio:.2}:1");
+}
+
 #[test]
 fn connector_ink_tokens_match_the_document_defaults() {
     let mut doc = designos_doc::Document::new("Ink tokens");
