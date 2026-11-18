@@ -91,16 +91,27 @@ count as a change for this rule.
 
 An answer is only taken when its `close_id` is this close's. The id is a 32-bit random part per session plus a
 counter, so a result file a former server process left behind never matches, and `close-result.json` and
-`close-cancel.json` are deleted before each live close is published. A tab that is already closed (the editor
-answers `reason: "tab_closed"`) is `EDITOR_NOT_NOTIFIED` with `safe_to_retry: false` and `next_step` "That tab is
-already closed, so there is nothing to close. Open the document again with designos_open_file, or ask the user.";
-a tab the person closed leaves `tab-closed.json` in its session folder (a scratch folder keeps only that mark until the
-next sweep), which is what tells the closed tab apart from a missing folder. A session folder that is gone with no
-such mark is `EDITOR_NOT_NOTIFIED` with `safe_to_retry: false`, the message "The session folder is gone, so the editor
-cannot be asked." and `next_step` "Check the document state with designos_get_document, or ask the user.", at once and
-without the wait. Once `tab-closed.json` is there, an edit, `designos_open_file` and `designos_new_document` are refused with the
-same "already closed" answer before anything is changed, and nothing is written into the folder: no editor reads it, so a
-write would be answered "ok" and lost. The "tab not shown" answer, where the tab still exists, stays retryable for every policy.
+`close-cancel.json` are deleted before each live close is published.
+
+Once a tab is closed, its agent's session is over and stays refused, whoever closed the tab: the person, or the agent
+itself with `designos_close_document`. A closed tab leaves `tab-closed.json` in its session folder (a scratch folder
+keeps only that mark, its owner marker and the answer to a close until the next sweep); that mark, or this session's
+own acknowledged close, is what tells a closed tab apart from a missing folder. Every refusal is `EDITOR_NOT_NOTIFIED`
+with `safe_to_retry: false` and `next_step` "This session's tab is already closed, so nothing more from this session
+reaches the editor. Stop and tell the user.": it names no other call, since each of them is refused the same way.
+- `designos_close_document` (also when the editor answers `reason: "tab_closed"`, and when the tab closes while the
+  close waits for its answer) has the message "The tab is already closed, so there is nothing to close.", at once and
+  without the wait.
+- An edit, `designos_open_file` and `designos_new_document` have the message "The tab is already closed, so this change
+  cannot reach the editor." They are refused before anything is changed.
+- Nothing is written into the folder of a closed tab, `session-options.json` and `close-cancel.json` included: no editor
+  reads it, so an edit would be answered "ok" and lost. The last check comes just before the write, which narrows the race
+  with a tab that closes during the call but does not close it.
+
+A session folder that is gone with no such mark is `EDITOR_NOT_NOTIFIED` with `safe_to_retry: false`, the message "The
+session folder is gone, so the editor cannot be asked." and `next_step` "Check the document state with
+designos_get_document, or ask the user.", at once and without the wait. The "tab not shown" answer, where the tab still
+exists, stays retryable for every policy.
 
 ### 3.3 Catalogue
 

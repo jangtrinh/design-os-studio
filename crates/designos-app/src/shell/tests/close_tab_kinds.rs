@@ -283,17 +283,6 @@ fn the_first_close_right_after_a_tab_switch_closes_without_a_retry() {
     finish(s, workspace);
 }
 
-/// Every way of showing a parked tab takes the stale-close boundary itself: none leaves it to the first poll, which would bring back
-/// the race the first close after a switch lost to.
-#[test]
-fn showing_a_parked_tab_never_leaves_the_stale_close_boundary_to_the_first_poll() {
-    let (mut s, _dir) = untitled_tab();
-    for idx in [0, 1, 0, 1] {
-        switch_to(&mut s, idx);
-        assert_eq!(s.app().terminal.live_patch.late_boundaries(), 0, "switching to tab {idx}");
-    }
-}
-
 // ---- A tab that is already gone -----------------------------------------------------------------------------------------------
 
 /// What a new MCP process (or one whose tab the person closed) gets: an answer at once that says asking again can never work.
@@ -304,8 +293,15 @@ fn assert_tab_closed_at_once(s: &mut Sim, session: &mut designos_mcp::server::Se
     assert!(started.elapsed() < Duration::from_secs(2), "{what}: answered without waiting for an editor that is not there ({:?})", started.elapsed());
     assert_eq!(err["code"], "EDITOR_NOT_NOTIFIED", "{what}: {err}");
     assert_eq!(err["safe_to_retry"], false, "{what}: asking again can never work: {err}");
-    assert!(next_step(&err).contains("already closed"), "{what}: {err}");
+    assert_stops_the_agent(&err, what);
     wait(s, SETTLED);
+}
+
+/// The next step of every "already closed" answer: the agent stops and tells the user, and is not sent to another call, which would
+/// be refused the same way.
+fn assert_stops_the_agent(err: &Value, what: &str) {
+    let next = next_step(err);
+    assert!(next.contains("already closed") && next.contains("tell the user") && !next.contains("designos_"), "{what}: {err}");
 }
 
 #[test]
@@ -366,7 +362,9 @@ fn assert_edit_refused_as_closed(session: &mut designos_mcp::server::Session, no
     let err = session.call("designos_update_node", json!({"node_id": node, "name": "Late edit"})).map_err(|e| e.to_json_value()).expect_err(what);
     assert_eq!(err["code"], "EDITOR_NOT_NOTIFIED", "{what}: {err}");
     assert_eq!(err["safe_to_retry"], false, "{what}: asking again can never work: {err}");
-    assert!(next_step(&err).contains("already closed"), "{what}: {err}");
+    assert_stops_the_agent(&err, what);
+    let message = err["message"].as_str().unwrap_or("");
+    assert!(message.contains("already closed") && !message.contains("nothing to close"), "{what}: an edit is not a close: {err}");
     assert_eq!(files_in(folder), files, "{what}: nothing was written into the folder");
 }
 

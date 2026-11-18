@@ -17,10 +17,17 @@ pub use folder::{default_sessions_root, ephemeral_session_dir, ephemeral_session
 pub(crate) use folder_owner::check_owner;
 pub use refusal::{files_not_updated_message, library_fallback_message, start_failure_message, with_next_step, with_set_aside_note};
 pub use session_io::{
-    added_while_starting, atomic_write_session_file, create_session_dir_all, create_session_file_exclusive, open_plain_file, open_session_file,
-    read_session_file, read_session_text, remove_session_dir_all, remove_session_dir_entries_except, remove_session_file, rename_session_file,
-    session_file_metadata, set_aside_entries_except, set_aside_path, write_session_file_unless, write_session_file_verified, SetAside,
+    added_while_starting, atomic_write_session_file, create_session_dir_all, create_session_file_exclusive, mark_and_empty_session_folder, open_plain_file,
+    open_session_file, read_session_file, read_session_text, remove_session_dir_all, remove_session_file, rename_session_file, session_file_metadata,
+    set_aside_entries_except, set_aside_path, write_session_file_unless, write_session_file_verified, SetAside,
 };
+
+/// Runs `hook` once, just before the routed helpers remove the entry at `path`, so a test outside this module can see what the
+/// folder held at that exact point.
+#[cfg(all(test, unix))]
+pub(crate) fn set_before_remove_hook(path: &Path, hook: Box<dyn FnOnce() + Send>) {
+    no_follow::test_hooks::set_before_remove_hook(path, hook);
+}
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};

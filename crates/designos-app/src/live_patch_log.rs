@@ -280,7 +280,11 @@ impl LivePatchLog {
             self.stale_close = StaleClose::Before(len);
             self.late_boundaries += 1;
             #[cfg(not(test))]
-            eprintln!("design:os studio: a tab was shown without taking the stale-close boundary; taking it at the first poll ({})", self.path.display());
+            eprintln!(
+                "design:os studio: a tab was shown without taking the stale-close boundary; taking it at the first poll ({}, {} time(s) for this log)",
+                self.path.display(),
+                self.late_boundaries
+            );
         }
         if len == self.offset && self.identity == Some(id) {
             return Default::default();

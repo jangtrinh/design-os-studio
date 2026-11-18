@@ -1581,29 +1581,28 @@ const TAB_CLOSED_MARK: &[u8] = b"{\"tab_closed\":true}\n";
 /// the tab's shutdown (which removes the folder) runs right after. Without the answer the agent waits out its timeout for a close that
 /// happened. The stray folder holds only that file and goes with the next sweep of folders whose process is gone.
 ///
-/// With `session_ended` the folder stays as the mark of a closed tab: `tab-closed.json` is written first and the folder is emptied
-/// around it, so an agent's close never sees a moment with neither the folder nor the mark. `owner.json` stays too, for the sweep.
+/// With `session_ended` the folder stays as the mark of a closed tab: `tab-closed.json` is written into it, and only then is the rest
+/// removed, through one handle of the folder, so an agent's call that lands while the folder is emptied already finds the mark.
+/// `owner.json` (for the sweep) and `close-result.json` stay too. A folder that is not there stays not there. A link or a file in its
+/// place, or a folder that cannot be marked and emptied, goes whole as below, so the agent's next call is told the folder is gone,
+/// which is not retryable either.
 fn remove_scratch_dir_keeping_the_close_answer(dir: &Path, session_ended: bool) {
     use designos_doc::live_patch::CloseIntent;
-    if !session_ended {
-        let result = dir.join(CloseIntent::RESULT_FILE);
-        let answer = crate::agent_session_files::read_session_file(&result).ok();
-        let _ = std::fs::remove_dir_all(dir);
-        if let Some(bytes) = answer {
-            if crate::agent_session_files::ensure_session_dir(dir).is_ok() {
-                let _ = atomic_write_session_file(&result, &bytes);
-            }
+    if session_ended {
+        let kept = [CloseIntent::RESULT_FILE, crate::agent_session_files::OWNER_FILE];
+        match crate::agent_session_files::mark_and_empty_session_folder(dir, CloseIntent::TAB_CLOSED_FILE, TAB_CLOSED_MARK, &kept) {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(e) => eprintln!("design:os studio: could not leave only the closed mark in {}, so it is removed: {e}", dir.display()),
         }
-        return;
     }
-    // The mark first: from here on a close that comes looking finds the folder with its mark, never neither. A folder that is not
-    // there stays not there, and a link in its place (refused by both calls) is removed as a link.
-    if crate::agent_session_files::session_file_metadata(dir).is_ok_and(|m| m.is_dir()) {
-        let _ = atomic_write_session_file(&dir.join(CloseIntent::TAB_CLOSED_FILE), TAB_CLOSED_MARK);
-    }
-    let kept = [CloseIntent::RESULT_FILE, CloseIntent::TAB_CLOSED_FILE, crate::agent_session_files::OWNER_FILE];
-    if crate::agent_session_files::remove_session_dir_entries_except(dir, &kept).is_err() {
-        let _ = crate::agent_session_files::remove_session_dir_all(dir);
+    let result = dir.join(CloseIntent::RESULT_FILE);
+    let answer = crate::agent_session_files::read_session_file(&result).ok();
+    let _ = std::fs::remove_dir_all(dir);
+    if let Some(bytes) = answer {
+        if crate::agent_session_files::ensure_session_dir(dir).is_ok() {
+            let _ = atomic_write_session_file(&result, &bytes);
+        }
     }
 }
 

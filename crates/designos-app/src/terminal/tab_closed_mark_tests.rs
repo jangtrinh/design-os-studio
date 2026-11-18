@@ -42,11 +42,11 @@ fn a_scratch_tab_that_shuts_down_leaves_only_the_mark_of_its_closed_tab() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The folder is emptied around the mark, never removed and made again: an agent's close that lands during the shutdown sees the
-/// folder or the mark, and never neither.
+/// The folder is emptied in place, never removed and made again, so it is there for the whole shutdown. (That the mark is in it
+/// before anything is removed is the next test.)
 #[cfg(unix)]
 #[test]
-fn the_scratch_folder_is_emptied_in_place_so_a_close_never_sees_it_missing() {
+fn the_scratch_folder_is_emptied_in_place_not_removed_and_made_again() {
     use std::os::unix::fs::MetadataExt;
     let mut st = scratch_state_with_a_folder();
     let dir = st.session_dir.clone();
@@ -54,6 +54,32 @@ fn the_scratch_folder_is_emptied_in_place_so_a_close_never_sees_it_missing() {
     st.shutdown();
     assert_eq!(std::fs::metadata(&dir).unwrap().ino(), before, "the same folder, not a new one");
     assert!(dir.join(CloseIntent::TAB_CLOSED_FILE).is_file());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Each entry removed, with what its folder held just before it went.
+#[cfg(unix)]
+type SeenAtRemoval = std::sync::Arc<std::sync::Mutex<Vec<(String, Vec<String>)>>>;
+
+/// The mark is in the folder before the first file of the session is removed, so an agent's call that lands while the folder is
+/// being emptied already finds it. Called directly: the shutdown writes the mark again afterwards, which would hide a late one.
+#[cfg(unix)]
+#[test]
+fn the_mark_is_in_the_folder_before_anything_in_it_is_removed() {
+    let st = scratch_state_with_a_folder();
+    let dir = st.session_dir.clone();
+    let seen = SeenAtRemoval::default();
+    for name in ["doc-patch.jsonl", "canvas.designos", "nested"] {
+        let (seen, dir_at) = (seen.clone(), dir.clone());
+        crate::agent_session_files::set_before_remove_hook(&dir.join(name), Box::new(move || seen.lock().unwrap().push((name.to_string(), names_in(&dir_at)))));
+    }
+    remove_scratch_dir_keeping_the_close_answer(&dir, true);
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 3, "every file of the session was removed through the routed helpers: {seen:?}");
+    for (removed, held) in &seen {
+        assert!(held.iter().any(|n| n == CloseIntent::TAB_CLOSED_FILE), "the mark was not there when {removed} was removed: {held:?}");
+    }
+    assert_eq!(names_in(&dir), CLOSED_SCRATCH_FOLDER, "the function itself leaves the mark, not a later step");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

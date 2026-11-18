@@ -177,22 +177,30 @@ pub fn remove_session_dir_all(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Removes every entry of the folder `path` whose name is not in `keep`, a link below it as a link and a folder with all it holds,
-/// without following a link. A folder that is not there has nothing to remove; a link or a file at `path` is refused.
-pub fn remove_session_dir_entries_except(path: &Path, keep: &[&str]) -> io::Result<()> {
-    let missing = |e: &io::Error| e.kind() == io::ErrorKind::NotFound;
-    let (place, holder) = match open_place(path, false) {
-        Err(e) if missing(&e) => return Ok(()),
-        opened => opened?,
-    };
-    let folder = match holder.open_child(&place.name, false) {
-        Err(e) if missing(&e) => return Ok(()),
-        folder => folder?,
-    };
-    for name in folder.entries_not_in(keep)? {
-        folder.remove_all(&name)?;
+/// Writes `mark` as the file `mark_name` into the session folder `path`, and only then removes every other entry whose name is not
+/// in `keep` (a link as a link, a folder with all it holds). Everything goes through one handle of the folder itself, opened without
+/// following a link, so a reader that comes looking while the folder is emptied already finds the mark.
+///
+/// `Ok(false)` when there is no folder at `path` to mark: nothing there, or a link or a file in its place, which is left alone. A path
+/// that is not itself a session folder is refused, in a test build too.
+pub fn mark_and_empty_session_folder(path: &Path, mark_name: &str, mark: &[u8], keep: &[&str]) -> io::Result<bool> {
+    if !is_anchor_folder(path) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{} is not a session folder", path.display())));
     }
-    Ok(())
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_dir() => {}
+        Ok(_) => return Ok(false),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(cannot("checked", path, e, Fix::CheckPermissions)),
+    }
+    let folder = Dir::open_session_folder(path)?;
+    folder.write_atomic(std::ffi::OsStr::new(mark_name), mark, || false)?;
+    for name in folder.entries_not_in(keep)? {
+        if name != mark_name {
+            folder.remove_all(&name)?;
+        }
+    }
+    Ok(true)
 }
 
 /// The entries one Ask-mode start moved out of the way of the CLI that would run them, and the folder they went into. Nothing that is
