@@ -13,7 +13,7 @@
 //! subtract/intersect boolean operations use masks instead of resolved geometry
 //! unless the node carries imported `fill_geometry`.
 
-use crate::bounds::{own_overflow, render_bounds};
+use crate::bounds::{effect_region, render_bounds};
 use crate::geo::{node_geo, path_d, transform_cmds, Geo, GeoKind};
 use crate::text;
 use crate::util::{esc, hex, num, svg_transform};
@@ -750,13 +750,13 @@ impl Svg<'_> {
 
     fn shadow_filter(&mut self, n: &Node) -> String {
         let fid = self.uid("shadow");
-        let (l, t, r, b) = own_overflow(n);
+        let region = effect_region(self.doc, n);
         self.def(&format!(
             "<filter id=\"{fid}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" filterUnits=\"userSpaceOnUse\" color-interpolation-filters=\"sRGB\">",
-            num(-l),
-            num(-t),
-            num(n.size.x + l + r),
-            num(n.size.y + t + b)
+            num(region.x),
+            num(region.y),
+            num(region.w),
+            num(region.h)
         ));
         let has_blended_drop = n.effects.iter().any(|e| matches!(e, Effect::DropShadow { visible: true, blend, .. } if !blend.is_normal()));
         if has_blended_drop {
