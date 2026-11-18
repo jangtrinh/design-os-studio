@@ -947,6 +947,7 @@ pub fn resolve_pen_connections(doc: &mut Document, pending_connections: &[(NodeI
                 start_cap: ConnectorCap::None,
                 end_cap: ConnectorCap::Arrow,
                 label,
+                ..Default::default()
             });
         }
     }

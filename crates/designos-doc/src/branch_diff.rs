@@ -723,6 +723,7 @@ fn hash_node_props(node: &Node) -> u64 {
         || !node.plugin_data.is_empty()
         || node.detached_symbol_id.is_some()
         || !node.fig_metadata.is_empty()
+        || !node.extra.is_empty()
     {
         11u8.hash(&mut h);
         node.source_id.hash(&mut h);
@@ -731,6 +732,7 @@ fn hash_node_props(node: &Node) -> u64 {
         let _ = node.plugin_data.serialize(HashSerializer(&mut h));
         node.detached_symbol_id.hash(&mut h);
         let _ = node.fig_metadata.serialize(HashSerializer(&mut h));
+        let _ = node.extra.serialize(HashSerializer(&mut h));
     }
     if let Some(motion) = &node.motion {
         12u8.hash(&mut h);
@@ -901,6 +903,7 @@ fn eq_other_group(a: &Node, b: &Node) -> bool {
         && a.detached_symbol_id == b.detached_symbol_id
         && a.fig_metadata == b.fig_metadata
         && a.motion == b.motion
+        && a.extra == b.extra
 }
 
 /// Returns whether a specific property [`Group`] is equal on nodes `a` and `b`.

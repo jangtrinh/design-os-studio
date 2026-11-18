@@ -163,6 +163,7 @@ pub(crate) fn properties_changed(old: &Node, cur: &Node) -> bool {
         detached_symbol_id,
         fig_metadata,
         motion,
+        extra,
     } = old;
     *visible != cur.visible
         || *locked != cur.locked
@@ -195,6 +196,7 @@ pub(crate) fn properties_changed(old: &Node, cur: &Node) -> bool {
         || *plugin_data != cur.plugin_data
         || *fig_metadata != cur.fig_metadata
         || *motion != cur.motion
+        || *extra != cur.extra
         || *kind != cur.kind
         || *fill_geometry != cur.fill_geometry
         || *stroke_geometry != cur.stroke_geometry
@@ -473,6 +475,45 @@ mod tests {
         assert!(!h.can_undo());
         h.redo(&mut d).unwrap();
         assert_eq!(d.get(nid).unwrap().size.x, 50.0);
+    }
+
+    #[test]
+    fn an_edit_that_only_changes_extra_is_one_undo_step() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let a = d.alloc_id();
+        d.insert(page, Node::rectangle(a, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        d.get_mut(a).unwrap().extra.insert("futureKey".into(), serde_json::json!(1));
+        let mut h = History::default();
+        let mut tx = Tx::new();
+        tx.ed.touch(&d, a);
+        d.get_mut(a).unwrap().extra.insert("futureKey".into(), serde_json::json!(2));
+        d.get_mut(a).unwrap().extra.insert("addedKey".into(), serde_json::json!("x"));
+        tx.ed.retain_changed(&d);
+        assert_eq!(tx.ed.touched(), vec![a], "retain_changed dropped a node whose extra changed");
+        assert!(tx.commit(&mut d, &mut h).unwrap());
+        h.undo(&mut d).unwrap();
+        let extra = &d.get(a).unwrap().extra;
+        assert_eq!(extra.get("futureKey"), Some(&serde_json::json!(1)));
+        assert!(!extra.contains_key("addedKey"));
+        h.redo(&mut d).unwrap();
+        assert_eq!(d.get(a).unwrap().extra.get("futureKey"), Some(&serde_json::json!(2)));
+    }
+
+    #[test]
+    fn undoing_a_delete_brings_back_the_extra_keys() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let a = d.alloc_id();
+        d.insert(page, Node::rectangle(a, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        d.get_mut(a).unwrap().extra.insert("futureKey".into(), serde_json::json!({"n": 1}));
+        let mut h = History::default();
+        let mut tx = Tx::new();
+        tx.cmd(&mut d, Command::Remove { id: a }).unwrap();
+        assert!(tx.commit(&mut d, &mut h).unwrap());
+        assert!(d.get(a).is_none());
+        h.undo(&mut d).unwrap();
+        assert_eq!(d.get(a).unwrap().extra.get("futureKey"), Some(&serde_json::json!({"n": 1})));
     }
 
     #[test]

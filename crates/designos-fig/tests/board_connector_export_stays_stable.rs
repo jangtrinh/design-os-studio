@@ -36,6 +36,7 @@ fn board_with_connector() -> Document {
             start_cap: ConnectorCap::Circle,
             end_cap: ConnectorCap::Triangle,
             label: Some(TextProps { content: "approves".into(), ..Default::default() }),
+            ..Default::default()
         },
     );
     cn.name = "Board Flow".into();

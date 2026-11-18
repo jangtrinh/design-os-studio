@@ -156,6 +156,13 @@ pub struct Node {
     /// Plugin metadata entries (`"{pluginID}:{key}" -> value` or `key -> value`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub plugin_data: BTreeMap<String, String>,
+    /// Keys an imported REST/FigJam file carried on this layer that the model has no field for, kept so an
+    /// open and a save (REST export, or a native save and load) hands them back. A key the importer reads or the
+    /// exporter writes is never kept here. Native saves write them under one `extra` key rather than flattened
+    /// into the node, so a key named like a real field cannot shadow it and `Node` still deserializes as a struct.
+    /// The `.fig` binary format has no place for them and drops them.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
     /// Detached symbol provenance (`detachedSymbolId`, `"guid:s:l"` or `"assetRef:key:version"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detached_symbol_id: Option<String>,
@@ -244,6 +251,8 @@ struct NodeSer<'a> {
     fig_metadata: &'a BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     motion: &'a Option<Box<crate::NodeMotion>>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    extra: &'a BTreeMap<String, serde_json::Value>,
 }
 
 impl Serialize for Node {
@@ -287,6 +296,7 @@ impl Serialize for Node {
             detached_symbol_id,
             fig_metadata,
             motion,
+            extra,
         } = self;
         NodeSer {
             id,
@@ -327,6 +337,7 @@ impl Serialize for Node {
             detached_symbol_id,
             fig_metadata,
             motion,
+            extra,
         }
         .serialize(serializer)
     }
@@ -801,6 +812,7 @@ impl Node {
             lock_aspect: false,
             hyperlink: None,
             plugin_data: BTreeMap::new(),
+            extra: BTreeMap::new(),
             detached_symbol_id: None,
             fig_metadata: BTreeMap::new(),
             motion: None,

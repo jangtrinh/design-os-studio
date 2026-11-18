@@ -395,6 +395,9 @@ fn edits_leaving_the_default_state_of_each_hash_guarded_group_are_changes() {
         (Group::Other, "fig_metadata", |n| {
             n.fig_metadata.insert("k".into(), "v".into());
         }),
+        (Group::Other, "extra", |n| {
+            n.extra.insert("futureKey".into(), serde_json::json!({"a": 1}));
+        }),
         (Group::Other, "source_id", |n| n.source_id = Some("1:2".into())),
         (Group::Other, "detached_symbol_id", |n| n.detached_symbol_id = Some("1:2".into())),
         (Group::Other, "slide", |n| n.slide = Some(SlideProps { notes: "n".into() })),
