@@ -931,7 +931,7 @@ impl Shell {
         let mut seq_capture = None;
         if let Some(p) = opts.panel.as_deref().filter(|p| opts.screenshot.is_some() || !stages_document_edits(p)) {
             if let Some((slug, rest)) = p.split_once(":seq:") {
-                let total = rest.trim().parse::<usize>().unwrap_or(60).max(2);
+                let total = crate::cli_save_targets::sequence_total(rest);
                 if opts.size.is_some_and(|(w, h)| w < h) {
                     app.ui.left_collapsed = true;
                 }
@@ -1061,10 +1061,12 @@ impl Shell {
                 let want = ((shot.size.0 as f32 * shot.scale).round() as u32, (shot.size.1 as f32 * shot.scale).round() as u32);
                 let buf = if (w, h) != want { image::imageops::resize(&buf, want.0, want.1, image::imageops::FilterType::Lanczos3) } else { buf };
                 if let Some(seq) = &mut shot.seq {
-                    let _ = std::fs::create_dir_all(&shot.path);
-                    let frame_path = shot.path.join(format!("frame-{:04}.jpg", seq.cur));
+                    let frame_path = shot.path.join(crate::cli_save_targets::sequence_frame_name(seq.cur));
                     let rgb = image::DynamicImage::ImageRgba8(buf).into_rgb8();
-                    if let Err(e) = rgb.save(&frame_path) {
+                    // A recording folder that is a link, or a frame that is, is never written through.
+                    let written =
+                        crate::cli_save_targets::ensure_capture_folder(&shot.path).and_then(|()| crate::cli_save_targets::write_jpeg(&frame_path, &rgb));
+                    if let Err(e) = written {
                         let msg = format!("cannot write {}: {e}", frame_path.display());
                         eprintln!("designos: {msg}");
                         SHOT_WRITE_FAILED.store(true, Ordering::SeqCst);
@@ -1102,7 +1104,8 @@ impl Shell {
                     if let Some(dir) = shot.path.parent() {
                         let _ = std::fs::create_dir_all(dir);
                     }
-                    match buf.save(&shot.path) {
+                    // A link at the path is never written through; an existing plain image is replaced.
+                    match crate::cli_save_targets::write_png(&shot.path, &buf) {
                         Ok(()) => {
                             SHOT_OK.store(true, Ordering::SeqCst);
                             shot.outcome = ShotOutcome::Written;

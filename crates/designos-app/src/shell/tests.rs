@@ -1337,6 +1337,7 @@ mod relayout_budget;
 mod release_pick_menus;
 mod resized_shape_geometry;
 mod screenshot_capture;
+mod screenshot_targets;
 mod select_cli;
 mod select_cli_watermark;
 mod slot_canvas_edits;

@@ -11,6 +11,7 @@
 # hook touches is the patch log, and only measured with `stat`. A row about a hook command says which file of the hook folder it uses.
 
 FILE	cli_export_write.rs	the destination of a headless export, named on the command line; it has its own refusal of links (`check_target`) and never gets a session folder path
+FILE	cli_save_targets.rs	the destination of a headless save, capture or export, named on the command line; it refuses links itself (`check_save_target`, `check_screenshot_target`, `check_replace_target`) and writes through the no-follow writer, and never gets a session folder path
 FILE	agent_tool_policy.rs	the policy folder `<data dir>/designos/ap/policy/<hash>` of the tool list Studio keeps outside the session folder (`policy_dir` refuses a path inside it); the session's own `mcp-config.json` is read by the caller through `read_session_text` and passed in as text
 FILE	comments/settings.rs	`settings.json` of the library root, the folder of the user's library; no path comes from a session folder
 FILE	home/session.rs	the files of the user's library and their watched copies on disk (autosave, mtime checks); no path comes from a session folder
@@ -189,7 +190,6 @@ LINE	panels/properties.rs	1	let _ = std::fs::create_dir_all(&dir);	the output fo
 LINE	shell.rs	1	(Some(p), _) => std::fs::read(p).map_err(|e| format!("Cannot read {}: {e}", p.display())),	a file the user drops on the window: the user chose the path
 LINE	shell.rs	1	(Some(p), _) => std::fs::read_to_string(p).map_err(|e| format!("Cannot read {}: {e}", p.display())),	a file the user drops on the window: the user chose the path
 LINE	shell.rs	1	if let Err(e) = std::fs::write(layout_path, format!("{json}\n")) {	writes the --layout-json diagnostic snapshot at a path named on the command line, not a session folder
-LINE	shell.rs	1	let _ = std::fs::create_dir_all(&shot.path);	frames of a screenshot run (`--screenshot`), at a path named on the command line
 LINE	shell.rs	2	let _ = std::fs::create_dir_all(dir);	frames of a screenshot run (`--screenshot`), at a path named on the command line
 LINE	skills/hook_delivery.rs	1	dir.join(format!("{REPLY_FILE_PREFIX}-{tab_id}-{slot}.json"))	file name inside the hook folder of a session (`<data dir>/designos/ap/<sid>/hook-out`, `agent_hook_outputs`), which no agent write grant reaches, outside every session folder
 LINE	skills/hook_delivery.rs	1	for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {	lists the hook folder of a session (`<data dir>/designos/ap/<sid>/hook-out`, `agent_hook_outputs`), which no agent write grant reaches for the skills reply files, outside every session folder

@@ -17,3 +17,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 ureq = { version = "2", optional = true }
+
+# Only `O_NOFOLLOW` and the errno constants of the no-follow save (`cache/no_follow.rs`); already in the lockfile through other crates.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

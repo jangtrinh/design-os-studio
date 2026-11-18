@@ -217,6 +217,9 @@ pub fn write_atomic_with(path: &Path, fill: impl FnOnce(&mut dyn std::io::Write)
     write_via_tmp(&target, dir, prefix, fill, existing)
 }
 
+mod no_follow;
+pub use no_follow::{no_follow_refusal, write_atomic_no_follow, write_atomic_with_no_follow, NoFollowRefusal};
+
 /// Truncates `name` on a UTF-8 char boundary so appending `.{pid}-{seq}.tmp` never exceeds
 /// the 255-byte / 255-char filesystem filename limit (`ENAMETOOLONG`).
 fn tmp_prefix(name: &str) -> &str {
@@ -261,6 +264,17 @@ fn tmp_file_name(prefix: &str, pid: u32, seq: u64) -> String {
     format!("{prefix}.{TMP_MARKER}-{pid}-{seq}.tmp")
 }
 
+/// Whether `file_name` has the shape of a temporary file the savers of this module create (`<name>.save-<pid>-<seq>.tmp`),
+/// whatever `<name>` is. For code that must keep its own file names clear of those, such as a folder that lies inside a
+/// workspace the saver writes to.
+pub fn is_save_temp_name(file_name: &str) -> bool {
+    let Some(stem) = file_name.strip_suffix(".tmp") else { return false };
+    let Some((_, fields)) = stem.rsplit_once(format!(".{TMP_MARKER}-").as_str()) else { return false };
+    let Some((pid, seq)) = fields.split_once('-') else { return false };
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    digits(pid) && digits(seq)
+}
+
 /// The pid inside a name produced by [`tmp_file_name`] for `prefix`, or `None` for any other name.
 fn tmp_file_pid(file_name: &str, prefix: &str) -> Option<u32> {
     let stem = file_name.strip_suffix(".tmp")?;
@@ -293,11 +307,13 @@ struct ExistingTarget {
     meta: std::fs::Metadata,
 }
 
+/// Opens the existing file at `path` for the metadata copy and checks it. With `no_follow`, a link at the final component is
+/// refused (`O_NOFOLLOW`), so is a file with a second name, and a missing file is a plain `NotFound`; every refusal then
+/// carries a [`NoFollowRefusal`]. Without it, links are followed by the caller before this runs.
 #[cfg(unix)]
-fn open_writable_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
-    use std::io::{Error, ErrorKind};
+fn open_writable_regular(path: &Path, no_follow: bool) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
     use std::os::fd::AsRawFd;
-    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
     #[cfg(target_os = "linux")]
     const O_NONBLOCK: i32 = 0o4000;
@@ -311,46 +327,79 @@ fn open_writable_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs
         fn fcntl(fd: i32, cmd: i32, ...) -> i32;
     }
 
-    let file = match std::fs::OpenOptions::new().write(true).custom_flags(O_NONBLOCK).open(path) {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).custom_flags(O_NONBLOCK | if no_follow { libc::O_NOFOLLOW } else { 0 });
+    let file = match opts.open(path) {
         Ok(f) => f,
+        Err(e) if no_follow && e.kind() == std::io::ErrorKind::NotFound => return Err(e),
+        // FreeBSD reports a link met by `O_NOFOLLOW` as `EMLINK`.
+        Err(e) if no_follow && matches!(e.raw_os_error(), Some(libc::ELOOP | libc::EMLINK)) => {
+            return Err(no_follow::refused(NoFollowRefusal::Link, path, None));
+        }
+        Err(e) if no_follow && e.raw_os_error() == Some(libc::EISDIR) => {
+            return Err(no_follow::refused(NoFollowRefusal::Directory, path, None));
+        }
         Err(e) if e.raw_os_error() == Some(ENXIO) => {
-            return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", path.display())));
+            return Err(no_follow::refused(NoFollowRefusal::NotRegularFile, path, None));
         }
-        Err(e) => {
-            return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only or not writable: {e}", path.display())));
-        }
+        Err(e) => return Err(open_failure(path, e, no_follow)),
     };
     let meta = file.metadata()?;
     if meta.is_dir() {
-        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is a directory", path.display())));
+        return Err(no_follow::refused(NoFollowRefusal::Directory, path, None));
     }
     if !meta.is_file() {
-        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", path.display())));
+        return Err(no_follow::refused(NoFollowRefusal::NotRegularFile, path, None));
+    }
+    if no_follow && meta.nlink() > 1 {
+        return Err(no_follow::refused(NoFollowRefusal::SecondName, path, None));
     }
     let fd = file.as_raw_fd();
     let flags = unsafe { fcntl(fd, F_GETFL) };
     if flags < 0 {
-        return Err(Error::last_os_error());
+        return Err(std::io::Error::last_os_error());
     }
     if unsafe { fcntl(fd, F_SETFL, flags & !O_NONBLOCK) } < 0 {
-        return Err(Error::last_os_error());
+        return Err(std::io::Error::last_os_error());
     }
     Ok((file, meta))
 }
 
+/// What a failed open of the file to replace means. Following links, every failure says the file is not writable (the editor
+/// save's long-standing wording). Without following, only the errors that say *this file* refuses the write (`EACCES`, `EPERM`,
+/// `ETXTBSY`) do; any other (a read-only volume, a failing disk) is returned as it came, so its kind survives and a caller can
+/// tell "change this file" from "a person has to look at the disk".
+#[cfg(unix)]
+fn open_failure(path: &Path, e: std::io::Error, no_follow: bool) -> std::io::Error {
+    if no_follow && !matches!(e.raw_os_error(), Some(libc::EACCES | libc::EPERM | libc::ETXTBSY)) {
+        return e;
+    }
+    no_follow::refused(NoFollowRefusal::NotWritable, path, Some(e.to_string()))
+}
+
 #[cfg(not(unix))]
-fn open_writable_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
-    use std::io::{Error, ErrorKind};
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .open(path)
-        .map_err(|e| Error::new(ErrorKind::PermissionDenied, format!("{} is read-only or not writable: {e}", path.display())))?;
+fn open_writable_regular(path: &Path, no_follow: bool) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+    if no_follow {
+        match std::fs::symlink_metadata(path) {
+            Ok(meta) if meta.file_type().is_symlink() => return Err(no_follow::refused(NoFollowRefusal::Link, path, None)),
+            Ok(_) => {}
+            Err(e) => return Err(e),
+        }
+    }
+    let file = std::fs::OpenOptions::new().write(true).open(path).map_err(|e| {
+        // Without following links only a refusal by the file itself is "not writable"; any other failure keeps its kind.
+        if no_follow && e.kind() != std::io::ErrorKind::PermissionDenied {
+            e
+        } else {
+            no_follow::refused(NoFollowRefusal::NotWritable, path, Some(e.to_string()))
+        }
+    })?;
     let meta = file.metadata()?;
     if meta.is_dir() {
-        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is a directory", path.display())));
+        return Err(no_follow::refused(NoFollowRefusal::Directory, path, None));
     }
     if !meta.is_file() {
-        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", path.display())));
+        return Err(no_follow::refused(NoFollowRefusal::NotRegularFile, path, None));
     }
     Ok((file, meta))
 }
@@ -379,7 +428,7 @@ fn resolve_save_target(path: &Path) -> std::io::Result<(PathBuf, Option<Existing
                 if meta.permissions().readonly() {
                     return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only or not writable: permission denied", cur.display())));
                 }
-                let (file, opened_meta) = open_writable_regular(&cur)?;
+                let (file, opened_meta) = open_writable_regular(&cur, false)?;
                 #[cfg(not(target_os = "macos"))]
                 let _ = file;
                 let real = std::fs::canonicalize(&cur).unwrap_or(cur);
@@ -529,6 +578,55 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     const CARLITO: &str = include_str!("../tests/fixtures/fontsource_carlito.json");
+
+    #[cfg(unix)]
+    #[test]
+    fn a_no_follow_open_that_fails_for_the_disk_keeps_its_error_and_one_the_file_causes_is_not_writable() {
+        let path = Path::new("/ws/doc.designos");
+        for errno in [libc::EROFS, libc::EIO, libc::ENOTDIR, libc::ENAMETOOLONG] {
+            let e = open_failure(path, std::io::Error::from_raw_os_error(errno), true);
+            assert_eq!(no_follow_refusal(&e), None, "errno {errno} is not a refusal of the file");
+            assert_eq!(e.raw_os_error(), Some(errno), "errno {errno} must reach the caller as it came");
+        }
+        let read_only_volume = open_failure(path, std::io::Error::from_raw_os_error(libc::EROFS), true);
+        assert_eq!(read_only_volume.kind(), std::io::ErrorKind::ReadOnlyFilesystem);
+        for errno in [libc::EACCES, libc::EPERM, libc::ETXTBSY] {
+            let e = open_failure(path, std::io::Error::from_raw_os_error(errno), true);
+            assert_eq!(no_follow_refusal(&e), Some(NoFollowRefusal::NotWritable), "errno {errno}");
+            assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_following_open_keeps_saying_not_writable_for_every_failure() {
+        let e = open_failure(Path::new("/ws/doc.designos"), std::io::Error::from_raw_os_error(libc::EROFS), false);
+        assert_eq!(no_follow_refusal(&e), Some(NoFollowRefusal::NotWritable));
+        assert!(e.to_string().contains("is read-only or not writable:"), "{e}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_no_follow_write_whose_open_fails_for_the_path_returns_that_error_unchanged() {
+        let dir = std::env::temp_dir().join(format!("designos-no-follow-open-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let not_a_folder = dir.join("plain-file");
+        std::fs::write(&not_a_folder, b"x").unwrap();
+        let e = write_atomic_no_follow(&not_a_folder.join("doc.designos"), b"x").unwrap_err();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(no_follow_refusal(&e), None, "{e}");
+        assert_eq!(e.raw_os_error(), Some(libc::ENOTDIR), "{e}");
+    }
+
+    #[test]
+    fn the_temporary_name_shape_is_the_one_the_savers_create() {
+        for name in ["doc.designos", "a.b.c", "x"] {
+            assert!(is_save_temp_name(&tmp_file_name(name, 4242, 7)), "{name}");
+        }
+        for name in ["doc.designos", "doc.designos.tmp", "doc.save-1.tmp", "doc.save-a-b.tmp", "doc.save-1-2.tmp.keep", "doc.safe-1-2.tmp", ".tmp"] {
+            assert!(!is_save_temp_name(name), "{name}");
+        }
+    }
 
     #[test]
     fn replace_retries_transient_windows_lock_before_success() {
