@@ -8,6 +8,7 @@ pub mod layout;
 pub mod raw;
 pub mod report;
 pub mod run;
+pub mod save_loss;
 
 #[cfg(test)]
 mod fixtures;

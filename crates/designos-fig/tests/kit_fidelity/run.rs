@@ -3,12 +3,12 @@
 
 use super::board::{self, Part};
 use super::keys::NodeKeys;
-use super::{import_cov, layout, raw, report};
+use super::{import_cov, layout, raw, report, save_loss};
 use serde_json::json;
 use std::collections::HashSet;
 use std::time::Instant;
 
-pub const PARTS: [&str; 2] = ["auto_layout", "import_coverage"];
+pub const PARTS: [&str; 3] = ["auto_layout", "import_coverage", "save_loss"];
 
 pub fn run_kit() {
     let Some(kit) = std::env::var_os("DESIGNOS_KIT_PATH").or_else(|| std::env::var_os("KIT_CLONE")) else {
@@ -37,6 +37,11 @@ pub fn run_kit() {
 
     let mut doc = designos_fig::import_fig(&bytes).expect("import the kit");
     lap("import", &mut timings);
+    let saved = want("save_loss").then(|| designos_fig::export_fig(&doc).expect("no-edit save"));
+    if let Some(s) = &saved {
+        eprintln!("NO-EDIT SAVE bytes: {}", s.len());
+        lap("no-edit save", &mut timings);
+    }
     let census_before = want("auto_layout").then(|| layout::census(&mut doc));
     doc.hydrate_all_pages();
     let keys = NodeKeys::build(&doc);
@@ -66,8 +71,15 @@ pub fn run_kit() {
         parts.push(import_cov::part(rk, &doc, &keys));
         lap("part 5 import coverage", &mut timings);
     }
+    let hidden_guids: HashSet<String> = keys.by_source.iter().filter(|(_, id)| keys.is_hidden(**id)).map(|(g, _)| g.clone()).collect();
     drop(doc);
     drop(keys);
+    if let Some(saved) = saved {
+        let original = raw::decode(&bytes);
+        let saved_raw = raw::decode(&saved);
+        parts.push(save_loss::part(&original, &saved_raw, &hidden_guids));
+        lap("part 6 save loss", &mut timings);
+    }
     for &id in PARTS.iter().filter(|id| !want(id)) {
         let mut p = Part::new(id, id, "");
         p.not_measured = Some("left out of this run by SCOREBOARD_PARTS".into());

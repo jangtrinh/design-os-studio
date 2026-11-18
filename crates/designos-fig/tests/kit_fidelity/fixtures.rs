@@ -21,6 +21,10 @@ pub fn layer(id: u32, parent: (u32, u32), pos: &str, ty: &str, size: (f32, f32),
     node((1, id), parent, pos, ty, "Layer", f)
 }
 
+pub fn geometry(blob: u32) -> V {
+    V::Array(vec![msg(vec![("windingRule", en("NONZERO")), ("commandsBlob", V::Uint(blob)), ("styleID", V::Uint(0))])])
+}
+
 /// A horizontal auto-layout frame (gap 10) holding two 20 x 20 rectangles; the second sits at `second_x`.
 pub fn auto_layout_fig(second_x: f32) -> Vec<u8> {
     let frame = layer(1, (0, 1), "!", "FRAME", (100.0, 20.0), (0.0, 0.0), vec![("stackMode", en("HORIZONTAL")), ("stackSpacing", fl(10.0))]);

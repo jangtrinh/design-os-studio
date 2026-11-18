@@ -5,8 +5,11 @@ use super::board::Tally;
 use super::fixtures::*;
 use super::keys::NodeKeys;
 use super::raw::{self, Raw};
-use super::{import_cov, layout};
+use super::{import_cov, layout, save_loss};
 use designos_doc::*;
+use designos_fig::kiwi::KiwiValue as V;
+use designos_fig::testkit::{en, fl, guid, msg, square_blob, triangle_blob};
+use std::collections::HashSet;
 
 fn load(bytes: &[u8]) -> (Raw, Document, NodeKeys) {
     let r = raw::decode(bytes);
@@ -37,4 +40,29 @@ fn import_coverage_counts_a_key_the_importer_drops() {
     let p = import_cov::part(&import_cov::truth(&r), &doc, &keys);
     assert_eq!(p.bucket("key: version")[0], t(0, 1), "an empty value is neither mapped nor kept");
     assert!(import_cov::mapped_fields().contains("fillGeometry"), "the importer's field list is read from its source");
+}
+
+fn rect_record(opacity: Option<f32>, blob: u32) -> V {
+    let mut f = vec![("guid", guid(1, 2)), ("type", en("RECTANGLE")), ("fillGeometry", geometry(blob))];
+    if let Some(o) = opacity {
+        f.push(("opacity", fl(o)));
+    }
+    msg(f)
+}
+
+#[test]
+fn save_loss_counts_a_changed_and_a_lost_key() {
+    let original = Raw { records: vec![rect_record(Some(0.5), 0)], blobs: vec![square_blob()] };
+    let same = Raw { records: vec![rect_record(Some(0.5), 1)], blobs: vec![triangle_blob(), square_blob()] };
+    let p = save_loss::part(&original, &same, &HashSet::new());
+    assert_eq!(p.bucket("records")[0], t(1, 1), "the same record, its outline at another blob index");
+    assert_eq!(p.details["key: fillGeometry"].get("normalised: blob renumbered"), Some(&1));
+    let changed = Raw { records: vec![rect_record(Some(0.6), 0)], blobs: vec![square_blob()] };
+    assert_eq!(save_loss::part(&original, &changed, &HashSet::new()).bucket("key: opacity")[0], t(0, 1), "a changed value");
+    let lost = Raw { records: vec![rect_record(None, 0)], blobs: vec![square_blob()] };
+    let p = save_loss::part(&original, &lost, &HashSet::new());
+    assert_eq!(p.bucket("key: opacity")[0], t(0, 1), "a key the save left out");
+    assert_eq!(p.details["key: opacity"].get("lost"), Some(&1));
+    let other_bytes = Raw { records: vec![rect_record(Some(0.5), 0)], blobs: vec![triangle_blob()] };
+    assert_eq!(save_loss::part(&original, &other_bytes, &HashSet::new()).bucket("key: fillGeometry")[0], t(0, 1), "an outline with other bytes");
 }
