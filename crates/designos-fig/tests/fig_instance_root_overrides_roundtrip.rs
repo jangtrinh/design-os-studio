@@ -225,6 +225,8 @@ fn fig_save_and_reopen_keeps_baked_geometry_for_root_stroke_and_corner_overrides
     {
         let stroke = doc.nodes.values_mut().find(|n| n.name == "Outlined badge").expect("outlined badge");
         stroke.stroke_geometry = Some(vec![baked.clone()]);
+        // An outline reaches a document stamped for the stroke it was baked for; an unstamped one is not drawn or written.
+        stroke.stamp_stroke_geometry();
         stroke.component.overrides.insert(OverrideField::Stroke);
         let rounded = doc.nodes.values_mut().find(|n| n.name == "Rounded badge").expect("rounded badge");
         rounded.fill_geometry = Some(vec![baked.clone()]);

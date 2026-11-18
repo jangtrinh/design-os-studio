@@ -260,6 +260,15 @@ impl TabsState {
         terminal
     }
 
+    /// Takes a parked tab's terminal back out of its entry to show it. The counterpart of [`Self::park_terminal`]: the
+    /// log's stale-close boundary is taken now, so a close the agent writes right after the switch is not read as one
+    /// written while the tab was hidden.
+    fn unpark_terminal(parked: &mut crate::terminal::TerminalState) -> crate::terminal::TerminalState {
+        let mut terminal = std::mem::take(parked);
+        terminal.live_patch.mark_shown();
+        terminal
+    }
+
     fn exit_version_view(&mut self, app: &mut App) {
         if app.history.viewing.is_some() {
             std::mem::swap(&mut app.tabs.entries, &mut self.entries);
@@ -423,7 +432,7 @@ impl TabsState {
         let tab_id = self.entries[idx].id;
         let sid = self.session_id_for_tab(tab_id);
         app.hist = std::mem::take(&mut self.entries[idx].hist);
-        app.terminal = std::mem::take(&mut self.entries[idx].terminal);
+        app.terminal = Self::unpark_terminal(&mut self.entries[idx].terminal);
         app.image_jobs = std::mem::take(&mut self.entries[idx].image_jobs);
         app.terminal.bind_session(&sid);
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
@@ -479,7 +488,7 @@ impl TabsState {
                     let sid = self.session_id_for_tab(tab_id);
                     self.active_idx = existing;
                     self.entries[existing].doc = Document::default();
-                    app.terminal = std::mem::take(&mut self.entries[existing].terminal);
+                    app.terminal = Self::unpark_terminal(&mut self.entries[existing].terminal);
                     app.image_jobs = std::mem::take(&mut self.entries[existing].image_jobs);
                     app.terminal.bind_session(&sid);
                     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
@@ -493,7 +502,7 @@ impl TabsState {
                     let sid = self.session_id_for_tab(tab_id);
                     self.active_idx = existing;
                     self.entries[existing].doc = Document::default();
-                    app.terminal = std::mem::take(&mut self.entries[existing].terminal);
+                    app.terminal = Self::unpark_terminal(&mut self.entries[existing].terminal);
                     app.image_jobs = std::mem::take(&mut self.entries[existing].image_jobs);
                     app.terminal.bind_session(&sid);
                     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
@@ -530,7 +539,7 @@ impl TabsState {
                 let tab_id = tab.id;
                 tab.doc = Document::default();
                 if !self.hist_in_app {
-                    app.terminal = std::mem::take(&mut tab.terminal);
+                    app.terminal = Self::unpark_terminal(&mut tab.terminal);
                     app.image_jobs = std::mem::take(&mut tab.image_jobs);
                 }
                 self.hist_in_app = true;
@@ -612,7 +621,7 @@ impl TabsState {
         self.parked_in_home = false;
         self.apply_to_app(new_idx, app);
         app.hist = History::default();
-        app.terminal = std::mem::take(&mut self.entries[new_idx].terminal);
+        app.terminal = Self::unpark_terminal(&mut self.entries[new_idx].terminal);
         app.image_jobs = std::mem::take(&mut self.entries[new_idx].image_jobs);
         if let Some(lib) = &app.lib {
             app.terminal.library_root = Some(lib.root().to_path_buf());
@@ -877,7 +886,7 @@ impl TabsState {
         let tab_id = self.entries[next_idx].id;
         let sid = self.session_id_for_tab(tab_id);
         app.hist = std::mem::take(&mut self.entries[next_idx].hist);
-        app.terminal = std::mem::take(&mut self.entries[next_idx].terminal);
+        app.terminal = Self::unpark_terminal(&mut self.entries[next_idx].terminal);
         app.image_jobs = std::mem::take(&mut self.entries[next_idx].image_jobs);
         app.terminal.bind_session(&sid);
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
@@ -917,7 +926,7 @@ impl TabsState {
             self.parked_in_home = false;
             self.apply_to_app(new_idx, app);
             app.hist = std::mem::take(&mut self.entries[new_idx].hist);
-            app.terminal = std::mem::take(&mut self.entries[new_idx].terminal);
+            app.terminal = Self::unpark_terminal(&mut self.entries[new_idx].terminal);
             app.image_jobs = std::mem::take(&mut self.entries[new_idx].image_jobs);
             app.terminal.bind_session(&sid);
             app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
@@ -1012,7 +1021,7 @@ impl TabsState {
         self.parked_in_home = false;
         self.apply_to_app(insert_idx, app);
         app.hist = History::default();
-        app.terminal = std::mem::take(&mut self.entries[insert_idx].terminal);
+        app.terminal = Self::unpark_terminal(&mut self.entries[insert_idx].terminal);
         app.image_jobs = std::mem::take(&mut self.entries[insert_idx].image_jobs);
         app.terminal.bind_session(&sid);
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());

@@ -23,12 +23,6 @@ fn mcp_on_the_shown_tab(s: &mut Sim, dir: &TmpDir) -> (designos_mcp::server::Ses
     std::fs::create_dir_all(&workspace).unwrap();
     let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &s.app().terminal.session_dir).expect("mcp session");
     session.set_close_ack_timeout(Duration::from_secs(5));
-    // An agent that closes has edited or read the document before, so its log exists; a tab that was parked reads a close that is
-    // already in a log it has not polled since it was shown as stale, so the editor must have polled the (empty) log once.
-    let log = s.app().terminal.live_patch.path.clone();
-    if !log.exists() {
-        crate::agent_session_files::atomic_write_session_file(&log, b"").expect("create the log");
-    }
     wait(s, SETTLED);
     (session, workspace)
 }
@@ -234,6 +228,58 @@ fn a_refused_close_keeps_both_dirty_tabs() {
     switch_to(&mut s, 1);
     assert_eq!(s.app().doc.nodes.len(), second_nodes, "the second tab's edits are there");
     assert!(s.app().has_unsaved_edits(), "and unsaved");
+    finish(s, workspace);
+}
+
+// ---- A close right after a tab switch ---------------------------------------------------------------------------------------
+
+fn switch_to_without_frames(s: &mut Sim, idx: usize) {
+    let mut tabs = std::mem::take(&mut s.shell.app.tabs);
+    tabs.switch_to(idx, &mut s.shell.app);
+    s.shell.app.tabs = tabs;
+}
+
+/// A close whose line reaches the log before the editor runs its next frame: the editor only reads the log inside a frame, so no
+/// frame may run until the agent's line is there.
+fn close_written_before_the_next_frame(s: &mut Sim, session: &mut designos_mcp::server::Session, args: Value) -> Call {
+    let log = s.app().terminal.live_patch.path.clone();
+    let before = std::fs::metadata(&log).map_or(0, |m| m.len());
+    std::thread::scope(|scope| {
+        let h = scope.spawn(|| session.call("designos_close_document", args));
+        let end = Instant::now() + Duration::from_secs(6);
+        while std::fs::metadata(&log).map_or(0, |m| m.len()) <= before && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let end = Instant::now() + Duration::from_secs(6);
+        while !h.is_finished() && Instant::now() < end {
+            wait(s, 0.1);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        wait(s, SETTLED);
+        h.join().expect("close thread").map_err(|e| e.to_json_value())
+    })
+}
+
+#[test]
+fn the_first_close_right_after_a_tab_switch_closes_without_a_retry() {
+    let (mut s, dir) = untitled_tab();
+    // The tab to close is the first one: shown, polled once, parked, and shown again with no frame in between.
+    switch_to(&mut s, 0);
+    let log = s.app().terminal.live_patch.path.clone();
+    if !log.exists() {
+        crate::agent_session_files::atomic_write_session_file(&log, b"").expect("create the log");
+    }
+    wait(&mut s, SETTLED);
+    switch_to(&mut s, 1);
+    switch_to_without_frames(&mut s, 0);
+    let workspace = dir.0.join("mcp-workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &s.app().terminal.session_dir).expect("mcp session");
+    session.set_close_ack_timeout(Duration::from_secs(5));
+    let out =
+        close_written_before_the_next_frame(&mut s, &mut session, json!({"unsaved": "discard"})).expect("the first close after the switch is not dropped");
+    assert_eq!(out["closed"], true, "{out}");
+    assert_eq!(s.app().tabs.entries.len(), 1, "the tab closed");
     finish(s, workspace);
 }
 
