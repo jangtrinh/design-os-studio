@@ -48,6 +48,28 @@ pub fn is_removed(r: &KiwiValue) -> bool {
     field_str(r, "phase") == Some("REMOVED")
 }
 
+pub fn u64_of(v: &KiwiValue) -> Option<u64> {
+    match v {
+        KiwiValue::Uint(u) => Some(u64::from(*u)),
+        KiwiValue::Uint64(u) => Some(*u),
+        KiwiValue::Int(i) if *i >= 0 => Some(*i as u64),
+        KiwiValue::Int64(i) if *i >= 0 => Some(*i as u64),
+        _ => None,
+    }
+}
+
+pub fn guid_of(g: &KiwiValue) -> Option<String> {
+    let (s, l) = (u64_of(g.get("sessionID")?)?, u64_of(g.get("localID")?)?);
+    if s == u64::from(u32::MAX) && l == u64::from(u32::MAX) {
+        return None;
+    }
+    Some(format!("{s}:{l}"))
+}
+
+pub fn record_guid(r: &KiwiValue) -> Option<String> {
+    r.get("guid").and_then(guid_of)
+}
+
 pub fn str_of(v: &KiwiValue) -> Option<&str> {
     match v {
         KiwiValue::String(s) => Some(s.as_str()),
@@ -58,6 +80,14 @@ pub fn str_of(v: &KiwiValue) -> Option<&str> {
 
 pub fn field_str<'a>(v: &'a KiwiValue, k: &str) -> Option<&'a str> {
     v.get(k).and_then(str_of)
+}
+
+/// Top-level field names of a record.
+pub fn keys_of(r: &KiwiValue) -> Vec<&str> {
+    match r {
+        KiwiValue::Message(f) | KiwiValue::Struct(f) => f.iter().map(|(k, _)| &**k).collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// How many live records carry each of the heavy derived fields, printed first so a part whose truth is absent

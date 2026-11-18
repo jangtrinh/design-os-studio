@@ -79,6 +79,10 @@ impl Part {
         e.0 += 1;
     }
 
+    pub fn detail(&mut self, bucket: &str, what: &str) {
+        *self.details.entry(bucket.to_string()).or_default().entry(what.to_string()).or_default() += 1;
+    }
+
     pub fn note(&mut self, s: impl Into<String>) {
         self.notes.push(s.into());
     }

@@ -28,3 +28,9 @@ pub fn auto_layout_fig(second_x: f32) -> Vec<u8> {
     let b = layer(3, (1, 1), "\"", "RECTANGLE", (20.0, 20.0), (second_x, 0.0), vec![]);
     fig(vec![frame, a, b], vec![])
 }
+
+/// A frame carrying the string field `version` (not in the importer's field list): kept as metadata when it has a
+/// value, dropped when it is empty.
+pub fn version_fig(value: &str) -> Vec<u8> {
+    fig(vec![layer(40, (0, 1), "!", "FRAME", (10.0, 10.0), (0.0, 0.0), vec![("version", V::String(value.into()))])], vec![])
+}

@@ -3,12 +3,12 @@
 
 use super::board::{self, Part};
 use super::keys::NodeKeys;
-use super::{layout, raw, report};
+use super::{import_cov, layout, raw, report};
 use serde_json::json;
 use std::collections::HashSet;
 use std::time::Instant;
 
-pub const PARTS: [&str; 1] = ["auto_layout"];
+pub const PARTS: [&str; 2] = ["auto_layout", "import_coverage"];
 
 pub fn run_kit() {
     let Some(kit) = std::env::var_os("DESIGNOS_KIT_PATH").or_else(|| std::env::var_os("KIT_CLONE")) else {
@@ -31,6 +31,7 @@ pub fn run_kit() {
     for (k, n) in &presence {
         eprintln!("PRESENCE {k}: {}", board::thousands(*n));
     }
+    let rec_keys = want("import_coverage").then(|| import_cov::truth(&r));
     drop(r);
     lap("raw decode and truth extraction", &mut timings);
 
@@ -60,6 +61,10 @@ pub fn run_kit() {
         p.note(format!("text measurer installed: {}", designos_doc::text_measure::layout_measurer().is_some()));
         parts.push(p);
         lap("part 2 auto layout", &mut timings);
+    }
+    if let Some(rk) = &rec_keys {
+        parts.push(import_cov::part(rk, &doc, &keys));
+        lap("part 5 import coverage", &mut timings);
     }
     drop(doc);
     drop(keys);

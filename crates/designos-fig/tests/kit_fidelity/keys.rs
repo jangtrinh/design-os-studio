@@ -8,12 +8,14 @@ use std::collections::{HashMap, HashSet};
 pub struct NodeKeys {
     pub key: HashMap<NodeId, String>,
     pub hidden: HashSet<NodeId>,
+    pub by_source: HashMap<String, NodeId>,
 }
 
 impl NodeKeys {
     pub fn build(doc: &Document) -> Self {
         let mut key = HashMap::new();
         let mut hidden = HashSet::new();
+        let mut by_source = HashMap::new();
         let mut used: HashSet<String> = HashSet::new();
         let mut stack: Vec<(NodeId, String, bool, bool)> = Vec::new();
         for (i, &page) in doc.pages.iter().enumerate().rev() {
@@ -26,6 +28,9 @@ impl NodeKeys {
             if is_hidden {
                 hidden.insert(id);
             }
+            if let Some(s) = &n.source_id {
+                by_source.entry(s.clone()).or_insert(id);
+            }
             for (i, &c) in n.children.iter().enumerate().rev() {
                 let ck = doc.get(c).and_then(|cn| cn.source_id.clone()).filter(|s| !used.contains(s)).unwrap_or_else(|| format!("{k}/{i}"));
                 used.insert(ck.clone());
@@ -33,7 +38,7 @@ impl NodeKeys {
             }
             key.insert(id, k);
         }
-        NodeKeys { key, hidden }
+        NodeKeys { key, hidden, by_source }
     }
 
     pub fn key_of(&self, id: NodeId) -> String {
