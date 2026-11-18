@@ -87,7 +87,8 @@ struct GeomSrc {
     radii: [f32; 4],
     smoothing: f32,
     fill_geometry: Option<Vec<d::Path>>,
-    fig_text_geometry: Option<d::FigTextGeometry>,
+    /// Compared by identity: a node clone shares the Arc, and replacing the geometry makes a new one.
+    fig_text_geometry: Option<Arc<d::FigTextGeometry>>,
     stroke_geometry: Option<Vec<d::Path>>,
     stroke: StrokeKey,
     font_gen: usize,
@@ -128,6 +129,14 @@ struct KidSrc {
     visible: bool,
     transform: d::Affine,
     src: GeomSrc,
+}
+
+fn same_arc<T>(a: &Option<Arc<T>>, b: &Option<Arc<T>>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+        _ => false,
+    }
 }
 
 fn feeds_boolean(n: &Node) -> bool {
@@ -219,7 +228,7 @@ impl GeomSrc {
             || self.radii != n.corner_radii
             || self.smoothing != n.corner_smoothing
             || self.fill_geometry != n.fill_geometry
-            || self.fig_text_geometry != n.fig_text_geometry
+            || !same_arc(&self.fig_text_geometry, &n.fig_text_geometry)
             || self.stroke_geometry.as_deref() != n.live_stroke_outline()
             || !self.stroke.same(n)
             || (matches!(n.kind, NodeKind::Text(_)) && self.font_gen != font_generation())
@@ -545,7 +554,7 @@ mod tests {
         let style = TextStyle { font_family: "MissingIconFaceForTest".into(), font_size: 20.0, ..TextStyle::default() };
         let mut node = Node::text(id, Rect::new(0.0, 0.0, 20.0, 20.0), "\u{e900}", style);
         let NodeKind::Text(text) = &node.kind else { unreachable!() };
-        node.fig_text_geometry = Some(d::FigTextGeometry {
+        node.fig_text_geometry = Some(Arc::new(d::FigTextGeometry {
             text: text.clone(),
             size: node.size,
             path: Path {
@@ -557,8 +566,9 @@ mod tests {
                 ],
                 fill_rule: d::FillRule::NonZero,
             },
+            blobs: Vec::new(),
             glyph_blobs: Vec::new(),
-        });
+        }));
         doc.insert(page, node).unwrap();
         let src = GeomSrc::build(&doc, doc.get(id).unwrap(), false);
         let built = build_geom(&doc, doc.get(id).unwrap(), 1.0);

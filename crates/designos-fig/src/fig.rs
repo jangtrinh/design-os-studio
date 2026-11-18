@@ -14,6 +14,7 @@ use crate::FigError;
 use designos_doc::{Affine, Document, FigTextGeometry, FillRule, Node, NodeKind, Path, PathCmd, Vec2};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 struct Decoded {
     archive: Archive,
@@ -343,9 +344,6 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
         clone_budget_total,
         rest_import::KEEP_UNKNOWN_KEYS_FROM_BINARY,
     )?;
-    for node in doc.nodes.values_mut() {
-        node.fig_text_geometry = fig_text_geometry(node, &blob_refs);
-    }
     report.dropped_variable_bindings += dropped_variable_bindings;
     report.dropped_variable_overrides += dropped_variable_overrides;
     for (sid, sp) in style_sort_positions {
@@ -363,10 +361,25 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
     Ok((doc, report))
 }
 
+/// Keeps Figma's embedded glyph outlines on every single-style text layer of `doc` that carries them. Runs on
+/// the importer's nodes before instances are expanded, so a copy of a component's text starts with the glyphs of
+/// the component's own text: an instance that changes the characters or the style then no longer matches them.
+pub(crate) fn attach_embedded_glyphs(doc: &mut Document, blobs: &[&[u8]]) {
+    let mut shared: HashMap<usize, Arc<[u8]>> = HashMap::new();
+    for node in doc.nodes.values_mut() {
+        if matches!(node.kind, NodeKind::Text(_)) && node.fig_metadata.contains_key("derivedTextData") {
+            node.fig_text_geometry = fig_text_geometry(node, blobs, &mut shared).map(Arc::new);
+        }
+    }
+}
+
 /// Figma stores each shaped glyph's path in a blob, in font-em coordinates
 /// with the y axis pointing up. Keep its exact local outline for missing-font
 /// display; the editable text remains the source of truth after an edit.
-fn fig_text_geometry(node: &Node, blobs: &[&[u8]]) -> Option<FigTextGeometry> {
+///
+/// `shared` holds each file blob once for the whole import: Figma shares one blob between every
+/// occurrence of a glyph, and so do the geometries built from it.
+fn fig_text_geometry(node: &Node, blobs: &[&[u8]], shared: &mut HashMap<usize, Arc<[u8]>>) -> Option<FigTextGeometry> {
     let NodeKind::Text(text) = &node.kind else { return None };
     if text.content.is_empty() || !text.runs.is_empty() {
         return None;
@@ -386,6 +399,8 @@ fn fig_text_geometry(node: &Node, blobs: &[&[u8]]) -> Option<FigTextGeometry> {
         return None;
     }
     let mut path = Path { cmds: Vec::new(), fill_rule: FillRule::NonZero };
+    let mut unique: Vec<Arc<[u8]>> = Vec::new();
+    let mut slot_of: HashMap<usize, u32> = HashMap::new();
     let mut glyph_blobs = Vec::with_capacity(glyphs.len());
     let mut blob_bytes = 0usize;
     for glyph in glyphs {
@@ -400,12 +415,22 @@ fn fig_text_geometry(node: &Node, blobs: &[&[u8]]) -> Option<FigTextGeometry> {
             glyph_blobs.push(None);
             continue;
         };
-        let blob = *blobs.get(usize::try_from(blob_index).ok()?)?;
-        blob_bytes = blob_bytes.checked_add(blob.len())?;
-        if blob_bytes > 2_000_000 {
-            return None;
-        }
-        glyph_blobs.push(Some(blob.to_vec()));
+        let blob_index = usize::try_from(blob_index).ok()?;
+        let blob = *blobs.get(blob_index)?;
+        let slot = match slot_of.get(&blob_index) {
+            Some(&slot) => slot,
+            None => {
+                blob_bytes = blob_bytes.checked_add(blob.len())?;
+                if blob_bytes > 2_000_000 {
+                    return None;
+                }
+                let slot = u32::try_from(unique.len()).ok()?;
+                unique.push(Arc::clone(shared.entry(blob_index).or_insert_with(|| Arc::from(blob))));
+                slot_of.insert(blob_index, slot);
+                slot
+            }
+        };
+        glyph_blobs.push(Some(slot));
         let mut glyph_path = commands_blob_to_path(blob, false);
         let mut finite = true;
         for cmd in &mut glyph_path.cmds {
@@ -433,7 +458,7 @@ fn fig_text_geometry(node: &Node, blobs: &[&[u8]]) -> Option<FigTextGeometry> {
         }
         path.cmds.extend(glyph_path.cmds);
     }
-    (!path.cmds.is_empty()).then(|| FigTextGeometry { text: text.clone(), size: node.size, path, glyph_blobs })
+    (!path.cmds.is_empty()).then(|| FigTextGeometry { text: text.clone(), size: node.size, path, blobs: unique, glyph_blobs })
 }
 
 /// How many `VARIABLE_OVERRIDE` nodes (node type 35) `entries` hold. The importer reads none of them: the field layout

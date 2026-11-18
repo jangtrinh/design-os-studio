@@ -104,8 +104,13 @@ fn populated() -> Node {
     n.is_mask = true;
     n.mask_type = MaskType::Vector;
     n.style_refs.insert("fill".into(), "S:1".into());
-    n.fig_text_geometry =
-        Some(designos_doc::FigTextGeometry { text: TextProps::default(), size: n.size, path: path_with(2), glyph_blobs: vec![Some(vec![1, 2])] });
+    n.fig_text_geometry = Some(std::sync::Arc::new(designos_doc::FigTextGeometry {
+        text: TextProps::default(),
+        size: n.size,
+        path: path_with(2),
+        blobs: vec![std::sync::Arc::from(vec![1u8, 2])],
+        glyph_blobs: vec![Some(0)],
+    }));
     n.fill_geometry = Some(vec![path_with(2)]);
     n.stroke_geometry = Some(vec![path_with(1)]);
     n.stroke_geometry_for =
@@ -179,8 +184,13 @@ fn field_edits() -> Vec<(&'static str, Vec<Edit>)> {
         (
             "fig_text_geometry",
             vec![|n| n.fig_text_geometry = None, |n| {
-                n.fig_text_geometry =
-                    Some(designos_doc::FigTextGeometry { text: TextProps::default(), size: n.size, path: path_with(3), glyph_blobs: Vec::new() })
+                n.fig_text_geometry = Some(std::sync::Arc::new(designos_doc::FigTextGeometry {
+                    text: TextProps::default(),
+                    size: n.size,
+                    path: path_with(3),
+                    blobs: Vec::new(),
+                    glyph_blobs: Vec::new(),
+                }))
             }],
         ),
         ("fill_geometry", vec![|n| n.fill_geometry = None, |n| n.fill_geometry = Some(Vec::new()), |n| n.fill_geometry = Some(vec![path_with(3)])]),

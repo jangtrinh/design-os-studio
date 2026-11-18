@@ -399,7 +399,13 @@ fn edits_leaving_the_default_state_of_each_hash_guarded_group_are_changes() {
             n.extra.insert("futureKey".into(), serde_json::json!({"a": 1}));
         }),
         (Group::Other, "fig_text_geometry", |n| {
-            n.fig_text_geometry = Some(crate::FigTextGeometry { text: TextProps::default(), size: n.size, path: Path::default(), glyph_blobs: Vec::new() });
+            n.fig_text_geometry = Some(std::sync::Arc::new(crate::FigTextGeometry {
+                text: TextProps::default(),
+                size: n.size,
+                path: Path::default(),
+                blobs: Vec::new(),
+                glyph_blobs: Vec::new(),
+            }));
         }),
         (Group::Other, "source_id", |n| n.source_id = Some("1:2".into())),
         (Group::Other, "detached_symbol_id", |n| n.detached_symbol_id = Some("1:2".into())),

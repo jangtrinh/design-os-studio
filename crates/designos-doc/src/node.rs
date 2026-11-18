@@ -1,6 +1,10 @@
 use crate::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
+mod fig_text_geometry;
+pub use fig_text_geometry::FigTextGeometry;
 
 fn default_true() -> bool {
     true
@@ -118,7 +122,7 @@ pub struct Node {
     /// Figma's cached glyph outlines for a text layer. Used only while the requested font is
     /// unavailable and the text/style/size still match the imported layer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fig_text_geometry: Option<FigTextGeometry>,
+    pub fig_text_geometry: Option<Arc<FigTextGeometry>>,
     /// Precomputed fill outline in local space (Figma `fillGeometry`). When
     /// present, renderers may use it instead of deriving geometry, e.g. for
     /// boolean operations whose result was computed by Figma.
@@ -226,7 +230,7 @@ struct NodeSer<'a> {
     #[serde(skip_serializing_if = "OwnedFieldSet::is_empty")]
     text_style_overrides: &'a OwnedFieldSet,
     #[serde(skip_serializing_if = "Option::is_none")]
-    fig_text_geometry: &'a Option<FigTextGeometry>,
+    fig_text_geometry: &'a Option<Arc<FigTextGeometry>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fill_geometry: &'a Option<Vec<Path>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1239,24 +1243,6 @@ pub struct TextProps {
     /// Line-breaking strategy (`textWrapStyle`, tag=594).
     #[serde(default, skip_serializing_if = "is_default_text_wrap")]
     pub text_wrap: TextWrap,
-}
-
-/// Original Figma glyph geometry, retained while the imported text has not changed.
-/// It lets a missing font display with the exact outlines embedded in a `.fig` file.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct FigTextGeometry {
-    pub text: TextProps,
-    pub size: Vec2,
-    pub path: Path,
-    /// Original per-glyph command blobs, in the order of `derivedTextData.glyphs`.
-    /// These are re-indexed when exporting a new `.fig` blob table.
-    pub glyph_blobs: Vec<Option<Vec<u8>>>,
-}
-
-impl FigTextGeometry {
-    pub fn matches(&self, node: &Node) -> bool {
-        self.size == node.size && matches!(&node.kind, NodeKind::Text(text) if text == &self.text)
-    }
 }
 
 /// CSS `text-wrap` for a text node.

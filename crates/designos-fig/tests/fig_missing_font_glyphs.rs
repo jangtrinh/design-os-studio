@@ -1,73 +1,12 @@
-use designos_doc::{Node, NodeKind, PathCmd, Vec2};
-use designos_fig::container::{self, Compression};
-use designos_fig::kiwi::KiwiValue as V;
-use designos_fig::testkit::{figma_like_schema, fl, msg, node, solid, st, vec2};
-use designos_fig::{export_fig, import_fig};
+#[path = "common/missing_font_fig.rs"]
+mod missing_font_fig;
 
-fn icon_blob() -> Vec<u8> {
-    let mut blob = Vec::new();
-    for (op, x, y) in [(1, 0.0f32, 0.0f32), (2, 1.0, 0.0), (2, 0.5, 0.8)] {
-        blob.push(op);
-        blob.extend(x.to_le_bytes());
-        blob.extend(y.to_le_bytes());
-    }
-    blob.push(0);
-    blob
-}
+use designos_doc::{Node, NodeKind, PathCmd, Vec2};
+use designos_fig::{decode_fig_to_json, export_fig, import_fig};
+use missing_font_fig::*;
 
 fn fixture() -> Vec<u8> {
-    let nodes = vec![
-        node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
-        node((0, 1), (0, 0), "a", "CANVAS", "Page", vec![]),
-        node((1, 1), (0, 1), "a", "FRAME", "Clipping frame", vec![("size", vec2(24.0, 24.0))]),
-        node(
-            (1, 2),
-            (1, 1),
-            "a",
-            "TEXT",
-            "Icon text",
-            vec![
-                ("size", vec2(20.0, 20.0)),
-                ("fontSize", fl(20.0)),
-                (
-                    "fontName",
-                    st(vec![
-                        ("family", V::String("MissingIconFaceForTest".into())),
-                        ("style", V::String("Regular".into())),
-                        ("postscript", V::String(String::new())),
-                    ]),
-                ),
-                ("fillPaints", V::Array(vec![solid(0.0, 0.0, 0.0)])),
-                ("textData", msg(vec![("characters", V::String("\u{e900}".into()))])),
-                (
-                    "derivedTextData",
-                    msg(vec![
-                        ("layoutSize", vec2(20.0, 20.0)),
-                        (
-                            "fontMetaData",
-                            V::Array(vec![msg(vec![(
-                                "key",
-                                st(vec![
-                                    ("family", V::String("MissingIconFaceForTest".into())),
-                                    ("style", V::String("Regular".into())),
-                                    ("postscript", V::String(String::new())),
-                                ]),
-                            )])]),
-                        ),
-                        ("glyphs", V::Array(vec![msg(vec![("commandsBlob", V::Uint(0)), ("position", vec2(0.0, 20.0)), ("fontSize", fl(20.0))])])),
-                    ]),
-                ),
-            ],
-        ),
-    ];
-    let schema = figma_like_schema();
-    let body = schema
-        .encode_message(
-            schema.find("Message").unwrap(),
-            &msg(vec![("nodeChanges", V::Array(nodes)), ("blobs", V::Array(vec![st(vec![("bytes", V::Bytes(icon_blob()))])]))]),
-        )
-        .unwrap();
-    container::write_container(&schema.encode(), &body, Compression::Zstd, 161)
+    icon_fixture(FAMILY)
 }
 
 fn icon_node(doc: &designos_doc::Document) -> &Node {
@@ -110,4 +49,91 @@ fn missing_icon_font_uses_embedded_glyph_without_losing_editability() {
     }
     let reopened_edit = import_fig(&export_fig(&edited_doc).unwrap()).unwrap();
     assert!(icon_node(&reopened_edit).fig_text_geometry.is_none(), "edited text must not export stale icon geometry");
+}
+
+fn child_text<'a>(doc: &'a designos_doc::Document, holder: &str) -> &'a Node {
+    let holder = doc.nodes.values().find(|n| n.name == holder).unwrap();
+    holder.children.iter().filter_map(|&c| doc.get(c)).find(|n| matches!(n.kind, NodeKind::Text(_))).expect("a text child")
+}
+
+/// Whether any outline drawn for `node` has the bounds of the fixture's saved triangle (x 0..20, y 4..20).
+fn draws_saved_triangle(node: &Node) -> bool {
+    designos_render::text_outlines_for_node(node).iter().any(|o| {
+        let b = o.path.bounds();
+        (b.left() - 0.0).abs() < 1e-4 && (b.right() - 20.0).abs() < 1e-4 && (b.top() - 4.0).abs() < 1e-4 && (b.bottom() - 20.0).abs() < 1e-4
+    })
+}
+
+#[test]
+fn instance_text_override_does_not_draw_the_component_glyph() {
+    let doc = import_fig(&instance_override_fixture()).unwrap();
+
+    let main = child_text(&doc, "Icon main");
+    assert!(main.fig_text_geometry.as_ref().is_some_and(|g| g.matches(main)), "the main component keeps its embedded glyph");
+    assert!(draws_saved_triangle(main));
+
+    let inst = child_text(&doc, "Icon instance");
+    let NodeKind::Text(text) = &inst.kind else { unreachable!() };
+    assert_eq!(text.content, "\u{e901}", "the instance shows its own characters");
+    assert!(inst.fig_text_geometry.as_ref().is_none_or(|g| !g.matches(inst)), "the component's glyph must not stand in for the overridden characters");
+    assert!(!draws_saved_triangle(inst), "the instance text takes the shaping path");
+}
+
+#[test]
+fn fill_edit_keeps_the_embedded_glyph_and_geometry_edits_drop_it() {
+    let doc = import_fig(&fixture()).unwrap();
+    let icon = icon_node(&doc);
+    assert!(draws_saved_triangle(icon));
+
+    let edit = |f: &dyn Fn(&mut designos_doc::TextProps)| {
+        let mut n = icon.clone();
+        let NodeKind::Text(t) = &mut n.kind else { unreachable!() };
+        f(t);
+        n
+    };
+    let recoloured = edit(&|t| t.style.fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(255, 0, 0))]);
+    assert!(icon.fig_text_geometry.as_ref().unwrap().matches(&recoloured), "a colour change does not move a glyph");
+    assert!(draws_saved_triangle(&recoloured), "the recoloured layer still draws Figma's glyph");
+
+    for (what, n) in [
+        ("font weight", edit(&|t| t.style.font_weight = 700)),
+        ("font size", edit(&|t| t.style.font_size = 24.0)),
+        ("letter spacing", edit(&|t| t.style.letter_spacing = 2.0)),
+    ] {
+        assert!(!icon.fig_text_geometry.as_ref().unwrap().matches(&n), "a {what} edit changes the glyph shapes");
+        assert!(!draws_saved_triangle(&n), "a {what} edit drops the saved glyph");
+    }
+}
+
+fn blob_count(bytes: &[u8]) -> usize {
+    decode_fig_to_json(bytes).unwrap()["message"]["blobs"].as_array().map_or(0, Vec::len)
+}
+
+#[test]
+fn glyph_blobs_are_deduplicated_and_reindexed_on_export() {
+    let doc = import_fig(&shared_blob_fixture()).unwrap();
+    let text = doc.nodes.values().find(|n| n.name == "Two glyphs").unwrap();
+    let saved = text.fig_text_geometry.as_ref().expect("both glyphs are retained");
+    assert_eq!(saved.path.cmds.len(), 8, "two triangles");
+
+    let saved_bytes = export_fig(&doc).unwrap();
+    let reopened = import_fig(&saved_bytes).unwrap();
+    let again = reopened.nodes.values().find(|n| n.name == "Two glyphs").unwrap();
+    assert_eq!(again.fig_text_geometry, text.fig_text_geometry, "the glyphs survive a save with the vector's blob ahead of them");
+
+    // The same file without the glyph cache shows how many blobs the rest of the document needs.
+    let mut bare = doc.clone();
+    let id = text.id;
+    bare.get_mut(id).unwrap().fig_text_geometry = None;
+    assert_eq!(blob_count(&saved_bytes), blob_count(&export_fig(&bare).unwrap()) + 1, "one blob for the glyph shared by both occurrences");
+}
+
+#[test]
+fn serialized_glyph_blobs_use_the_compact_hex_form() {
+    let doc = import_fig(&fixture()).unwrap();
+    let icon = icon_node(&doc);
+    let json = serde_json::to_string(icon).unwrap();
+    assert!(json.contains("hex:"), "blob bytes are written as hex strings: {json}");
+    let restored: Node = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored.fig_text_geometry, icon.fig_text_geometry);
 }
