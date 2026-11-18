@@ -130,21 +130,34 @@ mod hex_blobs {
     use std::sync::Arc;
 
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    /// Blobs up to half of this (less the prefix) are written from the stack. The document hash streams a
+    /// node through its serializer and must not allocate, and a glyph outline is rarely larger than this.
+    const STACK_TEXT: usize = 4096;
+
+    struct HexBlob<'a>(&'a [u8]);
+
+    impl Serialize for HexBlob<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let len = 4 + self.0.len() * 2;
+            let mut stack = [0u8; STACK_TEXT];
+            let mut heap;
+            let text: &mut [u8] = if len <= STACK_TEXT {
+                &mut stack[..len]
+            } else {
+                heap = vec![0u8; len];
+                &mut heap
+            };
+            text[..4].copy_from_slice(b"hex:");
+            for (pair, &b) in text[4..].chunks_exact_mut(2).zip(self.0) {
+                pair[0] = DIGITS[usize::from(b >> 4)];
+                pair[1] = DIGITS[usize::from(b & 0x0f)];
+            }
+            s.serialize_str(std::str::from_utf8(text).map_err(serde::ser::Error::custom)?)
+        }
+    }
 
     pub fn serialize<S: Serializer>(blobs: &[Arc<[u8]>], s: S) -> Result<S::Ok, S::Error> {
-        let hex: Vec<String> = blobs
-            .iter()
-            .map(|blob| {
-                let mut out = String::with_capacity(4 + blob.len() * 2);
-                out.push_str("hex:");
-                for &b in blob.iter() {
-                    out.push(DIGITS[usize::from(b >> 4)] as char);
-                    out.push(DIGITS[usize::from(b & 0x0f)] as char);
-                }
-                out
-            })
-            .collect();
-        hex.serialize(s)
+        s.collect_seq(blobs.iter().map(|blob| HexBlob(blob)))
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Arc<[u8]>>, D::Error> {

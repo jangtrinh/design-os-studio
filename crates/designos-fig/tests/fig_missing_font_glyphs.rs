@@ -2,7 +2,8 @@
 mod missing_font_fig;
 
 use designos_doc::{Node, NodeKind, PathCmd, Vec2};
-use designos_fig::testkit::en;
+use designos_fig::kiwi::KiwiValue as V;
+use designos_fig::testkit::{en, fl, guid, msg, node, st, vec2};
 use designos_fig::{decode_fig_to_json, export_fig, import_fig};
 use missing_font_fig::*;
 
@@ -127,6 +128,14 @@ fn glyph_blobs_are_deduplicated_and_reindexed_on_export() {
     let id = text.id;
     bare.get_mut(id).unwrap().fig_text_geometry = None;
     assert_eq!(blob_count(&saved_bytes), blob_count(&export_fig(&bare).unwrap()) + 1, "one blob for the glyph shared by both occurrences");
+
+    // Both glyphs point at the same table entry, and it is not entry 0: the vector's blob is written ahead of it.
+    let changes = decode_fig_to_json(&saved_bytes).unwrap();
+    let derived = changes["message"]["nodeChanges"].as_array().unwrap().iter().find(|n| n["name"] == "Two glyphs").unwrap()["derivedTextData"].clone();
+    let slots: Vec<u64> = derived["glyphs"].as_array().unwrap().iter().map(|g| g["commandsBlob"].as_u64().unwrap()).collect();
+    assert_eq!(slots.len(), 2);
+    assert_eq!(slots[0], slots[1], "a shared glyph is one blob");
+    assert_ne!(slots[0], 0, "the glyph blob was re-indexed behind the vector's blob");
 }
 
 #[test]
@@ -171,4 +180,52 @@ fn flatten_turns_the_saved_glyph_into_vectors() {
         .collect();
     let (left, right) = points.iter().fold((f32::MAX, f32::MIN), |(l, r), p| (l.min(p.x), r.max(p.x)));
     assert!(!points.is_empty() && left.abs() < 1e-3 && (right - 20.0).abs() < 1e-3, "flatten keeps the saved glyph: x {left}..{right}");
+}
+
+#[test]
+fn styled_text_keeps_its_glyphs_through_the_rest_of_the_import() {
+    let style_ref = msg(vec![("guid", guid(2, 102))]);
+    let mut nodes = document_and_page();
+    nodes.push(node((0, 2), (0, 0), "b", "CANVAS", "Internal Only Canvas", vec![("internalOnly", V::Bool(true))]));
+    nodes.push(node(
+        (2, 102),
+        (0, 2),
+        "1",
+        "RECTANGLE",
+        "Body",
+        vec![("styleType", en("TEXT")), ("styleDescription", V::String("Body copy".into())), ("size", vec2(1.0, 1.0)), ("key", V::String("key-body".into()))],
+    ));
+    nodes.push(node((1, 10), (0, 1), "a", "SYMBOL", "Icon main", vec![("size", vec2(20.0, 20.0))]));
+    nodes.push(glyph_text(
+        (1, 11),
+        (1, 10),
+        "a",
+        "Styled",
+        FAMILY,
+        "\u{e900}",
+        &[(0, 0.0)],
+        vec![
+            ("styleIdForText", style_ref),
+            ("lineHeight", st(vec![("value", fl(150.0)), ("units", en("PERCENT"))])),
+            ("letterSpacing", st(vec![("value", fl(2.0)), ("units", en("PIXELS"))])),
+            ("textCase", en("UPPER")),
+        ],
+    ));
+    nodes.push(node(
+        (1, 20),
+        (0, 1),
+        "b",
+        "INSTANCE",
+        "Plain copy",
+        vec![("size", vec2(20.0, 20.0)), ("symbolData", msg(vec![("symbolID", guid(1, 10)), ("symbolOverrides", V::Array(vec![]))]))],
+    ));
+    let doc = import_fig(&fig_file(nodes, vec![icon_blob()])).unwrap();
+
+    let main = doc.nodes.values().find(|n| n.name == "Styled").unwrap();
+    let NodeKind::Text(text) = &main.kind else { unreachable!() };
+    assert_ne!(text.style.letter_spacing, 0.0, "the fixture sets the settings this test is about");
+    assert!(draws_saved_triangle(main), "the import's later steps leave the settings the saved glyphs were taken with");
+
+    let copy = child_text(&doc, "Plain copy");
+    assert!(draws_saved_triangle(copy), "a copy that overrides nothing draws the component's glyphs");
 }

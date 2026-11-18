@@ -25,6 +25,7 @@ pub fn font_key(family: &str) -> V {
 }
 
 /// A 20x20 text layer in `family` whose derived data holds one glyph per `(blob index, x)` pair, baseline at y = 20.
+#[allow(clippy::too_many_arguments)]
 pub fn glyph_text(
     id: (u32, u32),
     parent: (u32, u32),
