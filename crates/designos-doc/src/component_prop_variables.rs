@@ -552,7 +552,7 @@ pub(crate) fn climb_containers_and_relayout(doc: &mut Document, containers: &[No
         climb_steps += 1;
         if doc.get(cur).is_some_and(|n| matches!(n.kind, NodeKind::Group)) {
             let before_rect = doc.get(cur).map(|n| (n.size, n.transform));
-            let _ = apply_resize_to_fit_one(doc, cur, |d, touched| {
+            let _ = fit_group_to_children(doc, cur, |d, touched| {
                 if let Some(n) = before_group_fit.get(&touched).cloned().or_else(|| d.get(touched).cloned()) {
                     old_nodes.entry(touched).or_insert(n);
                 }

@@ -13,14 +13,14 @@ struct Fixture {
     tail: NodeId,
 }
 
-fn frame_of(doc: &mut Document, parent: NodeId, rect: Rect, kind: NodeKind) -> NodeId {
+pub(crate) fn frame_of(doc: &mut Document, parent: NodeId, rect: Rect, kind: NodeKind) -> NodeId {
     let id = doc.alloc_id();
     let mut node = Node::frame(id, rect);
     node.kind = kind;
     doc.insert(parent, node).unwrap()
 }
 
-fn rect_in(doc: &mut Document, parent: NodeId, rect: Rect) -> NodeId {
+pub(crate) fn rect_in(doc: &mut Document, parent: NodeId, rect: Rect) -> NodeId {
     let id = doc.alloc_id();
     doc.insert(parent, Node::rectangle(id, rect)).unwrap()
 }

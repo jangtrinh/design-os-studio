@@ -555,20 +555,14 @@ fn collect_structural_parents(doc: &Document, cmd: &designos_doc::Command, out: 
     }
 }
 
-/// Refits every group on the chain above each of `parents` (and the parent itself) with the editor's own group fit,
-/// through `ed` so the writes are part of the transaction.
-fn refit_groups_above(doc: &mut Document, ed: &mut crate::edit::Edit, parents: &[NodeId]) {
-    let cap = doc.nodes.len();
-    for &start in parents {
-        let mut cur = Some(start);
-        let mut steps = 0usize;
-        while let Some(id) = cur.filter(|_| steps < cap) {
-            steps += 1;
-            if doc.get(id).is_some_and(|n| matches!(n.kind, designos_doc::NodeKind::Group)) {
-                crate::layout::fit_group(doc, ed, id);
-            }
-            cur = doc.get(id).and_then(|n| n.parent);
-        }
+/// Solves, inside the replay transaction, the layout above each of `parents`: the same walk the agent side's history
+/// step makes (a group is fitted to its children, an auto-layout frame is solved, and the walk stops where a box
+/// holds), by the same function, so both documents end alike field by field. Chains with no group above keep the
+/// solve that follows the commit.
+fn solve_structural_layout_in_tx(doc: &mut Document, ed: &mut crate::edit::Edit, parents: &[NodeId]) {
+    if designos_doc::group_at_or_above(doc, parents) {
+        let before = designos_doc::solve_structural_layout(doc, parents);
+        ed.adopt_before(doc, before);
     }
 }
 
@@ -592,9 +586,9 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
             return Err(e.to_string());
         }
     };
-    // The groups the patch's layers were added to, removed from or moved between are refitted inside this step, as the
+    // The groups the patch's layers were added to, removed from or moved between are fitted inside this step, as the
     // agent side does (see `History::exec`), so the step's undo puts them back exactly.
-    refit_groups_above(&mut app.doc, &mut tx.ed, &structural_parents);
+    solve_structural_layout_in_tx(&mut app.doc, &mut tx.ed, &structural_parents);
     let post_replay_in_progress = app.doc.in_progress.clone();
     let mut solved_before_commit = false;
     let has_connectors = !touched_ids.is_empty() && designos_doc::with_index(&app.doc, |idx| !idx.is_empty());

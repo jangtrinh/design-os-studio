@@ -75,6 +75,8 @@ mod gemini_screen;
 mod gemini_status_hooks;
 #[cfg(test)]
 mod group_delete_layout_tests;
+#[cfg(test)]
+mod group_live_patch_parity_tests;
 mod history;
 mod home;
 mod icons;

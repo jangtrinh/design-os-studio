@@ -1005,8 +1005,14 @@ fn collect_exec_layout(doc: &Document, cmd: &Command, out: &mut ExecLayout) {
 /// ([`apply_and_relayout`]), because a replay that refits would reshape an imported group whose stored bounds
 /// differ from its children's.
 fn apply_exec_layout(doc: &mut Document, layout: &ExecLayout) -> Option<Command> {
+    let old_nodes = solve_recorded(doc, layout);
+    (!old_nodes.is_empty()).then(|| Command::Batch(old_nodes.into_values().map(|n| Command::Update { node: Box::new(n) }).collect()))
+}
+
+/// The solve of [`apply_exec_layout`] without the command: every node it changed, as it was before.
+fn solve_recorded(doc: &mut Document, layout: &ExecLayout) -> BTreeMap<NodeId, Node> {
     if layout.is_empty() {
-        return None;
+        return BTreeMap::new();
     }
     let (mut old_nodes, written) =
         doc.record_node_writes(|d| crate::component_prop_variables::climb_containers_and_relayout(d, &layout.structural, &layout.seeds));
@@ -1014,7 +1020,33 @@ fn apply_exec_layout(doc: &mut Document, layout: &ExecLayout) -> Option<Command>
     // when a solve wrote the node first.
     old_nodes.extend(written);
     old_nodes.retain(|id, old| doc.get(*id) != Some(old));
-    (!old_nodes.is_empty()).then(|| Command::Batch(old_nodes.into_values().map(|n| Command::Update { node: Box::new(n) }).collect()))
+    old_nodes
+}
+
+/// For a caller that applies a change through its own transaction (the editor replaying an agent patch): solves
+/// what [`History::exec`] solves for a command that added, removed or moved layers under `containers`, which
+/// already hold the change. The auto-layout frames and groups above are walked from the inside out until a
+/// container's box holds, exactly as the step does for the agent's own document. Returns every node the solve
+/// changed, as it was before, for the caller to record in its transaction.
+pub fn solve_structural_layout(doc: &mut Document, containers: &[NodeId]) -> BTreeMap<NodeId, Node> {
+    solve_recorded(doc, &ExecLayout { seeds: containers.to_vec(), structural: containers.to_vec() })
+}
+
+/// Whether a group sits at or above any of `containers`. The chain walk is capped by the node count.
+pub fn group_at_or_above(doc: &Document, containers: &[NodeId]) -> bool {
+    let cap = doc.nodes.len();
+    containers.iter().any(|&start| {
+        let mut cur = Some(start);
+        let mut steps = 0usize;
+        while let Some(id) = cur.filter(|_| steps < cap) {
+            steps += 1;
+            if doc.get(id).is_some_and(|n| matches!(n.kind, NodeKind::Group)) {
+                return true;
+            }
+            cur = doc.get(id).and_then(|n| n.parent);
+        }
+        false
+    })
 }
 
 /// Gives `after`, a copy of `before` that `cmds` were applied to one at a time with [`Command::apply`], the layout a

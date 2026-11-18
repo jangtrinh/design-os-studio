@@ -218,3 +218,20 @@ fn undo_of_a_resize_inside_a_stored_hug_frame_restores_its_stored_size_and_place
     assert!(history.redo(&mut doc).unwrap());
     assert_eq!(stored(&doc), after);
 }
+
+/// A refit changes a group's box and its children's offsets and nothing else: the sizing mode the group had stays,
+/// as it does when the editor fits a group itself.
+#[test]
+fn a_group_refit_keeps_the_sizing_mode_and_the_other_fields_of_the_group() {
+    let (mut doc, g, _a, b) = group_of_two((0.0, 0.0));
+    doc.get_mut(g).unwrap().layout_child.set_axis_sizing(true, Sizing::Hug, None);
+    let before = doc.get(g).unwrap().clone();
+    let mut history = History::default();
+
+    history.exec(&mut doc, Command::Remove { id: b }).unwrap();
+
+    let after = doc.get(g).unwrap();
+    assert_eq!(after.size, Vec2::new(40.0, 20.0), "precondition: the group was refitted");
+    assert_eq!(after.layout_child, before.layout_child);
+    assert_eq!(after.fill_geometry, before.fill_geometry);
+}
