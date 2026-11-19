@@ -111,7 +111,7 @@ To read the container version of an exported file, run `unzip -p out.fig canvas.
 
 ## Watch
 
-Four short films of DESIGN:OS Studio, starting with an agent editing a `.fig` headless, with no Figma app and no display. Writing `.fig` files is still [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834). Current release is v0.7.16. FREE and source-available (PolyForm Shield).
+Four short films of DESIGN:OS Studio, starting with an agent editing a `.fig` headless, with no Figma app and no display. Writing `.fig` files is still [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834). Current release is v0.7.17. FREE and source-available (PolyForm Shield).
 
 <p align="left">
   <a href="https://www.youtube.com/watch?v=_LtPH2uREr0"><img src="https://i.ytimg.com/vi/_LtPH2uREr0/mqdefault.jpg" alt="An agent edits a .fig headless, without Figma | DESIGN:OS Studio (YouTube, 0:57)" width="320"></a>
@@ -195,7 +195,17 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.16. The latest captures are from the 0.7.12 release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.17. The latest captures are from the 0.7.12 release build, and older releases are short lists.
+
+<a id="new-in-v0717"></a>
+### 0.7.17
+
+- **Figma layout.** Instances keep the layout Figma stored for them, whichever page of a `.fig` file you open first. On the Untitled UI PRO v8.0 kit, the instances that refuse Figma's stored layout fall from 1,052 to 22, and opening is not slower (a median of 9.49 s against 9.92 s before). A real edit of a main still makes its instances refuse the stored layout, and saving a page you never opened keeps its stored layout. The 22 that remain sit inside mains that hold no stored record.
+- **Scaled text.** Text inside a scaled instance draws at Figma's size and keeps its text style: a 14/20 px style in a 0.8 instance draws at 11.2/16 px, as in Figma. On the kit, 1,727 scaled instances hold 931 text layers; texts whose font size is off from Figma's stored value fall from 104 to 0, pixel line heights from 104 to 0, and letter spacing from 581 to 4. Detaching a scaled instance, creating a component from it, or pasting a text out of it keeps the values the text is drawn with, and the inspector shows the size it is drawn at (11.2 / 16, not 14 / 20). The scaled-text fix was carried from a pull request by @NamAIEngineer.
+- **Missing fonts.** A text whose font is not installed draws the glyph outlines Figma saved in the `.fig` file instead of a substitute font: an icon font missing on this machine shows its icons instead of empty boxes, and a missing brand font keeps Figma's letter shapes and line breaks, on the CPU and GPU canvas and in PNG, SVG and PDF export. The saved outlines stay only while the text and its box match what Figma saved. Large files do not keep these outlines yet. By @NamAIEngineer.
+- **Export.** Export bounds count a layer's own box only when Figma does: a layer that is not a frame and paints nothing adds no box, and a frame always adds its full box. Float noise such as 100.0006 no longer adds a pixel, while 100.5 still rounds up. Two kit frames still differ from Figma: Dashboards 01 Desktop is 4 px too wide and Settings pages 02 Mobile 5 px too wide.
+- **Agents and editing.** An edit's layout belongs to its own undo step: when an agent (through `designos-mcp`) or a history command adds, removes or moves a layer, the auto-layout frames above it are solved and the groups that hold it are refitted in the same step, so one undo restores the edit and the layout together. Each live patch an agent sends carries that layout, so the open editor ends with the agent's document; a random parity test compares every node, and 2,000 rounds run clean. A session whose tab was closed now refuses every later edit with a final "tab closed" error and writes nothing. A connector picks its line and label ink from the surface it sits on, also over gradients, images, blend-mode fills and translucent fills. By @NamAIEngineer.
+- **Testing.** A new ignored test, the kit fidelity scoreboard, measures Studio feature by feature against the data Figma stored in the Untitled UI PRO v8.0 kit, with no Figma needed at run time. First results, measured before the instance-layout and scaled-text fixes above landed: auto-layout child placement 99.1%, hug frames' own size 99.4%, text layout 69.9%.
 
 <a id="new-in-v0716"></a>
 ### 0.7.16
@@ -822,7 +832,7 @@ design-os-studio/
 - A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG ([#1278](https://github.com/jangtrinh/design-os-studio/issues/1278)).
 - Editing a text style in a file imported before 0.7.0 resets its linked layers' paragraph indent and list spacing to 0 ([#1279](https://github.com/jangtrinh/design-os-studio/issues/1279)).
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
-- The Windows test suite is advisory for 0.7.16. Releases are verified on macOS. Test (windows-latest) failed on the v0.7.16 release PR; Windows users are asked to test the published build and report in [#1843](https://github.com/jangtrinh/design-os-studio/issues/1843). Earlier Windows CI failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
+- The Windows test suite is advisory for 0.7.17. Releases are verified on macOS. Test (windows-latest) failed on the v0.7.17 release PR; Windows users are asked to test the published build and report in [#1843](https://github.com/jangtrinh/design-os-studio/issues/1843). Earlier Windows CI failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use
