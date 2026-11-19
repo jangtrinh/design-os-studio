@@ -498,6 +498,33 @@ pub fn apply_resize_to_fit_one(doc: &mut Document, id: NodeId, mut touch: impl F
     }
 }
 
+/// Refits the group `id` to its visible children the way the editor's own group fit does: the group's box and its
+/// children's offsets change, and nothing else does (no sizing mode, no stored fill or stroke outline). `touch` is
+/// called with every node about to change. Returns whether anything changed; a group that already fits is not written.
+pub fn fit_group_to_children(doc: &mut Document, id: NodeId, mut touch: impl FnMut(&Document, NodeId)) -> bool {
+    let Some(bb) = visible_children_bounds(doc, id) else { return false };
+    let Some(group) = doc.get(id) else { return false };
+    if bb.x.abs() < 1e-3 && bb.y.abs() < 1e-3 && (group.size.x - bb.w).abs() < 1e-3 && (group.size.y - bb.h).abs() < 1e-3 {
+        return false;
+    }
+    let children = group.children.clone();
+    touch(doc, id);
+    for &cid in &children {
+        touch(doc, cid);
+    }
+    if let Some(n) = doc.get_mut(id) {
+        n.transform = n.transform * Affine::translate(bb.x, bb.y);
+        n.size = Vec2::new(bb.w, bb.h);
+    }
+    for cid in children {
+        if let Some(k) = doc.get_mut(cid) {
+            k.transform.tx -= bb.x;
+            k.transform.ty -= bb.y;
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

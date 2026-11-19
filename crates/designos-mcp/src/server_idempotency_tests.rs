@@ -544,3 +544,40 @@ fn a_malformed_idempotency_key_gets_the_full_arguments_as_its_corrected_example(
     assert_eq!(err.corrected_example, Some(json!({"idempotency_key": "run-1", "parent_id": page, "kind": "frame", "name": "Hero"})));
     cleanup(&ws);
 }
+
+fn last_patch_line(sess: &Path) -> LivePatch {
+    let log = fs::read_to_string(sess.join("doc-patch.jsonl")).unwrap();
+    let line = log.lines().last().expect("the call appended a patch line");
+    serde_json::from_str(line).unwrap()
+}
+
+/// What an open editor reads from the patch log: the line of a call whose step solved layout names the containers it
+/// solved (the carried layout), and a call that reached no layout names none. Dropping the layout where the session
+/// builds the patch line fails this.
+#[test]
+fn the_patch_line_of_a_call_carries_the_layout_its_step_solved() {
+    use designos_doc::{AutoLayout, FrameProps, LayoutDirection, NodeKind, Sizing};
+    let (ws, sess) = temp_dirs("carried-layout");
+    let mut doc = Document::new("Initial");
+    let page = doc.add_page("Page 1");
+    let add = |doc: &mut Document, parent: NodeId, rect: Rect, kind: NodeKind| {
+        let id = doc.alloc_id();
+        let mut node = Node::frame(id, rect);
+        node.kind = kind;
+        doc.insert(parent, node).unwrap();
+        id
+    };
+    let hug = AutoLayout { direction: LayoutDirection::Vertical, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, ..AutoLayout::default() };
+    let group = add(&mut doc, page, Rect::new(0.0, 0.0, 60.0, 40.0), NodeKind::Group);
+    let card = add(&mut doc, group, Rect::new(0.0, 0.0, 60.0, 40.0), NodeKind::Frame(FrameProps { auto_layout: Some(hug), ..FrameProps::default() }));
+    write_canvas(&sess, &doc);
+
+    let mut s = Session::with_session_dir(&ws, &sess).unwrap();
+    s.call("designos_create_node", json!({ "kind": "rectangle", "parent_id": card.0, "width": 60, "height": 20 })).unwrap();
+    let layout = last_patch_line(&sess).layout.expect("the line carries the layout the agent's step solved");
+    assert!(layout.structural.contains(&card), "the container that gained a layer is named: {layout:?}");
+
+    s.call("designos_update_node", json!({ "node_id": card.0, "name": "Renamed" })).unwrap();
+    assert_eq!(last_patch_line(&sess).layout, None, "a rename reaches no layout, so the line names none");
+    cleanup(&ws);
+}

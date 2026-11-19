@@ -571,6 +571,7 @@ impl Session {
                             // does its undo history: it names the agent's old ids, which the
                             // editor may have given to the user's layers.
                             self.engine.take_live_ops();
+                            self.engine.take_live_layout();
                             self.engine.live_patch_label = None;
                             if self.engine.history.can_undo() || self.engine.history.can_redo() {
                                 self.engine.history = designos_doc::History::default();
@@ -645,6 +646,7 @@ impl Session {
     /// a scoped copy (large files), so the whole `self.engine.doc` must never be sent for an edit.
     pub fn publish_live_patch(&mut self) -> Result<(), PublishError> {
         let ops = self.engine.take_live_ops();
+        let layout = self.engine.take_live_layout();
         let label = self.engine.live_patch_label.take();
         let Some(path) = self.bridge.live_doc_patch_path.clone().filter(|_| !ops.is_empty()) else {
             return Ok(());
@@ -660,7 +662,7 @@ impl Session {
             });
         }
         let base = self.canvas_base_nanos();
-        let line = live_patch_line(&LivePatch::new(ops).with_base(base).with_label(label), self.max_live_patch_bytes)?;
+        let line = live_patch_line(&LivePatch::new(ops).with_base(base).with_label(label).with_layout(layout), self.max_live_patch_bytes)?;
         Ok(append_log_line(&path, &line)?)
     }
 
@@ -690,6 +692,7 @@ impl Session {
         };
         self.engine.clear_lint_cache();
         self.engine.take_live_ops();
+        self.engine.take_live_layout();
         self.engine.live_patch_label = None;
     }
 

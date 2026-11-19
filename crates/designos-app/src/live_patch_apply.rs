@@ -519,6 +519,67 @@ fn collect_command_node_ids(cmd: &designos_doc::Command, out: &mut Vec<u64>) {
     }
 }
 
+/// Solves, inside the replay transaction, the layout the agent's own history step solved for this patch: the
+/// containers it carries, as the editor's ids, walked by the same function from the inside out (groups fitted,
+/// auto-layout frames solved, stopping where a box holds). The editor reads no seed rule of its own, so both
+/// documents solve the same set. A patch without the field, or one whose containers have no group above them,
+/// keeps the solve that follows the commit.
+///
+/// Ids resolve as the ops of the patch do ([`LivePatchState::target`]). A container this patch created is used only
+/// while the editor really holds it as part of what the patch inserted: if the editor refused the insert, an id it
+/// holds for some other layer is not the agent's container and is left alone.
+fn solve_carried_layout_in_tx(
+    doc: &mut Document,
+    ed: &mut crate::edit::Edit,
+    patch: &LivePatch,
+    layout: &designos_doc::ExecLayout,
+    state: &LivePatchState,
+    inserted_roots: &[NodeId],
+    needs_layout: &[NodeId],
+) {
+    let created: std::collections::BTreeSet<NodeId> = patch
+        .ops
+        .iter()
+        .flat_map(|op| match op {
+            designos_doc::live_patch::LiveOp::Insert { nodes, .. } => nodes.iter().map(|n| n.id).collect::<Vec<_>>(),
+            _ => Vec::new(),
+        })
+        .collect();
+    let inside_inserted = |doc: &Document, id: NodeId| {
+        let (mut cur, mut steps) = (Some(id), 0usize);
+        while let Some(at) = cur.filter(|_| steps <= doc.nodes.len()) {
+            if inserted_roots.contains(&at) {
+                return true;
+            }
+            steps += 1;
+            cur = doc.get(at).and_then(|n| n.parent);
+        }
+        false
+    };
+    let held = |ids: &[NodeId]| -> Vec<NodeId> {
+        ids.iter()
+            .filter_map(|&id| {
+                let mine = state.target(doc, id);
+                (doc.get(mine).is_some() && (!created.contains(&id) || inside_inserted(doc, mine))).then_some(mine)
+            })
+            .collect()
+    };
+    let carried = designos_doc::ExecLayout { seeds: held(&layout.seeds), structural: held(&layout.structural), scoped_solve_first: layout.scoped_solve_first };
+    if designos_doc::group_at_or_above(doc, &carried.structural) {
+        // A batch solves its own targets first and then climbs from the carried containers, and the patch says so:
+        // the editor's solve of what the replay touched comes first here too, inside the transaction. For any other
+        // step the climb comes first and that solve follows the commit, as it always did.
+        if carried.scoped_solve_first {
+            let ((), solved) = doc.record_node_writes(|d| {
+                relayout_touched(d, needs_layout);
+            });
+            ed.adopt_before(doc, solved);
+        }
+        let before = designos_doc::solve_exec_layout(doc, &carried);
+        ed.adopt_before(doc, before);
+    }
+}
+
 fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(LivePatchReport, bool), String> {
     let saved = app.terminal.live_patch.state.clone();
     let (pre_names, pre_fps) = crate::agent_turn_ledger::snapshot_pre_step(&app.doc, patch);
@@ -537,6 +598,9 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
             return Err(e.to_string());
         }
     };
+    if let Some(layout) = &patch.layout {
+        solve_carried_layout_in_tx(&mut app.doc, &mut tx.ed, patch, layout, &app.terminal.live_patch.state, &report.inserted_roots, &report.needs_layout);
+    }
     let post_replay_in_progress = app.doc.in_progress.clone();
     let mut solved_before_commit = false;
     let has_connectors = !touched_ids.is_empty() && designos_doc::with_index(&app.doc, |idx| !idx.is_empty());
@@ -633,7 +697,8 @@ fn reroute_into_last_step(app: &mut App, written: &[NodeId], touched_ids: &mut V
         other => vec![other],
     };
     commands.extend(updates);
-    app.hist.exec_labeled(&mut app.doc, designos_doc::Command::Batch(commands), label).map_err(|e| e.to_string())?;
+    // The step already holds its layout, and a solve here would put a flow-child connector back in its slot.
+    app.hist.exec_laid_out(&mut app.doc, designos_doc::Command::Batch(commands), label).map_err(|e| e.to_string())?;
     app.hist.mark_last_undo_as_agent();
     Ok(())
 }

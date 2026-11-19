@@ -73,6 +73,10 @@ mod fonts;
 mod gemini_dialog;
 mod gemini_screen;
 mod gemini_status_hooks;
+#[cfg(test)]
+mod group_delete_layout_tests;
+#[cfg(test)]
+mod group_live_patch_parity_tests;
 mod history;
 mod home;
 mod icons;
@@ -89,6 +93,8 @@ mod live_doc_epoch_tests;
 mod live_log_wake;
 mod live_patch_apply;
 mod live_patch_log;
+#[cfg(test)]
+mod live_patch_parity_fuzz_tests;
 #[cfg(test)]
 mod live_patch_table_tests;
 mod live_spec_apply;
