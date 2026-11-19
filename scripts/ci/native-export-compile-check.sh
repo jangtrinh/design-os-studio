@@ -112,7 +112,7 @@ dump_real_fixtures() {
     HOME="$SCRATCH_ROOT/home" \
     TMPDIR="$SCRATCH_ROOT/tmp/" \
     CARGO_TARGET_DIR="$cargo_target" \
-    cargo test -p designos-export --test native_compile_fixtures --locked dump_native_compile_fixtures -- --exact --nocapture
+    cargo test -p designos-export --test export --locked native_compile_fixtures::dump_native_compile_fixtures -- --exact --nocapture
 }
 
 resolve_compose_plugin_jar() {

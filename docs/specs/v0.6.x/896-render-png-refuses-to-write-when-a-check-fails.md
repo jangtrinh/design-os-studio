@@ -107,7 +107,7 @@ Fixture for the failing cases: a frame holding the known truncated TEXT (10 `W` 
 | `every_code_has_a_fixture` | fixture 70 produces `CHECK_FAILED`, `safe_to_retry:false` | yes (new code in `ALL`) |
 | `rules_under_token_budget`, `drift_check_fails_on_schema_change`, `tool_list_matches_snapshot` | green after `gen-tool-docs`; pack <= 24,000 chars | yes until regenerated |
 
-Run: `cargo test -p designos-doc query`, `cargo test -p designos-mcp render_png`, `cargo test -p designos-mcp every_code_has_a_fixture`, `cargo test -p designos-mcp --test session`, `cargo test -p designos-mcp rules::`, `cargo test -p designos-mcp --test tools_snapshot`, `cargo run -p designos-mcp --bin gen-tool-docs` (then `git diff --stat` shows only the generated files), `cargo fmt --all --check`, `cargo clippy -p designos-doc -p designos-mcp --all-targets -- -D warnings`. Evidence (PR): a terminal capture of a failing call (error JSON, then `ls` with no PNG) and a passing call, and the passing PNG viewed as an image.
+Run: `cargo test -p designos-doc query`, `cargo test -p designos-mcp render_png`, `cargo test -p designos-mcp every_code_has_a_fixture`, `cargo test -p designos-mcp --test mcp session::`, `cargo test -p designos-mcp rules::`, `cargo test -p designos-mcp --test mcp tools_snapshot::`, `cargo run -p designos-mcp --bin gen-tool-docs` (then `git diff --stat` shows only the generated files), `cargo fmt --all --check`, `cargo clippy -p designos-doc -p designos-mcp --all-targets -- -D warnings`. Evidence (PR): a terminal capture of a failing call (error JSON, then `ls` with no PNG) and a passing call, and the passing PNG viewed as an image.
 
 ## 11. Performance budgets
 

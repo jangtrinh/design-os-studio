@@ -1,0 +1,630 @@
+//! A frame mask with no fill of its own takes its alpha from its children on the
+//! GPU too (the same rule as the CPU renderer), in the headless render and in the
+//! interactive compile once the idle refine lifts the program cap.
+//! The pixel tests need a GPU adapter and skip without one; the ceiling tests
+//! at the end only compile.
+
+use crate::common;
+
+use designos_doc::*;
+use designos_gpu::{Frame, SceneCompiler, DEFAULT_REFINE_MAX_PROGRAMS};
+use designos_render::tiny_skia::Pixmap;
+use designos_render::Viewport;
+use std::time::Duration;
+
+const SIZE: (u32, u32) = (80, 80);
+const RED: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
+const BLUE: Color = Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 };
+
+/// A mask frame with no fills whose only child covers the top-left quarter,
+/// followed by a red rectangle over the whole page.
+fn doc() -> (Document, NodeId) {
+    let mut b = common::T::new();
+    let mask = b.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 80.0, 80.0));
+        n.fills.clear();
+        n.is_mask = true;
+        n
+    });
+    b.rect(Some(mask), Rect::new(0.0, 0.0, 40.0, 40.0), BLUE);
+    b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+    (b.doc, b.page)
+}
+
+fn px(pm: &Pixmap, x: u32, y: u32) -> [u8; 4] {
+    let p = pm.pixel(x, y).unwrap();
+    [p.red(), p.green(), p.blue(), p.alpha()]
+}
+
+fn assert_cut_by_the_child(pm: &Pixmap, what: &str) {
+    assert_eq!(px(pm, 20, 20), [255, 0, 0, 255], "{what}: inside the child of the mask");
+    assert_eq!(px(pm, 60, 60), [255, 255, 255, 255], "{what}: inside the mask frame but outside its child");
+    assert_eq!(px(pm, 60, 20), [255, 255, 255, 255], "{what}: right of the child");
+}
+
+#[test]
+fn headless_gpu_matches_the_cpu_for_a_frame_mask_without_fill() {
+    let Some(mut g) = common::gpu() else { return };
+    let (doc, page) = doc();
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+    let c = common::compare(&mut g, "mask-frame-without-fill", &doc, page, vp, SIZE, 4);
+    assert_cut_by_the_child(&c.cpu, "cpu");
+    assert_cut_by_the_child(&c.gpu, "gpu");
+    assert_eq!(c.report.mismatched, 0, "gpu and cpu agree pixel for pixel");
+}
+
+#[test]
+fn refined_interactive_gpu_frame_cuts_by_the_children() {
+    let Some(mut g) = common::gpu() else { return };
+    let (doc, page) = doc();
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+    g.compiler.geom.budget = Some(Duration::from_millis(8));
+    g.compiler.opts.uncap_programs = true;
+    let pm = g.render_page(&doc, page, &vp, SIZE);
+    assert_cut_by_the_child(&pm, "refined");
+}
+
+// ----- interactive approximations must not empty a mask -----------------------
+// The interactive compile defers uncached vector geometry past the frame budget
+// and skips the children of tiny frames when zoomed far out. A fill-less frame
+// mask takes its alpha from its children, so either approximation would leave
+// the mask program empty and multiply the siblings it cuts by zero.
+
+/// A square vector path spanning `size` x `size`.
+fn square_vector(id: NodeId, size: f32) -> Node {
+    let corner = |x: f32, y: f32| Vec2::new(x, y);
+    let path = Path {
+        cmds: vec![
+            PathCmd::MoveTo(corner(0.0, 0.0)),
+            PathCmd::LineTo(corner(size, 0.0)),
+            PathCmd::LineTo(corner(size, size)),
+            PathCmd::LineTo(corner(0.0, size)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    };
+    let mut n = Node::new(id, NodeKind::Vector { paths: vec![path], network: None });
+    n.size = Vec2::new(size, size);
+    n.fills = vec![Paint::solid(BLUE)];
+    n
+}
+
+/// A fill-less mask frame of `size` x `size` at the origin, then a red rectangle
+/// over the whole 80 x 80 page. `child` fills the mask frame.
+fn mask_frame_over_red(size: f32, radius: f32, child: impl FnOnce(NodeId) -> Node) -> (Document, NodeId) {
+    let mut b = common::T::new();
+    let mask = b.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, size, size));
+        n.fills.clear();
+        n.is_mask = true;
+        n.corner_radii = [radius; 4];
+        n
+    });
+    b.add(Some(mask), child);
+    b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+    (b.doc, b.page)
+}
+
+#[test]
+fn a_deferred_vector_child_does_not_empty_the_mask() {
+    let (doc, page) = mask_frame_over_red(60.0, 0.0, |id| square_vector(id, 60.0));
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+    // a zero budget defers every uncached vector, as a frame that is already over budget does;
+    // the headless render has no budget and builds everything. Each case starts on a fresh
+    // device: a built vector stays cached and would hide the deferral from the next case.
+    for (label, budget, uncap) in [("headless", None, false), ("capped", Some(Duration::ZERO), false), ("refined", Some(Duration::ZERO), true)] {
+        let Some(mut g) = common::gpu() else { return };
+        g.compiler.geom.budget = budget;
+        g.compiler.opts.uncap_programs = uncap;
+        let pm = g.render_page(&doc, page, &vp, SIZE);
+        assert_eq!(px(&pm, 30, 30), [255, 0, 0, 255], "{label}: inside the mask frame, where its vector child is not built yet");
+        assert_eq!(px(&pm, 70, 70), [255, 255, 255, 255], "{label}: outside the mask frame");
+    }
+}
+
+#[test]
+fn a_tiny_zoomed_out_mask_frame_keeps_cutting() {
+    // 12 x 12 world units are 4.8 device pixels at zoom 0.4: the children of a frame that
+    // small are skipped; radius 0 takes the unit-quad path, radius 3 the general one
+    for radius in [0.0, 3.0] {
+        let (doc, page) = mask_frame_over_red(12.0, radius, |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 12.0, 12.0));
+            n.fills = vec![Paint::solid(BLUE)];
+            n
+        });
+        let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 0.4, dpr: 1.0 };
+        for (label, budget) in [("headless", None), ("interactive", Some(Duration::from_millis(8)))] {
+            let Some(mut g) = common::gpu() else { return };
+            g.compiler.geom.budget = budget;
+            let pm = g.render_page(&doc, page, &vp, (40, 40));
+            assert_eq!(px(&pm, 2, 2), [255, 0, 0, 255], "{label}, radius {radius}: inside the tiny mask frame");
+            assert_eq!(px(&pm, 20, 20), [255, 255, 255, 255], "{label}, radius {radius}: outside the tiny mask frame");
+        }
+    }
+}
+
+#[test]
+fn a_deferred_child_does_not_paint_the_stand_in_box_over_alpha_already_drawn() {
+    let mut b = common::T::new();
+    let mask = b.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 80.0, 80.0));
+        n.fills.clear();
+        n.is_mask = true;
+        n
+    });
+    let half = Color { a: 0.5, ..BLUE };
+    b.rect(Some(mask), Rect::new(0.0, 0.0, 80.0, 80.0), half);
+    b.add(Some(mask), |id| square_vector(id, 10.0));
+    b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+    let (doc, page) = (b.doc, b.page);
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+
+    for (label, uncap) in [("capped", false), ("refined", true)] {
+        let Some(mut g) = common::gpu() else { return };
+        g.compiler.geom.budget = Some(Duration::ZERO);
+        g.compiler.opts.uncap_programs = uncap;
+        let pm = g.render_page(&doc, page, &vp, SIZE);
+        let p = px(&pm, 70, 70);
+        assert!(
+            p[0] == 255 && (p[1] as i32 - 128).abs() <= 2 && (p[2] as i32 - 128).abs() <= 2,
+            "{label}: pixel (70,70) should keep the 0.5 alpha of the drawn child (~half red over white), got {p:?}"
+        );
+    }
+}
+
+#[test]
+fn a_subpixel_zoomed_out_mask_frame_keeps_its_stand_in() {
+    // 2 x 2 world units are 0.8 device pixels at zoom 0.4 (under the 1.25 px childless cull).
+    let (doc, page) = mask_frame_over_red(2.0, 0.0, |id| {
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 2.0, 2.0));
+        n.fills = vec![Paint::solid(BLUE)];
+        n
+    });
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 0.4, dpr: 1.0 };
+    let Some(mut g) = common::gpu() else { return };
+    g.compiler.geom.budget = None;
+    let headless = g.render_page(&doc, page, &vp, (40, 40));
+    assert_ne!(px(&headless, 0, 0), [255, 255, 255, 255], "headless: pixel (0,0) is red");
+
+    g.compiler.geom.budget = Some(Duration::from_millis(8));
+    let interactive = g.render_page(&doc, page, &vp, (40, 40));
+    assert_eq!(px(&interactive, 0, 0), px(&headless, 0, 0), "interactive: 2x2 mask frame at zoom 0.4 must keep its stand-in at pixel (0,0)");
+    assert_eq!(px(&interactive, 20, 20), [255, 255, 255, 255], "interactive: outside the 2x2 mask frame");
+}
+
+#[test]
+fn a_built_vector_child_still_cuts_by_its_shape() {
+    let Some(mut g) = common::gpu() else { return };
+    // the vector covers the top-left quarter of the mask frame
+    let (doc, page) = mask_frame_over_red(60.0, 0.0, |id| square_vector(id, 30.0));
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+    // a headless render builds the vector once, so the zero budget has nothing left to defer
+    g.compiler.geom.budget = None;
+    g.render_page(&doc, page, &vp, SIZE);
+    for (label, uncap) in [("capped", false), ("refined", true)] {
+        g.compiler.geom.budget = Some(Duration::ZERO);
+        g.compiler.opts.uncap_programs = uncap;
+        let pm = g.render_page(&doc, page, &vp, SIZE);
+        assert_eq!(px(&pm, 15, 15), [255, 0, 0, 255], "{label}: inside the vector");
+        assert_eq!(px(&pm, 45, 45), [255, 255, 255, 255], "{label}: inside the mask frame but outside the vector");
+        assert_eq!(px(&pm, 70, 70), [255, 255, 255, 255], "{label}: outside the mask frame");
+    }
+}
+
+#[test]
+fn the_frame_box_stands_in_for_one_frame_only() {
+    let Some(mut g) = common::gpu() else { return };
+    // the vector covers the top-left quarter of the mask frame
+    let (doc, page) = mask_frame_over_red(60.0, 0.0, |id| square_vector(id, 30.0));
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+
+    // first frame: the vector is not built yet, only the box can cut the siblings
+    g.compiler.geom.budget = Some(Duration::ZERO);
+    let first = g.render_page(&doc, page, &vp, SIZE);
+    assert_eq!(px(&first, 15, 15), [255, 0, 0, 255], "first frame: inside the vector");
+    assert_eq!(px(&first, 45, 45), [255, 0, 0, 255], "first frame: the box stands in outside the unbuilt vector");
+    assert_eq!(px(&first, 70, 70), [255, 255, 255, 255], "first frame: outside the mask frame");
+
+    // next frame, with budget to build it: the mask follows the vector again
+    g.compiler.geom.budget = Some(Duration::from_millis(8));
+    let second = g.render_page(&doc, page, &vp, SIZE);
+    assert_eq!(px(&second, 15, 15), [255, 0, 0, 255], "second frame: inside the vector");
+    assert_eq!(px(&second, 45, 45), [255, 255, 255, 255], "second frame: the box is gone once the vector is built");
+}
+
+#[test]
+fn standing_in_the_frame_box_opens_no_extra_program() {
+    let (doc, page) = mask_frame_over_red(60.0, 0.0, |id| square_vector(id, 60.0));
+    let programs = |budget: Duration, max: usize| {
+        let mut c = refine_compiler();
+        c.geom.budget = Some(budget);
+        c.opts.refine_max_programs = max;
+        compile(&mut c, &doc, page).programs.len()
+    };
+    // root, the layer of the cut siblings and the mask program
+    let built = programs(Duration::from_millis(8), usize::MAX);
+    assert_eq!(built, 3, "the vector builds within the budget");
+    assert_eq!(programs(Duration::ZERO, usize::MAX), built, "the vector is deferred and the frame box stands in");
+    for max in 1..=built + 1 {
+        let n = programs(Duration::ZERO, max);
+        assert!(n <= max, "refine_max_programs {max}: opened {n} programs");
+    }
+}
+
+// ----- program and VRAM ceilings of the refine compile -----------------------
+// A mask frame without fills draws its children into the mask program, so the
+// children open programs of their own while the mask program is open.
+
+const VIEW: (u32, u32) = (1000, 1000);
+const MIB: u64 = 1024 * 1024;
+/// Bytes of the root render target of a 1000x1000 frame: 4x MSAA colour plus
+/// the resolved output, 4 bytes per pixel.
+const ROOT_BYTES: u64 = 1000 * 1000 * 4 * (4 + 1);
+
+fn refine_compiler() -> SceneCompiler {
+    let mut c = SceneCompiler::new();
+    c.geom.budget = Some(Duration::from_millis(8));
+    c.opts.uncap_programs = true;
+    c
+}
+
+fn compile(c: &mut SceneCompiler, doc: &Document, page: NodeId) -> Frame {
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+    c.compile(doc, page, 1, &vp, VIEW)
+}
+
+fn blurred_rect(doc: &mut Document, parent: NodeId, r: Rect, radius: f32) {
+    let mut n = Node::rectangle(doc.alloc_id(), r);
+    n.effects = vec![Effect::LayerBlur { radius, visible: true }];
+    doc.insert(parent, n).unwrap();
+}
+
+/// Inside `parent`: a fill-less mask frame of `w` x `h` holding one blurred
+/// child, then `siblings` blurred rectangles the mask cuts.
+fn fill_less_mask_group(doc: &mut Document, parent: NodeId, w: f32, h: f32, siblings: usize, radius: f32) {
+    let mut mask = Node::frame(doc.alloc_id(), Rect::new(0.0, 0.0, w, h));
+    mask.fills.clear();
+    mask.is_mask = true;
+    let mask = doc.insert(parent, mask).unwrap();
+    blurred_rect(doc, mask, Rect::new(2.0, 2.0, w / 3.0, h / 3.0), radius);
+    for i in 0..siblings {
+        blurred_rect(doc, parent, Rect::new(2.0 + i as f32 * 3.0, h / 2.0, w / 3.0, h / 3.0), radius);
+    }
+}
+
+/// `copies` small frames side by side, each holding a fill-less mask frame with
+/// a blurred child followed by two blurred siblings.
+fn masked_frame_grid(copies: usize) -> (Document, NodeId) {
+    let mut doc = Document::new("masked frame grid");
+    let page = doc.add_page("Page");
+    for i in 0..copies {
+        let (col, row) = ((i % 50) as f32, (i / 50) as f32);
+        let id = doc.alloc_id();
+        let cell = doc.insert(page, Node::frame(id, Rect::new(col * 20.0, row * 20.0, 18.0, 18.0))).unwrap();
+        fill_less_mask_group(&mut doc, cell, 18.0, 18.0, 2, 1.0);
+    }
+    (doc, page)
+}
+
+/// Inside a frame and again at the page root: a blurred rectangle, a fill-less
+/// mask frame with a blurred child, and three blurred siblings. The frame comes
+/// first so the root-level mask does not cut it away.
+fn fill_less_masked_page() -> (Document, NodeId) {
+    let mut doc = Document::new("fill-less masked");
+    let page = doc.add_page("Page");
+    let id = doc.alloc_id();
+    let frame = doc.insert(page, Node::frame(id, Rect::new(500.0, 0.0, 400.0, 400.0))).unwrap();
+    blurred_rect(&mut doc, frame, Rect::new(10.0, 10.0, 60.0, 60.0), 4.0);
+    fill_less_mask_group(&mut doc, frame, 300.0, 300.0, 3, 4.0);
+    blurred_rect(&mut doc, page, Rect::new(10.0, 10.0, 60.0, 60.0), 4.0);
+    fill_less_mask_group(&mut doc, page, 400.0, 300.0, 3, 4.0);
+    (doc, page)
+}
+
+#[test]
+fn many_fill_less_mask_frames_stay_under_the_default_program_ceiling() {
+    const COPIES: usize = 1_500;
+    let (doc, page) = masked_frame_grid(COPIES);
+
+    let mut open = refine_compiler();
+    open.opts.refine_max_programs = usize::MAX;
+    open.opts.refine_vram_budget_bytes = u64::MAX;
+    let unbounded = compile(&mut open, &doc, page).programs.len();
+    assert!(unbounded > DEFAULT_REFINE_MAX_PROGRAMS, "the page must need more than the ceiling, opened {unbounded}");
+
+    let mut c = refine_compiler();
+    let frame = compile(&mut c, &doc, page);
+    assert!(
+        frame.programs.len() <= DEFAULT_REFINE_MAX_PROGRAMS,
+        "{COPIES} fill-less mask frames opened {} programs, exceeding ceiling {DEFAULT_REFINE_MAX_PROGRAMS}",
+        frame.programs.len()
+    );
+    assert!(frame.programs.len() > DEFAULT_REFINE_MAX_PROGRAMS / 2, "the refine must still draw masks, opened {}", frame.programs.len());
+}
+
+#[test]
+fn fill_less_mask_frames_respect_every_program_ceiling() {
+    let (doc, page) = fill_less_masked_page();
+    let mut open = refine_compiler();
+    let full = compile(&mut open, &doc, page).programs.len();
+    assert!(full >= 14, "the page needs layers, mask layers, mask programs and child blurs, got {full}");
+    for max in 1..=full + 1 {
+        let mut c = refine_compiler();
+        c.opts.refine_max_programs = max;
+        let frame = compile(&mut c, &doc, page);
+        assert!(frame.programs.len() <= max, "refine_max_programs {max}: opened {} programs", frame.programs.len());
+    }
+}
+
+#[test]
+fn fill_less_mask_frames_stay_within_the_vram_budget() {
+    let (doc, page) = fill_less_masked_page();
+    let mut open = refine_compiler();
+    compile(&mut open, &doc, page);
+    let full_bytes = open.last_vram_bytes;
+    assert!(full_bytes > ROOT_BYTES + 4 * MIB, "the page must hold offscreen targets worth the sweep, got {full_bytes} bytes");
+    for step in 0..=40u64 {
+        let budget = ROOT_BYTES + step * 400_000;
+        let mut c = refine_compiler();
+        c.opts.refine_vram_budget_bytes = budget;
+        let frame = compile(&mut c, &doc, page);
+        assert!(c.last_vram_bytes <= budget, "budget {budget}: frame holds {} bytes in {} programs", c.last_vram_bytes, frame.programs.len());
+    }
+}
+
+#[test]
+fn headless_gpu_matches_cpu_for_alpha_vector_and_luminance_mask_types() {
+    let Some(mut g) = common::gpu() else { return };
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+
+    // 1. Vector mask with a 0%-opacity fill still clips identically on CPU and GPU
+    {
+        let mut b = common::T::new();
+        b.add(None, |id| {
+            let mut n = Node::rectangle(id, Rect::new(10.0, 10.0, 50.0, 50.0));
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            n.opacity = 0.25;
+            let mut p = Paint::solid(Color::TRANSPARENT);
+            p.opacity = 0.0;
+            n.fills = vec![p];
+            n
+        });
+        b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+        let c = common::compare(&mut g, "mask-type-vector-zero-fill", &b.doc, b.page, vp, SIZE, 4);
+        assert_eq!(px(&c.cpu, 30, 30), [255, 0, 0, 255]);
+        assert_eq!(px(&c.gpu, 30, 30), [255, 0, 0, 255]);
+        assert_eq!(px(&c.gpu, 70, 70), [255, 255, 255, 255]);
+        assert_eq!(c.report.mismatched, 0, "gpu and cpu agree for Vector mask");
+    }
+
+    // 2. Luminance mask over white, 50% grey, black, and a linear white-to-black gradient ramp
+    {
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        let mut b = common::T::new();
+        let mask = b.add(None, |id| {
+            let mut n = Node::frame(id, Rect::new(0.0, 0.0, 80.0, 80.0));
+            n.fills.clear();
+            n.is_mask = true;
+            n.mask_type = MaskType::Luminance;
+            n
+        });
+        b.rect(Some(mask), Rect::new(0.0, 0.0, 25.0, 40.0), Color::WHITE);
+        b.rect(Some(mask), Rect::new(25.0, 0.0, 25.0, 40.0), Color::rgb(128, 128, 128));
+        b.rect(Some(mask), Rect::new(50.0, 0.0, 30.0, 40.0), Color::BLACK);
+        b.add(Some(mask), |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 40.0, 80.0, 40.0));
+            n.fills = vec![Paint {
+                visible: true,
+                opacity: 1.0,
+                blend: BlendMode::Normal,
+                kind: PaintKind::LinearGradient {
+                    handles: [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)],
+                    stops: vec![GradientStop { pos: 0.0, color: Color::WHITE }, GradientStop { pos: 1.0, color: Color::BLACK }],
+                },
+            }];
+            n
+        });
+        b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+        let c = common::compare(&mut g, "mask-type-luminance-ramp", &b.doc, b.page, vp, SIZE, 4);
+        assert_eq!(px(&c.gpu, 10, 20), [255, 0, 0, 255], "gpu luminance white keeps red");
+        assert_eq!(px(&c.gpu, 65, 20), [255, 255, 255, 255], "gpu luminance black hides red over white page");
+        let mid = px(&c.gpu, 35, 20);
+        assert!(mid[0] == 255 && (mid[1] as i32 - 127).abs() <= 2 && (mid[2] as i32 - 127).abs() <= 2, "gpu luminance 50% grey: {mid:?}");
+        assert_eq!(c.report.mismatched, 0, "gpu and cpu agree for Luminance mask");
+    }
+}
+
+#[test]
+fn gpu_vector_mask_outlines_and_rgb_luminance_match_cpu() {
+    let Some(mut g) = common::gpu() else { return };
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+
+    // 1. Vector shape mask with drop shadow ignores the drop shadow on GPU
+    {
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        let mut b = common::T::new();
+        b.add(None, |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            n.fills = vec![Paint::solid(Color::BLACK)];
+            n.effects = vec![Effect::DropShadow {
+                color: Color::BLACK,
+                offset: Vec2::new(20.0, 20.0),
+                radius: 0.0,
+                spread: 0.0,
+                visible: true,
+                show_behind: true,
+                blend: BlendMode::Normal,
+            }];
+            n
+        });
+        b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+        let pm = g.render_page(&b.doc, b.page, &vp, SIZE);
+        assert_eq!(px(&pm, 20, 20), [255, 0, 0, 255], "inside shape outline");
+        assert_eq!(px(&pm, 50, 50), [255, 255, 255, 255], "drop shadow region ignored by vector mask");
+    }
+
+    // 2. Vector text mask with 0%-opacity text fill reveals glyph pixels on GPU
+    {
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        let mut b = common::T::new();
+        b.add(None, |id| {
+            let mut n = Node::text(id, Rect::new(4.0, 4.0, 80.0, 60.0), "H", designos_doc::TextStyle::default());
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            if let NodeKind::Text(tp) = &mut n.kind {
+                tp.style.font_size = 48.0;
+                let mut p = Paint::solid(Color::BLACK);
+                p.opacity = 0.0;
+                tp.style.fills = vec![p];
+            }
+            n
+        });
+        b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+        let pm = g.render_page(&b.doc, b.page, &vp, SIZE);
+        let mut hits = 0usize;
+        for y in 0..60 {
+            for x in 0..60 {
+                if px(&pm, x, y) != [255, 255, 255, 255] {
+                    hits += 1;
+                }
+            }
+        }
+        assert!(hits > 20, "vector text mask with transparent text fill must reveal glyph pixels on GPU, got {hits}");
+    }
+
+    // 3. Vector frame mask with own fill and a 40x40 Vector child: covers the 100x100 frame box,
+    //    and interactive zero-budget agrees with settled headless GPU and CPU.
+    {
+        let mut b = common::T::new();
+        let mask = b.add(None, |id| {
+            let mut n = Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            n.fills = vec![Paint::solid(Color::WHITE)];
+            n
+        });
+        b.add(Some(mask), |id| square_vector(id, 40.0));
+        b.rect(None, Rect::new(0.0, 0.0, 100.0, 100.0), RED);
+
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        g.compiler.geom.budget = None;
+        let settled = g.render_page(&b.doc, b.page, &vp, (100, 100));
+
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        g.compiler.geom.budget = Some(Duration::ZERO);
+        let interactive = g.render_page(&b.doc, b.page, &vp, (100, 100));
+
+        assert_eq!(px(&settled, 80, 80), [255, 0, 0, 255], "settled GPU covers full frame box at (80,80)");
+        assert_eq!(px(&interactive, 80, 80), [255, 0, 0, 255], "interactive GPU covers full frame box at (80,80)");
+        assert_eq!(px(&settled, 80, 80), px(&interactive, 80, 80), "interactive and settled GPU frames agree");
+    }
+
+    // 4. Vector group mask with transparent-fill children: covers the union of descendants' outlines on GPU.
+    {
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        let mut b = common::T::new();
+        let grp = b.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Group);
+            n.size = Vec2::new(80.0, 80.0);
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            n
+        });
+        b.add(Some(grp), |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 30.0, 30.0));
+            n.opacity = 0.25;
+            n.fills.clear();
+            n
+        });
+        b.add(Some(grp), |id| {
+            let mut n = Node::rectangle(id, Rect::new(50.0, 50.0, 30.0, 30.0));
+            let mut p = Paint::solid(Color::TRANSPARENT);
+            p.opacity = 0.0;
+            n.fills = vec![p];
+            n
+        });
+        let hidden_sub = b.add(Some(grp), |id| {
+            let mut n = Node::new(id, NodeKind::Group);
+            n.size = Vec2::new(30.0, 30.0);
+            n.visible = false;
+            n
+        });
+        b.add(Some(hidden_sub), |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 50.0, 30.0, 30.0));
+            n.fills = vec![Paint::solid(Color::BLACK)];
+            n
+        });
+        b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+        let c = common::compare(&mut g, "mask-type-vector-group", &b.doc, b.page, vp, SIZE, 4);
+        assert_eq!(px(&c.gpu, 15, 15), [255, 0, 0, 255]);
+        assert_eq!(px(&c.gpu, 65, 65), [255, 0, 0, 255]);
+        assert_eq!(px(&c.gpu, 15, 65), [255, 255, 255, 255], "child inside hidden nested group is not covered on GPU");
+        assert_eq!(px(&c.gpu, 40, 40), [255, 255, 255, 255]);
+        assert_eq!(c.report.mismatched, 0, "gpu and cpu agree for Vector group mask");
+    }
+
+    // 4b. Vector BooleanOp (Union) mask with 0%-opacity fills keeps its operands on GPU and matches CPU.
+    {
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        let mut b = common::T::new();
+        let bo = b.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::BooleanOp(designos_doc::BooleanOp::Union));
+            n.size = Vec2::new(80.0, 80.0);
+            let mut p = Paint::solid(Color::BLACK);
+            p.opacity = 0.0;
+            n.fills = vec![p];
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            n
+        });
+        b.add(Some(bo), |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+            n.fills.clear();
+            n
+        });
+        b.add(Some(bo), |id| {
+            let mut n = Node::rectangle(id, Rect::new(30.0, 30.0, 40.0, 40.0));
+            n.fills.clear();
+            n
+        });
+        b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+        let c = common::compare(&mut g, "mask-type-vector-boolean-union", &b.doc, b.page, vp, SIZE, 4);
+        assert_eq!(px(&c.gpu, 15, 15), [255, 0, 0, 255], "first boolean operand covered on GPU");
+        assert_eq!(px(&c.gpu, 55, 55), [255, 0, 0, 255], "second boolean operand covered on GPU");
+        assert_eq!(px(&c.gpu, 75, 5), [255, 255, 255, 255], "outside boolean union is clipped on GPU");
+        assert_eq!(c.report.mismatched, 0, "gpu and cpu agree for Vector BooleanOp mask");
+    }
+
+    // 5. Non-grey Luminance mask (pure red, pure green, pure blue) on GPU against literal Rec. 709 expectations
+    for (col, expected_alpha, label) in [
+        (Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }, 54i32, "pure red"),
+        (Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 }, 182i32, "pure green"),
+        (Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 }, 18i32, "pure blue"),
+    ] {
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        let mut b = common::T::new();
+        b.doc.get_mut(b.page).unwrap().kind = NodeKind::Page { background: Color::BLACK };
+        b.add(None, |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 32.0, 32.0));
+            n.is_mask = true;
+            n.mask_type = MaskType::Luminance;
+            n.fills = vec![Paint::solid(col)];
+            n
+        });
+        b.rect(None, Rect::new(0.0, 0.0, 32.0, 32.0), Color::WHITE);
+        let pm = g.render_page(&b.doc, b.page, &vp, (32, 32));
+        let ch = px(&pm, 16, 16)[0] as i32;
+        assert!((ch - expected_alpha).abs() <= 2, "gpu {label}: expected {expected_alpha}, got {ch}");
+    }
+}

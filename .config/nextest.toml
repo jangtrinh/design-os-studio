@@ -46,7 +46,7 @@ threads-required = "num-cpus"
 slow-timeout = { period = "60s", terminate-after = 12 }
 
 [[profile.default.overrides]]
-filter = "test(=large_fixture_off_thread_budget) | test(=bootstrap_is_reproducible) | test(=agent_mention::tests::search_is_budgeted_on_a_huge_document) | test(=pen::tests::skipped_refs_do_not_re_walk_a_huge_component)"
+filter = "test(=lint_rules::large_fixture_off_thread_budget) | test(=bootstrap_is_reproducible) | test(=agent_mention::tests::search_is_budgeted_on_a_huge_document) | test(=pen::tests::skipped_refs_do_not_re_walk_a_huge_component)"
 threads-required = "num-cpus"
 
 # Quarantine list (#1160) — each entry links to its tracking issue and stays in the run with retries = 4.

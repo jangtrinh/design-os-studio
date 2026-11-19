@@ -317,7 +317,7 @@ jobs:
 
       # The large-fixture lint wall-time budget is bounded in release builds only (debug builds skip it).
       - name: Lint budget on a release build (large fixture)
-        run: cargo test -p designos-render --release --locked --test lint_rules large_fixture_off_thread_budget
+        run: cargo test -p designos-render --release --locked --test render lint_rules::large_fixture_off_thread_budget
 
   # Not a test job and not part of the "Test (macos-15)" aggregate or any required check: a red run here only
   # means a cache could not be refreshed. It exists because the macOS shards and lint-budget read a rust-cache
@@ -348,7 +348,7 @@ jobs:
           - leg: lint budget
             shared-key: macos-lint-budget
             # What the lint-budget job runs, without running it.
-            compile: cargo test -p designos-render --release --locked --test lint_rules --no-run
+            compile: cargo test -p designos-render --release --locked --test render --no-run
     steps:
       - uses: actions/checkout@v4
 
