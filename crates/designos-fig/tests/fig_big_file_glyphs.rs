@@ -379,6 +379,14 @@ fn instance_copies_carry_no_json_in_a_heavy_paste() {
 }
 
 #[test]
+fn a_heavy_paste_still_keeps_the_stored_glyphs_of_a_text_that_can_draw_them() {
+    let clip = designos_fig::FigClipboard { meta: None, buffer: big_by_payload(vec![missing_text(), bundled_text()]) };
+    let doc = designos_fig::import_figma_clipboard(&clip).unwrap();
+    assert_draws_stored_glyph(&doc, "Missing font text");
+    assert!(!holds_derived_text(named(&doc, "Bundled font text")), "a bundled family keeps nothing in a paste either");
+}
+
+#[test]
 fn a_small_file_keeps_the_json_of_instance_copies() {
     // small files are unchanged: a copy keeps the metadata of its source, as before
     let mut nodes = document_and_page();

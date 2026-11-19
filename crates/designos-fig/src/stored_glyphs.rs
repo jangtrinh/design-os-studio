@@ -17,8 +17,9 @@
 //! `size`, `textDecoration`, `fontName` and `textData` all precede `derivedTextData`; a file written in another order
 //! is judged on less, and what the decoder could not check is checked again after the decode or by the importer.
 //!
-//! One allowance bounds what is read, charged in the kiwi decoder on wire bytes ([`ALLOWANCE_WIRE_BYTES`]). It covers
-//! every route that keeps this data: a heavy file, a payload over 2 MB, and a paste.
+//! One allowance bounds what is retained, charged in the kiwi decoder on wire bytes ([`ALLOWANCE_WIRE_BYTES`]). It
+//! covers every route that keeps this data: a heavy file, a payload over 2 MB, and a paste. Kept glyphs count toward
+//! the decode value cap like every other field.
 
 use crate::kiwi::KiwiValue;
 use std::sync::Arc;
@@ -27,8 +28,8 @@ use std::sync::Arc;
 /// by nobody: it would use the allowance and never draw.
 pub(crate) const MAX_DRAWN_GLYPHS: usize = 4096;
 
-/// How many wire bytes of `derivedTextData` one import keeps (4 MiB). The allowance bounds the bytes of the file that
-/// are read and kept; what they cost in memory depends on the glyph outlines they point at.
+/// How many wire bytes of `derivedTextData` one import keeps (4 MiB). The allowance bounds what is retained, in bytes of
+/// the file; kept glyphs count toward the decode value cap, so what is decoded is bounded by that cap.
 ///
 /// Measured on a Latin design kit whose every text was set in a font that is not bundled, what is kept costs 60 to 100
 /// bytes of peak memory per wire byte: the decoded value tree, then a JSON string, then the glyph paths (28 bytes a
@@ -99,12 +100,14 @@ pub(crate) fn derived_can_draw(derived: &KiwiValue, fields: &[(Arc<str>, KiwiVal
     if glyphs == 0 || glyphs > MAX_DRAWN_GLYPHS {
         return false;
     }
+    // `fig_text_geometry` needs a layout size; the layer's size may simply not have been read yet
     match (derived.get("layoutSize"), field(fields, "size")) {
+        (None, _) => false,
+        (Some(_), None) => true,
         (Some(layout), Some(size)) => match (float(layout, "x"), float(layout, "y"), float(size, "x"), float(size, "y")) {
             (Some(lx), Some(ly), Some(sx), Some(sy)) => (lx - sx).abs() <= 0.1 && (ly - sy).abs() <= 0.1,
             _ => false,
         },
-        _ => true,
     }
 }
 
@@ -137,11 +140,12 @@ pub(crate) fn json_may_draw_stored_glyphs(node: &serde_json::Value, derived: &se
     }
     let axis = |v: &Value, key: &str| v.get(key).and_then(Value::as_f64);
     match (derived.get("layoutSize"), node.get("size")) {
+        (None, _) => false,
+        (Some(_), None) => true,
         (Some(layout), Some(size)) => match (axis(layout, "x"), axis(layout, "y"), axis(size, "x"), axis(size, "y")) {
             (Some(lx), Some(ly), Some(sx), Some(sy)) => (lx - sx).abs() <= 0.1 && (ly - sy).abs() <= 0.1,
             _ => false,
         },
-        _ => true,
     }
 }
 
@@ -249,6 +253,12 @@ mod tests {
             set(&mut n, "derivedTextData", derived);
             assert!(!ok(&n), "{what}");
         }
+        let mut no_layout = node.clone();
+        let mut bare = derived("Some Icon Font", 1);
+        let V::Message(bare_fields) = &mut bare else { unreachable!() };
+        bare_fields.retain(|(k, _)| &**k != "layoutSize");
+        set(&mut no_layout, "derivedTextData", bare);
+        assert!(!ok(&no_layout), "fig_text_geometry needs a layout size, so a text without one never draws");
         let mut at_limit = node.clone();
         set(&mut at_limit, "derivedTextData", derived("some icon font", MAX_DRAWN_GLYPHS));
         assert!(ok(&at_limit), "the limit itself is built, and the family is matched ignoring case");
@@ -275,6 +285,9 @@ mod tests {
         assert!(!json_may_draw_stored_glyphs(&node("TEXT", face, &[0]), &derived("Another Face", 1)));
         assert!(!json_may_draw_stored_glyphs(&node("TEXT", face, &[0]), &derived(face, MAX_DRAWN_GLYPHS + 1)));
         assert!(!json_may_draw_stored_glyphs(&node("TEXT", face, &[0]), &derived(face, 0)));
+        let mut no_layout = derived(face, 1);
+        no_layout.as_object_mut().unwrap().remove("layoutSize");
+        assert!(!json_may_draw_stored_glyphs(&node("TEXT", face, &[0]), &no_layout), "no layout size, never drawn");
         let mut underlined = node("TEXT", face, &[0]);
         underlined["textDecoration"] = "UNDERLINE".into();
         assert!(!json_may_draw_stored_glyphs(&underlined, &derived(face, 1)));

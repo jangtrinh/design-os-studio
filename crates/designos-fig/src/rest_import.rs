@@ -840,15 +840,14 @@ pub struct ImportReport {
     /// How many texts that could have drawn the glyph outlines Figma stored with them lost them because they did not fit
     /// the import's allowance for such data (4 MiB of the file's own bytes). Such a text still draws with a substitute
     /// font when its own font is missing. A heavy import (a message payload over 2 MB, or more than 5,000 entries)
-    /// keeps stored glyphs only for a text in a non-bundled font with no style runs and one font; a small file
-    /// keeps them all, and neither case counts. A text over the allowance is counted without reading its font list, so
-    /// one that names several fonts counts too.
+    /// keeps stored glyphs only for the texts the drawing code can draw (see `stored_glyphs` for the conditions); a
+    /// small file keeps them all, and neither case counts. A text over the allowance is counted without reading its font
+    /// list, so one that could never draw counts too.
     ///
-    /// The allowance bounds the bytes of the file that are read and kept, charged on wire bytes inside the decoder, so it
-    /// also bounds decoding. It does not bound memory by itself: kept data costs 60 to 100 bytes of peak memory per wire
-    /// byte on a Latin kit (value tree, JSON string, glyph paths and shared blobs), so 4 MiB adds about 300 to 500 MB
-    /// and under a second to an import. That cost is not measured for CJK or other scripts, whose glyph outlines are
-    /// larger.
+    /// Kept glyphs count toward the decode value cap; the allowance bounds what is retained. It does not bound memory by
+    /// itself: kept data costs 60 to 100 bytes of peak memory per wire byte on a Latin kit (value tree, JSON string, glyph
+    /// paths and shared blobs), so 4 MiB adds about 300 to 500 MB and under a second to an import. That cost is not
+    /// measured for CJK or other scripts, whose glyph outlines are larger.
     pub dropped_stored_glyphs: usize,
 }
 
@@ -3281,7 +3280,14 @@ impl<'a> Ctx<'a> {
                 break;
             }
             budget -= 1;
-            let Some(mut n) = self.doc.get(src).cloned() else { continue };
+            // A copy of a text draws the geometry it shares with its source. Its own copy of the stored JSON would be one
+            // more string per instance that the import's allowance never counted, so the JSON stays out of the clone.
+            let held = if self.large_file || self.heavy_decode { self.doc.get_mut(src).and_then(|s| s.fig_metadata.remove("derivedTextData")) } else { None };
+            let copy = self.doc.get(src).cloned();
+            if let (Some(json), Some(source)) = (held, self.doc.get_mut(src)) {
+                source.fig_metadata.insert("derivedTextData".into(), json);
+            }
+            let Some(mut n) = copy else { continue };
             let orig_children = std::mem::take(&mut n.children);
             let id = match self.fresh_id() {
                 Ok(id) => id,
@@ -3312,11 +3318,6 @@ impl<'a> Ctx<'a> {
                     self.override_keys.entry(src).or_insert_with(|| std::sync::Arc::from(sid.rsplit(';').next().unwrap_or(&sid)));
                 }
             } else {
-                // A copy of a text draws the geometry it shares with its source; its own copy of the stored JSON
-                // would be one more string per instance that the import's allowance never counted.
-                if self.large_file || self.heavy_decode {
-                    n.fig_metadata.remove("derivedTextData");
-                }
                 n.source_id = n.source_id.as_ref().map(|s| format!("I{prefix};{s}"));
                 if let Some(k) = self.override_keys.get(&src).cloned() {
                     self.override_keys.insert(id, k);

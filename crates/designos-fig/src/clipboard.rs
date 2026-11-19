@@ -212,6 +212,17 @@ mod tests {
         )
     }
 
+    /// A paste whose one text keeps a struct chain a million values deep in its glyph data must hit the clipboard's value
+    /// cap, however few wire bytes it takes. The payload is a bare container over 2 MB, so the decode is heavy.
+    #[test]
+    fn a_struct_chain_in_glyph_data_hits_the_paste_value_cap() {
+        let (schema, _root, body) = crate::kiwi::hostile_chain_payload(50, 20_000);
+        let buffer = container::write_container(&schema.encode(), &body, container::Compression::Zstd, 161);
+        let clip = FigClipboard { meta: None, buffer };
+        let result = import_with_limits(&clip, CLIPBOARD_INFLATE_BUDGET, 1 << 16);
+        assert!(matches!(&result, Err(e) if e.to_string().contains("decoded value count exceeds budget")), "the paste cap holds over the glyph data");
+    }
+
     #[test]
     fn raw_and_escaped_markers_decode_the_same_bytes() {
         // "{\"dataType\":\"scene\"}" and "hello"
