@@ -837,9 +837,15 @@ pub struct ImportReport {
     /// The bindings remain attached to the document, so importing the variables later (for example a Figma
     /// `variables/local` response) resolves them. Callers use this count to tell the user the variables are missing.
     pub missing_variable_bindings: usize,
-    /// How many texts of a large file lost the glyph outlines Figma stored with them because the file's texts in
-    /// non-bundled fonts had already used up the import's allowance for them (64 MiB of stored data). Such a text still
-    /// draws with a substitute font when its own font is missing. Small files and texts in a bundled font never count.
+    /// How many texts that could have drawn the glyph outlines Figma stored with them lost them because they did not fit
+    /// the import's allowance for such data (16 MiB of the file's own bytes). Such a text still draws with a substitute
+    /// font when its own font is missing. A heavy import (a message payload over 2 MB, or more than 5,000 entries)
+    /// keeps stored glyphs only for a text in a non-bundled font with no style runs and one font; a small file
+    /// keeps them all, and neither case counts.
+    ///
+    /// The allowance is charged on wire bytes inside the decoder, so it bounds decoding as well as what is kept. Kept data
+    /// takes about 8 bytes of memory per wire byte once built: the value tree while decoding, then a JSON string, the
+    /// glyph paths and the shared blobs. In the worst case that is about 130 MB extra for an import.
     pub dropped_stored_glyphs: usize,
 }
 
@@ -3295,6 +3301,11 @@ impl<'a> Ctx<'a> {
                     self.override_keys.entry(src).or_insert_with(|| std::sync::Arc::from(sid.rsplit(';').next().unwrap_or(&sid)));
                 }
             } else {
+                // A copy of a text draws the geometry it shares with its source; its own copy of the stored JSON
+                // would be one more string per instance that the import's allowance never counted.
+                if self.large_file {
+                    n.fig_metadata.remove("derivedTextData");
+                }
                 n.source_id = n.source_id.as_ref().map(|s| format!("I{prefix};{s}"));
                 if let Some(k) = self.override_keys.get(&src).cloned() {
                     self.override_keys.insert(id, k);

@@ -24,6 +24,8 @@ struct Decoded {
     /// Written by Studio's own old exporter: its schema numbers `Message.nodeChanges` 1 (Figma's id is 4) and its
     /// `StrokeCap` has no `CIRCLE_FILLED`.
     studio_connector_caps: bool,
+    /// Texts whose stored glyphs fit no allowance of the decoder (always 0 for a decode that keeps nothing).
+    dropped_stored_glyphs: usize,
 }
 
 /// Studio's own export used to write a circle cap as `ROUND` and a diamond cap as `SQUARE`. Figma's `ROUND` and
@@ -60,6 +62,10 @@ pub(crate) fn release_os_memory() {
 }
 
 fn decode_inner(bytes: &[u8], for_import: bool) -> Result<Decoded, FigError> {
+    decode_with_allowance(bytes, for_import, stored_glyphs::ALLOWANCE_WIRE_BYTES)
+}
+
+fn decode_with_allowance(bytes: &[u8], for_import: bool, stored_glyph_allowance: usize) -> Result<Decoded, FigError> {
     let mut archive = container::open(bytes)?;
     let is_figjam = archive.canvas.starts_with(container::MAGIC_JAM);
     let (schema_bin, msg_bin) = container::read_archive_chunks(&archive)?;
@@ -67,12 +73,16 @@ fn decode_inner(bytes: &[u8], for_import: bool) -> Result<Decoded, FigError> {
     let schema = Schema::decode(&schema_bin).map_err(|e| FigError::Format(format!("kiwi schema: {e}")))?;
     drop(schema_bin);
     let root = schema.root_message().ok_or_else(|| FigError::Format("schema has no message definition".into()))?;
-    let message = if for_import { schema.decode_message_for_import(root, &msg_bin) } else { schema.decode_message(root, &msg_bin) }
-        .map_err(|e| FigError::Format(format!("kiwi message: {e}")))?;
+    let (message, dropped_stored_glyphs) = if for_import {
+        schema.decode_message_for_import_counting(root, &msg_bin, kiwi::MAX_DECODED_VALUES, stored_glyph_allowance)
+    } else {
+        schema.decode_message(root, &msg_bin).map(|message| (message, 0))
+    }
+    .map_err(|e| FigError::Format(format!("kiwi message: {e}")))?;
     drop(msg_bin);
     let old_numbering = schema.defs[root].fields.iter().any(|f| &*f.name == "nodeChanges" && f.value == 1);
     let studio_connector_caps = old_numbering && schema.find("StrokeCap").is_some() && !schema.has_enum_variant("StrokeCap", "CIRCLE_FILLED");
-    Ok(Decoded { archive, message, is_figjam, studio_connector_caps })
+    Ok(Decoded { archive, message, is_figjam, studio_connector_caps, dropped_stored_glyphs })
 }
 
 fn decode(bytes: &[u8]) -> Result<Decoded, FigError> {
@@ -265,17 +275,13 @@ fn extract_fast_derived(raw_changes: &mut [KiwiValue], num_blobs: usize) -> Hash
     map
 }
 
-/// Moves the `derivedTextData` of the node change `kc` out of it when a large-file import keeps it (a text in a
-/// font that is not bundled, within the import's allowance), as JSON. Whatever else `kc` holds of it is dropped here.
-pub(crate) fn take_stored_glyphs(kc: &mut KiwiValue, budget: &mut stored_glyphs::Budget) -> Option<Value> {
+/// Moves the `derivedTextData` of the node change `kc` out of it when a big import keeps it, as JSON: a text that can
+/// draw its stored glyphs (see `stored_glyphs`). Whatever else `kc` holds of it is dropped here. The kiwi decoder has
+/// already applied the allowance when the payload passed 2 MB; a payload under it is bounded by its own size.
+pub(crate) fn take_big_file_glyphs(kc: &mut KiwiValue) -> Option<Value> {
     let derived = kc.take_field("derivedTextData")?;
-    let keep = matches!(&*kc, KiwiValue::Message(fields) if stored_glyphs::keeps_stored_glyphs(fields));
-    if !keep {
-        return None;
-    }
-    let json = kiwi::into_json(derived);
-    let len = serde_json::to_vec(&json).map_or(usize::MAX, |bytes| bytes.len());
-    budget.take(len).then_some(json)
+    let keep = matches!(&*kc, KiwiValue::Message(fields) if stored_glyphs::may_draw_stored_glyphs(fields)) && stored_glyphs::is_one_font(&derived);
+    keep.then(|| kiwi::into_json(derived))
 }
 
 /// Imports a `.fig` file (raw fig-kiwi or zip-wrapped) from bytes.
@@ -291,11 +297,23 @@ pub fn import_fig_with_report(bytes: &[u8]) -> Result<(Document, rest_import::Im
 
 /// [`import_fig_with_report`] with a caller-specified global clone budget (used by tests to exercise budget exhaustion).
 pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result<(Document, rest_import::ImportReport), FigError> {
-    let mut d = decode_inner(bytes, true)?;
+    import_with_budgets(bytes, clone_budget_total, stored_glyphs::ALLOWANCE_WIRE_BYTES)
+}
+
+/// [`import_fig_with_report`] with a caller-specified allowance of wire bytes for the stored glyphs a heavy import keeps
+/// (used by tests to exercise the allowance running out; see [`rest_import::ImportReport::dropped_stored_glyphs`]).
+#[doc(hidden)]
+pub fn import_fig_with_stored_glyph_allowance(bytes: &[u8], allowance: usize) -> Result<(Document, rest_import::ImportReport), FigError> {
+    import_with_budgets(bytes, rest_import::CLONE_BUDGET_TOTAL, allowance)
+}
+
+fn import_with_budgets(bytes: &[u8], clone_budget_total: usize, stored_glyph_allowance: usize) -> Result<(Document, rest_import::ImportReport), FigError> {
+    let mut d = decode_with_allowance(bytes, true, stored_glyph_allowance)?;
     // FigJam's binary container has its own magic. Unlike a REST export, it does
     // not carry an `editorType` field in the decoded node changes, so preserve
     // that file-level board marker while handing the data to the REST importer.
     let is_figjam = d.is_figjam;
+    let dropped_stored_glyphs = d.dropped_stored_glyphs;
     let name = d.archive.meta.as_ref().and_then(|m| fstr(m, "file_name").or_else(|| fstr(m, "name"))).unwrap_or("Untitled").to_string();
     let owned_blobs: Vec<Vec<u8>> = match d.message.take_field("blobs") {
         Some(KiwiValue::Array(arr)) => arr
@@ -320,13 +338,12 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
     }
     let into_j: fn(KiwiValue) -> Value = if large { kiwi::into_json_fast } else { kiwi::into_json };
     let mut entries: Vec<Entry> = Vec::with_capacity(raw_changes.len());
-    let mut stored_glyphs = stored_glyphs::Budget::default();
     for mut kc in raw_changes {
         if d.studio_connector_caps {
             remap_studio_connector_caps(&mut kc);
         }
         // `into_json_fast` leaves `derivedTextData` out; the stored glyphs of a text that needs them go back in.
-        let derived_text = if large { take_stored_glyphs(&mut kc, &mut stored_glyphs) } else { None };
+        let derived_text = if large { take_big_file_glyphs(&mut kc) } else { None };
         let mut j = into_j(kc);
         if let (Some(derived), Some(fields)) = (derived_text, j.as_object_mut()) {
             fields.insert("derivedTextData".into(), derived);
@@ -366,7 +383,7 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
     )?;
     report.dropped_variable_bindings += dropped_variable_bindings;
     report.dropped_variable_overrides += dropped_variable_overrides;
-    report.dropped_stored_glyphs += stored_glyphs.dropped_texts;
+    report.dropped_stored_glyphs += dropped_stored_glyphs;
     for (sid, sp) in style_sort_positions {
         if let Some(meta) = doc.style_meta.get_mut(&sid) {
             meta.sort_position = Some(sp);
@@ -1499,8 +1516,8 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
                 }
             }
             "derivedTextData" | "derivedImmutableFrameData" => {
-                // A large file keeps only the stored glyphs of a text in a font that is not bundled (see `stored_glyphs`).
-                let keep = !large_file || (k == "derivedTextData" && stored_glyphs::json_keeps_stored_glyphs(nc));
+                // A large file keeps only the stored glyphs of a text that can draw them (see `stored_glyphs`).
+                let keep = !large_file || (k == "derivedTextData" && stored_glyphs::json_may_draw_stored_glyphs(nc, val));
                 if keep && !val.is_null() {
                     if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
                         meta.insert(k.clone(), Value::String(s));

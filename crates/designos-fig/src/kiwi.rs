@@ -4,6 +4,7 @@
 //! decoder, producing a [`KiwiValue`] tree. A matching encoder is provided so
 //! tests (and a future `.fig` writer) can synthesize files.
 
+use crate::stored_glyphs;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -26,7 +27,7 @@ const MAX_DEPTH: usize = 96;
 /// expanded scene nodes, or 723,136 Kiwi records -> 112,474 scene nodes on the 7-page subset) decodes 54,870,017
 /// values, i.e. ~52 per record (the figure in `KIWI_VALUES_PER_NODE`). 1.06M records therefore need ~55M; the cap is
 /// 2^28 = 268M, about 4.9x that.
-const MAX_DECODED_VALUES: usize = 1 << 28;
+pub(crate) const MAX_DECODED_VALUES: usize = 1 << 28;
 const MIN_ZERO_WIRE_INSTANCES: usize = 1 << 16;
 const MAX_ZERO_WIRE_INSTANCES: usize = 1 << 24;
 /// Cap on decoded instances of zero-wire-size definitions (see `Schema::zero_wire_defs`) per message.
@@ -206,11 +207,14 @@ pub struct Reader<'a> {
     /// Per definition: decoding it consumes no input bytes (empty for a reader not driven by a schema).
     zero_wire: Vec<bool>,
     zero_wire_left: usize,
+    /// Wire bytes of `derivedTextData` an import may still keep (see `stored_glyphs`), and how many texts it had to leave out.
+    stored_glyphs_left: usize,
+    stored_glyphs_dropped: usize,
 }
 
 impl<'a> Reader<'a> {
     pub fn new(data: &'a [u8]) -> Self {
-        Self { data, pos: 0, values_left: usize::MAX, zero_wire: Vec::new(), zero_wire_left: usize::MAX }
+        Self { data, pos: 0, values_left: usize::MAX, zero_wire: Vec::new(), zero_wire_left: usize::MAX, stored_glyphs_left: 0, stored_glyphs_dropped: 0 }
     }
     pub fn remaining(&self) -> usize {
         self.data.len() - self.pos
@@ -389,28 +393,52 @@ impl Schema {
     }
 
     fn decode_message_with_limits(&self, root: usize, data: &[u8], values: usize, zero_wire_instances: usize, skip_heavy: bool) -> Result<KiwiValue> {
+        self.decode_message_counting(root, data, values, zero_wire_instances, skip_heavy, 0).map(|(message, _)| message)
+    }
+
+    /// The decoder every entry point shares. `stored_glyph_allowance` is how many wire bytes of kept `derivedTextData`
+    /// a `skip_heavy` decode may take; the second value is how many texts it left out because they did not fit.
+    fn decode_message_counting(
+        &self,
+        root: usize,
+        data: &[u8],
+        values: usize,
+        zero_wire_instances: usize,
+        skip_heavy: bool,
+        stored_glyph_allowance: usize,
+    ) -> Result<(KiwiValue, usize)> {
         let mut r = Reader::new(data);
         r.values_left = values;
         r.zero_wire = self.zero_wire_defs();
         r.zero_wire_left = zero_wire_instances;
+        r.stored_glyphs_left = stored_glyph_allowance;
         r.charge()?;
-        self.decode_def(root, &mut r, 0, skip_heavy)
+        let message = self.decode_def(root, &mut r, 0, skip_heavy)?;
+        Ok((message, r.stored_glyphs_dropped))
     }
 
     /// Decodes a root message for `.fig` import, dropping unused multi-gigabyte
     /// derived fields (`editInfo`, `derivedTextData`, `derivedImmutableFrameData`)
     /// on the fly when the message payload exceeds 2 MB. The same decode budgets apply. The one exception is the
-    /// `derivedTextData` of a text set in a font that is not bundled: it holds the glyph outlines Figma drew, which
-    /// a missing font needs (see `stored_glyphs`).
+    /// `derivedTextData` of a text that can draw it (see `stored_glyphs`): it holds the glyph outlines Figma drew,
+    /// which a missing font needs, and is kept up to [`stored_glyphs::ALLOWANCE_WIRE_BYTES`] of wire data.
     pub fn decode_message_for_import(&self, root: usize, data: &[u8]) -> Result<KiwiValue> {
         self.decode_message_for_import_with_values(root, data, MAX_DECODED_VALUES)
     }
 
     /// [`Self::decode_message_for_import`] with a caller-chosen cap on decoded values (untrusted payloads smaller
-    /// than a whole file, such as a clipboard, use a far lower cap than [`MAX_DECODED_VALUES`]).
+    /// than a whole file, such as a clipboard, use a far lower cap than [`MAX_DECODED_VALUES`]). The `derivedTextData`
+    /// that is kept does not count toward that cap: it has its own allowance, so keeping it never makes a payload
+    /// that decodes without it fail.
     pub fn decode_message_for_import_with_values(&self, root: usize, data: &[u8], values: usize) -> Result<KiwiValue> {
+        self.decode_message_for_import_counting(root, data, values, stored_glyphs::ALLOWANCE_WIRE_BYTES).map(|(message, _)| message)
+    }
+
+    /// [`Self::decode_message_for_import_with_values`] with a caller-chosen allowance for kept `derivedTextData`, which also
+    /// returns how many texts that could have drawn their stored glyphs were left out because they did not fit.
+    pub fn decode_message_for_import_counting(&self, root: usize, data: &[u8], values: usize, stored_glyph_allowance: usize) -> Result<(KiwiValue, usize)> {
         let skip_heavy = data.len() > 2_000_000;
-        self.decode_message_with_limits(root, data, values, zero_wire_budget(data.len()), skip_heavy)
+        self.decode_message_counting(root, data, values, zero_wire_budget(data.len()), skip_heavy, stored_glyph_allowance)
     }
 
     /// Per definition: whether one instance occupies zero bytes on the wire. Enums (a varint), messages (a terminator)
@@ -480,13 +508,13 @@ impl Schema {
                         .map(|i| &def.fields[i])
                         .or_else(|| def.fields.iter().find(|f| f.value == id))
                         .ok_or_else(|| KiwiError::Bad(format!("unknown field id {id} in {}", def.name)))?;
-                    // A text in a font the importer cannot prove installed keeps Figma's stored glyphs; see `stored_glyphs`.
-                    // Its `type` and `fontName` precede `derivedTextData` on the wire, and a message that does not show both
-                    // by then is skipped, as every other node's is.
-                    if skip_heavy
-                        && matches!(&*f.name, "editInfo" | "derivedTextData" | "derivedImmutableFrameData")
-                        && !(&*f.name == "derivedTextData" && crate::stored_glyphs::keeps_stored_glyphs(&out))
-                    {
+                    if skip_heavy && &*f.name == "derivedTextData" {
+                        if let Some(kept) = self.keep_stored_glyphs(f, r, depth, &out)? {
+                            out.push((f.name.clone(), kept));
+                        }
+                        continue;
+                    }
+                    if skip_heavy && matches!(&*f.name, "editInfo" | "derivedImmutableFrameData") {
                         self.skip_field(f, r, depth)?;
                         continue;
                     }
@@ -499,6 +527,39 @@ impl Schema {
                 Ok(KiwiValue::Message(out))
             }
         }
+    }
+
+    /// Reads or skips the `derivedTextData` field `f` of the message whose fields so far are `out`, in a heavy decode.
+    ///
+    /// It is read only for a text that can draw Figma's stored glyphs (`stored_glyphs::may_draw_stored_glyphs`: its
+    /// `type` and `fontName` precede this field on the wire, and a message that does not show both by then is skipped,
+    /// as every other node's is) and only while the allowance lasts. The wire size is learned by skipping first, so
+    /// a text that does not fit is never decoded and the peak stays within the allowance. A kept field costs no
+    /// decoded-value budget (its wire bytes are bounded by the allowance instead), and a text whose data is not one
+    /// font is dropped again without using any allowance.
+    fn keep_stored_glyphs(&self, f: &Field, r: &mut Reader, depth: usize, out: &[(Arc<str>, KiwiValue)]) -> Result<Option<KiwiValue>> {
+        let start = r.pos;
+        self.skip_field(f, r, depth)?;
+        if !stored_glyphs::may_draw_stored_glyphs(out) {
+            return Ok(None);
+        }
+        let wire = r.pos - start;
+        if wire > r.stored_glyphs_left {
+            r.stored_glyphs_dropped += 1;
+            return Ok(None);
+        }
+        let end = r.pos;
+        r.pos = start;
+        let values_before = r.values_left;
+        let field = self.decode_field(f, r, depth, true)?;
+        debug_assert_eq!(r.pos, end, "skipping and decoding a field read different spans");
+        r.pos = end;
+        r.values_left = values_before;
+        if !stored_glyphs::is_one_font(&field) {
+            return Ok(None);
+        }
+        r.stored_glyphs_left -= wire;
+        Ok(Some(field))
     }
 
     fn skip_def(&self, idx: usize, r: &mut Reader, depth: usize) -> Result<()> {

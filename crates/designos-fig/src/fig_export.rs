@@ -1435,10 +1435,21 @@ fn reindexed_derived_text(cx: &mut ExportCtx, node: &Node) -> Option<(Arc<str>, 
     let saved = node.fig_text_geometry.as_deref().filter(|saved| saved.matches(node))?;
     let mut derived: serde_json::Value = serde_json::from_str(node.fig_metadata.get("derivedTextData")?).ok()?;
     let glyphs = derived.get_mut("glyphs")?.as_array_mut().filter(|g| g.len() == saved.glyph_blobs.len())?;
+    // every glyph must name a blob of the saved geometry before any blob is written, so a text that cannot be written
+    // leaves no orphan blob in the table
+    if saved.glyph_blobs.iter().flatten().any(|&slot| usize::try_from(slot).map_or(true, |slot| slot >= saved.blobs.len())) {
+        return None;
+    }
     let table: Vec<u32> = saved.blobs.iter().map(|blob| cx.add_glyph_blob(blob)).collect();
     for (glyph, slot) in glyphs.iter_mut().zip(&saved.glyph_blobs) {
-        if let Some(slot) = slot {
-            glyph["commandsBlob"] = json!(*table.get(usize::try_from(*slot).ok()?)?);
+        match slot {
+            Some(slot) => glyph["commandsBlob"] = json!(table[*slot as usize]),
+            // a glyph without a blob carries no blob number, so none of the file's own can pass for a placeholder
+            None => {
+                if let Some(fields) = glyph.as_object_mut() {
+                    fields.remove("commandsBlob");
+                }
+            }
         }
     }
     cx.schema.def_field_from_json(cx.nc_def, "derivedTextData", &derived)
