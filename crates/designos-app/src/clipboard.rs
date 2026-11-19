@@ -415,6 +415,10 @@ pub struct Clip {
     /// The document the layers were copied from. A clip from an older build has none, so it never links.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     origin: Option<Origin>,
+    /// The texts with a factor that sit in no instance of the clip, each as it must be pasted where no instance is
+    /// above it: holding the values it drew when it was copied (see [`designos_doc::baked_uniform_scale`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    drawn: Vec<Node>,
 }
 
 /// An open document: which Studio process it is open in, and which document there (its runtime id, which a loaded
@@ -446,7 +450,43 @@ pub fn capture(doc: &Document, ids: &[NodeId]) -> Option<Clip> {
     if nodes.is_empty() {
         return None;
     }
-    Some(Clip { magic: MAGIC, roots: ids.to_vec(), nodes, origin: Some(Origin::of(doc)) })
+    let drawn = drawn_copies(doc, ids);
+    Some(Clip { magic: MAGIC, roots: ids.to_vec(), nodes, origin: Some(Origin::of(doc)), drawn })
+}
+
+/// The texts with a factor under `roots` in `doc` that sit in no instance of the copy, as they draw now. Resolved here,
+/// where the file they come from is at hand: the styles and variables a clip names mean something only there.
+fn drawn_copies(doc: &Document, roots: &[NodeId]) -> Vec<Node> {
+    let mut out = Vec::new();
+    for root in roots {
+        let mut stack = vec![(*root, false)];
+        while let Some((id, in_instance)) = stack.pop() {
+            let Some(n) = doc.get(id) else { continue };
+            if !in_instance {
+                out.extend(designos_doc::baked_uniform_scale(doc, n));
+            }
+            let into = in_instance || matches!(n.kind, NodeKind::Instance { .. });
+            stack.extend(n.children.iter().map(|c| (*c, into)));
+        }
+    }
+    out
+}
+
+/// `clip` as it must be pasted into `parent`. A text with a factor (see [`designos_doc::TextProps::uniform_scale`])
+/// that is not inside an instance of the clip, going where no instance is above it, takes the values it drew where it
+/// was copied from, as Figma does: it holds them as its own and has no style link, no typography variable and no
+/// factor. The clip carries them (see [`Clip::drawn`]), so a paste into another file or after the source changed
+/// holds what was copied. Pasting into an instance, and copying a whole instance, leave every text as it is.
+pub fn baked_for_paste(doc: &Document, mut clip: Clip, parent: NodeId) -> Clip {
+    if clip.drawn.is_empty() || designos_doc::in_instance_chain(doc, parent) {
+        return clip;
+    }
+    let drawn: HashMap<NodeId, &Node> = clip.drawn.iter().map(|n| (n.id, n)).collect();
+    let replaced: Vec<(usize, Node)> = clip.nodes.iter().enumerate().filter_map(|(i, n)| Some((i, (*drawn.get(&n.id)?).clone()))).collect();
+    for (i, node) in replaced {
+        clip.nodes[i] = node;
+    }
+    clip
 }
 
 pub fn to_json(clip: &Clip) -> Option<String> {
@@ -1456,5 +1496,186 @@ pub(crate) mod tests {
             let own_entry = inst_nc["symbolData"]["symbolOverrides"].get(0).cloned();
             assert_eq!(own_entry, Some(source_own_entry.clone()), "pasted unopened instance own entry equals source own entry");
         }
+    }
+    // ---- text copied out of an instance made with the scale tool
+
+    /// A page with a main component holding a text linked to the `Body` style (14 / 20), an instance of it scaled
+    /// to 0.8 (its text holds 11.2 / 16 and a factor of 0.8) and a loose rectangle. Returns the app and the ids of
+    /// the instance, the text inside it and the rectangle.
+    fn scaled_instance_app() -> (App, NodeId, NodeId, NodeId) {
+        let body = designos_doc::TextStyle { font_size: 14.0, line_height: designos_doc::LineHeight::Pixels(20.0), ..Default::default() };
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        d.styles.insert("Body".into(), designos_doc::Style::Text(body.clone()));
+        let main_id = d.alloc_id();
+        let main = d.insert(page, Node::frame(main_id, Rect::new(0.0, 0.0, 100.0, 28.0))).unwrap();
+        let text_id = d.alloc_id();
+        let mut text = Node::text(text_id, Rect::new(6.0, 4.0, 88.0, 20.0), "Rating", body);
+        text.name = "Rating".into();
+        text.style_refs.insert("text".into(), "Body".into());
+        d.insert(main, text).unwrap();
+        designos_doc::create_component(&mut d, main).apply(&mut d).unwrap();
+        designos_doc::create_instance(&mut d, main, page, Vec2::ZERO).apply(&mut d).unwrap();
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let inner = d.get(inst).unwrap().children[0];
+        if let NodeKind::Text(t) = &mut d.get_mut(inner).unwrap().kind {
+            t.apply_uniform_scale(0.8);
+        }
+        let rect_id = d.alloc_id();
+        let rect = d.insert(page, Node::rectangle(rect_id, Rect::new(300.0, 0.0, 10.0, 10.0))).unwrap();
+        let mut app = App::new(d);
+        app.page = page;
+        // The text's size is bound to a 14 px variable and its stored size is stale (99): it draws 14 x 0.8 = 11.2.
+        let mut store = designos_doc::VariableStore::from_doc(&app.doc);
+        let coll = store.add_collection("Type");
+        let mode = store.collections[&coll].modes[0].id.clone();
+        let var = store.add_variable(&coll, "Font size/text-sm", designos_doc::VariableKind::Number).unwrap();
+        let dark = store.add_mode(&coll, "Dark").unwrap();
+        store.set_value(&var, &mode, designos_doc::VariableValue::Number(14.0));
+        store.set_value(&var, &dark, designos_doc::VariableValue::Number(20.0));
+        app.commit_store(store, &[], &[]);
+        let n = app.doc.get_mut(inner).unwrap();
+        n.variables.bindings.insert("fontSize".into(), var);
+        if let NodeKind::Text(t) = &mut n.kind {
+            t.style.font_size = 99.0;
+        }
+        (app, inst, inner, rect)
+    }
+
+    fn last_child_text(app: &App) -> Node {
+        let n = app.doc.get(*app.doc.get(app.page).unwrap().children.last().unwrap()).unwrap().clone();
+        assert!(matches!(n.kind, NodeKind::Text(_)), "the last layer of the page is the pasted text, got {:?}", n.kind);
+        n
+    }
+
+    fn size_and_line_height(n: &Node) -> (f32, f32) {
+        let NodeKind::Text(t) = &n.kind else { panic!("not text") };
+        let designos_doc::LineHeight::Pixels(lh) = t.style.line_height else { panic!("line height {:?}", t.style.line_height) };
+        (t.style.font_size, lh)
+    }
+
+    #[test]
+    fn a_text_pasted_out_of_a_scaled_instance_holds_the_values_it_drew() {
+        let (mut app, _, inner, _) = scaled_instance_app();
+        app.selection = vec![inner];
+        app.copy_selection().expect("copied");
+        app.selection.clear();
+        app.paste(None);
+        let n = last_child_text(&app);
+        let NodeKind::Text(t) = &n.kind else { unreachable!() };
+        assert_eq!(t.uniform_scale, 1.0, "no factor outside the instance");
+        assert!(!n.style_refs.contains_key("text"), "no text style link outside the instance");
+        let (size, lh) = size_and_line_height(&n);
+        assert!((size - 11.2).abs() < 1e-3 && (lh - 16.0).abs() < 1e-3, "drawn 11.2 / 16, got {size} / {lh}");
+    }
+
+    #[test]
+    fn a_text_pasted_back_into_its_instance_keeps_the_factor_and_the_link() {
+        let (mut app, inst, inner, _) = scaled_instance_app();
+        app.selection = vec![inner];
+        app.copy_selection().expect("copied");
+        app.paste(None);
+        let kids = &app.doc.get(inst).unwrap().children;
+        let pasted = app.doc.get(*kids.last().unwrap()).unwrap();
+        assert_ne!(pasted.id, inner, "a new layer");
+        let NodeKind::Text(t) = &pasted.kind else { panic!("not text") };
+        assert!((t.uniform_scale - 0.8).abs() < 1e-6, "keeps the factor, got {}", t.uniform_scale);
+        assert_eq!(pasted.style_refs.get("text").map(String::as_str), Some("Body"));
+    }
+
+    #[test]
+    fn a_whole_scaled_instance_copied_and_pasted_stays_scaled() {
+        let (mut app, inst, inner, _) = scaled_instance_app();
+        app.selection = vec![inst];
+        app.copy_selection().expect("copied");
+        app.selection.clear();
+        app.paste(None);
+        let copy = app.doc.get(*app.doc.get(app.page).unwrap().children.last().unwrap()).unwrap();
+        assert!(matches!(copy.kind, NodeKind::Instance { .. }) && copy.id != inst);
+        let copied_text = app.doc.get(copy.children[0]).unwrap();
+        let NodeKind::Text(t) = &copied_text.kind else { panic!("not text") };
+        assert!((t.uniform_scale - 0.8).abs() < 1e-6, "the text in the copied instance keeps its factor");
+        assert!(copied_text.style_refs.contains_key("text"));
+        assert_ne!(copied_text.id, inner);
+    }
+
+    #[test]
+    fn pasting_over_a_selection_or_to_replace_bakes_a_text_taken_out_of_a_scaled_instance_too() {
+        let (mut app, _, inner, rect) = scaled_instance_app();
+        app.selection = vec![inner];
+        app.copy_selection().expect("copied");
+        app.selection = vec![rect];
+        app.paste_over_selection();
+        let over = last_child_text(&app);
+        let NodeKind::Text(t) = &over.kind else { unreachable!() };
+        assert_eq!(t.uniform_scale, 1.0, "pasted over the selection");
+        assert!(!over.style_refs.contains_key("text"));
+        app.selection = vec![rect];
+        app.paste_to_replace();
+        let replaced = last_child_text(&app);
+        assert!(app.doc.get(rect).is_none(), "the rectangle was replaced");
+        let NodeKind::Text(t) = &replaced.kind else { unreachable!() };
+        assert_eq!(t.uniform_scale, 1.0, "pasted to replace");
+        assert!(!replaced.style_refs.contains_key("text"));
+        let (size, lh) = size_and_line_height(&replaced);
+        assert!((size - 11.2).abs() < 1e-3 && (lh - 16.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_text_from_another_file_pasted_outside_an_instance_holds_the_values_it_carries() {
+        let (mut app, _, inner, _) = scaled_instance_app();
+        app.selection = vec![inner];
+        let json = app.copy_selection().expect("copied");
+        let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let process = value["origin"]["process"].as_u64().unwrap();
+        value["origin"]["process"] = serde_json::json!(process.wrapping_add(1));
+        app.selection.clear();
+        app.paste_from_system(Some(&value.to_string()));
+        let n = last_child_text(&app);
+        let NodeKind::Text(t) = &n.kind else { unreachable!() };
+        assert_eq!(t.uniform_scale, 1.0);
+        assert!(!n.style_refs.contains_key("text"));
+        let (size, lh) = size_and_line_height(&n);
+        assert!((size - 11.2).abs() < 1e-3 && (lh - 16.0).abs() < 1e-3, "got {size} / {lh}");
+    }
+    #[test]
+    fn a_text_pasted_into_another_file_holds_the_values_it_drew_in_the_file_it_came_from() {
+        let (mut a, _, inner, _) = scaled_instance_app();
+        a.selection = vec![inner];
+        let json = a.copy_selection().expect("copied");
+        // another file whose variable has the same id and a different value
+        let (mut b, _, _, _) = scaled_instance_app();
+        let var = b.doc.variables.keys().next().cloned().expect("a variable");
+        let (coll, mode) = {
+            let v = &b.doc.variables[&var];
+            (v.collection.clone(), b.doc.variable_collections[&v.collection].modes[0].id.clone())
+        };
+        let mut store = designos_doc::VariableStore::from_doc(&b.doc);
+        store.set_value(&var, &mode, designos_doc::VariableValue::Number(40.0));
+        b.commit_store(store, &[], &[]);
+        assert!(b.doc.variable_collections.contains_key(&coll));
+        b.selection.clear();
+        b.paste_from_system(Some(&json));
+        let n = last_child_text(&b);
+        let NodeKind::Text(t) = &n.kind else { unreachable!() };
+        assert_eq!(t.uniform_scale, 1.0);
+        assert!((t.style.font_size - 11.2).abs() < 1e-3, "11.2 as it drew in the first file, not 32 from the other file's variable; got {}", t.style.font_size);
+    }
+
+    #[test]
+    fn a_text_is_baked_with_the_values_it_drew_when_it_was_copied() {
+        let (mut app, _, inner, _) = scaled_instance_app();
+        let var = app.doc.variables.keys().next().cloned().expect("a variable");
+        let coll = app.doc.variables[&var].collection.clone();
+        let dark = app.doc.variable_collections[&coll].modes[1].id.clone();
+        let page = app.page;
+        app.set_node_mode(&[page], &coll, Some(&dark));
+        let clip = capture(&app.doc, &[inner]).expect("captured");
+        // the page goes back to light mode before the paste: the copy still holds what it drew in dark mode, 20 x 0.8
+        app.set_node_mode(&[page], &coll, None);
+        let baked = baked_for_paste(&app.doc, clip, app.page);
+        let n = baked.nodes.iter().find(|n| n.id == inner).unwrap();
+        let NodeKind::Text(t) = &n.kind else { unreachable!() };
+        assert!((t.style.font_size - 16.0).abs() < 1e-3 && t.uniform_scale == 1.0, "got {} at {}", t.style.font_size, t.uniform_scale);
     }
 }

@@ -6,7 +6,9 @@
 //! fields are ignored.
 
 use crate::container::{self, Archive};
-use crate::fig_export::{CARRIED_FIELDS, CARRIER_KEY_PREFIX, STUDIO_AUTHOR_VISIBLE_KEY, STUDIO_PLUGIN_ID, STUDIO_SLOT_CONTENT_ID_KEY};
+use crate::fig_export::{
+    CARRIED_FIELDS, CARRIER_KEY_PREFIX, STUDIO_AUTHOR_VISIBLE_KEY, STUDIO_PLUGIN_ID, STUDIO_SLOT_CONTENT_ID_KEY, STUDIO_TEXT_UNIFORM_SCALE_KEY,
+};
 use crate::kiwi::{self, KiwiValue, Schema};
 use crate::rest_import::{self, fnum, fstr};
 use crate::stored_glyphs;
@@ -2106,6 +2108,12 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
                     }
                     STUDIO_AUTHOR_VISIBLE_KEY => {
                         m.insert("authorVisible".into(), Value::Bool(val == "true"));
+                        continue;
+                    }
+                    STUDIO_TEXT_UNIFORM_SCALE_KEY => {
+                        if let Some(n) = val.parse::<f64>().ok().filter(|s| s.is_finite() && *s > 0.0).and_then(serde_json::Number::from_f64) {
+                            m.insert("textUniformScale".into(), Value::Number(n));
+                        }
                         continue;
                     }
                     _ => {}

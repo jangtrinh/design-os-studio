@@ -29,12 +29,17 @@ pub(crate) const STUDIO_PLUGIN_ID: &str = "designos-studio";
 pub(crate) const STUDIO_SLOT_CONTENT_ID_KEY: &str = "slot-content-id";
 /// Carrier key: `"true"` for a sticky that shows its author; absent means hidden.
 pub(crate) const STUDIO_AUTHOR_VISIBLE_KEY: &str = "author-visible";
+/// Carrier key: the factor a text in a scaled instance draws its style at ([`designos_doc::TextProps::uniform_scale`]),
+/// written only when it is not 1. Its lengths are written already multiplied by it.
+pub(crate) const STUDIO_TEXT_UNIFORM_SCALE_KEY: &str = "text-uniform-scale";
 
 fn is_studio_carrier_key(full_key: &str) -> bool {
-    full_key
-        .strip_prefix(STUDIO_PLUGIN_ID)
-        .and_then(|rest| rest.strip_prefix(':'))
-        .is_some_and(|key| key == STUDIO_SLOT_CONTENT_ID_KEY || key == STUDIO_AUTHOR_VISIBLE_KEY || key.starts_with(carrier::CARRIER_KEY_PREFIX))
+    full_key.strip_prefix(STUDIO_PLUGIN_ID).and_then(|rest| rest.strip_prefix(':')).is_some_and(|key| {
+        key == STUDIO_SLOT_CONTENT_ID_KEY
+            || key == STUDIO_AUTHOR_VISIBLE_KEY
+            || key == STUDIO_TEXT_UNIFORM_SCALE_KEY
+            || key.starts_with(carrier::CARRIER_KEY_PREFIX)
+    })
 }
 
 // The kiwi encoder writes whatever float bits it is given, and a reader treats a NaN or an infinity
@@ -1573,6 +1578,12 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
     if let Some(id) = node.component.slot_content_id.as_deref().filter(|s| !s.is_empty()) {
         pd_entries.push(studio_entry(STUDIO_SLOT_CONTENT_ID_KEY, id.to_string()));
+    }
+    if let NodeKind::Text(tp) = &node.kind {
+        let scale = tp.uniform_scale_factor();
+        if scale != 1.0 {
+            pd_entries.push(studio_entry(STUDIO_TEXT_UNIFORM_SCALE_KEY, scale.to_string()));
+        }
     }
     if let Some(ip) = cx.doc.in_progress.get(&id) {
         if let Ok(val) = serde_json::to_string(ip) {

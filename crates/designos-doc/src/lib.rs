@@ -118,6 +118,7 @@ mod text_fills;
 pub mod text_measure;
 pub mod text_style_ops;
 mod text_style_overrides;
+mod text_uniform_scale;
 mod textmodel;
 mod variables;
 mod variables_apply;
@@ -179,6 +180,7 @@ pub use table_ops::{TableOpError, TableStyle, TABLE_MAX_TRACKS};
 pub use text_fills::set_text_fills_everywhere;
 pub use text_style_ops::*;
 pub use text_style_overrides::*;
+pub use text_uniform_scale::*;
 pub use textmodel::*;
 pub use variables::*;
 pub use variables_apply::*;
@@ -699,7 +701,9 @@ pub struct PendingDerivedEntry {
 pub struct PendingDerived {
     /// A fingerprint of the main component the data was computed for, and of the mains inside it, as they were when the
     /// file was opened. The loader and the format writer share its definition; the document does not interpret it.
-    pub fingerprint: u64,
+    /// `None` when the loader can no longer vouch for the mains the data depends on: it never matches, so the writer
+    /// refuses the data while the loader still holds the record.
+    pub fingerprint: Option<u64>,
     pub entries: Vec<PendingDerivedEntry>,
     /// The mains the file's record swaps nested instances to, which the fingerprint also covers.
     pub swap_mains: Vec<NodeId>,

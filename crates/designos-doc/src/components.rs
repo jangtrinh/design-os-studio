@@ -1163,6 +1163,8 @@ fn detach_into(c: &mut Ctx, id: NodeId, as_component: bool) {
     let NodeKind::Instance { frame, .. } = &n.kind else { return };
     let frame = frame.clone();
     let nested = !is_top(&n);
+    // A text with a factor holds the values it draws once no instance is above it any more.
+    let bake_text = !n.parent.is_some_and(|p| in_instance_chain(c.s, p));
     n.kind = if as_component { NodeKind::Component(frame) } else { NodeKind::Frame(frame) };
     if nested && !as_component {
         // Stays mirrored by the outer instance, but is no longer synced.
@@ -1193,6 +1195,9 @@ fn detach_into(c: &mut Ctx, id: NodeId, as_component: bool) {
             dn.component.grid_align_overrides = [false, false];
         } else {
             dn.component = ComponentLink::default();
+            if let Some(baked) = bake_text.then(|| baked_uniform_scale(c.s, &dn)).flatten() {
+                dn = baked;
+            }
         }
         let kids = dn.children.clone();
         c.update(dn);
@@ -1659,6 +1664,8 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
                 b.paragraph = a.paragraph.clone();
                 b.lists = a.lists.clone();
                 b.direction = a.direction;
+                // Lengths copied into a layer of a scaled instance are drawn at its scale.
+                b.scale_metrics(b.scale_relative_to(a));
             }
             copy_style_ref_key("text", from, to);
             if matches!(to.kind, NodeKind::Text(_)) {
@@ -1809,6 +1816,11 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
                 b.max_lines = a.max_lines;
                 b.paragraph = a.paragraph.clone();
                 b.direction = a.direction;
+                // The runs stay the layer's own; the base style and paragraph come from the main.
+                let s = b.scale_relative_to(a);
+                b.style.scale_metrics(s);
+                b.paragraph.indent *= s;
+                b.paragraph.list_spacing *= s;
             }
             copy_style_ref_key("text", r, n);
             if matches!(n.kind, NodeKind::Text(_)) {

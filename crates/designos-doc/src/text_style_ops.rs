@@ -41,11 +41,19 @@ fn typography_bindings(doc: &Document, node: &Node) -> BTreeMap<String, String> 
     TEXT_STYLE_BINDING_KEYS.iter().filter_map(|key| doc.effective_binding(node.id, key).map(|value| ((*key).to_string(), value.to_string()))).collect()
 }
 
+/// The text `node` draws, at its main component's scale: a text in a scaled instance draws its style at the
+/// instance's scale (see [`TextProps::uniform_scale`]), so a style taken from it holds the drawn lengths divided by
+/// that factor, and applying the style multiplies them back to what the layer draws.
+fn unscaled_drawn_text(doc: &Document, node: &Node) -> Option<TextProps> {
+    let NodeKind::Text(mut text) = resolve_node(doc, node).into_owned().kind else { return None };
+    text.scale_metrics(1.0 / text.uniform_scale_factor());
+    Some(text)
+}
+
 fn shared_text_style_data(doc: &Document, nodes: &[NodeId]) -> Option<(TextStyle, BTreeMap<String, String>)> {
     let layers = text_layers(doc, nodes).ok()?;
     let (first, _) = *layers.first()?;
-    let first_resolved = resolve_node(doc, first).into_owned();
-    let NodeKind::Text(first_text) = first_resolved.kind else { return None };
+    let first_text = unscaled_drawn_text(doc, first)?;
     let mut style = first_text.style.clone();
     style.align_h = TextAlignH::Left;
     style.align_v = TextAlignV::Top;
@@ -54,8 +62,7 @@ fn shared_text_style_data(doc: &Document, nodes: &[NodeId]) -> Option<(TextStyle
     style.leading_trim = first_text.paragraph.leading_trim;
     let first_bindings = typography_bindings(doc, first);
     for (node, _) in &layers {
-        let resolved = resolve_node(doc, node).into_owned();
-        let NodeKind::Text(text) = resolved.kind else { return None };
+        let text = unscaled_drawn_text(doc, node)?;
         if !has_single_text_style(&text) || !same_text_style_props(&text, &style) {
             return None;
         }
@@ -109,6 +116,7 @@ pub fn create_text_style_from_nodes(doc: &Document, nodes: &[NodeId]) -> Result<
         linked.style_refs.insert(TEXT_REF.into(), name.clone());
         // The style holds the drawn (resolved) values, so the layer takes them too: a layer whose
         // stored size was 18 under a binding that drew 32 would otherwise differ from its own style.
+        // A layer in a scaled instance takes them at its scale, which is what it drew.
         apply_style_values_with_fields(&mut linked, &created, &name, Some(0b111));
         cmds.push(Command::Update { node: Box::new(linked) });
     }
