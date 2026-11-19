@@ -53,7 +53,8 @@ pub fn solve(doc: &Document, fid: NodeId) -> Option<Solved> {
     let measure = designos_doc::text_measure::layout_measurer();
     let out = layout_solver::compute_then_refit_wrapped(&al, root.size, own, &stroke, &ids, &mut kids, |id, w| {
         let m = measure.as_deref()?;
-        designos_doc::text_measure::height_resize_text_height(doc.get(id)?, w, m)
+        let resolved = resolve_node(doc, doc.get(id)?);
+        designos_doc::text_measure::height_resize_text_height(&resolved, w, m)
     });
     Some((out.frame, ids.into_iter().zip(out.rects).collect()))
 }
@@ -129,9 +130,21 @@ const REFUSED_WHY: &str = "the imported state there is Studio's own layout, not 
 /// Scores each flow child of each auto-layout frame (placement) and each frame's size on the axes it hugs, on the
 /// document, solving one frame at a time.
 pub fn part(doc: &Document, keys: &NodeKeys, refused: &HashSet<NodeId>) -> Part {
+    part_with(doc, keys, refused, "auto_layout", "Auto layout")
+}
+
+/// The same scoring with the app's text measurer installed (`RenderTextMeasure`, which the app installs for every
+/// relayout), on its own part id so the two rows keep separate item lists for `SCOREBOARD_PREV`. The measurer is
+/// installed for this thread only and removed when the scoring ends.
+pub fn measurer_part(doc: &Document, keys: &NodeKeys, refused: &HashSet<NodeId>) -> Part {
+    let _measurer = designos_doc::text_measure::ThreadLayoutMeasurerGuard::install(std::sync::Arc::new(designos_render::RenderTextMeasure));
+    part_with(doc, keys, refused, "auto_layout_measurer", "Auto layout, text measurer installed")
+}
+
+fn part_with(doc: &Document, keys: &NodeKeys, refused: &HashSet<NodeId>, id: &'static str, title: &'static str) -> Part {
     let mut p = Part::new(
-        "auto_layout",
-        "Auto layout",
+        id,
+        title,
         "each flow child within 0.5 px of its stored transform and size, and each hugging frame within 0.5 px of its stored size on the axes it hugs, after the frame is solved again",
     );
     let tol = if broken_comparator() { f32::INFINITY } else { TOL };
@@ -178,6 +191,11 @@ pub fn part(doc: &Document, keys: &NodeKeys, refused: &HashSet<NodeId>) -> Part 
             let d = edge_diff(&bounds(c.transform, c.size), &bounds(w.transform, w.size));
             p.record(keys.key_of(cid), keys.is_hidden(cid), d <= tol, &child_buckets(&al, c));
         }
+    }
+    let measured = designos_doc::text_measure::layout_measurer().is_some();
+    p.note(format!("text measurer installed: {measured}"));
+    if measured {
+        p.note("the app's measurer rounds a text's width and height up to whole pixels (measure_text_box), so part of any drop against Figma's fractional sizes is that ceiling, not shaping");
     }
     p
 }
