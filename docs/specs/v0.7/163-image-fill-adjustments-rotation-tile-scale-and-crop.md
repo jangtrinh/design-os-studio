@@ -130,7 +130,7 @@ Literal pixel for the first acceptance criterion: a solid `#808080` image (128, 
 | `picker_adjustment_row_edits_through_the_paint_path` (app) | one undo step per drag release | yes |
 | `zero_fake_ui_gate` | `Z12` and the rest green | guard |
 
-Run: `cargo test -p designos-doc`, `cargo test -p designos-render`, `cargo test -p designos-gpu --test fidelity`, `cargo test -p designos-fig`, `cargo test -p designos-app picker`. Evidence: red/green capture, CPU and GPU renders of the exposure and rotation fixtures, the 1440 picker capture.
+Run: `cargo test -p designos-doc`, `cargo test -p designos-render`, `cargo test -p designos-gpu --test gpu fidelity::`, `cargo test -p designos-fig`, `cargo test -p designos-app picker`. Evidence: red/green capture, CPU and GPU renders of the exposure and rotation fixtures, the 1440 picker capture.
 
 Owner-manual check (flagged, never claimed by an agent): **live Figma read.** In a scratch Figma file, (1) apply each of the seven adjustments at the minimum, the maximum and one value between, to a 256-step gray ramp image and a colour chart, export at 1x and read pixels (closes the threshold default, the negative-exposure correction and the positive-saturation rule); (2) rotate an image fill by each 90-degree step in Fill, Fit and Tile and read the plugin `rotation` value and the stored `.fig` value (closes the unit, direction and tile rotation centre); (3) crop an image, zoom the crop out so it leaves the node, export and read the outside (closes the outside rule); (4) read the contrast slider and its plugin value at the maximum (closes the UI scale).
 

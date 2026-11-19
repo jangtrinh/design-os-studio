@@ -33,7 +33,7 @@ ATTRIBUTION_HEADER = (
 
 # Canonical lint rule registry ids (`designos_doc::lint::all_rule_ids()`), the set `lint:` targets are checked against
 # when no built `designos-mcp` is available (CI runs this check before it builds). Aliases are not valid targets.
-# `crates/designos-mcp/tests/list_lint_rules.rs` fails when this set and the registry differ.
+# `crates/designos-mcp/tests/mcp/list_lint_rules.rs` fails when this set and the registry differ.
 CANONICAL_LINT_RULE_IDS: Set[str] = {
     "absolute-in-auto-layout",
     "broken-style-binding",

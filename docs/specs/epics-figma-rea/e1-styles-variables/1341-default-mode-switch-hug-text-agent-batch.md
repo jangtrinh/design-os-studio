@@ -37,7 +37,7 @@ An agent switches a collection's default mode through `designos_apply_batch`. A 
 
 ## 5. Test steps
 
-`gh pr checkout 1357`, rebase on main, `cargo test -p designos-mcp --test hug_text_relayout`, revert check, then `cargo test -p designos-mcp`, clippy and fmt. Evidence: a terminal capture.
+`gh pr checkout 1357`, rebase on main, `cargo test -p designos-mcp --test mcp hug_text_relayout::`, revert check, then `cargo test -p designos-mcp`, clippy and fmt. Evidence: a terminal capture.
 
 ## 6. Edge cases
 

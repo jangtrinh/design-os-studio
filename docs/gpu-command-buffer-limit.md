@@ -14,7 +14,7 @@ The counter drops back to zero when the command buffers are submitted. It is a s
 
 ## What costs command buffers
 
-Measured with bare wgpu in one encoder (`tests/command_buffer_limit.rs`):
+Measured with bare wgpu in one encoder (`tests/gpu/command_buffer_limit.rs`):
 
 | Recorded into one encoder | Largest count that survives |
 |---|---|
