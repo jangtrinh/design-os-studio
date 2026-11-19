@@ -91,7 +91,7 @@ Probes (device pixels at scale 1): P1 inside the frame, below child A and clear 
 | `tile_render_equals_full_render_for_the_fixture_pair` | identical | guard |
 | existing shadow tests in `designos-render/tests/render.rs`, `designos-render/src/shadow_tests.rs`, `designos-gpu/tests/fidelity.rs` | green | guard |
 
-Only the F1 or the F2 row is added, as the read decides. Run: `cargo test -p designos-render`, `cargo test -p designos-gpu --test fidelity`. Evidence: red/green capture, the four renders (CPU and GPU, frames 1 and 2), the Figma exports, and the kit frames by eye if the kit is available.
+Only the F1 or the F2 row is added, as the read decides. Run: `cargo test -p designos-render`, `cargo test -p designos-gpu --test gpu fidelity::`. Evidence: red/green capture, the four renders (CPU and GPU, frames 1 and 2), the Figma exports, and the kit frames by eye if the kit is available.
 
 Owner-manual check (flagged, never claimed by an agent): **live Figma read.** Build the two fixture frames in a scratch Figma file, export both as PNG at 1x, and read the pixels at P1, P2 and P3 (or send the two exports). Decision table:
 

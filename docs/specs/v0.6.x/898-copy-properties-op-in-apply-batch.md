@@ -124,7 +124,7 @@ Seams: pure tests in `designos-doc` (`copy_properties_tests.rs`), editor tests i
 | `copy_properties_dry_run_changes_nothing` | no commit, reply present | yes |
 | `rules_under_token_budget`, `tool_list_matches_snapshot` | green; pack unchanged in size | guard |
 
-Run: `cargo test -p designos-doc copy_properties`, `cargo test -p designos-render fit_text`, `cargo test -p designos-app ops::`, `cargo test -p designos-app --lib shell`, `cargo test -p designos-mcp copy_properties`, `cargo test -p designos-mcp rules::`, `cargo test -p designos-mcp --test tools_snapshot`, `cargo run -p designos-mcp --bin gen-tool-docs`, `cargo test --workspace --lib`, `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`. Evidence (PR): a terminal capture of the batch call and its `copied` reply; before and after screenshots of a bound fill pasted in Studio (`designos --screenshot`) and of the MCP result rendered with `designos_render_png`.
+Run: `cargo test -p designos-doc copy_properties`, `cargo test -p designos-render fit_text`, `cargo test -p designos-app ops::`, `cargo test -p designos-app --lib shell`, `cargo test -p designos-mcp copy_properties`, `cargo test -p designos-mcp rules::`, `cargo test -p designos-mcp --test mcp tools_snapshot::`, `cargo run -p designos-mcp --bin gen-tool-docs`, `cargo test --workspace --lib`, `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`. Evidence (PR): a terminal capture of the batch call and its `copied` reply; before and after screenshots of a bound fill pasted in Studio (`designos --screenshot`) and of the MCP result rendered with `designos_render_png`.
 
 ## 11. Performance budgets
 

@@ -546,7 +546,7 @@ Known limit: a platform without `O_NOFOLLOW` (Windows) checks the entry and then
 
 ## Tools
 
-The local `designos-mcp` server exposes **39 tools**. This list is taken from `crates/designos-mcp/tests/snapshots/tools.json` (39 entries), which `crates/designos-mcp/tests/stdio.rs` asserts against the live `tools/list` result. The shorter table in `crates/designos-mcp/README.md` is older and is not used here.
+The local `designos-mcp` server exposes **39 tools**. This list is taken from `crates/designos-mcp/tests/snapshots/tools.json` (39 entries), which `crates/designos-mcp/tests/mcp/stdio.rs` asserts against the live `tools/list` result. The shorter table in `crates/designos-mcp/README.md` is older and is not used here.
 
 1. `designos_get_document` (read-only, risk: read)
    Summarize the current in-memory document: pages, counts, shared styles (fill, text, effect, grid) with their values, and undo state.

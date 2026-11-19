@@ -6,7 +6,7 @@ or into an offscreen texture (tests, benchmarks, `designos --screenshot --gpu`).
 
 The CPU renderer in `designos-render` (tiny-skia) is the deterministic
 reference: `--screenshot` and every pixel-diff baseline keep using it, and this
-crate is held to it by `tests/fidelity.rs`, which renders scenes with both and
+crate is held to it by `tests/gpu/fidelity.rs`, which renders scenes with both and
 compares them with `designos-diff`.
 
 ## Backend decision: wgpu pipelines + lyon, not vello
@@ -89,7 +89,7 @@ separable Gaussian blur and a composite.
 
 ## Fidelity
 
-`tests/fidelity.rs` renders scenes with both renderers headless and compares
+`tests/gpu/fidelity.rs` renders scenes with both renderers headless and compares
 them with `designos-diff` at tolerance 8. On an RTX 4070 (Vulkan):
 
 | scene | strict mismatch | AA pixels forgiven |

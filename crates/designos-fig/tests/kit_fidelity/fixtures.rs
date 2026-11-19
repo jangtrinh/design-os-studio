@@ -106,12 +106,17 @@ pub fn instance_fig() -> Vec<u8> {
     fig(vec![main, rect, inst], vec![])
 }
 
-/// A text layer with stored derived text data: one line starting at character 0, baseline at `y`.
+/// A text layer with stored derived text data: one line starting at character 0, baseline at `y`, and the stored
+/// position and advance (a fraction of the 16 px font size) of its first two glyphs.
 pub fn text_fig(y: f32) -> Vec<u8> {
     let font = st(vec![("family", V::String("Inter".into())), ("style", V::String("Regular".into())), ("postscript", V::String(String::new()))]);
+    let glyph = |first: u32, x: f32, advance: f32| {
+        msg(vec![("position", vec2(x, y)), ("advance", fl(advance)), ("firstCharacter", V::Uint(first)), ("fontSize", fl(16.0))])
+    };
     let derived = msg(vec![
         ("layoutSize", vec2(80.0, 20.0)),
         ("baselines", V::Array(vec![msg(vec![("position", vec2(0.0, y)), ("width", fl(80.0)), ("firstCharacter", V::Uint(0)), ("endCharacter", V::Uint(5))])])),
+        ("glyphs", V::Array(vec![glyph(0, 0.0, 0.75), glyph(1, 12.0, 0.5625)])),
     ]);
     let t = layer(
         30,
@@ -129,6 +134,24 @@ pub fn text_fig(y: f32) -> Vec<u8> {
         ],
     );
     fig(vec![t], vec![])
+}
+
+/// A vertical auto-layout frame that hugs its height (stored 100 px) around one fixed-width text of auto-resize
+/// HEIGHT, itself stored 100 px tall. A solve with a text measurer sizes the frame to the text's one line; a solve
+/// without one keeps the stored heights.
+pub fn hug_text_fig() -> Vec<u8> {
+    let font = st(vec![("family", V::String("Inter".into())), ("style", V::String("Regular".into())), ("postscript", V::String(String::new()))]);
+    let frame = layer(1, (0, 1), "!", "FRAME", (100.0, 100.0), (0.0, 0.0), vec![("stackMode", en("VERTICAL"))]);
+    let text = layer(
+        2,
+        (1, 1),
+        "!",
+        "TEXT",
+        (100.0, 100.0),
+        (0.0, 0.0),
+        vec![("textData", msg(vec![("characters", V::String("Hi".into()))])), ("fontName", font), ("fontSize", fl(16.0)), ("textAutoResize", en("HEIGHT"))],
+    );
+    fig(vec![frame, text], vec![])
 }
 
 /// A frame carrying the string field `version` (not in the importer's field list): kept as metadata when it has a
