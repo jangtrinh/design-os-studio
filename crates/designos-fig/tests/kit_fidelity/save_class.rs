@@ -91,7 +91,7 @@ pub fn part(original: &Raw, saved: &Raw, hidden: &HashSet<String>) -> Part {
     let mut p = Part::new(
         "save_class",
         "Save loss by class",
-        "class 1: each field of each record that came from Figma equal in a no-edit save (after the save loss part's normalisations); the save's own additions are class 2 and never fail it",
+        "class 1: each field of each record that came from Figma equal in a no-edit save (after the save loss part's normalisations); a key or record only the save writes is class 2 and never fails it, and an entry or subfield it adds inside a Figma field changes that field",
     );
     p.note("class 1 counts each key of each record once: a field or subfield missing from the save is lost, a leaf that differs or an entry or subfield added inside the field is changed, a record with no saved record is not written");
     p.note("class 2 counts what only the save holds (a record with no original record, a key or subfield it adds) and scores none of it");
