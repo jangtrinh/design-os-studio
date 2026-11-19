@@ -202,7 +202,7 @@ fn scale_and_single_trial_clone() {
     }
 }
 
-/// Run in `--release`: `cargo test -p designos-mcp --release --locked --test table_batch create_50x50_release_under_500ms -- --ignored --nocapture`
+/// Run in `--release`: `cargo test -p designos-mcp --release --locked --test mcp table_batch::create_50x50_release_under_500ms -- --ignored --nocapture`
 #[test]
 #[ignore = "wall-clock < 500 ms budget is specified for a release build; run with --release -- --ignored"]
 fn create_50x50_release_under_500ms() {
