@@ -123,19 +123,6 @@ pub fn in_instance_chain(doc: &Document, from: NodeId) -> bool {
     false
 }
 
-/// After an edit of a text with a factor (`n` is the layer after the edit, `before` its text before it): drops the
-/// variable binding of every typography property the edit changed. The inspector shows such a text without its
-/// bindings, so a value typed into a field is meant to be drawn, and a binding left in place would win over it.
-pub fn drop_bindings_of_edited_typography(n: &mut Node, before: &TextProps) {
-    let Some(after) = n.kind.any_text() else { return };
-    if !after.has_uniform_scale() {
-        return;
-    }
-    let changed = style_owned_fields_changed(before, after);
-    let edited: Vec<&str> = TEXT_STYLE_BINDING_KEYS.into_iter().filter(|k| OwnedField::from_binding_key(k).is_some_and(|f| changed.contains(f))).collect();
-    n.variables.bindings.retain(|key, _| !edited.contains(&key.as_str()));
-}
-
 /// `node` as it must be once it sits outside every instance: a text layer with a factor takes the values it draws
 /// now as its own (size, line height, letter and paragraph spacing, indent, list spacing and the family, weight and
 /// style of the base and of each run), and loses the text style link, the typography variable bindings, the style
