@@ -48,4 +48,15 @@ fn a_two_run_text_keeps_each_runs_fill_on_the_gpu() {
         assert!(count(pm, false) > 300, "{what} draws the black base run");
         assert!(count(pm, true) > 300, "{what} draws the red second run and its bar");
     }
+    // and it is Figma's outlines that draw them: without the stored glyphs the same text shapes differently
+    let mut shaped = doc.clone();
+    for n in shaped.nodes.values_mut() {
+        n.fig_text_geometry = None;
+    }
+    let s = compare(&mut g, "stored_glyph_two_runs_shaped", &shaped, page, vp, (192, 112), 8);
+    let differing = (0..c.cpu.height())
+        .flat_map(|y| (0..c.cpu.width()).map(move |x| (x, y)))
+        .filter(|&(x, y)| c.cpu.pixel(x, y).unwrap() != s.cpu.pixel(x, y).unwrap())
+        .count();
+    assert!(differing > 400, "the stored glyphs draw differently from shaping: {differing} pixels differ");
 }
