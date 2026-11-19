@@ -728,6 +728,8 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
         }
         "fontSize" | "fontWeight" | "lineHeight" | "letterSpacing" | "paragraphSpacing" => {
             if let NodeKind::Text(t) = &mut n.kind {
+                // A text in a scaled instance draws a bound length at the instance's scale.
+                let x = if crate::is_scaled_text_metric_key(key) { x * t.uniform_scale_factor() } else { x };
                 let apply = |s: &mut TextStyle| match key {
                     "fontSize" => s.font_size = x.max(1.0),
                     "fontWeight" => s.set_font_weight(x.round().clamp(1.0, 1000.0) as u16),
@@ -743,12 +745,12 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
         }
         "paragraphIndent" => {
             if let NodeKind::Text(t) = &mut n.kind {
-                t.paragraph.indent = x.max(0.0);
+                t.paragraph.indent = (x * t.uniform_scale_factor()).max(0.0);
             }
         }
         "listSpacing" => {
             if let NodeKind::Text(t) = &mut n.kind {
-                t.paragraph.list_spacing = x.max(0.0);
+                t.paragraph.list_spacing = (x * t.uniform_scale_factor()).max(0.0);
             }
         }
         _ => {}

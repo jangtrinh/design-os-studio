@@ -1243,6 +1243,13 @@ pub struct TextProps {
     /// Line-breaking strategy (`textWrapStyle`, tag=594).
     #[serde(default, skip_serializing_if = "is_default_text_wrap")]
     pub text_wrap: TextWrap,
+    /// Factor this layer draws its text style and typography variables at: the product of the
+    /// `uniformScaleFactor`s of the scaled instances (Figma's scale tool) it was copied into, 1 elsewhere.
+    /// The layer's own size, line height, spacing and indent values are already multiplied by it, so a
+    /// value that comes from a linked style or a bound variable is multiplied by it when it is applied
+    /// (see [`TextProps::scale_metrics`]). The style link itself stays, as it does in Figma.
+    #[serde(default = "default_one", skip_serializing_if = "is_one")]
+    pub uniform_scale: f32,
 }
 
 /// CSS `text-wrap` for a text node.
@@ -1275,6 +1282,7 @@ impl Default for TextProps {
             auto_rename: true,
             decoration_skip_ink: true,
             text_wrap: TextWrap::Auto,
+            uniform_scale: 1.0,
         }
     }
 }

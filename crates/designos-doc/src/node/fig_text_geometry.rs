@@ -38,7 +38,9 @@ impl FigTextGeometry {
 /// Equality of two texts in everything but the paints. Both sides are destructured without a
 /// catch-all, so a field added to either type has to be classified here before the crate builds.
 fn same_glyph_shapes(a: &TextProps, b: &TextProps) -> bool {
-    let TextProps { content, style, runs, auto_resize, max_lines, paragraph, lists, direction, auto_rename, decoration_skip_ink, text_wrap } = a;
+    // The factor a layer applies to style values does not place a glyph by itself: the values it scaled do.
+    let TextProps { content, style, runs, auto_resize, max_lines, paragraph, lists, direction, auto_rename, decoration_skip_ink, text_wrap, uniform_scale: _ } =
+        a;
     let TextProps {
         content: b_content,
         style: b_style,
@@ -51,6 +53,7 @@ fn same_glyph_shapes(a: &TextProps, b: &TextProps) -> bool {
         auto_rename: b_auto_rename,
         decoration_skip_ink: b_decoration_skip_ink,
         text_wrap: b_text_wrap,
+        uniform_scale: _,
     } = b;
     content == b_content
         && same_glyph_style(style, b_style)
