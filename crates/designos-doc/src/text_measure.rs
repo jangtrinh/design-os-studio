@@ -73,6 +73,37 @@ pub fn measure_hug_text_with(tp: &TextProps, max_w: Option<f32>, mut measure: im
     }
 }
 
+/// The size Figma stored for `n`, while the text is unedited: its glyph snapshot still matches
+/// the node, so the stored box is the one Figma laid this text out in. Returned bit-exact, because
+/// [`crate::FigTextGeometry::matches`] compares the box with `==` and a size that went through
+/// layout arithmetic would drop the stored glyphs.
+fn stored_text_size(n: &Node) -> Option<Vec2> {
+    let geometry = n.fig_text_geometry.as_deref()?;
+    geometry.matches(n).then_some(geometry.size)
+}
+
+/// Stored size of a hug-width text that may carry a `max_width` cap. With no cap the stored box
+/// stands. With a cap it stands only for a text Figma wrapped at this same cap (stored width equal to
+/// the cap, never above it, so the solver's clamp leaves it as stored); any other cap shapes the text,
+/// whose size then moves and drops the stored glyphs. A capped text that did not wrap could keep its
+/// stored size once the stored line count is available.
+pub fn stored_hug_text_size(n: &Node, max_w: Option<f32>) -> Option<Vec2> {
+    let stored = stored_text_size(n)?;
+    match max_w.map(|w| w.max(1.0)) {
+        None => Some(stored),
+        Some(cap) => (stored.x <= cap && cap - stored.x <= 0.01).then_some(stored),
+    }
+}
+
+/// Stored size of a fixed-width, auto-height text whose slot is `width` wide. The solver writes the
+/// slot width as the text's width and only the height comes from here, so the stored box survives
+/// whole only when the slot is bit-equal to the stored width. Any other width is shaped in both
+/// dimensions, never Figma's height around a width Studio chose.
+pub fn stored_wrapped_text_size(n: &Node, width: f32) -> Option<Vec2> {
+    let stored = stored_text_size(n)?;
+    (width == stored.x).then_some(stored)
+}
+
 /// Height of wrapping `TextAutoResize::Height` text (or `TextAutoResize::WidthAndHeight` text
 /// clamped by `max_w`) at `width`, or `None` when `n` does not wrap its height. A text turned off
 /// the page axes (quarter turn or tilt) is never refit: the solved box width is not its text
@@ -83,9 +114,11 @@ pub fn height_resize_text_height(n: &Node, width: f32, measure: &dyn TextMeasure
         return None;
     }
     match t.auto_resize {
-        TextAutoResize::Height => Some(measure.measure(t, Some(width.max(1.0))).y),
+        TextAutoResize::Height => Some(stored_wrapped_text_size(n, width).unwrap_or_else(|| measure.measure(t, Some(width.max(1.0)))).y),
         TextAutoResize::WidthAndHeight if n.layout_child.max_w.is_some() => {
-            Some(measure_hug_text_with(t, Some(width.max(1.0)), |tp, w| measure.measure(tp, w)).y)
+            // The slot is what the solver gave the text; the stored height goes with the stored width only.
+            let stored = stored_hug_text_size(n, n.layout_child.max_w).filter(|stored| stored.x == width);
+            Some(stored.unwrap_or_else(|| measure_hug_text_with(t, Some(width.max(1.0)), |tp, w| measure.measure(tp, w))).y)
         }
         _ => None,
     }
