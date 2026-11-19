@@ -1541,6 +1541,7 @@ impl Engine {
             }
             // Figma's cached glyph outlines and blobs are renderer input, not something an agent can act on.
             obj.remove("fig_text_geometry");
+            obj.remove("stored_text_glyphs");
         }
         v
     }

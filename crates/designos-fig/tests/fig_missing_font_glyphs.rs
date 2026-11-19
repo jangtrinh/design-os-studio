@@ -21,9 +21,13 @@ fn missing_icon_font_uses_embedded_glyph_without_losing_editability() {
     let icon = icon_node(&doc);
     let saved = icon.fig_text_geometry.as_ref().expect("embedded glyphs retained");
     assert_eq!(
-        saved.path.cmds,
+        eager_stored_path(saved),
         vec![PathCmd::MoveTo(Vec2::new(0.0, 20.0)), PathCmd::LineTo(Vec2::new(20.0, 20.0)), PathCmd::LineTo(Vec2::new(10.0, 4.0)), PathCmd::Close,]
     );
+    assert_eq!(saved.glyphs.len(), 1, "one glyph in the table");
+    let glyph = saved.glyphs.as_slice()[0];
+    assert_eq!((glyph.x, glyph.y, glyph.font_size, glyph.blob_slot()), (0.0, 20.0, 20.0, Some(0)));
+    assert!(saved.path.cmds.is_empty(), "no outline is built at import");
     assert!(saved.matches(icon));
     let outlines = designos_render::text_outlines_for_node(icon);
     assert_eq!(outlines.len(), 1);
@@ -116,7 +120,8 @@ fn glyph_blobs_are_deduplicated_and_reindexed_on_export() {
     let doc = import_fig(&shared_blob_fixture()).unwrap();
     let text = doc.nodes.values().find(|n| n.name == "Two glyphs").unwrap();
     let saved = text.fig_text_geometry.as_ref().expect("both glyphs are retained");
-    assert_eq!(saved.path.cmds.len(), 8, "two triangles");
+    assert_eq!(eager_stored_path(saved).len(), 8, "two triangles");
+    assert_eq!((saved.glyphs.len(), saved.blobs.len()), (2, 1), "two glyphs share one blob");
 
     let saved_bytes = export_fig(&doc).unwrap();
     let reopened = import_fig(&saved_bytes).unwrap();

@@ -22,5 +22,6 @@ mod resized_shapes;
 mod shadow_blend_parity;
 mod shadow_fillless_fixture;
 mod shadow_silhouette_source;
+mod stored_glyph_parity;
 mod table_parity;
 mod text_stroke_alignment;

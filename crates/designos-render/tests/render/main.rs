@@ -3,6 +3,9 @@
 
 #[path = "../common/mod.rs"]
 mod common;
+// Figma-file fixtures of the stored-glyph tests, declared once for the whole binary
+#[path = "../../../designos-fig/tests/common/missing_font_fig.rs"]
+mod missing_font_fig;
 
 mod backdrop;
 mod backdrop_index;
@@ -35,6 +38,10 @@ mod resized_imported_line;
 mod resized_vector_stroke_weight;
 mod shadow_blend;
 mod shadow_fillless;
+mod stored_glyph_cache_bound;
+mod stored_glyph_crafted_input;
+mod stored_glyph_golden;
+mod stored_glyph_use;
 mod table_render;
 mod text_fill_source;
 mod text_lists;

@@ -905,7 +905,7 @@ fn eq_other_group(a: &Node, b: &Node) -> bool {
         && a.hyperlink == b.hyperlink
         && a.detached_symbol_id == b.detached_symbol_id
         && a.fig_metadata == b.fig_metadata
-        && a.fig_text_geometry == b.fig_text_geometry
+        && crate::same_fig_text_geometry(&a.fig_text_geometry, &b.fig_text_geometry)
         && a.motion == b.motion
         && a.extra == b.extra
 }

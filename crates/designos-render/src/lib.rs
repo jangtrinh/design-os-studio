@@ -28,6 +28,7 @@ pub use paint::{decoded_image_bytes, retain_converted_images, MAX_CONVERTED_IMAG
 mod shadow;
 #[cfg(test)]
 mod shadow_tests;
+mod stored_glyphs;
 mod text;
 mod tiles;
 pub mod vectorops;
@@ -45,9 +46,13 @@ pub use outline::{
     stroke_plan, text_outlines, text_outlines_for_node, NodeShape, StrokeClip, StrokePlan, TextOutline,
 };
 use paint::{blend_mode, fill_paths, stroke_paths, PaintEnv};
+pub use stored_glyphs::UNIT_CACHE_BYTES as STORED_GLYPH_CACHE_BYTES;
+#[doc(hidden)]
+pub use stored_glyphs::{stored_glyph_blob_decodes, stored_glyph_cache_bytes};
 pub use text::{
-    available_families, font_features, font_generation, load_font_data, measure_text_box, register_font, resolve_font, shaping_runs, text_geometry, text_runs,
-    text_runs_for_node, GlyphRun, GlyphSpan, LineGeom, RenderTextMeasure, ResolvedFont, RunLine, TextGeometry, TextRuns,
+    available_families, font_features, font_generation, load_font_data, measure_text_box, register_font, resolve_font, shaping_runs, stored_glyph_use,
+    text_geometry, text_runs, text_runs_for_node, GlyphRun, GlyphSpan, LineGeom, RenderTextMeasure, ResolvedFont, RunLine, StoredGlyphUse, TextGeometry,
+    TextRuns,
 };
 pub use tiles::{Tile, TileBudget, TileCache, TileFrame, TileKey, TILE_SIZE};
 pub use tiny_skia;

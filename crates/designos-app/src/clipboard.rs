@@ -796,6 +796,44 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_crafted_glyph_table_in_a_clipboard_payload_loads_and_is_refused_by_the_renderer() {
+        use designos_doc::{FigTextGeometry, StoredGlyph, TextStyle, Vec2};
+        use designos_render::{stored_glyph_use, StoredGlyphUse};
+        use std::sync::Arc;
+
+        // 4,096 glyphs that all name one blob of about 1 MB: 13 GB of commands if the table were taken at its word
+        let mut blob = vec![1u8; 1];
+        blob.extend([0u8; 8]);
+        for i in 0..116_000u32 {
+            blob.push(2);
+            blob.extend((i as f32).to_le_bytes());
+            blob.extend(1.0f32.to_le_bytes());
+        }
+        let (mut d, _, f) = doc();
+        let id = d.alloc_id();
+        let style = TextStyle { font_family: "MissingFaceForTheClipboardTest".into(), ..TextStyle::default() };
+        let mut text = Node::text(id, Rect::new(0.0, 0.0, 40.0, 20.0), "ab", style);
+        let NodeKind::Text(props) = &text.kind else { unreachable!() };
+        text.fig_text_geometry = Some(Arc::new(FigTextGeometry {
+            text: props.clone(),
+            size: Vec2::new(40.0, 20.0),
+            path: Default::default(),
+            blobs: vec![Arc::from(blob)],
+            glyph_blobs: Vec::new(),
+            glyphs: (0..4096)
+                .map(|i| StoredGlyph { x: i as f32 * 0.01, y: 10.0, font_size: 12.0, blob: 0, first_char: 0, style: 0, flags: 0 })
+                .collect::<Vec<_>>()
+                .into(),
+        }));
+        d.insert(f, text).unwrap();
+        let payload = to_json(&capture(&d, &[id]).unwrap()).unwrap();
+        let pasted = from_json(&payload).expect("a payload is not checked for its glyph table when it is read");
+        let node = pasted.nodes.iter().find(|n| matches!(n.kind, NodeKind::Text(_))).unwrap();
+        assert_eq!(node.fig_text_geometry.as_ref().map(|g| g.glyphs.len()), Some(4096));
+        assert_eq!(stored_glyph_use(node), StoredGlyphUse::Fallback("stored glyphs over budget"));
+    }
+
+    #[test]
     fn instantiate_assigns_fresh_ids_and_links() {
         let (mut d, _, f) = doc();
         let copy = clone_subtree(&mut d, f);

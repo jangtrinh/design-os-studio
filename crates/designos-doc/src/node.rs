@@ -4,7 +4,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 mod fig_text_geometry;
-pub use fig_text_geometry::FigTextGeometry;
+mod glyph_blob;
+mod glyph_limits;
+mod glyph_table;
+pub use fig_text_geometry::{same_fig_text_geometry, FigTextGeometry};
+pub use glyph_blob::{decode_glyph_commands, glyph_blob_extent, GlyphBlobExtent};
+pub use glyph_limits::{MAX_ASSEMBLED_COMMANDS, MAX_BLOB_BYTES_PER_TEXT, MAX_DRAWN_GLYPHS};
+pub use glyph_table::{GlyphTable, StoredGlyph};
 
 fn default_true() -> bool {
     true
@@ -121,7 +127,12 @@ pub struct Node {
     pub text_style_overrides: OwnedFieldSet,
     /// Figma's cached glyph outlines for a text layer. Used only while the requested font is
     /// unavailable and the text/style/size still match the imported layer.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ///
+    /// A geometry with a glyph table is saved under the key `stored_text_glyphs`, which 0.7.17 does not know: it ignores
+    /// the key (its `Node` has no `deny_unknown_fields`, `node.rs:68-69` at `v0.7.17`), shapes the text on the canvas and
+    /// in exports, and drops the key on save. A geometry from before the table keeps the key `fig_text_geometry`. This
+    /// build reads either key into this field.
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "stored_text_glyphs")]
     pub fig_text_geometry: Option<Arc<FigTextGeometry>>,
     /// Precomputed fill outline in local space (Figma `fillGeometry`). When
     /// present, renderers may use it instead of deriving geometry, e.g. for
@@ -230,7 +241,9 @@ struct NodeSer<'a> {
     #[serde(skip_serializing_if = "OwnedFieldSet::is_empty")]
     text_style_overrides: &'a OwnedFieldSet,
     #[serde(skip_serializing_if = "Option::is_none")]
-    fig_text_geometry: &'a Option<Arc<FigTextGeometry>>,
+    fig_text_geometry: Option<&'a Arc<FigTextGeometry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stored_text_glyphs: Option<&'a Arc<FigTextGeometry>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fill_geometry: &'a Option<Vec<Path>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -333,7 +346,8 @@ impl Serialize for Node {
             mask_type,
             style_refs,
             text_style_overrides,
-            fig_text_geometry,
+            fig_text_geometry: fig_text_geometry.as_ref().filter(|g| g.glyphs.is_empty()),
+            stored_text_glyphs: fig_text_geometry.as_ref().filter(|g| !g.glyphs.is_empty()),
             fill_geometry,
             stroke_geometry,
             stroke_geometry_for: self.stale_stroke_geometry_stamp(),

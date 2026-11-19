@@ -2032,4 +2032,44 @@ mod import_notice_tests {
         });
         assert_eq!((doc_allocs, node_allocs), (0, 0), "hashing extra must not allocate");
     }
+
+    #[test]
+    fn doc_hash_sees_a_stored_glyph_table_without_allocating() {
+        use super::{doc_hash, node_fingerprint};
+        use crate::test_alloc_count::allocations_in;
+        use designos_doc::{Document, FigTextGeometry, Node, Rect, StoredGlyph};
+        use std::sync::Arc;
+
+        let geometry = |first_x: f32| {
+            let glyphs: Vec<StoredGlyph> = (0..1_000)
+                .map(|i| StoredGlyph { x: if i == 0 { first_x } else { i as f32 }, y: 18.0, font_size: 14.0, blob: 0, first_char: i, style: 0, flags: 0 })
+                .collect();
+            Arc::new(FigTextGeometry {
+                text: designos_doc::TextProps::default(),
+                size: designos_doc::Vec2::new(40.0, 20.0),
+                path: Default::default(),
+                blobs: vec![Arc::from(vec![1u8; 300])],
+                glyph_blobs: Vec::new(),
+                glyphs: glyphs.into(),
+            })
+        };
+        let mut d = Document::new("glyph-table-hash");
+        let page = d.add_page("P");
+        let id = d.alloc_id();
+        d.insert(page, Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 20.0))).unwrap();
+        let bare = d.clone();
+        d.get_mut(id).unwrap().fig_text_geometry = Some(geometry(0.0));
+        let mut other = d.clone();
+        other.get_mut(id).unwrap().fig_text_geometry = Some(geometry(0.5));
+
+        assert_ne!(doc_hash(&d), doc_hash(&bare), "a stored text is part of the document");
+        assert_ne!(doc_hash(&other), doc_hash(&d), "and so is one glyph of its table");
+        let ((), doc_allocs) = allocations_in(|| {
+            std::hint::black_box(doc_hash(&d));
+        });
+        let ((), node_allocs) = allocations_in(|| {
+            std::hint::black_box(node_fingerprint(d.get(id).unwrap()));
+        });
+        assert_eq!((doc_allocs, node_allocs), (0, 0), "hashing a glyph table of 1,000 glyphs must not allocate");
+    }
 }

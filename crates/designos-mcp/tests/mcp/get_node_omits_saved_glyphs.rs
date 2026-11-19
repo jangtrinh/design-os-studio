@@ -19,6 +19,6 @@ fn imported_icon_text_reply_has_no_saved_glyph_data() {
 
     let got = e.call("designos_get_node", json!({"node_id": id})).unwrap();
     let node = got["node"].as_object().expect("a node object");
-    assert!(!node.contains_key("fig_text_geometry"), "the reply carries no saved glyph data: {}", got["node"]);
+    assert!(!node.contains_key("fig_text_geometry") && !node.contains_key("stored_text_glyphs"), "the reply carries no saved glyph data: {}", got["node"]);
     assert_eq!(node["name"], "Icon text");
 }
