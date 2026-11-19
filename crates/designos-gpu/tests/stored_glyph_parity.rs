@@ -20,6 +20,8 @@ fn stored_glyph_texts_match_the_cpu() {
     // recorded before the table change: 0.0093% of the pixels differ once anti-aliasing is forgiven
     assert!(c.report_aa.ratio < 0.002, "{:?}", c.report_aa);
     // the fixture really draws ink: the mixed text's second outline stands at x 9.5..18.5, y 2..20
-    let ink = |pm: &designos_render::tiny_skia::Pixmap| (0..pm.height()).flat_map(|y| (0..pm.width()).map(move |x| (x, y))).filter(|&(x, y)| pm.pixel(x, y).unwrap().alpha() > 0).count();
+    let ink = |pm: &designos_render::tiny_skia::Pixmap| {
+        (0..pm.height()).flat_map(|y| (0..pm.width()).map(move |x| (x, y))).filter(|&(x, y)| pm.pixel(x, y).unwrap().alpha() > 0).count()
+    };
     assert!(ink(&c.cpu) > 500 && ink(&c.gpu) > 500, "both renderers draw the stored glyphs");
 }

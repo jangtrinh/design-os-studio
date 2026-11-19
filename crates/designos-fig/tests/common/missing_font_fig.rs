@@ -164,7 +164,11 @@ pub fn mixed_glyph_text(id: (u32, u32), parent: (u32, u32), pos: &str, name: &st
             ("textData", msg(vec![("characters", V::String("ab c".into()))])),
             (
                 "derivedTextData",
-                msg(vec![("layoutSize", vec2(40.0, 24.0)), ("fontMetaData", V::Array(vec![msg(vec![("key", font_key(family))])])), ("glyphs", V::Array(glyphs))]),
+                msg(vec![
+                    ("layoutSize", vec2(40.0, 24.0)),
+                    ("fontMetaData", V::Array(vec![msg(vec![("key", font_key(family))])])),
+                    ("glyphs", V::Array(glyphs)),
+                ]),
             ),
         ],
     )
@@ -188,13 +192,27 @@ pub fn golden_fixture() -> Vec<u8> {
     nodes.push(node((1, 10), (0, 1), "c", "SYMBOL", "Icon main", vec![("size", vec2(20.0, 20.0))]));
     nodes.push(glyph_text((1, 11), (1, 10), "a", "Glyph source", FAMILY, "\u{e900}", &[(0, 0.0)], vec![]));
     nodes.push(node((1, 5), (0, 1), "f", "FRAME", "Copy frame", vec![("size", vec2(20.0, 20.0))]));
-    nodes.push(node(
-        (1, 20),
-        (1, 5),
-        "a",
-        "INSTANCE",
-        "Icon copy",
-        vec![("size", vec2(20.0, 20.0)), ("symbolData", msg(vec![("symbolID", guid(1, 10))]))],
-    ));
+    nodes.push(node((1, 20), (1, 5), "a", "INSTANCE", "Icon copy", vec![("size", vec2(20.0, 20.0)), ("symbolData", msg(vec![("symbolID", guid(1, 10))]))]));
     fig_file(nodes, vec![icon_blob(), curve_blob()])
+}
+
+/// Every outline of `saved` as one command list, built the way the importer built it before the glyph table existed:
+/// each glyph's blob decoded and placed at `x + p.x * size`, `y - p.y * size`.
+pub fn eager_stored_path(saved: &designos_doc::FigTextGeometry) -> Vec<designos_doc::PathCmd> {
+    use designos_doc::{PathCmd, Vec2};
+    let mut out = Vec::new();
+    for glyph in &saved.glyphs {
+        let Some(slot) = glyph.blob_slot() else { continue };
+        let at = |p: Vec2| Vec2::new(glyph.x + p.x * glyph.font_size, glyph.y - p.y * glyph.font_size);
+        for cmd in designos_fig::commands_blob_to_path(&saved.blobs[slot as usize], false).cmds {
+            out.push(match cmd {
+                PathCmd::MoveTo(p) => PathCmd::MoveTo(at(p)),
+                PathCmd::LineTo(p) => PathCmd::LineTo(at(p)),
+                PathCmd::QuadTo(a, b) => PathCmd::QuadTo(at(a), at(b)),
+                PathCmd::CubicTo(a, b, c) => PathCmd::CubicTo(at(a), at(b), at(c)),
+                PathCmd::Close => PathCmd::Close,
+            });
+        }
+    }
+    out
 }

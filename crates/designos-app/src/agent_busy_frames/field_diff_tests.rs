@@ -69,6 +69,10 @@ fn path_with(points: usize) -> Path {
     Path { cmds, ..Default::default() }
 }
 
+fn stored_glyph(i: u32) -> designos_doc::StoredGlyph {
+    designos_doc::StoredGlyph { x: i as f32, y: 12.5, font_size: 14.0, blob: 0, first_char: i, style: 0, flags: 0 }
+}
+
 fn drop_shadow() -> Effect {
     Effect::DropShadow {
         color: Color::WHITE,
@@ -107,9 +111,10 @@ fn populated() -> Node {
     n.fig_text_geometry = Some(std::sync::Arc::new(designos_doc::FigTextGeometry {
         text: TextProps::default(),
         size: n.size,
-        path: path_with(2),
+        path: Path::default(),
         blobs: vec![std::sync::Arc::from(vec![1u8, 2])],
-        glyph_blobs: vec![Some(0)],
+        glyph_blobs: Vec::new(),
+        glyphs: vec![stored_glyph(0)].into(),
     }));
     n.fill_geometry = Some(vec![path_with(2)]);
     n.stroke_geometry = Some(vec![path_with(1)]);
@@ -187,9 +192,10 @@ fn field_edits() -> Vec<(&'static str, Vec<Edit>)> {
                 n.fig_text_geometry = Some(std::sync::Arc::new(designos_doc::FigTextGeometry {
                     text: TextProps::default(),
                     size: n.size,
-                    path: path_with(3),
+                    path: Path::default(),
                     blobs: Vec::new(),
                     glyph_blobs: Vec::new(),
+                    glyphs: vec![stored_glyph(3), stored_glyph(4)].into(),
                 }))
             }],
         ),
@@ -1400,4 +1406,25 @@ fn edge_case_agent_turn_running_during_edit_loses_no_fields() {
     let user_turn_5: Vec<(NodeId, String)> =
         app.agent_busy_frames.user_edited_fields.iter().filter(|(_, &t)| t == 5).map(|((id, f), _)| (*id, f.clone())).collect();
     assert_eq!(user_turn_5, vec![(ids[0], "fills".to_string()), (ids[2], "name".to_string())]);
+}
+
+#[test]
+fn a_stored_glyph_geometry_the_nodes_share_is_not_encoded_to_compare() {
+    // The geometry of 2,000 glyphs would encode to tens of kilobytes. The two nodes hold it through one Arc, so the
+    // comparison must not look inside (a NaN box makes a value comparison call even a shared geometry changed).
+    let mut before = Node::rectangle(NodeId(3), designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0));
+    before.fig_text_geometry = Some(std::sync::Arc::new(designos_doc::FigTextGeometry {
+        text: TextProps::default(),
+        size: Vec2::new(f32::NAN, 1.0),
+        path: Path::default(),
+        blobs: Vec::new(),
+        glyph_blobs: Vec::new(),
+        glyphs: (0..2_000).map(stored_glyph).collect::<Vec<_>>().into(),
+    }));
+    let mut after = before.clone();
+    after.name = "renamed".into();
+    let bytes_before = crate::node_field_diff::encoded_bytes_on_this_thread();
+    assert_eq!(diff_node_fields(&before, &after), vec!["name".to_string()]);
+    let encoded = crate::node_field_diff::encoded_bytes_on_this_thread() - bytes_before;
+    assert!(encoded < 512, "comparing two nodes that share one geometry encoded {encoded} bytes");
 }

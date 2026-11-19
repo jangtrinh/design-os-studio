@@ -172,7 +172,10 @@ impl GeomSrc {
         }
         if let Some(fg) = &n.fig_text_geometry {
             3u8.hash(&mut h);
-            hash_path_slice(std::slice::from_ref(&fg.path), &mut h);
+            // The geometry's address stands for its glyphs: a shared hit is confirmed by `GeomSrc::same`, which compares
+            // that same `Arc` by pointer, and the source holds a clone of it, so the address cannot be reused while the
+            // entry lives. The glyph count only tells texts apart faster.
+            (Arc::as_ptr(fg) as usize, fg.glyphs.len()).hash(&mut h);
         }
         if let Some(sg) = n.live_stroke_outline() {
             2u8.hash(&mut h);
@@ -546,17 +549,61 @@ mod tests {
     use super::*;
     use designos_doc::{AutoLayout, Color, FrameProps, LayoutGrid, Paint, Path, PathCmd, Rect, TextStyle};
 
-    #[test]
-    fn gpu_geometry_uses_imported_icon_glyph_and_invalidates_when_it_changes() {
+    /// The font-em triangle of the import fixtures: M(0,0) L(1,0) L(0.5,0.8) Z.
+    fn triangle_blob() -> Vec<u8> {
+        let mut blob = Vec::new();
+        for (op, x, y) in [(1u8, 0.0f32, 0.0f32), (2, 1.0, 0.0), (2, 0.5, 0.8)] {
+            blob.push(op);
+            blob.extend(x.to_le_bytes());
+            blob.extend(y.to_le_bytes());
+        }
+        blob.push(0);
+        blob
+    }
+
+    /// A 20 x 20 icon text in a font nobody has, holding `geometry` (built from the text it was given).
+    fn icon_doc(geometry: impl FnOnce(&d::TextProps, Vec2) -> d::FigTextGeometry) -> (Document, NodeId) {
         let mut doc = Document::new("icon");
         let page = doc.add_page("Page");
         let id = doc.alloc_id();
         let style = TextStyle { font_family: "MissingIconFaceForTest".into(), font_size: 20.0, ..TextStyle::default() };
         let mut node = Node::text(id, Rect::new(0.0, 0.0, 20.0, 20.0), "\u{e900}", style);
         let NodeKind::Text(text) = &node.kind else { unreachable!() };
-        node.fig_text_geometry = Some(Arc::new(d::FigTextGeometry {
+        node.fig_text_geometry = Some(Arc::new(geometry(text, node.size)));
+        doc.insert(page, node).unwrap();
+        (doc, id)
+    }
+
+    fn assert_draws_the_icon_triangle_and_invalidates(mut doc: Document, id: NodeId) {
+        let src = GeomSrc::build(&doc, doc.get(id).unwrap(), false);
+        let built = build_geom(&doc, doc.get(id).unwrap(), 1.0);
+        assert_eq!(built.text.len(), 1);
+        let bounds = built.text[0].path.bounds();
+        assert!((bounds.left() - 0.0).abs() < 1e-4 && (bounds.right() - 20.0).abs() < 1e-4);
+        assert!(src.same(&doc, doc.get(id).unwrap(), false), "the source matches the node it was built from");
+
+        doc.get_mut(id).unwrap().fig_text_geometry = None;
+        assert!(!src.same(&doc, doc.get(id).unwrap(), false));
+    }
+
+    #[test]
+    fn gpu_geometry_uses_imported_icon_glyph_and_invalidates_when_it_changes() {
+        let (doc, id) = icon_doc(|text, size| d::FigTextGeometry {
             text: text.clone(),
-            size: node.size,
+            size,
+            path: Path::default(),
+            blobs: vec![Arc::from(triangle_blob())],
+            glyph_blobs: Vec::new(),
+            glyphs: vec![d::StoredGlyph { x: 0.0, y: 20.0, font_size: 20.0, blob: 0, first_char: 0, style: 0, flags: 0 }].into(),
+        });
+        assert_draws_the_icon_triangle_and_invalidates(doc, id);
+    }
+
+    #[test]
+    fn gpu_geometry_still_draws_a_stored_path_from_a_document_written_before_the_glyph_table() {
+        let (doc, id) = icon_doc(|text, size| d::FigTextGeometry {
+            text: text.clone(),
+            size,
             path: Path {
                 cmds: vec![
                     PathCmd::MoveTo(Vec2::new(0.0, 20.0)),
@@ -568,16 +615,29 @@ mod tests {
             },
             blobs: Vec::new(),
             glyph_blobs: Vec::new(),
-        }));
-        doc.insert(page, node).unwrap();
-        let src = GeomSrc::build(&doc, doc.get(id).unwrap(), false);
-        let built = build_geom(&doc, doc.get(id).unwrap(), 1.0);
-        assert_eq!(built.text.len(), 1);
-        let bounds = built.text[0].path.bounds();
-        assert!((bounds.left() - 0.0).abs() < 1e-4 && (bounds.right() - 20.0).abs() < 1e-4);
+            glyphs: Default::default(),
+        });
+        assert_draws_the_icon_triangle_and_invalidates(doc, id);
+    }
 
-        doc.get_mut(id).unwrap().fig_text_geometry = None;
-        assert!(!src.same(&doc, doc.get(id).unwrap(), false));
+    #[test]
+    fn two_nodes_holding_one_stored_geometry_hash_alike_and_another_geometry_does_not() {
+        let build = |glyph_x: f32| {
+            icon_doc(|text, size| d::FigTextGeometry {
+                text: text.clone(),
+                size,
+                path: Path::default(),
+                blobs: vec![Arc::from(triangle_blob())],
+                glyph_blobs: Vec::new(),
+                glyphs: vec![d::StoredGlyph { x: glyph_x, y: 20.0, font_size: 20.0, blob: 0, first_char: 0, style: 0, flags: 0 }].into(),
+            })
+        };
+        let (doc, id) = build(0.0);
+        let n = doc.get(id).unwrap();
+        let copy = n.clone();
+        assert_eq!(GeomSrc::shape_hash(n, 0, 0), GeomSrc::shape_hash(&copy, 0, 0), "a clone shares the geometry, so it shares the hash");
+        let (other_doc, other_id) = build(0.0);
+        assert_ne!(GeomSrc::shape_hash(n, 0, 0), GeomSrc::shape_hash(other_doc.get(other_id).unwrap(), 0, 0), "another geometry is another entry");
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! Figma's cached glyph outlines for a text layer, kept so a font that is not installed still draws like Figma.
 
+use super::glyph_table::{GlyphTable, StoredGlyph};
 use super::{Node, NodeKind, TextProps};
 use crate::{Path, TextStyle, Vec2};
 use serde::{Deserialize, Serialize};
@@ -8,23 +9,34 @@ use std::sync::Arc;
 /// Original Figma glyph geometry, retained while the imported text has not changed.
 /// It lets a missing font display with the exact outlines embedded in a `.fig` file.
 ///
-/// A node holds it behind an [`Arc`], so cloning a node (undo snapshots, duplicates, instance
-/// copies) shares one copy and costs one pointer.
+/// The glyphs are a table of 24 bytes each plus the command blobs Figma stored; the outlines are built from them when
+/// the text is drawn. A node holds the geometry behind an [`Arc`], so cloning a node (undo snapshots, duplicates,
+/// instance copies) shares one copy and costs one pointer.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FigTextGeometry {
     /// The text as it was when the glyphs were taken. [`FigTextGeometry::matches`] compares against it.
     pub text: TextProps,
     pub size: Vec2,
-    /// Every glyph outline in node-local space.
+    /// Every glyph outline in node-local space, fully built. Only a document file written before the glyph table
+    /// existed carries it: its `glyphs` are empty and this path is what draws. It is written back only in that case.
+    #[serde(default, skip_serializing_if = "path_is_empty")]
     pub path: Path,
     /// The distinct glyph command blobs of this text, in first-use order. Figma shares one blob
     /// between every occurrence of a glyph, so a repeated letter is stored once. They are written
     /// back into the blob table of an exported `.fig`.
     #[serde(with = "hex_blobs")]
     pub blobs: Vec<Arc<[u8]>>,
-    /// For each entry of `derivedTextData.glyphs`, the index into [`blobs`](Self::blobs) of its
-    /// command blob (`None` for a glyph without one).
+    /// For each entry of `derivedTextData.glyphs`, the index into [`blobs`](Self::blobs) of its command blob (`None` for
+    /// a glyph without one). Only a document file written before the glyph table existed carries it; see [`path`](Self::path).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub glyph_blobs: Vec<Option<u32>>,
+    /// The glyphs in Figma's order.
+    #[serde(default, skip_serializing_if = "GlyphTable::is_empty")]
+    pub glyphs: GlyphTable,
+}
+
+fn path_is_empty(path: &Path) -> bool {
+    path.cmds.is_empty()
 }
 
 impl FigTextGeometry {
@@ -32,6 +44,48 @@ impl FigTextGeometry {
     /// settings that decide where a glyph lands. The text colour does not, so a recolour keeps them.
     pub fn matches(&self, node: &Node) -> bool {
         self.size == node.size && matches!(&node.kind, NodeKind::Text(text) if same_glyph_shapes(text, &self.text))
+    }
+
+    /// How many entries `derivedTextData.glyphs` has.
+    pub fn glyph_count(&self) -> usize {
+        if self.glyphs.is_empty() {
+            self.glyph_blobs.len()
+        } else {
+            self.glyphs.len()
+        }
+    }
+
+    /// For each glyph in Figma's order, the slot of its command blob in [`blobs`](Self::blobs), `None` for a glyph without one.
+    pub fn glyph_blob_slots(&self) -> impl Iterator<Item = Option<u32>> + '_ {
+        let table = self.glyphs.iter().map(StoredGlyph::blob_slot);
+        let legacy = self.glyph_blobs.iter().copied();
+        // one side is always empty: the table is the form of every document written since it exists
+        table.chain(legacy)
+    }
+
+    /// The bytes this geometry keeps alive beside the node's own text properties: 24 bytes per glyph, the command blobs
+    /// (shared between the texts of a file, counted in full here, so a sum over texts is an upper bound), and a legacy
+    /// path when the document has one. The outlines are never in it: they are built when the text is drawn.
+    ///
+    /// The bound per text, then: at most 4,096 glyphs (24 B each) plus the blob bytes of the file's blobs it names, which
+    /// the importer caps at 2 MB counted once per glyph, plus one clone of [`text`](Self::text), which is per text and not
+    /// per wire byte. A file of many one-glyph texts therefore retains one `TextProps` clone per text on top of the table.
+    pub fn retained_bytes(&self) -> usize {
+        self.glyphs.len() * std::mem::size_of::<StoredGlyph>()
+            + self.glyph_blobs.len() * std::mem::size_of::<Option<u32>>()
+            + self.blobs.iter().map(|blob| blob.len()).sum::<usize>()
+            + self.path.cmds.len() * std::mem::size_of::<crate::PathCmd>()
+    }
+}
+
+/// Whether two nodes hold the same stored glyph geometry. The same [`Arc`] is the same geometry, which is what an
+/// unedited node and its undo snapshot, a branch and its base, or a node before and after an agent's write hold, so the
+/// glyph table and blobs of a text are walked only when two different geometries have to be told apart.
+pub fn same_fig_text_geometry(a: &Option<Arc<FigTextGeometry>>, b: &Option<Arc<FigTextGeometry>>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b) || **a == **b,
+        _ => false,
     }
 }
 

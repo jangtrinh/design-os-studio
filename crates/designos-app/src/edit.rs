@@ -194,7 +194,7 @@ pub(crate) fn properties_changed(old: &Node, cur: &Node) -> bool {
         || *effects != cur.effects
         || *style_refs != cur.style_refs
         || *text_style_overrides != cur.text_style_overrides
-        || *fig_text_geometry != cur.fig_text_geometry
+        || !designos_doc::same_fig_text_geometry(fig_text_geometry, &cur.fig_text_geometry)
         || *component != cur.component
         || *prototype != cur.prototype
         || *variables != cur.variables
@@ -465,6 +465,24 @@ fn ends_moved_with(doc: &Document, cid: NodeId, reparented: &std::collections::H
 mod tests {
     use super::*;
     use designos_doc::{Rect, Vec2};
+
+    #[test]
+    fn a_stored_glyph_geometry_the_node_still_shares_is_not_a_property_change() {
+        // NaN != NaN: only a pointer check says that a node and its snapshot hold one geometry
+        let mut old = Node::rectangle(NodeId(1), Rect::new(0.0, 0.0, 10.0, 10.0));
+        old.fig_text_geometry = Some(std::sync::Arc::new(designos_doc::FigTextGeometry {
+            text: Default::default(),
+            size: Vec2::new(f32::NAN, 1.0),
+            path: Default::default(),
+            blobs: Vec::new(),
+            glyph_blobs: Vec::new(),
+            glyphs: Default::default(),
+        }));
+        let mut cur = old.clone();
+        assert!(!properties_changed(&old, &cur), "a snapshot clone shares the geometry and changed nothing");
+        cur.name = "renamed".into();
+        assert!(properties_changed(&old, &cur), "another property still counts");
+    }
 
     #[test]
     fn tx_structural_plus_props_undo_together() {

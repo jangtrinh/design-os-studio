@@ -4,7 +4,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 mod fig_text_geometry;
-pub use fig_text_geometry::FigTextGeometry;
+mod glyph_blob;
+mod glyph_table;
+pub use fig_text_geometry::{same_fig_text_geometry, FigTextGeometry};
+pub use glyph_blob::{decode_glyph_commands, glyph_blob_extent, GlyphBlobExtent};
+pub use glyph_table::{GlyphTable, StoredGlyph};
 
 fn default_true() -> bool {
     true

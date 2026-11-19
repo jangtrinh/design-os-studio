@@ -73,6 +73,17 @@ pub(crate) fn encoded_bytes_on_this_thread() -> usize {
     ENCODED_BYTES.with(std::cell::Cell::get)
 }
 
+/// Whether the field `$field` of two nodes differs. A stored glyph geometry is compared by identity first: nodes that
+/// share one geometry (an edit and its snapshot, an agent's write to another field) agree without a walk over its glyphs.
+macro_rules! field_differs {
+    ($before:expr, $after:expr, fig_text_geometry) => {
+        !designos_doc::same_fig_text_geometry(&$before.fig_text_geometry, &$after.fig_text_geometry)
+    };
+    ($before:expr, $after:expr, $field:ident) => {
+        $before.$field != $after.$field
+    };
+}
+
 /// Lists, in `Node`'s own order, the names of the fields whose values differ between `before` and `after`.
 /// `id`, `parent` and `children` are never listed: they say who the node is and where it sits.
 macro_rules! differing_fields {
@@ -82,7 +93,7 @@ macro_rules! differing_fields {
         let Node { id: _, parent: _, children: _, $($field: _),+ } = before;
         const _: () = assert!([$(stringify!($field)),+].len() <= MAX_FIELDS);
         let mut set = FieldSet::new();
-        $(if before.$field != after.$field {
+        $(if field_differs!(before, after, $field) {
             set.push(stringify!($field));
         })+
         set

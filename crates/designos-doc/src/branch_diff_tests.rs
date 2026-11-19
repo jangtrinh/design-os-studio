@@ -405,6 +405,7 @@ fn edits_leaving_the_default_state_of_each_hash_guarded_group_are_changes() {
                 path: Path::default(),
                 blobs: Vec::new(),
                 glyph_blobs: Vec::new(),
+                glyphs: Default::default(),
             }));
         }),
         (Group::Other, "source_id", |n| n.source_id = Some("1:2".into())),
@@ -512,4 +513,54 @@ fn diff3_scales_linearly_with_node_count() {
     let ratio = large / small;
     eprintln!("diff3_scaling small_ms={small} large_ms={large} ratio={ratio:.2}");
     assert!(ratio < 9.0, "4x nodes cost {ratio:.1}x diff time ({small} ms -> {large} ms); linear is ~4x, quadratic ~16x");
+}
+
+/// A geometry whose box is NaN: a value comparison never calls it equal to anything, itself included, so only a
+/// pointer check can say that two holders of one geometry agree.
+fn nan_geometry() -> std::sync::Arc<crate::FigTextGeometry> {
+    std::sync::Arc::new(crate::FigTextGeometry {
+        text: TextProps::default(),
+        size: Vec2::new(f32::NAN, 1.0),
+        path: Path::default(),
+        blobs: Vec::new(),
+        glyph_blobs: Vec::new(),
+        glyphs: Default::default(),
+    })
+}
+
+#[test]
+fn a_stored_glyph_geometry_both_sides_share_is_not_walked_when_diffing() {
+    let (mut base, _page, _f, _g, a, _b, _c) = base_fixture_with_frame_and_children();
+    base.get_mut(a).unwrap().fig_text_geometry = Some(nan_geometry());
+    let mut ours = base.clone();
+    ours.get_mut(a).unwrap().name = "renamed".into();
+    let diff = diff3(&base, &ours, &base);
+    let expected = NodeChange::Changed { groups: BTreeSet::from([Group::Name]) };
+    assert_eq!(diff.ours.nodes.get(&a), Some(&expected), "only the name changed: the shared geometry is the same geometry");
+}
+
+#[test]
+fn one_moved_glyph_in_a_stored_glyph_table_is_a_change_to_the_text() {
+    let table = |first_x: f32| {
+        let glyphs: Vec<crate::StoredGlyph> = (0..300)
+            .map(|i| crate::StoredGlyph { x: if i == 0 { first_x } else { i as f32 }, y: 12.0, font_size: 14.0, blob: 0, first_char: i, style: 0, flags: 0 })
+            .collect();
+        std::sync::Arc::new(crate::FigTextGeometry {
+            text: TextProps::default(),
+            size: Vec2::new(40.0, 20.0),
+            path: Path::default(),
+            blobs: vec![std::sync::Arc::from(vec![1u8, 2, 3])],
+            glyph_blobs: Vec::new(),
+            glyphs: glyphs.into(),
+        })
+    };
+    let (mut base, _page, _f, _g, a, _b, _c) = base_fixture_with_frame_and_children();
+    base.get_mut(a).unwrap().fig_text_geometry = Some(table(0.0));
+    let mut ours = base.clone();
+    ours.get_mut(a).unwrap().fig_text_geometry = Some(table(0.5));
+    let mut equal_copy = base.clone();
+    equal_copy.get_mut(a).unwrap().fig_text_geometry = Some(table(0.0));
+    let diff = diff3(&base, &ours, &base);
+    assert_eq!(diff.ours.nodes.get(&a), Some(&NodeChange::Changed { groups: BTreeSet::from([Group::Other]) }));
+    assert!(diff3(&base, &equal_copy, &base).ours.nodes.get(&a).is_none(), "a separate geometry with the same glyphs is the same text");
 }

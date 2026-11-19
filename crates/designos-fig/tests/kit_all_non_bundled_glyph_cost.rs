@@ -82,11 +82,11 @@ fn import_copy() {
     let with_geometry = doc.nodes.values().filter(|n| n.fig_text_geometry.is_some()).count();
     let with_json = doc.nodes.values().filter(|n| n.fig_metadata.contains_key("derivedTextData")).count();
     let json_bytes: usize = doc.nodes.values().filter_map(|n| n.fig_metadata.get("derivedTextData")).map(String::len).sum();
-    let cmds: usize = doc.nodes.values().filter_map(|n| n.fig_text_geometry.as_deref()).map(|g| g.path.cmds.len()).sum();
+    let glyphs: usize = doc.nodes.values().filter_map(|n| n.fig_text_geometry.as_deref()).map(|g| g.glyphs.len()).sum();
+    let retained: usize = doc.nodes.values().filter_map(|n| n.fig_text_geometry.as_deref()).map(designos_doc::FigTextGeometry::retained_bytes).sum();
     eprintln!(
-        "MEASURE import secs={secs:.2} nodes={} nodes_with_geometry={with_geometry} nodes_with_derived_json={with_json} json_bytes={json_bytes} path_cmds={cmds} path_bytes={}",
+        "MEASURE import secs={secs:.2} nodes={} nodes_with_geometry={with_geometry} nodes_with_derived_json={with_json} json_bytes={json_bytes} glyphs={glyphs} retained_bytes={retained}",
         doc.nodes.len(),
-        cmds * std::mem::size_of::<designos_doc::PathCmd>()
     );
     eprintln!("MEASURE report: {report:?}");
 }

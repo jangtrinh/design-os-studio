@@ -80,18 +80,47 @@ pub struct TextLayout {
     pub line_box: Vec2,
 }
 
-/// The glyphs Figma saved with an imported text node, when they are what the node must draw: they still
-/// describe the node, the requested font is not installed, and the text has no underline or strikethrough
-/// (the saved outlines carry no decoration bars, so shaping draws those).
-pub(crate) fn embedded_glyphs(node: &d::Node) -> Option<&d::FigTextGeometry> {
-    let d::NodeKind::Text(props) = &node.kind else { return None };
-    let saved = node.fig_text_geometry.as_deref().filter(|saved| saved.matches(node))?;
+/// Whether a text node draws the glyphs Figma stored with it, and when it does not, why.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StoredGlyphUse {
+    /// The node draws Figma's stored glyphs.
+    Drawn,
+    /// The node holds no stored glyphs (or is not a text).
+    NoStoredData,
+    /// It holds them, but the text or its box changed since they were taken.
+    Edited,
+    /// It holds them and they still describe the node, but the node is shaped for the named reason.
+    Fallback(&'static str),
+}
+
+/// What `node` draws: [`StoredGlyphUse::Drawn`] when the stored glyphs still describe it, the requested font is not
+/// installed, and the text has no underline or strikethrough (the saved outlines carry no decoration bars, so shaping
+/// draws those). The scoreboard counts texts through this.
+pub fn stored_glyph_use(node: &d::Node) -> StoredGlyphUse {
+    let d::NodeKind::Text(props) = &node.kind else { return StoredGlyphUse::NoStoredData };
+    let Some(saved) = node.fig_text_geometry.as_deref() else { return StoredGlyphUse::NoStoredData };
+    if !saved.matches(node) {
+        return StoredGlyphUse::Edited;
+    }
     if props.style.decoration != d::TextDecoration::None {
-        return None;
+        return StoredGlyphUse::Fallback("decoration");
     }
     let missing_font = resolve_font(&props.style.font_family, props.style.font_weight, props.style.italic)
         .is_none_or(|resolved| !resolved.family.eq_ignore_ascii_case(&props.style.font_family));
-    missing_font.then_some(saved)
+    if missing_font {
+        StoredGlyphUse::Drawn
+    } else {
+        StoredGlyphUse::Fallback("font installed")
+    }
+}
+
+/// The glyphs Figma saved with an imported text node, when they are what the node must draw (see [`stored_glyph_use`]).
+pub(crate) fn embedded_glyphs(node: &d::Node) -> Option<&d::FigTextGeometry> {
+    if stored_glyph_use(node) == StoredGlyphUse::Drawn {
+        node.fig_text_geometry.as_deref()
+    } else {
+        None
+    }
 }
 
 /// Layout an imported text node. When its original font is unavailable, use the glyph paths Figma embedded
@@ -99,7 +128,8 @@ pub(crate) fn embedded_glyphs(node: &d::Node) -> Option<&d::FigTextGeometry> {
 pub fn layout_node(node: &d::Node) -> Option<Rc<TextLayout>> {
     let d::NodeKind::Text(props) = &node.kind else { return None };
     if let Some(saved) = embedded_glyphs(node) {
-        let shape = crate::geom::vector_paths(std::slice::from_ref(&saved.path));
+        let path = crate::stored_glyphs::stored_path(saved);
+        let shape = crate::geom::vector_paths(std::slice::from_ref(&*path));
         if let Some((path, _)) = shape.paths.into_iter().next() {
             return Some(Rc::new(TextLayout { styles: vec![props.style.clone()], paths: vec![Some(path)], line_box: node.size }));
         }
@@ -844,11 +874,10 @@ pub fn text_runs_for_node(node: &d::Node) -> Option<TextRuns> {
         for span in runs.lines.iter_mut().flat_map(|l| l.spans.iter_mut()) {
             span.outline.clear();
         }
+        let outline = crate::stored_glyphs::stored_path(saved).into_owned().cmds;
         match runs.lines.iter_mut().flat_map(|l| l.spans.iter_mut()).next() {
-            Some(first) => first.outline = saved.path.cmds.clone(),
-            None => runs
-                .lines
-                .push(RunLine { baseline: node.size.y, spans: vec![GlyphRun { style: 0, x: 0.0, text: String::new(), outline: saved.path.cmds.clone() }] }),
+            Some(first) => first.outline = outline,
+            None => runs.lines.push(RunLine { baseline: node.size.y, spans: vec![GlyphRun { style: 0, x: 0.0, text: String::new(), outline }] }),
         }
     }
     Some(runs)
