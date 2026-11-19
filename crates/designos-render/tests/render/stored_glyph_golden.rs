@@ -4,7 +4,7 @@
 //! the pixels and the outlines the table must keep reproducing. The outline hashes cover every coordinate bit for bit on
 //! every platform; the pixel hashes depend on the rasteriser's vector units, so they are checked on the arm64 CI and
 //! development hosts the constants come from.
-#[path = "../../designos-fig/tests/common/missing_font_fig.rs"]
+#[path = "../../../designos-fig/tests/common/missing_font_fig.rs"]
 mod missing_font_fig;
 
 use designos_doc::{Document, Node, NodeId};

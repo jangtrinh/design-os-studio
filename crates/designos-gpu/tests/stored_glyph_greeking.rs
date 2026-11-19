@@ -1,6 +1,7 @@
-//! Text greeking runs before any glyph geometry is built: a stored text too small to read in a moving view draws as a
-//! bar and never builds its outline, while the compile of a still view builds it. Compiling is
-//! CPU-only: no adapter needed. Own test binary: the decode counter is process-wide.
+//! Own test binary: it asserts exact values of the process-wide blob decode counter, which any other stored text drawn
+//! in the process would move. Text greeking runs before any glyph geometry is built: a stored text too small to read
+//! in a moving view draws as a bar and never builds its outline, while the compile of a still view builds it.
+//! Compiling is CPU-only: no adapter needed.
 
 use designos_doc::*;
 use designos_gpu::SceneCompiler;

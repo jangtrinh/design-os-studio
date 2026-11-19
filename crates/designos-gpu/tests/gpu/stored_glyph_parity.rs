@@ -1,9 +1,9 @@
 //! Texts that draw Figma's stored glyphs (an icon font glyph, a missing-font text of several glyphs, an instance copy)
 //! must look the same on the GPU as on the CPU reference. Prints a note and returns when the machine has no GPU adapter.
-#[path = "../../designos-fig/tests/common/missing_font_fig.rs"]
+#[path = "../../../designos-fig/tests/common/missing_font_fig.rs"]
 mod missing_font_fig;
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

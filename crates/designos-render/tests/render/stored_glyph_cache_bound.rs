@@ -1,5 +1,6 @@
 //! The unit paths of stored glyph blobs are cached for the whole process, up to a byte bound. A text whose blobs decode
-//! to more than the bound still draws, and the cache stays at or under it. Own test binary: the cache is process-wide.
+//! to more than the bound still draws, and the cache stays at or under it. The bound holds at every moment, whatever else draws
+stored text in the process.
 use designos_doc::{FigTextGeometry, Node, NodeKind, Rect, StoredGlyph, TextStyle};
 use designos_render::{stored_glyph_cache_bytes, text_outlines_for_node, STORED_GLYPH_CACHE_BYTES};
 use std::sync::Arc;

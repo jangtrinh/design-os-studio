@@ -18,8 +18,9 @@ pub struct FigTextGeometry {
     pub text: TextProps,
     pub size: Vec2,
     /// Every glyph outline in node-local space, fully built. Only a document file written before the glyph table
-    /// existed carries it: its `glyphs` are empty and this path is what draws. It is written back only in that case.
-    #[serde(default, skip_serializing_if = "path_is_empty")]
+    /// existed fills it: its `glyphs` are empty and this path is what draws. It is always written, empty when the table
+    /// is used, because 0.7.17 requires the field: it then loads the geometry, finds nothing to draw and shapes the text.
+    #[serde(default)]
     pub path: Path,
     /// The distinct glyph command blobs of this text, in first-use order. Figma shares one blob
     /// between every occurrence of a glyph, so a repeated letter is stored once. They are written
@@ -27,16 +28,13 @@ pub struct FigTextGeometry {
     #[serde(with = "hex_blobs")]
     pub blobs: Vec<Arc<[u8]>>,
     /// For each entry of `derivedTextData.glyphs`, the index into [`blobs`](Self::blobs) of its command blob (`None` for
-    /// a glyph without one). Only a document file written before the glyph table existed carries it; see [`path`](Self::path).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// a glyph without one). Only a document file written before the glyph table existed fills it, and it is always
+    /// written for the same reason as [`path`](Self::path).
+    #[serde(default)]
     pub glyph_blobs: Vec<Option<u32>>,
     /// The glyphs in Figma's order.
     #[serde(default, skip_serializing_if = "GlyphTable::is_empty")]
     pub glyphs: GlyphTable,
-}
-
-fn path_is_empty(path: &Path) -> bool {
-    path.cmds.is_empty()
 }
 
 impl FigTextGeometry {

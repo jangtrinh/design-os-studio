@@ -46,7 +46,8 @@ fn the_glyph_table_is_written_as_hex_and_round_trips() {
     let saved = geometry(vec![vec![1, 2, 3], vec![4, 5]]);
     let json = serde_json::to_value(&saved).unwrap();
     assert!(json["glyphs"][0].as_str().is_some_and(|s| s.starts_with("hex:") && s.len() == 4 + 2 * 24 * 2), "two glyphs in one chunk: {}", json["glyphs"]);
-    assert!(json.get("path").is_none() && json.get("glyph_blobs").is_none(), "the old fields are not written for a geometry that has a table: {json}");
+    assert_eq!(json["path"]["cmds"], serde_json::json!([]), "the old fields are written, empty, for a geometry that has a table: {json}");
+    assert_eq!(json["glyph_blobs"], serde_json::json!([]));
     assert_eq!(serde_json::from_value::<FigTextGeometry>(json).unwrap(), saved);
 }
 
@@ -68,4 +69,33 @@ fn a_geometry_written_before_the_glyph_table_loads_and_is_written_back_the_same_
     assert_eq!(again["path"], legacy["path"]);
     assert_eq!(again["glyph_blobs"], legacy["glyph_blobs"]);
     assert_eq!(serde_json::from_value::<FigTextGeometry>(again).unwrap(), loaded);
+}
+
+/// `FigTextGeometry` as 0.7.17 declares it: every field required, no defaults, and `blobs` as the hex strings its own
+/// reader decodes.
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct FigTextGeometry0717 {
+    text: TextProps,
+    size: Vec2,
+    path: Path,
+    blobs: Vec<String>,
+    glyph_blobs: Vec<Option<u32>>,
+}
+
+#[test]
+fn a_geometry_saved_with_the_glyph_table_still_opens_in_0_7_17() {
+    let saved = geometry(vec![vec![1, 2, 3], vec![4, 5]]);
+    let mut node = designos_doc::Node::text(designos_doc::NodeId(1), designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0), "x", designos_doc::TextStyle::default());
+    node.fig_text_geometry = Some(Arc::new(saved.clone()));
+    // the node as a document file holds it, read back by the old shape of the field
+    let json = serde_json::to_value(&node).unwrap();
+    let old: FigTextGeometry0717 = serde_json::from_value(json["fig_text_geometry"].clone()).expect("0.7.17 reads the geometry");
+    assert!(old.path.cmds.is_empty(), "nothing for 0.7.17 to draw, so it shapes the text");
+    assert!(old.glyph_blobs.is_empty());
+    assert_eq!(old.blobs.len(), 2);
+    assert!(old.blobs.iter().all(|b| b.starts_with("hex:")));
+    // and the new reader gets the table back
+    let back: designos_doc::Node = serde_json::from_value(json).unwrap();
+    assert_eq!(back.fig_text_geometry.as_deref(), Some(&saved));
 }

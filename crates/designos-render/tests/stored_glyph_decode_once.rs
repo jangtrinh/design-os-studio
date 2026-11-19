@@ -1,6 +1,6 @@
-//! A stored text builds its outline when it is drawn, from the unit path of each blob it names. A blob is decoded once:
-//! drawing the same text again, or another text that names the same blob, decodes nothing. Own test binary: the
-//! decode counter is process-wide.
+//! Own test binary: it asserts exact values of the process-wide blob decode counter, which any other stored text drawn
+//! in the process would move. A stored text builds its outline when it is drawn, from the unit path of each blob it
+//! names. A blob is decoded once: drawing the same text again, or another text that names the same blob, decodes nothing.
 #[path = "../../designos-fig/tests/common/missing_font_fig.rs"]
 mod missing_font_fig;
 
