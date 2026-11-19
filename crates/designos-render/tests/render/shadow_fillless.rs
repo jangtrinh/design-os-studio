@@ -4,7 +4,7 @@
 //! Rule F2 (`FILLLESS_KNOCKOUT = ChildrenOpaque`): the shadow is removed under the children
 //! only, never under the whole frame rectangle.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

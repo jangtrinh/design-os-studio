@@ -2,7 +2,7 @@
 //! width (centered on the edge), so it has to be clipped to the shape, like an outside stroke is clipped
 //! to the outside of it. Without that the stroke spills past the edge at twice the weight.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

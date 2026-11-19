@@ -312,7 +312,7 @@ fn an_oversized_image_painted_reduced_decodes_once_replaces_reduced_copy_and_evi
 }
 
 /// Release timing of a 1x1 native sample over the 4000x3000 photo, as the eyedropper loupe takes it every frame:
-/// `cargo test --release -p designos-render --test color_profile_image_cost -- --ignored --nocapture`.
+/// `cargo test --release -p designos-render --test render -- --ignored --nocapture color_profile_image_cost::`.
 #[test]
 #[ignore = "timing, run in release"]
 fn timing_of_the_eyedropper_sample_over_a_large_p3_image() {

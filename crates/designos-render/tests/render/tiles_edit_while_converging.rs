@@ -3,7 +3,7 @@
 //! the LATEST document, never an intermediate one (#928: a canvas that kept the old picture after an agent
 //! deleted a layer and after Revert, on a machine slow enough to draw one tile per frame).
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

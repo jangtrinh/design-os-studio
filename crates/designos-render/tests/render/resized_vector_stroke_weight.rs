@@ -2,7 +2,7 @@
 //! (`paths` and `network`) while keeping its `stroke.weight` and without drawing
 //! a stale or doubled stroke outline.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

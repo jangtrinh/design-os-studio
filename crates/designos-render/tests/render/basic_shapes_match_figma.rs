@@ -1,7 +1,7 @@
 //! Basic shapes drawn from their primitive follow Figma: polygon and star points sit on the ellipse
 //! inscribed in the box, and a ring with no width is one circle.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

@@ -1,6 +1,6 @@
 //! With `DESIGNOS_BOARD_SHOTS=<dir>` set, writes a gallery of the board kinds for eyeballing.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

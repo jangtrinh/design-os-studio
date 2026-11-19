@@ -1,6 +1,6 @@
 //! Pixel tests of the board kinds (stickies, connectors, shapes with text, stamps) on the CPU renderer.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

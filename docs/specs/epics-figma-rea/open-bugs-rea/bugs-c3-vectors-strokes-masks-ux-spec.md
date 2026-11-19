@@ -994,10 +994,10 @@ cargo test -p designos-fig --test '*' -- --skip vsf_pcp vector_network_style_ove
 cargo test -p designos-app --lib panels::vertex::tests::arrow_caps_dropdown_not_mixed
 
 # #1758: Boolean operations with 100% hairline rings
-cargo test -p designos-render --test boolean_with_zero_width_ring
+cargo test -p designos-render --test render boolean_with_zero_width_ring::
 
 # #953: Inscribed ellipse star/polygon math & single-centerline dashed rings
-cargo test -p designos-render --test basic_shapes_match_figma
+cargo test -p designos-render --test render basic_shapes_match_figma::
 cargo test -p designos-render --test dashed_progress_ring_single_centerline
 
 # #1936: Clear baked outlines on paste properties and corner edits

@@ -1,7 +1,7 @@
 //! A `.fig` Line stores its stroke as an outline band at y in [-weight, 0]. A resize must keep that band
 //! where it is (relative to the line) instead of redrawing the line as a primitive stroked around y = 0.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

@@ -1,7 +1,7 @@
 //! A Display P3 document converts its colours to sRGB when drawn for the screen; an sRGB document is
 //! drawn exactly as stored; a native render keeps the stored numbers (for a P3-tagged export).
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

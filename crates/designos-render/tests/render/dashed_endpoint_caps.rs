@@ -4,7 +4,7 @@
 //!
 //! The line runs at `y = 20` from `x = 10`, weight 4, dashes `[10, 6]`, so the stroke fills rows 18..22.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

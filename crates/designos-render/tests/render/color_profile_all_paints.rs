@@ -1,7 +1,7 @@
 //! Every paint a Display P3 document draws is converted: fills, strokes, text fills and strokes,
 //! gradients and the page background.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

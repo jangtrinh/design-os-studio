@@ -1,6 +1,6 @@
 //! Noise, Texture and Glass effects.
 
-mod common;
+use crate::common;
 use common::*;
 use designos_doc::*;
 

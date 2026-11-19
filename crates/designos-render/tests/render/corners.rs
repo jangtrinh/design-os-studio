@@ -1,4 +1,4 @@
-mod common;
+use crate::common;
 use common::*;
 use designos_doc::*;
 use designos_render::tiny_skia::Pixmap;

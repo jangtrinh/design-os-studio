@@ -1,7 +1,7 @@
 //! Tables on the CPU renderer: cell fills, grid lines that skip merged blocks, cell text, and the
 //! lowering registry surviving a clear in the middle of a draw.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;
@@ -539,7 +539,7 @@ fn clip_cost_probe() {
 }
 
 /// Writes the documents the visual evidence is captured from. Set `DESIGNOS_TABLE_EVIDENCE_DIR` and run
-/// `cargo test -p designos-render --test table_render -- --ignored write_evidence_documents`.
+/// `cargo test -p designos-render --test render -- --ignored table_render::write_evidence_documents`.
 #[test]
 #[ignore = "writes fixture files for screenshots"]
 fn write_evidence_documents() {

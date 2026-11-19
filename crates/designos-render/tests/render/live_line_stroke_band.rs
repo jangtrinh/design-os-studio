@@ -2,7 +2,7 @@
 //! band sits at local y in [-weight, 0], and a ROUND cap stays inside x in [0, length]. A flat Vector
 //! and an INSIDE or OUTSIDE line keep their centred stroke.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

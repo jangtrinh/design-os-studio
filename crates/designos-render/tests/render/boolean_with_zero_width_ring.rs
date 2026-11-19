@@ -2,7 +2,7 @@
 //! missing one: intersecting with it is empty, subtracting with it first is empty, and union or exclude
 //! leave the other operand as it is.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

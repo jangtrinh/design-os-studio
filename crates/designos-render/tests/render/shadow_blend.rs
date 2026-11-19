@@ -1,6 +1,6 @@
 //! #161: drop and inner shadows composite with their own blend mode (after the #520 knockout).
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

@@ -3,7 +3,7 @@
 //! children's full footprint (see `backdrop.rs`). The digests pin the exact pixels each effect
 //! renders for a group over a 40% child, so a change of the shared mask rule shows up here.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

@@ -101,7 +101,7 @@ fn a_translucent_edge_is_adjusted_as_straight_colour_and_keeps_its_alpha() {
 }
 
 /// One 256x256 tile in the middle of a 4032x3024 picture drawn at its native size at a device pixel ratio of 2.
-/// Run with `cargo test -p designos-render --release --test image_adjust_sampling -- --ignored --nocapture`.
+/// Run with `cargo test -p designos-render --release --test render -- --ignored --nocapture image_adjust_sampling::`.
 #[test]
 #[ignore = "timing only"]
 fn time_one_tile_over_a_large_adjusted_picture() {
@@ -298,7 +298,7 @@ fn an_outline_of_a_crop_image_stroke_is_drawn_on_a_tile_that_misses_the_node_box
 }
 
 /// One 256x256 tile in the middle of a 4032x3024 picture fitted into a 4032x4032 node at a device pixel ratio of 2.
-/// Run with `cargo test -p designos-render --release --test image_adjust_sampling -- --ignored --nocapture`.
+/// Run with `cargo test -p designos-render --release --test render -- --ignored --nocapture image_adjust_sampling::`.
 #[test]
 #[ignore = "timing only"]
 fn time_one_tile_over_a_large_adjusted_fit_picture() {
