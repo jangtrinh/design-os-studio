@@ -5,10 +5,7 @@
 //! multiplied values on the layer and the factor in [`TextProps::uniform_scale`], so whatever writes a
 //! style value or a typography variable into the layer multiplies it by that factor too.
 
-use crate::{
-    detach_text_style_bindings, resolve_node, style_owned_fields_changed, Document, LineHeight, Node, NodeId, NodeKind, OwnedField, OwnedFieldSet, TextProps,
-    TextStyle, TEXT_STYLE_BINDING_KEYS,
-};
+use crate::{detach_text_style_bindings, resolve_node, Document, LineHeight, Node, NodeId, NodeKind, OwnedFieldSet, TextProps, TextStyle};
 
 /// Variable binding keys of the text lengths a uniform scale multiplies. The family and weight are not lengths.
 pub const SCALED_TEXT_METRIC_KEYS: [&str; 6] = ["fontSize", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent", "listSpacing"];
