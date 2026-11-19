@@ -28,6 +28,9 @@ const MAX_DEPTH: usize = 96;
 /// values, i.e. ~52 per record (the figure in `KIWI_VALUES_PER_NODE`). 1.06M records therefore need ~55M; the cap is
 /// 2^28 = 268M, about 4.9x that.
 pub(crate) const MAX_DECODED_VALUES: usize = 1 << 28;
+
+/// A message payload over this many bytes is decoded heavy: unused derived fields are skipped on the fly.
+pub(crate) const HEAVY_PAYLOAD_BYTES: usize = 2_000_000;
 const MIN_ZERO_WIRE_INSTANCES: usize = 1 << 16;
 const MAX_ZERO_WIRE_INSTANCES: usize = 1 << 24;
 /// Cap on decoded instances of zero-wire-size definitions (see `Schema::zero_wire_defs`) per message.
@@ -437,7 +440,7 @@ impl Schema {
     /// [`Self::decode_message_for_import_with_values`] with a caller-chosen allowance for kept `derivedTextData`, which also
     /// returns how many texts that could have drawn their stored glyphs were left out because they did not fit.
     pub fn decode_message_for_import_counting(&self, root: usize, data: &[u8], values: usize, stored_glyph_allowance: usize) -> Result<(KiwiValue, usize)> {
-        let skip_heavy = data.len() > 2_000_000;
+        let skip_heavy = data.len() > HEAVY_PAYLOAD_BYTES;
         self.decode_message_counting(root, data, values, zero_wire_budget(data.len()), skip_heavy, stored_glyph_allowance)
     }
 
@@ -535,8 +538,9 @@ impl Schema {
     /// `type` and `fontName` precede this field on the wire, and a message that does not show both by then is skipped,
     /// as every other node's is) and only while the allowance lasts. The wire size is learned by skipping first, so
     /// a text that does not fit is never decoded and the peak stays within the allowance. A kept field costs no
-    /// decoded-value budget (its wire bytes are bounded by the allowance instead), and a text whose data is not one
-    /// font is dropped again without using any allowance.
+    /// decoded-value budget (its wire bytes are bounded by the allowance instead), and a text whose data the drawing code cannot use (several
+    /// fonts, another family than the layer's, no or too many glyphs, another size) is dropped again without using any
+    /// allowance.
     fn keep_stored_glyphs(&self, f: &Field, r: &mut Reader, depth: usize, out: &[(Arc<str>, KiwiValue)]) -> Result<Option<KiwiValue>> {
         let start = r.pos;
         self.skip_field(f, r, depth)?;
@@ -544,24 +548,25 @@ impl Schema {
             return Ok(None);
         }
         let wire = r.pos - start;
-        if wire > r.stored_glyphs_left {
-            r.stored_glyphs_dropped += 1;
+        // the allowance never wraps: a charge that does not fit means the field is not kept
+        let Some(left_after) = r.stored_glyphs_left.checked_sub(wire) else {
+            r.stored_glyphs_dropped = r.stored_glyphs_dropped.saturating_add(1);
             return Ok(None);
-        }
+        };
         let end = r.pos;
         r.pos = start;
-        // the field is bounded by the allowance, not by the decoded-value budget: it neither draws on that budget nor can
-        // run it out part-way
+        // The field is bounded by the allowance, not by the decoded-value budget: it neither draws on that budget nor can
+        // run it out part-way. It is decoded without the heavy rules, so nothing inside it is kept or charged again.
         let values_before = std::mem::replace(&mut r.values_left, usize::MAX);
-        let field = self.decode_field(f, r, depth, true);
+        let field = self.decode_field(f, r, depth, false);
         r.values_left = values_before;
         let field = field?;
         debug_assert_eq!(r.pos, end, "skipping and decoding a field read different spans");
         r.pos = end;
-        if !stored_glyphs::is_one_font(&field) {
+        if !stored_glyphs::derived_can_draw(&field, out) {
             return Ok(None);
         }
-        r.stored_glyphs_left -= wire;
+        r.stored_glyphs_left = left_after;
         Ok(Some(field))
     }
 
@@ -1565,7 +1570,7 @@ mod tests {
     }
 
     /// A heavy payload (over 2 MB through a padding field) of text node changes, each with a derived font list of
-    /// `baselines` floats, followed by a `name` that a desynchronised stream would misread.
+    /// glyphs, followed by a `name` that a desynchronised stream would misread.
     fn text_payload(texts: &[(&str, usize)]) -> (Schema, usize, Vec<u8>) {
         let mut b = SchemaBuilder::new();
         let node_type = b.define("NodeType", DefKind::Enum);
@@ -1574,10 +1579,12 @@ mod tests {
         let font_name = b.define("FontName", DefKind::Struct);
         b.field(font_name, "family", FieldType::Native(Native::String), false, 1);
         let font_meta = b.define("FontMeta", DefKind::Message);
-        b.field(font_meta, "weight", FieldType::Native(Native::Uint), false, 1);
+        b.field(font_meta, "key", FieldType::Def(font_name), false, 1);
+        let glyph = b.define("Glyph", DefKind::Message);
+        b.field(glyph, "commandsBlob", FieldType::Native(Native::Uint), false, 1);
         let derived = b.define("DerivedTextData", DefKind::Message);
         b.field(derived, "fontMetaData", FieldType::Def(font_meta), true, 1);
-        b.field(derived, "baselines", FieldType::Native(Native::Float), true, 2);
+        b.field(derived, "glyphs", FieldType::Def(glyph), true, 2);
         let node_change = b.define("NodeChange", DefKind::Message);
         b.field(node_change, "type", FieldType::Def(node_type), false, 1);
         b.field(node_change, "fontName", FieldType::Def(font_name), false, 2);
@@ -1587,6 +1594,7 @@ mod tests {
         b.field(root, "nodeChanges", FieldType::Def(node_change), true, 1);
         b.field(root, "pad", FieldType::Native(Native::Byte), true, 2);
         let schema = b.build();
+        let font_key = |family: &str| KiwiValue::Struct(vec![("family".into(), KiwiValue::String(family.into()))]);
         let changes = texts
             .iter()
             .map(|&(family, floats)| {
@@ -1596,8 +1604,8 @@ mod tests {
                     (
                         "derivedTextData".into(),
                         KiwiValue::Message(vec![
-                            ("fontMetaData".into(), KiwiValue::Array(vec![KiwiValue::Message(vec![("weight".into(), KiwiValue::Uint(400))])])),
-                            ("baselines".into(), KiwiValue::Array(vec![KiwiValue::Float(1.5); floats])),
+                            ("fontMetaData".into(), KiwiValue::Array(vec![KiwiValue::Message(vec![("key".into(), font_key(family))])])),
+                            ("glyphs".into(), KiwiValue::Array(vec![KiwiValue::Message(vec![("commandsBlob".into(), KiwiValue::Uint(7))]); floats])),
                         ]),
                     ),
                     ("name".into(), KiwiValue::String(format!("after {family}"))),
@@ -1653,6 +1661,85 @@ mod tests {
         assert!(needed < 400, "the glyph data alone would not fit the budget ({needed} values for the rest)");
         // and the budget the paste path passes is honoured as before
         assert!(s.decode_message_for_import_counting(root, &bytes, needed - 1, usize::MAX).is_err());
+    }
+
+    /// A hostile schema: `DerivedTextData` holds a `derivedTextData` of its own, with the `type`, `fontName` and font list
+    /// that make a message look like a drawable text. Every nested level would be kept and charged again if a kept field
+    /// were decoded with the heavy rules on. Followed by an ordinary text.
+    fn self_nesting_payload(depth: usize) -> (Schema, usize, Vec<u8>) {
+        let mut b = SchemaBuilder::new();
+        let node_type = b.define("NodeType", DefKind::Enum);
+        b.variant(node_type, "FRAME", 0);
+        b.variant(node_type, "TEXT", 1);
+        let font_name = b.define("FontName", DefKind::Struct);
+        b.field(font_name, "family", FieldType::Native(Native::String), false, 1);
+        let font_meta = b.define("FontMeta", DefKind::Message);
+        b.field(font_meta, "key", FieldType::Def(font_name), false, 1);
+        let glyph = b.define("Glyph", DefKind::Message);
+        b.field(glyph, "commandsBlob", FieldType::Native(Native::Uint), false, 1);
+        let derived = b.define("DerivedTextData", DefKind::Message);
+        b.field(derived, "type", FieldType::Def(node_type), false, 1);
+        b.field(derived, "fontName", FieldType::Def(font_name), false, 2);
+        b.field(derived, "fontMetaData", FieldType::Def(font_meta), true, 3);
+        b.field(derived, "glyphs", FieldType::Def(glyph), true, 4);
+        b.field(derived, "derivedTextData", FieldType::Def(derived), false, 5);
+        let node_change = b.define("NodeChange", DefKind::Message);
+        b.field(node_change, "type", FieldType::Def(node_type), false, 1);
+        b.field(node_change, "fontName", FieldType::Def(font_name), false, 2);
+        b.field(node_change, "derivedTextData", FieldType::Def(derived), false, 3);
+        b.field(node_change, "name", FieldType::Native(Native::String), false, 4);
+        let root = b.define("Message", DefKind::Message);
+        b.field(root, "nodeChanges", FieldType::Def(node_change), true, 1);
+        b.field(root, "pad", FieldType::Native(Native::Byte), true, 2);
+        let schema = b.build();
+        let family = "Some Icon Font";
+        let key = || KiwiValue::Struct(vec![("family".into(), KiwiValue::String(family.into()))]);
+        let level = |glyphs: usize, inner: Option<KiwiValue>| {
+            let mut fields = vec![
+                ("type".into(), KiwiValue::Enum("TEXT".into())),
+                ("fontName".into(), key()),
+                ("fontMetaData".into(), KiwiValue::Array(vec![KiwiValue::Message(vec![("key".into(), key())])])),
+                ("glyphs".into(), KiwiValue::Array(vec![KiwiValue::Message(vec![("commandsBlob".into(), KiwiValue::Uint(7))]); glyphs])),
+            ];
+            fields.extend(inner.map(|inner| ("derivedTextData".into(), inner)));
+            KiwiValue::Message(fields)
+        };
+        let mut nested = level(20, None);
+        for _ in 0..depth {
+            nested = level(20, Some(nested));
+        }
+        let text = |name: &str, derived: KiwiValue| {
+            KiwiValue::Message(vec![
+                ("type".into(), KiwiValue::Enum("TEXT".into())),
+                ("fontName".into(), key()),
+                ("derivedTextData".into(), derived),
+                ("name".into(), KiwiValue::String(name.into())),
+            ])
+        };
+        let changes = vec![text("nested", nested), text("later", level(20, None)), text("last", level(20, None))];
+        let message = KiwiValue::Message(vec![("nodeChanges".into(), KiwiValue::Array(changes)), ("pad".into(), KiwiValue::Bytes(vec![0; 2_100_000]))]);
+        let bytes = schema.encode_message(root, &message).unwrap();
+        (schema, root, bytes)
+    }
+
+    #[test]
+    fn a_self_nesting_schema_cannot_wrap_the_allowance() {
+        let (s, root, bytes) = self_nesting_payload(2);
+        let decode = |allowance: usize| s.decode_message_for_import_counting(root, &bytes, MAX_DECODED_VALUES, allowance);
+        // the outer field of the first text is its widest; the allowance that just holds it is the one the nested levels
+        // would push below zero if they were charged again
+        let first_kept = |a: usize| decode(a).unwrap().0.get("nodeChanges").unwrap().as_array().unwrap()[0].get("derivedTextData").is_some();
+        let outer = (0..100_000).find(|&a| first_kept(a)).expect("the nested text fits some allowance");
+        let (message, dropped) = decode(outer).unwrap();
+        assert_eq!(kept_text_count(&message), 1, "only the first text fits an allowance that just holds it");
+        assert_eq!(dropped, 2, "the two later texts are left out and counted, however the nested levels were charged");
+        let changes = message.get("nodeChanges").unwrap().as_array().unwrap();
+        assert!(changes[1].get("derivedTextData").is_none() && changes[2].get("derivedTextData").is_none());
+        // a kept field is read without the heavy rules, so what it holds is exactly what the file wrote
+        let kept = changes[0].get("derivedTextData").unwrap();
+        assert!(kept.get("derivedTextData").and_then(|d| d.get("derivedTextData")).is_some(), "nested levels are decoded as plain data");
+        // and a very large allowance still keeps all three
+        assert_eq!(kept_text_count(&decode(usize::MAX).unwrap().0), 3);
     }
 
     #[test]

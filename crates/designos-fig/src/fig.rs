@@ -26,6 +26,8 @@ struct Decoded {
     studio_connector_caps: bool,
     /// Texts whose stored glyphs fit no allowance of the decoder (always 0 for a decode that keeps nothing).
     dropped_stored_glyphs: usize,
+    /// The decoder ran heavy (see `kiwi::HEAVY_PAYLOAD_BYTES`), so the stored glyphs it kept are bounded by its allowance.
+    heavy_decode: bool,
 }
 
 /// Studio's own export used to write a circle cap as `ROUND` and a diamond cap as `SQUARE`. Figma's `ROUND` and
@@ -79,10 +81,11 @@ fn decode_with_allowance(bytes: &[u8], for_import: bool, stored_glyph_allowance:
         schema.decode_message(root, &msg_bin).map(|message| (message, 0))
     }
     .map_err(|e| FigError::Format(format!("kiwi message: {e}")))?;
+    let heavy_decode = for_import && msg_bin.len() > kiwi::HEAVY_PAYLOAD_BYTES;
     drop(msg_bin);
     let old_numbering = schema.defs[root].fields.iter().any(|f| &*f.name == "nodeChanges" && f.value == 1);
     let studio_connector_caps = old_numbering && schema.find("StrokeCap").is_some() && !schema.has_enum_variant("StrokeCap", "CIRCLE_FILLED");
-    Ok(Decoded { archive, message, is_figjam, studio_connector_caps, dropped_stored_glyphs })
+    Ok(Decoded { archive, message, is_figjam, studio_connector_caps, dropped_stored_glyphs, heavy_decode })
 }
 
 fn decode(bytes: &[u8]) -> Result<Decoded, FigError> {
@@ -118,7 +121,8 @@ pub struct FigInstanceDerivedData {
 
 /// Extracts `derivedSymbolData` entries and `uniformScaleFactor` keyed by `INSTANCE` guid (`"s:l"`).
 pub fn extract_fig_derived_symbol_data(bytes: &[u8]) -> Result<HashMap<String, FigInstanceDerivedData>, FigError> {
-    let mut d = decode_inner(bytes, true)?;
+    // it reads instances only, so it takes no stored glyphs
+    let mut d = decode_with_allowance(bytes, true, 0)?;
     let raw_changes: Vec<KiwiValue> = match d.message.take_field("nodeChanges") {
         Some(KiwiValue::Array(arr)) => arr,
         _ => Vec::new(),
@@ -280,7 +284,7 @@ fn extract_fast_derived(raw_changes: &mut [KiwiValue], num_blobs: usize) -> Hash
 /// already applied the allowance when the payload passed 2 MB; a payload under it is bounded by its own size.
 pub(crate) fn take_big_file_glyphs(kc: &mut KiwiValue) -> Option<Value> {
     let derived = kc.take_field("derivedTextData")?;
-    let keep = matches!(&*kc, KiwiValue::Message(fields) if stored_glyphs::may_draw_stored_glyphs(fields)) && stored_glyphs::is_one_font(&derived);
+    let keep = matches!(&*kc, KiwiValue::Message(fields) if stored_glyphs::may_draw_stored_glyphs(fields) && stored_glyphs::derived_can_draw(&derived, fields));
     keep.then(|| kiwi::into_json(derived))
 }
 
@@ -314,6 +318,7 @@ fn import_with_budgets(bytes: &[u8], clone_budget_total: usize, stored_glyph_all
     // that file-level board marker while handing the data to the REST importer.
     let is_figjam = d.is_figjam;
     let dropped_stored_glyphs = d.dropped_stored_glyphs;
+    let heavy_decode = d.heavy_decode;
     let name = d.archive.meta.as_ref().and_then(|m| fstr(m, "file_name").or_else(|| fstr(m, "name"))).unwrap_or("Untitled").to_string();
     let owned_blobs: Vec<Vec<u8>> = match d.message.take_field("blobs") {
         Some(KiwiValue::Array(arr)) => arr
@@ -369,6 +374,9 @@ fn import_with_budgets(bytes: &[u8], clone_budget_total: usize, stored_glyph_all
     let mut rest = entries_to_rest(entries, &blob_refs, &name);
     if is_figjam {
         rest["editorType"] = Value::String("figjam".into());
+    }
+    if heavy_decode {
+        rest[rest_import::HEAVY_DECODE_KEY] = Value::Bool(true);
     }
     if large {
         release_os_memory();
@@ -433,7 +441,7 @@ fn fig_text_geometry(node: &Node, blobs: &[&[u8]], shared: &mut HashMap<usize, A
         return None;
     }
     let glyphs = derived.get("glyphs")?.as_array()?;
-    if glyphs.is_empty() || glyphs.len() > 4096 {
+    if glyphs.is_empty() || glyphs.len() > stored_glyphs::MAX_DRAWN_GLYPHS {
         return None;
     }
     let mut path = Path { cmds: Vec::new(), fill_rule: FillRule::NonZero };

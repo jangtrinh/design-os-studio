@@ -251,6 +251,40 @@ fn big_file_keeps_only_texts_that_can_draw_their_stored_glyphs() {
     }
 }
 
+/// Texts in the missing font that `embedded_glyphs` or `fig_text_geometry` would never draw, each under its own name.
+fn undrawable_texts() -> Vec<V> {
+    let many = glyph_text((1, 12), (0, 1), "g", "Too many glyphs", FAMILY, "\u{e900}", &vec![(0, 0.0); 4097], vec![]);
+    let mut other_family = glyph_text((1, 13), (0, 1), "h", "Other family", FAMILY, "\u{e900}", &[(0, 0.0)], vec![]);
+    let V::Message(fields) = &mut other_family else { unreachable!() };
+    let derived = fields.iter().find(|(k, _)| &**k == "derivedTextData").unwrap().1.clone();
+    let mut derived = derived;
+    set_field(&mut derived, "fontMetaData", V::Array(vec![msg(vec![("key", font_key("Another Missing Face"))])]));
+    set_field(&mut other_family, "derivedTextData", derived);
+    // Figma writes fields by ascending number, and `textDecoration` (35) comes before `derivedTextData` (359)
+    let mut underlined = glyph_text((1, 14), (0, 1), "i", "Underlined", FAMILY, "\u{e900}", &[(0, 0.0)], vec![]);
+    let V::Message(fields) = &mut underlined else { unreachable!() };
+    let at = fields.iter().position(|(k, _)| &**k == "derivedTextData").unwrap();
+    fields.insert(at, ("textDecoration".into(), designos_fig::testkit::en("UNDERLINE")));
+    let mut resized = glyph_text((1, 15), (0, 1), "j", "Wrong size", FAMILY, "\u{e900}", &[(0, 0.0)], vec![]);
+    set_field(&mut resized, "size", vec2(30.0, 20.0));
+    vec![many, other_family, underlined, resized]
+}
+
+#[test]
+fn big_file_keeps_nothing_for_a_text_the_drawing_code_would_refuse() {
+    for (shape, bytes) in big_shapes(&|| {
+        let mut texts = vec![missing_text()];
+        texts.extend(undrawable_texts());
+        texts
+    }) {
+        let doc = import_fig(&bytes).unwrap();
+        assert!(holds_derived_text(named(&doc, "Missing font text")), "big by {shape}: the control text keeps its data");
+        for name in ["Too many glyphs", "Other family", "Underlined", "Wrong size"] {
+            assert!(!holds_derived_text(named(&doc, name)), "big by {shape}: {name} would never draw from stored glyphs");
+        }
+    }
+}
+
 #[test]
 fn a_small_file_still_keeps_the_data_of_a_styled_text() {
     let doc = import_fig(&small(vec![styled_text()])).unwrap();
@@ -289,9 +323,10 @@ fn the_allowance_is_spent_in_file_order() {
     assert!(named(&doc, "Second missing text").fig_text_geometry.is_none(), "the one that no longer fits is left out");
 }
 
-/// A component with a missing-font text, copied by `copies` instances, in a file of more than 5,000 and fewer than
-/// 10,000 nodes: the size at which instance copies carry their source's metadata along.
-fn component_with_copies(copies: u32) -> Vec<u8> {
+/// A component with a missing-font text, copied by `copies` instances. With `fillers` the file has more than 5,000
+/// entries and fewer than 10,000 nodes, the size at which instance copies carry their source's metadata along; without
+/// them it has a handful of entries and the payload passes 2 MB through a padding blob instead.
+fn component_with_copies(copies: u32, fillers: bool) -> Vec<u8> {
     let mut nodes = document_and_page();
     nodes.push(node((1, 10), (0, 1), "a", "SYMBOL", "Icon main", vec![("size", vec2(20.0, 20.0))]));
     nodes.push(glyph_text((1, 11), (1, 10), "a", "Source text", FAMILY, "\u{e900}", &[(0, 0.0)], vec![]));
@@ -305,19 +340,61 @@ fn component_with_copies(copies: u32) -> Vec<u8> {
             vec![("size", vec2(20.0, 20.0)), ("symbolData", msg(vec![("symbolID", designos_fig::testkit::guid(1, 10))]))],
         ));
     }
-    nodes.extend((1..=5_001u32).map(|i| node((2, i), (0, 1), "z", "FRAME", "Filler", vec![("size", vec2(4.0, 4.0))])));
-    fig_file(nodes, vec![icon_blob()])
+    if fillers {
+        nodes.extend((1..=5_001u32).map(|i| node((2, i), (0, 1), "z", "FRAME", "Filler", vec![("size", vec2(4.0, 4.0))])));
+        fig_file(nodes, vec![icon_blob()])
+    } else {
+        fig_file(nodes, vec![icon_blob(), vec![0u8; 2_100_000]])
+    }
+}
+
+fn assert_copies_carry_no_json(doc: &Document, what: &str) {
+    let texts: Vec<&Node> = doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Text(_))).collect();
+    assert_eq!(texts.len(), 7, "{what}: the source and six copies");
+    assert_eq!(texts.iter().filter(|n| holds_derived_text(n)).count(), 1, "{what}: only the source holds the stored JSON");
+    let geometries: Vec<_> = texts.iter().map(|n| n.fig_text_geometry.as_ref().expect("every copy draws the stored glyphs")).collect();
+    assert!(geometries.iter().all(|g| Arc::ptr_eq(g, geometries[0])), "{what}: the copies share the source's geometry");
 }
 
 #[test]
 fn instance_copies_of_a_text_share_its_glyphs_and_carry_no_copy_of_its_json() {
-    let doc = import_fig(&component_with_copies(6)).unwrap();
+    let doc = import_fig(&component_with_copies(6, true)).unwrap();
     assert!(doc.nodes.len() > 5_000 && doc.nodes.len() < 10_000, "the fixture is in the size where copies keep their metadata ({} nodes)", doc.nodes.len());
-    let texts: Vec<&Node> = doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Text(_))).collect();
-    assert_eq!(texts.len(), 7, "the source and six copies");
-    assert_eq!(texts.iter().filter(|n| holds_derived_text(n)).count(), 1, "only the source holds the stored JSON");
-    let geometries: Vec<_> = texts.iter().map(|n| n.fig_text_geometry.as_ref().expect("every copy draws the stored glyphs")).collect();
-    assert!(geometries.iter().all(|g| Arc::ptr_eq(g, geometries[0])), "the copies share the source's geometry");
+    assert_copies_carry_no_json(&doc, "more than 5,000 entries");
+}
+
+#[test]
+fn instance_copies_carry_no_json_when_only_the_payload_is_heavy() {
+    // 5,000 entries or fewer and a payload over 2 MB: the decoder keeps within its allowance, and copies must not multiply it
+    let doc = import_fig(&component_with_copies(6, false)).unwrap();
+    assert!(doc.nodes.len() < 5_000);
+    assert_copies_carry_no_json(&doc, "payload over 2 MB");
+}
+
+#[test]
+fn instance_copies_carry_no_json_in_a_heavy_paste() {
+    let clip = designos_fig::FigClipboard { meta: None, buffer: component_with_copies(6, false) };
+    let doc = designos_fig::import_figma_clipboard(&clip).unwrap();
+    assert_copies_carry_no_json(&doc, "paste over 2 MB");
+}
+
+#[test]
+fn a_small_file_keeps_the_json_of_instance_copies() {
+    // small files are unchanged: a copy keeps the metadata of its source, as before
+    let mut nodes = document_and_page();
+    nodes.push(node((1, 10), (0, 1), "a", "SYMBOL", "Icon main", vec![("size", vec2(20.0, 20.0))]));
+    nodes.push(glyph_text((1, 11), (1, 10), "a", "Source text", FAMILY, "\u{e900}", &[(0, 0.0)], vec![]));
+    nodes.push(node(
+        (1, 20),
+        (0, 1),
+        "b",
+        "INSTANCE",
+        "Copy",
+        vec![("size", vec2(20.0, 20.0)), ("symbolData", msg(vec![("symbolID", designos_fig::testkit::guid(1, 10))]))],
+    ));
+    let doc = import_fig(&fig_file(nodes, vec![icon_blob()])).unwrap();
+    let held = doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Text(_)) && holds_derived_text(n)).count();
+    assert_eq!(held, 2, "the source and its copy");
 }
 
 #[test]

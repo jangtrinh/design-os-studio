@@ -123,6 +123,7 @@ fn import_with_limits(clip: &FigClipboard, inflate_budget: u64, decoded_values: 
     let root = schema.root_message().ok_or_else(|| FigError::Format("schema has no message definition".into()))?;
     let mut message =
         schema.decode_message_for_import_with_values(root, &msg_bin, decoded_values).map_err(|e| FigError::Format(format!("kiwi message: {e}")))?;
+    let heavy_decode = msg_bin.len() > crate::kiwi::HEAVY_PAYLOAD_BYTES;
     drop(msg_bin);
 
     adopt_orphan_roots(&mut message);
@@ -131,7 +132,10 @@ fn import_with_limits(clip: &FigClipboard, inflate_budget: u64, decoded_values: 
         .and_then(KiwiValue::as_array)
         .map(|a| a.iter().map(|b| b.get("bytes").and_then(KiwiValue::as_bytes).unwrap_or(&[])).collect())
         .unwrap_or_default();
-    let rest = message_to_rest(&message, "Figma clipboard");
+    let mut rest = message_to_rest(&message, "Figma clipboard");
+    if heavy_decode {
+        rest[rest_import::HEAVY_DECODE_KEY] = serde_json::Value::Bool(true);
+    }
     let mut doc = rest_import::import_rest_value_with_blobs(&rest, true, &blobs, None, rest_import::KEEP_UNKNOWN_KEYS_FROM_BINARY)?;
     doc.images = archive.images;
     Ok(doc)

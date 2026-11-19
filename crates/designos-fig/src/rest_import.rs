@@ -850,11 +850,17 @@ pub struct ImportReport {
     pub dropped_stored_glyphs: usize,
 }
 
+/// Root key of the REST value that tells the importer the kiwi decoder ran heavy (a payload over 2 MB), whatever the
+/// number of entries: the stored glyphs it kept were bounded by an allowance, and instance copies must not multiply them.
+pub(crate) const HEAVY_DECODE_KEY: &str = "_heavyDecode";
+
 struct Ctx<'a> {
     doc: Document,
     blobs: &'a [&'a [u8]],
     fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
     large_file: bool,
+    /// The decoder ran heavy ([`HEAVY_DECODE_KEY`]); a copy of a text then carries no JSON of its own.
+    heavy_decode: bool,
     ids: BTreeMap<String, NodeId>,
     /// (instance, REST componentId)
     instances: Vec<(NodeId, String)>,
@@ -1064,6 +1070,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         blobs,
         fast_derived_map,
         large_file,
+        heavy_decode: v.get(HEAVY_DECODE_KEY).and_then(Value::as_bool) == Some(true),
         ids: BTreeMap::new(),
         instances: Vec::new(),
         unresolved: Vec::new(),
@@ -1227,6 +1234,7 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
         blobs,
         fast_derived_map,
         large_file,
+        heavy_decode: v.get(HEAVY_DECODE_KEY).and_then(Value::as_bool) == Some(true),
         ids: BTreeMap::new(),
         instances: Vec::new(),
         unresolved: Vec::new(),
@@ -3304,7 +3312,7 @@ impl<'a> Ctx<'a> {
             } else {
                 // A copy of a text draws the geometry it shares with its source; its own copy of the stored JSON
                 // would be one more string per instance that the import's allowance never counted.
-                if self.large_file {
+                if self.large_file || self.heavy_decode {
                     n.fig_metadata.remove("derivedTextData");
                 }
                 n.source_id = n.source_id.as_ref().map(|s| format!("I{prefix};{s}"));
@@ -4364,6 +4372,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             blobs: &[],
             fast_derived_map: None,
             large_file: true,
+            heavy_decode: false,
             expanded_comps: std::mem::take(&mut self.expanded_comps),
             next_clone,
             clone_budget_total: self.clone_budget_total,
@@ -4672,6 +4681,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             blobs: &[],
             fast_derived_map: None,
             large_file: true,
+            heavy_decode: false,
             expanded_comps: self.expanded_comps.clone(),
             next_clone,
             clone_budget_total: self.clone_budget_total,
@@ -6308,6 +6318,7 @@ mod expand_depth_tests {
             blobs: &[],
             fast_derived_map: None,
             large_file: false,
+            heavy_decode: false,
             ids: BTreeMap::new(),
             instances: Vec::new(),
             unresolved: Vec::new(),
@@ -6353,6 +6364,7 @@ mod expand_depth_tests {
             blobs: &[],
             fast_derived_map: None,
             large_file: false,
+            heavy_decode: false,
             ids: BTreeMap::new(),
             instances: Vec::new(),
             unresolved: Vec::new(),
