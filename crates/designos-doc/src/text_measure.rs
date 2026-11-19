@@ -82,19 +82,26 @@ fn stored_text_size(n: &Node) -> Option<Vec2> {
     geometry.matches(n).then_some(geometry.size)
 }
 
-/// Stored size of a hug-width text that may carry a `max_width` cap: the stored box while it
-/// fits under the cap, otherwise `None` so the caller shapes the text (it wraps, its size moves
-/// and the stored glyphs go, as Figma would re-wrap).
+/// Stored size of a hug-width text that may carry a `max_width` cap. With no cap the stored box
+/// stands. With a cap it stands only for a text Figma wrapped at this same cap (stored width equal to
+/// the cap, never above it, so the solver's clamp leaves it as stored); any other cap shapes the text,
+/// whose size then moves and drops the stored glyphs. A capped text that did not wrap could keep its
+/// stored size once the stored line count is available.
 pub fn stored_hug_text_size(n: &Node, max_w: Option<f32>) -> Option<Vec2> {
     let stored = stored_text_size(n)?;
-    max_w.map(|w| w.max(1.0)).is_none_or(|limit| stored.x <= limit + 0.01).then_some(stored)
+    match max_w.map(|w| w.max(1.0)) {
+        None => Some(stored),
+        Some(cap) => (stored.x <= cap && cap - stored.x <= 0.01).then_some(stored),
+    }
 }
 
-/// Stored size of a fixed-width, auto-height text that the parent gives `width`: the stored box
-/// when the parent's width is the width Figma wrapped the lines at, otherwise `None`.
+/// Stored size of a fixed-width, auto-height text whose slot is `width` wide. The solver writes the
+/// slot width as the text's width and only the height comes from here, so the stored box survives
+/// whole only when the slot is bit-equal to the stored width. Any other width is shaped in both
+/// dimensions, never Figma's height around a width Studio chose.
 pub fn stored_wrapped_text_size(n: &Node, width: f32) -> Option<Vec2> {
     let stored = stored_text_size(n)?;
-    ((width - stored.x).abs() <= 0.1).then_some(stored)
+    (width == stored.x).then_some(stored)
 }
 
 /// Height of wrapping `TextAutoResize::Height` text (or `TextAutoResize::WidthAndHeight` text
@@ -109,7 +116,9 @@ pub fn height_resize_text_height(n: &Node, width: f32, measure: &dyn TextMeasure
     match t.auto_resize {
         TextAutoResize::Height => Some(stored_wrapped_text_size(n, width).unwrap_or_else(|| measure.measure(t, Some(width.max(1.0)))).y),
         TextAutoResize::WidthAndHeight if n.layout_child.max_w.is_some() => {
-            Some(stored_hug_text_size(n, Some(width)).unwrap_or_else(|| measure_hug_text_with(t, Some(width.max(1.0)), |tp, w| measure.measure(tp, w))).y)
+            // The slot is what the solver gave the text; the stored height goes with the stored width only.
+            let stored = stored_hug_text_size(n, n.layout_child.max_w).filter(|stored| stored.x == width);
+            Some(stored.unwrap_or_else(|| measure_hug_text_with(t, Some(width.max(1.0)), |tp, w| measure.measure(tp, w))).y)
         }
         _ => None,
     }

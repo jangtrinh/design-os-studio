@@ -5,8 +5,8 @@ use crate::text_measure::{TextMeasure, ThreadLayoutMeasurerGuard};
 use crate::{AutoLayout, Document, FigTextGeometry, LayoutDirection, Node, NodeId, NodeKind, Path, Rect, Sizing, TextAutoResize, TextProps, TextStyle, Vec2};
 use std::sync::Arc;
 
-/// Shapes every text 10 px wider and 1 px taller than the size the stored data records, so a text that
-/// was shaped instead of keeping its stored size is easy to tell apart. A wrap at `w` gives `(w, 40)`.
+/// Shapes a text unwrapped at 10 px per character by 20 px, and wrapped at `w` as `(w, 40)`. Neither
+/// matches the stored sizes these tests use, so a shaped text is easy to tell from a stored one.
 struct Shaper;
 
 impl TextMeasure for Shaper {
@@ -68,7 +68,7 @@ fn hug_text_keeps_its_stored_size_when_a_sibling_changes() {
     let page = doc.add_page("P");
     let row = row_frame(&mut doc, page, LayoutDirection::Horizontal, 300.0, Sizing::Hug);
     let label = imported_text(&mut doc, row, "Hello", TextAutoResize::WidthAndHeight, STORED);
-    doc.get_mut(label).unwrap().layout_child.max_w = Some(200.0);
+    doc.get_mut(label).unwrap().layout_child.max_w = Some(STORED.x);
     let sibling = plain_text(&mut doc, row, "Other");
     doc.get_mut(sibling).unwrap().layout_child.max_w = Some(400.0);
 
@@ -91,7 +91,7 @@ fn hug_text_narrower_than_its_stored_width_is_shaped_and_drops_the_glyphs() {
     let page = doc.add_page("P");
     let row = row_frame(&mut doc, page, LayoutDirection::Horizontal, 300.0, Sizing::Hug);
     let label = imported_text(&mut doc, row, "Hello", TextAutoResize::WidthAndHeight, STORED);
-    doc.get_mut(label).unwrap().layout_child.max_w = Some(200.0);
+    doc.get_mut(label).unwrap().layout_child.max_w = Some(STORED.x);
 
     doc.relayout_subtree(row);
     assert!(keeps_glyphs(&doc, label));
@@ -103,18 +103,58 @@ fn hug_text_narrower_than_its_stored_width_is_shaped_and_drops_the_glyphs() {
     assert!(!keeps_glyphs(&doc, label), "a wrapped text no longer matches Figma's lines");
 }
 
+/// 32 characters shape to 320 px unwrapped, so a cap above that never wraps.
+const LONG: &str = "abcdefghijklmnopqrstuvwxyz012345";
+
+fn wrapped_at_its_cap(doc: &mut Document, cap: f32) -> (NodeId, NodeId) {
+    let row = row_frame(doc, doc.pages[0], LayoutDirection::Horizontal, 600.0, Sizing::Hug);
+    let label = imported_text(doc, row, LONG, TextAutoResize::WidthAndHeight, Vec2::new(cap, 40.0));
+    doc.get_mut(label).unwrap().layout_child.max_w = Some(cap);
+    (row, label)
+}
+
 #[test]
-fn hug_text_keeps_its_stored_size_when_the_cap_equals_the_stored_width() {
+fn hug_text_wrapped_at_an_unchanged_cap_keeps_its_stored_size() {
     let _guard = ThreadLayoutMeasurerGuard::install(Arc::new(Shaper));
-    let mut doc = Document::new("stored-hug-cap-equal");
+    let mut doc = Document::new("stored-hug-same-cap");
+    doc.add_page("P");
+    let (row, label) = wrapped_at_its_cap(&mut doc, 200.0);
+
+    doc.relayout_subtree(row);
+    let n = doc.get(label).unwrap();
+    assert_eq!((n.size.x.to_bits(), n.size.y.to_bits()), (200.0f32.to_bits(), 40.0f32.to_bits()));
+    assert!(keeps_glyphs(&doc, label));
+}
+
+#[test]
+fn hug_text_wrapped_at_its_cap_is_shaped_when_the_cap_grows() {
+    let _guard = ThreadLayoutMeasurerGuard::install(Arc::new(Shaper));
+    let mut doc = Document::new("stored-hug-cap-grows");
+    doc.add_page("P");
+    let (row, label) = wrapped_at_its_cap(&mut doc, 200.0);
+    doc.relayout_subtree(row);
+    assert!(keeps_glyphs(&doc, label));
+
+    doc.get_mut(label).unwrap().layout_child.max_w = Some(400.0);
+    doc.relayout_subtree(row);
+    assert_eq!(doc.get(label).unwrap().size, Vec2::new(320.0, 20.0), "Figma's two lines no longer apply at the larger cap");
+    assert!(!keeps_glyphs(&doc, label));
+}
+
+#[test]
+fn capped_hug_text_stored_below_its_cap_is_shaped() {
+    // The stored width alone cannot tell a text Figma wrapped at the cap from one that fitted under it, so
+    // it is shaped until the stored line count says which.
+    let _guard = ThreadLayoutMeasurerGuard::install(Arc::new(Shaper));
+    let mut doc = Document::new("stored-hug-below-cap");
     let page = doc.add_page("P");
     let row = row_frame(&mut doc, page, LayoutDirection::Horizontal, 300.0, Sizing::Hug);
     let label = imported_text(&mut doc, row, "Hello", TextAutoResize::WidthAndHeight, STORED);
-    doc.get_mut(label).unwrap().layout_child.max_w = Some(STORED.x);
+    doc.get_mut(label).unwrap().layout_child.max_w = Some(200.0);
 
     doc.relayout_subtree(row);
-    assert_eq!(doc.get(label).unwrap().size, STORED);
-    assert!(keeps_glyphs(&doc, label));
+    assert_eq!(doc.get(label).unwrap().size, Vec2::new(50.0, 20.0));
+    assert!(!keeps_glyphs(&doc, label));
 }
 
 #[test]
@@ -200,4 +240,57 @@ fn edited_auto_height_text_is_shaped_as_before() {
     doc.relayout_subtree(col);
     assert_eq!(doc.get(body).unwrap().size, Vec2::new(100.0, 40.0));
     assert!(!keeps_glyphs(&doc, body));
+}
+
+/// A 375-wide column padded 12.3 on each side, holding a Fill auto-height text of the stored size `stored`.
+fn padded_column(doc: &mut Document, stored: Vec2, with_snapshot: bool) -> (NodeId, NodeId, NodeId) {
+    let page = doc.add_page("P");
+    let (col, body) = column_with_fill_text(doc, page, 375.0, stored);
+    if let Some(NodeKind::Frame(fp)) = doc.get_mut(col).map(|n| &mut n.kind) {
+        fp.auto_layout.as_mut().unwrap().padding = [12.3; 4];
+    }
+    if !with_snapshot {
+        doc.get_mut(body).unwrap().fig_text_geometry = None;
+    }
+    let sibling = plain_text(doc, col, "Other");
+    (col, body, sibling)
+}
+
+/// Either the stored box, bit for bit, with the glyphs; or the text shaped in both dimensions without them.
+fn assert_whole_box(doc: &Document, body: NodeId, stored: Vec2, label: &str) {
+    let n = doc.get(body).unwrap();
+    if keeps_glyphs(doc, body) {
+        assert_eq!((n.size.x.to_bits(), n.size.y.to_bits()), (stored.x.to_bits(), stored.y.to_bits()), "{label}: glyphs kept around a changed box");
+    } else {
+        assert_eq!(n.size.y, 40.0, "{label}: a shaped width must come with a shaped height, got {:?}", n.size);
+    }
+}
+
+#[test]
+fn auto_height_text_in_a_padded_column_is_never_a_mixed_box() {
+    let _guard = ThreadLayoutMeasurerGuard::install(Arc::new(Shaper));
+    // The width the solver arrives at for this column, as an unrelated text sees it.
+    let mut probe = Document::new("stored-height-probe");
+    let (col, body, _) = padded_column(&mut probe, Vec2::new(10.0, 10.0), false);
+    probe.relayout_subtree(col);
+    let slot = probe.get(body).unwrap().size.x;
+
+    for (label, x) in
+        [("exact slot width", slot), ("decimal of the slot width", 350.4), ("one ulp above", f32::from_bits(slot.to_bits() + 1)), ("a pixel off", slot + 1.0)]
+    {
+        let stored = Vec2::new(x, 19.25);
+        let mut doc = Document::new("stored-height-padded");
+        let (col, body, sibling) = padded_column(&mut doc, stored, true);
+        doc.relayout_subtree(col);
+        assert_whole_box(&doc, body, stored, label);
+
+        set_content(&mut doc, sibling, "A much longer sibling");
+        doc.relayout_subtree(col);
+        assert_whole_box(&doc, body, stored, label);
+        if x.to_bits() == slot.to_bits() {
+            assert!(keeps_glyphs(&doc, body), "{label}: the slot width equals the stored width, so the box is Figma's");
+        } else {
+            assert!(!keeps_glyphs(&doc, body), "{label}: a different width is shaped");
+        }
+    }
 }
