@@ -83,7 +83,9 @@ pub struct TextLayout {
 /// Whether a text node draws the glyphs Figma stored with it, and when it does not, why.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StoredGlyphUse {
-    /// The node draws Figma's stored glyphs.
+    /// The node is eligible to draw Figma's stored glyphs. Assembly can still refuse a crafted outline whose points
+    /// overflow once the glyphs are placed (every number finite, their product not); the text is then shaped, on the
+    /// canvas and in exports alike.
     Drawn,
     /// The node holds no stored glyphs (or is not a text).
     NoStoredData,

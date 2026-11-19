@@ -874,6 +874,13 @@ fn merge_fields(cur: &Node, set: &Map<String, Value>, unset: &[String]) -> Resul
                     continue;
                 }
             }
+            // A stored geometry is saved under one of two keys by form; a merge keeps only the one just set, or the node
+            // would hold both and fail to read back.
+            match k.as_str() {
+                "stored_text_glyphs" => fields.remove("fig_text_geometry"),
+                "fig_text_geometry" => fields.remove("stored_text_glyphs"),
+                _ => None,
+            };
             fields.insert(k.clone(), v.clone());
         }
     }
@@ -945,4 +952,59 @@ fn remap_subtree(nodes: &mut [Node], map: &BTreeMap<NodeId, NodeId>) {
 fn remap_hint(at: &SiblingHint, state: &LivePatchState) -> SiblingHint {
     let m = |id: NodeId| state.remap.get(&id).copied().unwrap_or(id);
     SiblingHint { after: at.after.map(m), before: at.before.map(m) }
+}
+
+#[cfg(test)]
+mod stored_geometry_tests {
+    use super::merge_fields;
+    use crate::{FigTextGeometry, Node, NodeKind, Path, PathCmd, Rect, StoredGlyph, TextStyle, Vec2};
+    use serde_json::{Map, Value};
+    use std::sync::Arc;
+
+    fn text_with(geometry: impl FnOnce(&crate::TextProps) -> FigTextGeometry) -> Node {
+        let mut node = Node::text(crate::NodeId(1), Rect::new(0.0, 0.0, 10.0, 10.0), "x", TextStyle::default());
+        let NodeKind::Text(text) = &node.kind else { unreachable!() };
+        node.fig_text_geometry = Some(Arc::new(geometry(text)));
+        node
+    }
+
+    fn table(text: &crate::TextProps) -> FigTextGeometry {
+        let glyph = StoredGlyph { x: 0.0, y: 8.0, font_size: 10.0, blob: 0, first_char: 0, style: 0, flags: 0 };
+        FigTextGeometry {
+            text: text.clone(),
+            size: Vec2::new(10.0, 10.0),
+            path: Path::default(),
+            blobs: vec![Arc::from(vec![1u8])],
+            glyph_blobs: Vec::new(),
+            glyphs: vec![glyph].into(),
+        }
+    }
+
+    fn legacy(text: &crate::TextProps) -> FigTextGeometry {
+        let path = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 1.0)), PathCmd::Close], ..Default::default() };
+        FigTextGeometry { text: text.clone(), size: Vec2::new(10.0, 10.0), path, blobs: Vec::new(), glyph_blobs: vec![None], glyphs: Default::default() }
+    }
+
+    fn set_of(node: &Node, key: &str) -> Map<String, Value> {
+        let json = serde_json::to_value(node).unwrap();
+        let value = json.get("stored_text_glyphs").or_else(|| json.get("fig_text_geometry")).cloned().unwrap();
+        Map::from_iter([(key.to_string(), value)])
+    }
+
+    /// A patch that sets one key of the stored geometry without unsetting the other must not leave both on the node.
+    #[test]
+    fn setting_one_geometry_key_replaces_the_other_instead_of_keeping_both() {
+        let legacy_node = text_with(legacy);
+        let table_node = text_with(table);
+
+        let merged = merge_fields(&legacy_node, &set_of(&table_node, "stored_text_glyphs"), &[]).expect("a legacy node takes a table");
+        assert_eq!(merged.fig_text_geometry.as_deref(), table_node.fig_text_geometry.as_deref());
+
+        let merged = merge_fields(&table_node, &set_of(&legacy_node, "fig_text_geometry"), &[]).expect("a table node takes a legacy geometry");
+        assert_eq!(merged.fig_text_geometry.as_deref(), legacy_node.fig_text_geometry.as_deref());
+
+        // the usual patch, set one key and unset the other, still merges
+        let merged = merge_fields(&legacy_node, &set_of(&table_node, "stored_text_glyphs"), &["fig_text_geometry".to_string()]).unwrap();
+        assert_eq!(merged.fig_text_geometry.as_deref(), table_node.fig_text_geometry.as_deref());
+    }
 }

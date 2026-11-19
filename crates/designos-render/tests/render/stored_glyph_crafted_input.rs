@@ -114,7 +114,8 @@ fn a_finite_table_whose_outline_overflows_once_placed_is_shaped_instead() {
 
 #[test]
 fn a_geometry_with_neither_table_nor_path_is_not_a_stored_text() {
-    // what 0.7.17 leaves behind when it saves a document written by this build
+    // 0.7.17 keeps no geometry at all from a document written by this build, so this is not a file it leaves behind; it is
+    // a table and a path emptied by hand or by another writer
     let node = loaded_text(Vec::new(), Vec::new(), Path::default());
     assert_eq!(stored_glyph_use(&node), StoredGlyphUse::Fallback("empty stored outline"));
     assert_eq!(drawn_outline(&node), shaped_outline(&node), "the shaped outlines stay in the export");
