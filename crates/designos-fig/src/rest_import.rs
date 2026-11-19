@@ -837,6 +837,10 @@ pub struct ImportReport {
     /// The bindings remain attached to the document, so importing the variables later (for example a Figma
     /// `variables/local` response) resolves them. Callers use this count to tell the user the variables are missing.
     pub missing_variable_bindings: usize,
+    /// How many texts of a large file lost the glyph outlines Figma stored with them because the file's texts in
+    /// non-bundled fonts had already used up the import's allowance for them (64 MiB of stored data). Such a text still
+    /// draws with a substitute font when its own font is missing. Small files and texts in a bundled font never count.
+    pub dropped_stored_glyphs: usize,
 }
 
 struct Ctx<'a> {
@@ -1154,6 +1158,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         dropped_variable_bindings: 0,
         dropped_variable_overrides: 0,
         missing_variable_bindings,
+        dropped_stored_glyphs: 0,
     };
     cx.install_deferred_hydrator();
     let mut doc = cx.doc;
@@ -1304,6 +1309,7 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
         dropped_variable_bindings: 0,
         dropped_variable_overrides: 0,
         missing_variable_bindings,
+        dropped_stored_glyphs: 0,
     };
     cx.install_deferred_hydrator();
     let mut doc = cx.doc;

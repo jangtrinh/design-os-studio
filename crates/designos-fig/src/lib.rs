@@ -30,6 +30,7 @@ mod proto;
 #[cfg(feature = "net")]
 pub mod rest;
 mod rest_import;
+mod stored_glyphs;
 pub mod svgpath;
 #[doc(hidden)]
 pub mod testkit;

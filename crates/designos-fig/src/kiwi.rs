@@ -399,7 +399,9 @@ impl Schema {
 
     /// Decodes a root message for `.fig` import, dropping unused multi-gigabyte
     /// derived fields (`editInfo`, `derivedTextData`, `derivedImmutableFrameData`)
-    /// on the fly when the message payload exceeds 2 MB. The same decode budgets apply.
+    /// on the fly when the message payload exceeds 2 MB. The same decode budgets apply. The one exception is the
+    /// `derivedTextData` of a text set in a font that is not bundled: it holds the glyph outlines Figma drew, which
+    /// a missing font needs (see `stored_glyphs`).
     pub fn decode_message_for_import(&self, root: usize, data: &[u8]) -> Result<KiwiValue> {
         self.decode_message_for_import_with_values(root, data, MAX_DECODED_VALUES)
     }
@@ -478,7 +480,13 @@ impl Schema {
                         .map(|i| &def.fields[i])
                         .or_else(|| def.fields.iter().find(|f| f.value == id))
                         .ok_or_else(|| KiwiError::Bad(format!("unknown field id {id} in {}", def.name)))?;
-                    if skip_heavy && matches!(&*f.name, "editInfo" | "derivedTextData" | "derivedImmutableFrameData") {
+                    // A text in a font the importer cannot prove installed keeps Figma's stored glyphs; see `stored_glyphs`.
+                    // Its `type` and `fontName` precede `derivedTextData` on the wire, and a message that does not show both
+                    // by then is skipped, as every other node's is.
+                    if skip_heavy
+                        && matches!(&*f.name, "editInfo" | "derivedTextData" | "derivedImmutableFrameData")
+                        && !(&*f.name == "derivedTextData" && crate::stored_glyphs::keeps_stored_glyphs(&out))
+                    {
                         self.skip_field(f, r, depth)?;
                         continue;
                     }

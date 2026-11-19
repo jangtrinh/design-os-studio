@@ -9,6 +9,7 @@ use crate::container::{self, Archive};
 use crate::fig_export::{CARRIED_FIELDS, CARRIER_KEY_PREFIX, STUDIO_AUTHOR_VISIBLE_KEY, STUDIO_PLUGIN_ID, STUDIO_SLOT_CONTENT_ID_KEY};
 use crate::kiwi::{self, KiwiValue, Schema};
 use crate::rest_import::{self, fnum, fstr};
+use crate::stored_glyphs;
 use crate::svgpath::write_path;
 use crate::FigError;
 use designos_doc::{Affine, Document, FigTextGeometry, FillRule, Node, NodeKind, Path, PathCmd, Vec2};
@@ -264,6 +265,22 @@ fn extract_fast_derived(raw_changes: &mut [KiwiValue], num_blobs: usize) -> Hash
     map
 }
 
+/// Moves the `derivedTextData` of the node change `kc` out of it when a large-file import keeps it (a text in a
+/// font that is not bundled, within the import's allowance), as JSON. Whatever else `kc` holds of it is dropped here.
+pub(crate) fn take_stored_glyphs(kc: &mut KiwiValue, budget: &mut stored_glyphs::Budget) -> Option<Value> {
+    let keep = match &*kc {
+        KiwiValue::Message(fields) => stored_glyphs::keeps_stored_glyphs(fields),
+        _ => false,
+    };
+    let derived = kc.take_field("derivedTextData")?;
+    if !keep {
+        return None;
+    }
+    let json = kiwi::into_json(derived);
+    let len = serde_json::to_vec(&json).map_or(usize::MAX, |bytes| bytes.len());
+    budget.take(len).then_some(json)
+}
+
 /// Imports a `.fig` file (raw fig-kiwi or zip-wrapped) from bytes.
 pub fn import_fig(bytes: &[u8]) -> Result<Document, FigError> {
     import_fig_with_report(bytes).map(|(doc, _)| doc)
@@ -306,11 +323,17 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
     }
     let into_j: fn(KiwiValue) -> Value = if large { kiwi::into_json_fast } else { kiwi::into_json };
     let mut entries: Vec<Entry> = Vec::with_capacity(raw_changes.len());
+    let mut stored_glyphs = stored_glyphs::Budget::default();
     for mut kc in raw_changes {
         if d.studio_connector_caps {
             remap_studio_connector_caps(&mut kc);
         }
-        let j = into_j(kc);
+        // `into_json_fast` leaves `derivedTextData` out; the stored glyphs of a text that needs them go back in.
+        let derived_text = if large { take_stored_glyphs(&mut kc, &mut stored_glyphs) } else { None };
+        let mut j = into_j(kc);
+        if let (Some(derived), Some(fields)) = (derived_text, j.as_object_mut()) {
+            fields.insert("derivedTextData".into(), derived);
+        }
         if let Some(entry) = entry_from_json(j) {
             entries.push(entry);
         }
@@ -346,6 +369,7 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
     )?;
     report.dropped_variable_bindings += dropped_variable_bindings;
     report.dropped_variable_overrides += dropped_variable_overrides;
+    report.dropped_stored_glyphs += stored_glyphs.dropped_texts;
     for (sid, sp) in style_sort_positions {
         if let Some(meta) = doc.style_meta.get_mut(&sid) {
             meta.sort_position = Some(sp);
@@ -1478,7 +1502,9 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
                 }
             }
             "derivedTextData" | "derivedImmutableFrameData" => {
-                if !large_file && !val.is_null() {
+                // A large file keeps only the stored glyphs of a text in a font that is not bundled (see `stored_glyphs`).
+                let keep = !large_file || (k == "derivedTextData" && stored_glyphs::json_keeps_stored_glyphs(nc));
+                if keep && !val.is_null() {
                     if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
                         meta.insert(k.clone(), Value::String(s));
                     }

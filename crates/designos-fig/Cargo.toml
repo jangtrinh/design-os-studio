@@ -12,6 +12,8 @@ net = ["dep:ureq"]
 
 [dependencies]
 designos-doc.workspace = true
+# Only the bundled family list (`bundled()`), so `net` and `ureq` stay out of this crate.
+designos-fonts = { path = "../designos-fonts", default-features = false }
 designos-webcapture.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["unbounded_depth"] }

@@ -1084,6 +1084,7 @@ version = "0.7.16"
 dependencies = [
  "base64",
  "designos-doc",
+ "designos-fonts",
  "designos-render",
  "designos-webcapture",
  "flate2",
