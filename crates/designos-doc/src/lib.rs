@@ -69,6 +69,8 @@ mod layout_solver_grid;
 mod layout_solver_grid_placement;
 mod layout_solver_types;
 #[cfg(test)]
+mod layout_stored_text_size_tests;
+#[cfg(test)]
 mod layout_wrapped_text_tests;
 mod library;
 mod library_ops;
