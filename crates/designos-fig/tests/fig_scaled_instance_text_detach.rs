@@ -192,3 +192,127 @@ fn turning_a_scaled_instance_into_a_component_bakes_its_texts_too() {
     assert!(!n.style_refs.contains_key("text") && !has_typography_binding(&doc, n));
     assert_eq!(drawn(&doc, n), drew);
 }
+
+/// The badge document with four more two-mode number variables: letter spacing, paragraph spacing, indent and list
+/// spacing (light, then dark).
+fn badge_doc_with_spacing_variables(children: Vec<Value>) -> Value {
+    let mut all = badge_doc(children, 0.8);
+    all.as_array_mut().unwrap().extend([
+        float_var((6, 6), "Spacing/letter", "VAR_LS", 1.0, 3.0),
+        float_var((6, 7), "Spacing/paragraph", "VAR_PS", 5.0, 12.0),
+        float_var((6, 8), "Spacing/indent", "VAR_PI", 4.0, 9.0),
+        float_var((6, 9), "Spacing/list", "VAR_LIST", 2.0, 7.0),
+    ]);
+    all
+}
+
+fn variable_id(doc: &Document, name: &str) -> String {
+    doc.variables.values().find(|v| v.name == name).unwrap_or_else(|| panic!("no variable {name}")).id.clone()
+}
+
+#[test]
+fn a_detached_text_bound_to_variables_holds_every_value_it_drew_in_dark_mode_runs_included() {
+    let rich = json!({
+        "letterSpacing": {"units": "PIXELS", "value": 2.0},
+        "lineHeight": {"units": "PERCENT", "value": 150.0},
+        "paragraphSpacing": 10.0, "paragraphIndent": 5.0, "listSpacing": 6.0,
+        "textData": {"characters": "AB", "characterStyleIDs": [0, 1],
+            "styleOverrideTable": [{"styleID": 1, "fontSize": 20.0, "letterSpacing": {"units": "PIXELS", "value": 4.0}}]}
+    });
+    let mut t = text((5, 2), (5, 1), "Rich", (8, 3), rich);
+    t.as_object_mut().unwrap().remove("styleIdForText");
+    let mut doc = import_fig_node_changes(&badge_doc_with_spacing_variables(vec![t]), "t").unwrap();
+    let inst = find(&doc, "Scaled badge").id;
+    let id = child(&doc, find(&doc, "Scaled badge"), "Rich").id;
+    for (key, name) in [
+        ("fontSize", "Font size/text-sm"),
+        ("letterSpacing", "Spacing/letter"),
+        ("paragraphSpacing", "Spacing/paragraph"),
+        ("paragraphIndent", "Spacing/indent"),
+        ("listSpacing", "Spacing/list"),
+    ] {
+        let var = variable_id(&doc, name);
+        doc.get_mut(id).unwrap().variables.bindings.insert(key.into(), var);
+    }
+    set_page_mode(&mut doc, true);
+    let stored = text_of(doc.get(id).unwrap()).clone();
+    let before = text_of(&resolve_node(&doc, doc.get(id).unwrap())).clone();
+    assert!(!before.runs.is_empty() && before.uniform_scale < 1.0);
+    // dark values at 0.8: size 20 -> 16, letter 3 -> 2.4, paragraph 12 -> 9.6, indent 9 -> 7.2, list 7 -> 5.6
+    assert!(
+        close(before.style.font_size, 16.0) && close(before.style.letter_spacing, 2.4),
+        "drawn {} / {}",
+        before.style.font_size,
+        before.style.letter_spacing
+    );
+    assert!(close(before.style.paragraph_spacing, 9.6) && close(before.paragraph.indent, 7.2) && close(before.paragraph.list_spacing, 5.6));
+    assert!(!close(stored.style.letter_spacing, 2.4) && !close(stored.paragraph.indent, 7.2), "the stored values are not the drawn ones");
+    let before_px = pixels(&doc, inst);
+
+    detach_instance(&mut doc, inst).apply(&mut doc).unwrap();
+
+    let n = doc.get(id).unwrap();
+    let after = text_of(n);
+    assert_eq!(after.uniform_scale, 1.0);
+    for key in ["fontSize", "letterSpacing", "paragraphSpacing", "paragraphIndent", "listSpacing"] {
+        assert!(!n.variables.bindings.contains_key(key), "{key} is no longer bound");
+    }
+    assert!(close(after.style.font_size, 16.0) && close(after.style.letter_spacing, 2.4) && close(after.style.paragraph_spacing, 9.6), "base style");
+    assert!(close(after.paragraph.indent, 7.2) && close(after.paragraph.list_spacing, 5.6), "paragraph values");
+    for (run, drawn_run) in after.runs.iter().zip(&before.runs) {
+        assert!(close(run.style.font_size, 16.0) && close(run.style.letter_spacing, 2.4), "run holds {} / {}", run.style.font_size, run.style.letter_spacing);
+        assert_eq!(run.style.line_height, drawn_run.style.line_height);
+    }
+    assert!(matches!(after.style.line_height, LineHeight::Percent(v) if close(v, 150.0)), "a percent line height stays a percent");
+    let mut expect = before.clone();
+    expect.uniform_scale = 1.0;
+    assert_eq!(*after, expect, "the text holds exactly what it drew");
+    assert!(pixels(&doc, inst) == before_px, "the frame renders the same before and after the detach");
+}
+
+#[test]
+fn undoing_a_detach_brings_back_the_factor_the_link_and_the_bindings() {
+    let mut doc = import_fig_node_changes(&badge_doc(badge_texts(), 0.8), "t").unwrap();
+    let inst = find(&doc, "Scaled badge").id;
+    let before: Vec<Node> = ["Linked", "Styled bound", "Bound directly", "Plain"].iter().map(|n| child(&doc, find(&doc, "Scaled badge"), n).clone()).collect();
+    let inverse = detach_instance(&mut doc, inst).apply(&mut doc).unwrap();
+    inverse.apply(&mut doc).unwrap();
+    assert!(matches!(doc.get(inst).unwrap().kind, NodeKind::Instance { .. }), "an instance again");
+    for n in before {
+        assert_eq!(*doc.get(n.id).unwrap(), n, "{} is as it was", n.name);
+    }
+}
+
+#[test]
+fn an_instance_placed_inside_another_instance_keeps_its_scaled_texts_when_detached() {
+    let mut doc = import_fig_node_changes(&card_doc(), "t").unwrap();
+    let card = find(&doc, "Big card").id;
+    let badge_main = find(&doc, "Badge").id;
+    designos_doc::create_instance(&mut doc, badge_main, card, Vec2::ZERO).apply(&mut doc).unwrap();
+    let placed = *doc.get(card).unwrap().children.last().unwrap();
+    assert!(matches!(doc.get(placed).unwrap().kind, NodeKind::Instance { .. }));
+    let inner = doc.get(placed).unwrap().children[0];
+    if let NodeKind::Text(t) = &mut doc.get_mut(inner).unwrap().kind {
+        t.apply_uniform_scale(0.8);
+    }
+    let before = doc.get(inner).unwrap().clone();
+    detach_instance(&mut doc, placed).apply(&mut doc).unwrap();
+    assert!(!matches!(doc.get(placed).unwrap().kind, NodeKind::Instance { .. }), "detached");
+    let after = doc.get(inner).unwrap();
+    assert_eq!(text_of(after).uniform_scale, text_of(&before).uniform_scale, "its text still sits inside the outer instance");
+    assert_eq!(after.style_refs, before.style_refs);
+    assert_eq!(after.variables.bindings, before.variables.bindings);
+}
+
+#[test]
+fn turning_a_nested_instance_into_a_component_changes_no_text() {
+    let mut doc = import_fig_node_changes(&card_doc(), "t").unwrap();
+    let nested = child(&doc, find(&doc, "Big card"), "Half badge").id;
+    let inner = child(&doc, doc.get(nested).unwrap(), "Rating").id;
+    let before = doc.get(inner).unwrap().clone();
+    create_component(&mut doc, nested).apply(&mut doc).unwrap();
+    let after = doc.get(inner).unwrap();
+    assert!(close(text_of(after).uniform_scale, 0.75), "the text still sits inside the outer instance, factor {}", text_of(after).uniform_scale);
+    assert_eq!(after.style_refs, before.style_refs);
+    assert_eq!(after.variables.bindings, before.variables.bindings);
+}

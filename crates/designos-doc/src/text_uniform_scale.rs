@@ -5,7 +5,10 @@
 //! multiplied values on the layer and the factor in [`TextProps::uniform_scale`], so whatever writes a
 //! style value or a typography variable into the layer multiplies it by that factor too.
 
-use crate::{detach_text_style_bindings, resolve_node, Document, LineHeight, Node, NodeKind, OwnedFieldSet, TextProps, TextStyle};
+use crate::{
+    detach_text_style_bindings, resolve_node, style_owned_fields_changed, Document, LineHeight, Node, NodeId, NodeKind, OwnedField, OwnedFieldSet, TextProps,
+    TextStyle, TEXT_STYLE_BINDING_KEYS,
+};
 
 /// Variable binding keys of the text lengths a uniform scale multiplies. The family and weight are not lengths.
 pub const SCALED_TEXT_METRIC_KEYS: [&str; 6] = ["fontSize", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent", "listSpacing"];
@@ -107,6 +110,32 @@ pub fn drawn_scaled_text(doc: &Document, node: &Node) -> Option<TextProps> {
     }
 }
 
+/// Whether `from` or a layer above it is an instance. A layer for which this is false sits outside every instance, so
+/// a text with a factor there has nothing left to multiply its values.
+pub fn in_instance_chain(doc: &Document, from: NodeId) -> bool {
+    let mut at = Some(from);
+    while let Some(n) = at.and_then(|id| doc.get(id)) {
+        if matches!(n.kind, NodeKind::Instance { .. }) {
+            return true;
+        }
+        at = n.parent;
+    }
+    false
+}
+
+/// After an edit of a text with a factor (`n` is the layer after the edit, `before` its text before it): drops the
+/// variable binding of every typography property the edit changed. The inspector shows such a text without its
+/// bindings, so a value typed into a field is meant to be drawn, and a binding left in place would win over it.
+pub fn drop_bindings_of_edited_typography(n: &mut Node, before: &TextProps) {
+    let Some(after) = n.kind.any_text() else { return };
+    if !after.has_uniform_scale() {
+        return;
+    }
+    let changed = style_owned_fields_changed(before, after);
+    let edited: Vec<&str> = TEXT_STYLE_BINDING_KEYS.into_iter().filter(|k| OwnedField::from_binding_key(k).is_some_and(|f| changed.contains(f))).collect();
+    n.variables.bindings.retain(|key, _| !edited.contains(&key.as_str()));
+}
+
 /// `node` as it must be once it sits outside every instance: a text layer with a factor takes the values it draws
 /// now as its own (size, line height, letter and paragraph spacing, indent, list spacing and the family, weight and
 /// style of the base and of each run), and loses the text style link, the typography variable bindings, the style
@@ -118,10 +147,10 @@ pub fn baked_uniform_scale(doc: &Document, node: &Node) -> Option<Node> {
     let NodeKind::Text(t) = &mut out.kind else { return None };
     let held = |own: &TextStyle, drawn: &TextStyle| TextStyle { fills: own.fills.clone(), ..drawn.clone() };
     t.style = held(&t.style, &drawn.style);
-    if t.runs.len() == drawn.runs.len() {
-        for (run, d) in t.runs.iter_mut().zip(&drawn.runs) {
-            run.style = held(&run.style, &d.style);
-        }
+    // resolving never changes the runs, so they pair up one to one
+    debug_assert_eq!(t.runs.len(), drawn.runs.len());
+    for (run, d) in t.runs.iter_mut().zip(&drawn.runs) {
+        run.style = held(&run.style, &d.style);
     }
     t.paragraph = drawn.paragraph;
     t.uniform_scale = 1.0;

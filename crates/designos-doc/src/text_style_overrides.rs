@@ -297,8 +297,10 @@ pub enum LinkOutcome {
 /// its text before it. On a layer linked to a text style: an edit that changes any style-owned property
 /// other than weight, italic and decoration detaches the style (the values stay); an edit of only those
 /// keeps the link, and a change of the layer's own base style joins [`Node::text_style_overrides`]
-/// (a change of one character range is the range's own override). Colour and alignment are not owned.
+/// (a change of one character range is the range's own override). Colour and alignment are not owned. On a text
+/// with a factor (see [`TextProps::uniform_scale`]) the edited properties also lose their variable bindings.
 pub fn apply_text_link_rule(n: &mut Node, before: &TextProps) -> LinkOutcome {
+    drop_bindings_of_edited_typography(n, before);
     if !is_linked_text(n) {
         return LinkOutcome::Unlinked;
     }
