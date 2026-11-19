@@ -259,8 +259,11 @@ struct ExportCtx<'a> {
     fingerprints: crate::component_fingerprint::Fingerprints,
     /// Outline id (see `PendingOutline`) -> its index in `blobs`, so an outline several entries share is stored once.
     shared_blobs: BTreeMap<u64, u32>,
-    /// Glyph command blob (by content) -> its index in `blobs`, so a glyph shared by many texts is stored once.
+    /// Glyph command blob (by content) -> its slot in `glyph_blobs`, so a glyph shared by many texts is stored once.
     glyph_blob_slots: HashMap<Arc<[u8]>, u32>,
+    /// The distinct glyph blobs written so far. They join the table behind every other blob once all nodes are
+    /// written (see [`ExportCtx::settle_glyph_blobs`]).
+    glyph_blobs: Vec<Arc<[u8]>>,
     coll_guids: BTreeMap<String, (u32, u32)>,
     mode_guids: BTreeMap<String, (u32, u32)>,
     var_guids: BTreeMap<String, (u32, u32)>,
@@ -275,6 +278,27 @@ struct ExportCtx<'a> {
     emitted_track_guids: HashSet<(u32, u32)>,
     blobs: Vec<Vec<u8>>,
     changes: Vec<V>,
+}
+
+/// Glyph blob indices are counted from here while nodes are written, far above any real blob table, and then
+/// replaced by [`ExportCtx::settle_glyph_blobs`].
+const GLYPH_SLOT_BASE: u32 = 1 << 31;
+
+/// Replaces the placeholder `commandsBlob` of every glyph in the `derivedTextData` of `change` with the real index.
+fn settle_derived_text(change: &mut V, first_glyph_blob: u32) {
+    let (V::Message(fields) | V::Struct(fields)) = change else { return };
+    let Some((_, V::Message(derived) | V::Struct(derived))) = fields.iter_mut().find(|(k, _)| &**k == "derivedTextData") else { return };
+    let Some((_, V::Array(glyphs))) = derived.iter_mut().find(|(k, _)| &**k == "glyphs") else { return };
+    for glyph in glyphs {
+        let (V::Message(glyph) | V::Struct(glyph)) = glyph else { continue };
+        for (key, value) in glyph {
+            if let ("commandsBlob", V::Uint(slot)) = (&**key, &mut *value) {
+                if *slot >= GLYPH_SLOT_BASE {
+                    *slot = first_glyph_blob + (*slot - GLYPH_SLOT_BASE);
+                }
+            }
+        }
+    }
 }
 
 fn parse_guid_pair(s: &str) -> Option<(u32, u32)> {
@@ -359,6 +383,7 @@ impl<'a> ExportCtx<'a> {
             fingerprints: Default::default(),
             shared_blobs: BTreeMap::new(),
             glyph_blob_slots: HashMap::new(),
+            glyph_blobs: Vec::new(),
             coll_guids: BTreeMap::new(),
             mode_guids: BTreeMap::new(),
             var_guids: BTreeMap::new(),
@@ -757,14 +782,30 @@ impl<'a> ExportCtx<'a> {
         idx
     }
 
-    /// The table index of a glyph command blob, writing it the first time its bytes are seen.
+    /// A placeholder index (from [`GLYPH_SLOT_BASE`]) for a glyph command blob, writing it the first time its bytes
+    /// are seen. [`ExportCtx::settle_glyph_blobs`] swaps it for the blob's real index.
     fn add_glyph_blob(&mut self, blob: &Arc<[u8]>) -> u32 {
-        if let Some(&idx) = self.glyph_blob_slots.get(blob) {
-            return idx;
+        if let Some(&slot) = self.glyph_blob_slots.get(blob) {
+            return GLYPH_SLOT_BASE + slot;
         }
-        let idx = self.add_blob(blob.to_vec());
-        self.glyph_blob_slots.insert(Arc::clone(blob), idx);
-        idx
+        let slot = self.glyph_blobs.len() as u32;
+        self.glyph_blobs.push(Arc::clone(blob));
+        self.glyph_blob_slots.insert(Arc::clone(blob), slot);
+        GLYPH_SLOT_BASE + slot
+    }
+
+    /// Puts the glyph blobs behind every other blob and points each written glyph at its blob. A blob that something
+    /// else carries by its number (the original file's numbers inside an instance's overrides, which are written
+    /// as they were) keeps the number it has without any glyph, however many glyphs a file saves.
+    fn settle_glyph_blobs(&mut self) {
+        if self.glyph_blobs.is_empty() {
+            return;
+        }
+        let first = self.blobs.len() as u32;
+        self.blobs.extend(self.glyph_blobs.drain(..).map(|blob| blob.to_vec()));
+        for change in &mut self.changes {
+            settle_derived_text(change, first);
+        }
     }
 
     fn resolve_var_guid(&self, id: &str) -> Option<(u32, u32)> {
@@ -940,6 +981,7 @@ fn build_message(doc: &Document, schema: &crate::kiwi::Schema) -> V {
         }
     }
 
+    cx.settle_glyph_blobs();
     let blobs: Vec<V> = cx.blobs.into_iter().map(|b| st(vec![("bytes", V::Bytes(b))])).collect();
     msg(vec![("type", en("NODE_CHANGES")), ("sessionID", V::Uint(0)), ("ackID", V::Uint(0)), ("nodeChanges", V::Array(cx.changes)), ("blobs", V::Array(blobs))])
 }
@@ -1398,10 +1440,21 @@ fn reindexed_derived_text(cx: &mut ExportCtx, node: &Node) -> Option<(Arc<str>, 
     let saved = node.fig_text_geometry.as_deref().filter(|saved| saved.matches(node))?;
     let mut derived: serde_json::Value = serde_json::from_str(node.fig_metadata.get("derivedTextData")?).ok()?;
     let glyphs = derived.get_mut("glyphs")?.as_array_mut().filter(|g| g.len() == saved.glyph_blobs.len())?;
+    // every glyph must name a blob of the saved geometry before any blob is written, so a text that cannot be written
+    // leaves no orphan blob in the table
+    if saved.glyph_blobs.iter().flatten().any(|&slot| usize::try_from(slot).map_or(true, |slot| slot >= saved.blobs.len())) {
+        return None;
+    }
     let table: Vec<u32> = saved.blobs.iter().map(|blob| cx.add_glyph_blob(blob)).collect();
     for (glyph, slot) in glyphs.iter_mut().zip(&saved.glyph_blobs) {
-        if let Some(slot) = slot {
-            glyph["commandsBlob"] = json!(*table.get(usize::try_from(*slot).ok()?)?);
+        match slot {
+            Some(slot) => glyph["commandsBlob"] = json!(table[*slot as usize]),
+            // a glyph without a blob carries no blob number, so none of the file's own can pass for a placeholder
+            None => {
+                if let Some(fields) = glyph.as_object_mut() {
+                    fields.remove("commandsBlob");
+                }
+            }
         }
     }
     cx.schema.def_field_from_json(cx.nc_def, "derivedTextData", &derived)
