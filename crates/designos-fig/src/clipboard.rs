@@ -123,6 +123,7 @@ fn import_with_limits(clip: &FigClipboard, inflate_budget: u64, decoded_values: 
     let root = schema.root_message().ok_or_else(|| FigError::Format("schema has no message definition".into()))?;
     let mut message =
         schema.decode_message_for_import_with_values(root, &msg_bin, decoded_values).map_err(|e| FigError::Format(format!("kiwi message: {e}")))?;
+    let heavy_decode = msg_bin.len() > crate::kiwi::HEAVY_PAYLOAD_BYTES;
     drop(msg_bin);
 
     adopt_orphan_roots(&mut message);
@@ -131,7 +132,10 @@ fn import_with_limits(clip: &FigClipboard, inflate_budget: u64, decoded_values: 
         .and_then(KiwiValue::as_array)
         .map(|a| a.iter().map(|b| b.get("bytes").and_then(KiwiValue::as_bytes).unwrap_or(&[])).collect())
         .unwrap_or_default();
-    let rest = message_to_rest(&message, "Figma clipboard");
+    let mut rest = message_to_rest(&message, "Figma clipboard");
+    if heavy_decode {
+        rest[rest_import::HEAVY_DECODE_KEY] = serde_json::Value::Bool(true);
+    }
     let mut doc = rest_import::import_rest_value_with_blobs(&rest, true, &blobs, None, rest_import::KEEP_UNKNOWN_KEYS_FROM_BINARY)?;
     doc.images = archive.images;
     Ok(doc)
@@ -206,6 +210,17 @@ mod tests {
         format!(
             "<meta charset=\"utf-8\"><div><span data-metadata=\"<!--(figmeta){b64_meta}(/figmeta)-->\"></span><span data-buffer=\"<!--(figma){b64_buf}(/figma)-->\"></span></div><span style=\"white-space:pre-wrap;\">x</span>"
         )
+    }
+
+    /// A paste whose one text keeps a struct chain a million values deep in its glyph data must hit the clipboard's value
+    /// cap, however few wire bytes it takes. The payload is a bare container over 2 MB, so the decode is heavy.
+    #[test]
+    fn a_struct_chain_in_glyph_data_hits_the_paste_value_cap() {
+        let (schema, _root, body) = crate::kiwi::hostile_chain_payload(50, 20_000);
+        let buffer = container::write_container(&schema.encode(), &body, container::Compression::Zstd, 161);
+        let clip = FigClipboard { meta: None, buffer };
+        let result = import_with_limits(&clip, CLIPBOARD_INFLATE_BUDGET, 1 << 16);
+        assert!(matches!(&result, Err(e) if e.to_string().contains("decoded value count exceeds budget")), "the paste cap holds over the glyph data");
     }
 
     #[test]
