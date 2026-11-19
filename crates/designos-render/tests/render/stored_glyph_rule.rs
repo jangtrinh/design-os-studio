@@ -103,6 +103,38 @@ fn a_style_id_figma_reuses_for_two_stretches_still_draws_both_bars_under_their_g
 }
 
 #[test]
+fn recolouring_one_of_two_runs_that_share_a_bar_shapes_the_text() {
+    let (_, mut text) = text_in(repeated_id_fixture(), "Repeated id");
+    let NodeKind::Text(props) = &mut text.kind else { unreachable!() };
+    props.runs[1].style.fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(0, 0, 255))];
+    assert_eq!(
+        stored_glyph_use(&text),
+        fallback("decoration fill differs between runs that share a bar"),
+        "the bar is in the first run's path, so it would stay red under blue glyphs"
+    );
+}
+
+#[test]
+fn recolouring_both_runs_that_share_a_bar_the_same_draws_both_bars_in_that_colour() {
+    let (doc, text) = text_in(repeated_id_fixture(), "Repeated id");
+    let mut doc = doc;
+    let blue = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(0, 0, 255))];
+    let node = doc.get_mut(text.id).unwrap();
+    let NodeKind::Text(props) = &mut node.kind else { unreachable!() };
+    props.runs[0].style.fills = blue.clone();
+    props.runs[1].style.fills = blue;
+    let text = doc.get(text.id).unwrap().clone();
+    assert_eq!(stored_glyph_use(&text), StoredGlyphUse::Drawn);
+    let pm = render_node(&doc, text.id, 1.0).expect("the text renders");
+    let px = |x: u32, y: u32| {
+        let p = pm.pixel(x, y).unwrap();
+        (p.red(), p.green(), p.blue(), p.alpha())
+    };
+    assert_eq!(px(15, 23), (0, 0, 255, 255), "the bar under the first stretch is blue");
+    assert_eq!(px(35, 23), (0, 0, 255, 255), "so is the bar under the second");
+}
+
+#[test]
 fn recolouring_one_run_keeps_the_stored_glyphs() {
     let (_, mut text) = text_in(two_run_fixture(), "Two runs");
     let NodeKind::Text(props) = &mut text.kind else { unreachable!() };

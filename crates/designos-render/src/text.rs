@@ -140,6 +140,17 @@ pub fn stored_glyph_use(node: &d::Node) -> StoredGlyphUse {
             return StoredGlyphUse::Fallback("decoration missing from stored data");
         }
     }
+    // All of an id's bars are drawn in the first run's path, so they take that run's fills. At import every run of an id has
+    // the same style, but a fill edit of one run keeps the glyphs: when a decorated run shares its id with a run that is now
+    // painted differently, the bar would be the wrong colour, so the text is shaped.
+    for (i, run) in props.runs.iter().enumerate() {
+        let shares = |j: usize| saved.run_sids.get(j).is_some_and(|id| Some(id) == saved.run_sids.get(i));
+        if run.style.decoration != d::TextDecoration::None
+            && props.runs.iter().enumerate().any(|(j, other)| j != i && shares(j) && other.style.fills != run.style.fills)
+        {
+            return StoredGlyphUse::Fallback("decoration fill differs between runs that share a bar");
+        }
+    }
     StoredGlyphUse::Drawn
 }
 
