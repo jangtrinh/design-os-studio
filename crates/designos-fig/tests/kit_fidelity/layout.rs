@@ -53,7 +53,8 @@ pub fn solve(doc: &Document, fid: NodeId) -> Option<Solved> {
     let measure = designos_doc::text_measure::layout_measurer();
     let out = layout_solver::compute_then_refit_wrapped(&al, root.size, own, &stroke, &ids, &mut kids, |id, w| {
         let m = measure.as_deref()?;
-        designos_doc::text_measure::height_resize_text_height(doc.get(id)?, w, m)
+        let resolved = resolve_node(doc, doc.get(id)?);
+        designos_doc::text_measure::height_resize_text_height(&resolved, w, m)
     });
     Some((out.frame, ids.into_iter().zip(out.rects).collect()))
 }
@@ -191,6 +192,10 @@ fn part_with(doc: &Document, keys: &NodeKeys, refused: &HashSet<NodeId>, id: &'s
             p.record(keys.key_of(cid), keys.is_hidden(cid), d <= tol, &child_buckets(&al, c));
         }
     }
-    p.note(format!("text measurer installed: {}", designos_doc::text_measure::layout_measurer().is_some()));
+    let measured = designos_doc::text_measure::layout_measurer().is_some();
+    p.note(format!("text measurer installed: {measured}"));
+    if measured {
+        p.note("the app's measurer rounds a text's width and height up to whole pixels (measure_text_box), so part of any drop against Figma's fractional sizes is that ceiling, not shaping");
+    }
     p
 }

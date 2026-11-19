@@ -41,8 +41,11 @@ pub fn empty_derived(raw: &Raw) -> usize {
         .count()
 }
 
-/// Why a text node does not draw its saved glyphs, and for a node the importer kept none for, the cause. `None` when
-/// it draws them.
+/// Why a text node does not draw its saved glyphs. The ladder mirrors the gate `embedded_glyphs` in
+/// `designos-render/src/text.rs` (saved glyphs still match the node, no decoration, requested font not available);
+/// when that gate changes, the reasons here change with it. A node the gate refuses for none of those reasons falls
+/// through to "a reason this part does not name". For a node the importer kept none for, the cause is named too.
+/// `None` when it draws them.
 pub fn text_drop(node: &Node) -> Option<(&'static str, Option<&'static str>)> {
     let NodeKind::Text(props) = &node.kind else { return Some(("not a text layer", None)) };
     let saved = node.fig_text_geometry.as_deref();
@@ -81,6 +84,7 @@ pub fn part(inst: &Truth, geo: &[GeoTruth], text_guids: &[String], empty_derived
         "a node that carries the data Figma stored for it draws or lays itself out from that data on open, by the decision the app makes",
     );
     p.print_detail("texts: importer kept no glyphs, by cause");
+    p.note("texts depend on the fonts of the machine that runs this: the gate draws saved glyphs only for a family that does not resolve here, and the app fetches and registers fonts when it opens a file, which this run does not");
     let broken = broken_comparator();
     let refused = instance_hydration::refused(inst, doc, keys);
     for i in &inst.instances {

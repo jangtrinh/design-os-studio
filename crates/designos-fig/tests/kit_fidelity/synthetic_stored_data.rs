@@ -98,9 +98,21 @@ fn save_class_counts_what_figma_held_apart_from_what_only_the_save_holds() {
 
     let added = raw_of(vec![paint_record(0.5, true)]);
     let p = save_class::part(&original, &added, &none);
-    assert_eq!(p.bucket("class 1: Figma-held fields")[0], t(3, 3), "a subfield the save adds inside a paint is not a Figma field lost");
-    assert_eq!(p.unscored.get("class 2: key or subfield only the save adds to a Figma record").map(|u| u.0), Some(1));
-    assert_eq!(save_loss::part(&original, &added, &none).bucket("key: fillPaints")[0], t(0, 1), "while the raw comparison counts it as changed");
+    assert_eq!(p.bucket("class 1: Figma-held fields")[0], t(2, 3), "a subfield the save adds inside a paint changes the field Figma held");
+    assert_eq!(p.details["class 1 outcome"].get("changed, save added inside"), Some(&1));
+    assert_eq!(
+        p.unscored.get("class 2: key or subfield only the save adds to a Figma record").map(|u| u.0),
+        Some(1),
+        "and the addition is still listed in class 2"
+    );
+    assert_eq!(save_loss::part(&original, &added, &none).bucket("key: fillPaints")[0], t(0, 1), "as the raw comparison counts it");
+    let many = raw_of(vec![msg(vec![
+        ("guid", guid(1, 2)),
+        ("type", en("RECTANGLE")),
+        ("fillPaints", V::Array(vec![msg(vec![("type", en("SOLID")), ("opacity", fl(0.5)), ("blendMode", en("NORMAL"))]), msg(vec![("type", en("SOLID"))])])),
+    ])]);
+    let p = save_class::part(&original, &many, &none);
+    assert_eq!(p.bucket("class 1: Figma-held fields")[0], t(2, 3), "two added paths in one key are one changed occurrence, not two");
 
     let changed = raw_of(vec![paint_record(0.9, false)]);
     let p = save_class::part(&original, &changed, &none);
@@ -183,50 +195,118 @@ fn shaped_truth(doc: &Document, keys: &NodeKeys, dx: f32, dadv: f32) -> TextTrut
 }
 
 #[test]
-fn glyph_checks_count_a_glyph_off_its_stored_position_or_advance() {
+fn glyph_checks_reach_the_text_leg_and_a_shift_moves_x_but_not_the_steps() {
     let (_, doc, keys) = load(&text_fig(12.0));
     let score = |dx: f32, dadv: f32| text::part(&[shaped_truth(&doc, &keys, dx, dadv)], 0, &doc, &keys);
     let p = score(0.0, 0.0);
-    assert_eq!(p.bucket("check: glyph x positions")[0], t(5, 5), "Figma's glyphs are Studio's");
-    assert_eq!(p.bucket("check: glyph advances")[0], t(5, 5));
-    assert_eq!(p.bucket("check: glyph x and advance, whole text")[0], t(1, 1));
-    assert_eq!(p.bucket("check: glyph x positions, first glyph of a line")[0], t(1, 1), "the glyph that starts the line");
-    assert_eq!(p.bucket("check: glyph advances, texts with zero letter spacing")[0], t(5, 5), "a text with no letter spacing");
-    let p = score(0.04, -0.04);
-    assert_eq!(p.bucket("check: glyph x positions")[0], t(5, 5), "0.04 px is inside the 0.05 px tolerance");
-    assert_eq!(p.bucket("check: glyph advances")[0], t(5, 5));
+    assert_eq!(p.bucket("check: glyph x positions")[0], t(5, 5));
+    assert_eq!(p.bucket("check: glyph steps (advance for a line's last glyph)")[0], t(5, 5));
+    assert_eq!(p.bucket("check: glyph x and step, whole text")[0], t(1, 1));
+    assert_eq!(p.bucket("check: glyph x positions, first glyph of a line")[0], t(1, 1));
     let p = score(0.2, 0.0);
     assert_eq!(p.bucket("check: glyph x positions")[0], t(0, 5), "every glyph stored 0.2 px to the right");
-    assert_eq!(p.bucket("check: glyph advances")[0], t(5, 5), "the advances are untouched");
-    assert_eq!(p.bucket("check: glyph x positions, first glyph of a line")[0], t(0, 1), "the offset shows on the glyph that starts the line");
-    assert_eq!(p.bucket("check: glyph x and advance, whole text")[0], t(0, 1));
-    assert_eq!(p.details["glyph x delta, Studio minus Figma (0.05 px bins)"].get("-0.20"), Some(&5), "the bin shows the half-pixel hypothesis directly");
+    assert_eq!(p.bucket("check: glyph steps (advance for a line's last glyph)")[0], t(5, 5), "a shift keeps every step");
+    assert_eq!(p.bucket("check: glyph x positions, first glyph of a line")[0], t(0, 1));
+    assert_eq!(p.details["glyph x miss, Studio minus Figma (upper edge of 0.05 px bins)"].get("-0.20"), Some(&5));
     let p = score(0.0, 0.1);
-    assert_eq!(p.bucket("check: glyph x positions")[0], t(5, 5));
-    assert_eq!(p.bucket("check: glyph advances")[0], t(0, 5), "every advance stored 0.1 px wider");
+    assert_eq!(p.bucket("check: glyph steps (advance for a line's last glyph)")[0], t(4, 5), "the last glyph is scored by its advance, 0.1 px wider");
+    assert_eq!(p.bucket("check: glyph advance of a line's last glyph")[0], t(0, 1));
     assert_eq!(p.bucket("total")[0], t(1, 1), "the glyph buckets stay out of the per-text pass, which keeps its meaning");
 }
 
+/// One Studio cluster by hand: start byte, end byte, x, width.
+type Span = (usize, usize, f32, f32);
+
+/// Studio's side by hand: lines of `(baseline, clusters)`.
+fn geometry_of(lines: &[(f32, &[Span])]) -> designos_render::TextGeometry {
+    designos_render::TextGeometry {
+        lines: lines
+            .iter()
+            .map(|(baseline, spans)| designos_render::LineGeom {
+                para: 0,
+                top: *baseline - 14.0,
+                height: 20.0,
+                baseline: *baseline,
+                width: 0.0,
+                start: spans.first().map_or(0, |s| s.0),
+                end: spans.last().map_or(0, |s| s.1),
+                empty_x: 0.0,
+                rtl: false,
+                glyphs: spans.iter().map(|&(start, end, x, w)| designos_render::GlyphSpan { start, end, x, w, rtl: false }).collect(),
+            })
+            .collect(),
+        width: 0.0,
+        height: 0.0,
+    }
+}
+
+/// Figma's side by hand, 16 px glyphs: `(first character in UTF-16 units, x, baseline, advance in px)`.
+fn stored(glyphs: &[(u64, f32, f32, f32)]) -> Vec<GlyphTruth> {
+    glyphs.iter().map(|&(first, x, y, adv)| GlyphTruth { first, x, y, advance: Some(adv / 16.0), font_size: 16.0 }).collect()
+}
+
+fn scored(content: &str, g: &designos_render::TextGeometry, truth: &[GlyphTruth], line_starts: &[u64], props: Option<TextProps>) -> Part {
+    let props = props.unwrap_or_else(|| TextProps { content: content.into(), ..TextProps::default() });
+    let mut p = Part::new("glyphs", "glyphs", "");
+    text_glyphs::tally(&mut p, "", false, &text_glyphs::score(g, &props, truth, line_starts));
+    p
+}
+
+const STEPS: &str = "check: glyph steps (advance for a line's last glyph)";
+
 #[test]
-fn glyph_checks_split_letter_spaced_texts_and_say_what_the_stored_advance_holds() {
-    let (_, mut doc, keys) = load(&text_fig(12.0));
-    let NodeKind::Text(props) = &mut doc.get_mut(keys.by_source["1:30"]).unwrap().kind else { panic!("a text layer") };
-    props.style.letter_spacing = 2.0;
-    // Studio's cluster width holds the letter spacing; here Figma's advance leaves it out and its next x adds it.
-    let p = text::part(&[shaped_truth(&doc, &keys, 0.0, -2.0)], 0, &doc, &keys);
-    assert_eq!(p.bucket("check: glyph advances, texts with zero letter spacing")[0], t(0, 0), "this text sets a spacing");
-    assert_eq!(p.bucket("check: glyph advances")[0], t(5, 5), "the headline compares like with like: the spacing is off Studio's side");
-    assert_eq!(
-        p.bucket("check: glyph advances, texts with letter spacing set, Studio's width as shaped")[0],
-        t(0, 5),
-        "Studio's width as shaped is 2 px wider than the stored advance"
-    );
-    assert_eq!(
-        p.bucket("check: glyph advances, texts with letter spacing set, Studio's width minus its spacing")[0],
-        t(5, 5),
-        "and equals it once the spacing is taken off"
-    );
-    assert!(p.notes.iter().any(|n| n.contains("letter spacing set 4 pairs, = advance on 0, = advance + spacing on 4")), "{:?}", p.notes);
+fn glyph_steps_follow_a_kerned_pair_that_its_advance_does_not() {
+    // "AV": the stored advance of A is the unkerned 10.0, the stored x of V is kerned to 9.4. Studio's cluster tiles
+    // the line, so its A is 9.4 wide and V starts at 9.4: the same step as Figma's, not the same advance.
+    let g = geometry_of(&[(14.0, &[(0, 1, 0.0, 9.4), (1, 2, 9.4, 10.5)])]);
+    let p = scored("AV", &g, &stored(&[(0, 0.0, 14.0, 10.0), (1, 9.4, 14.0, 10.5)]), &[0], None);
+    assert_eq!(p.bucket("check: glyph x positions")[0], t(2, 2));
+    assert_eq!(p.bucket(STEPS)[0], t(2, 2), "the kerned step matches");
+    assert_eq!(p.bucket("check: glyph advance alone, as the first version compared it")[0], t(1, 2), "advance alone calls the kern a miss");
+    assert_eq!(p.details["advance-alone misses by Figma's own step"].get("Figma's step differs from its advance"), Some(&1));
+    let g = geometry_of(&[(14.0, &[(0, 1, 0.0, 9.4), (1, 2, 9.9, 10.5)])]);
+    let p = scored("AV", &g, &stored(&[(0, 0.0, 14.0, 10.0), (1, 9.4, 14.0, 10.5)]), &[0], None);
+    assert_eq!(p.bucket(STEPS)[0], t(1, 2), "a V Studio puts 0.5 px late is a missed step");
+}
+
+#[test]
+fn glyph_matching_counts_characters_in_utf16_units() {
+    // "a", an emoji (a surrogate pair, 4 bytes), "e" with a combining acute (3 bytes, 2 units), "b".
+    let content = "a\u{1F600}e\u{301}b";
+    let g = geometry_of(&[(14.0, &[(0, 1, 0.0, 8.0), (1, 5, 8.0, 10.0), (5, 8, 18.0, 10.0), (8, 9, 28.0, 9.0)])]);
+    let truth = stored(&[(0, 0.0, 14.0, 8.0), (1, 8.0, 14.0, 10.0), (3, 18.0, 14.0, 10.0), (5, 28.0, 14.0, 9.0)]);
+    let p = scored(content, &g, &truth, &[0], None);
+    assert!(p.unscored.is_empty(), "every stored glyph found its cluster: {:?}", p.unscored);
+    assert_eq!(p.bucket("check: glyph x positions")[0], t(4, 4));
+    assert_eq!(p.bucket(STEPS)[0], t(4, 4));
+}
+
+#[test]
+fn glyph_checks_cover_a_centred_two_line_text() {
+    // "AV" on a first line centred at x = 5.3 and "c" on a second line centred at x = 12; "\n" is character 2.
+    let g = geometry_of(&[(14.0, &[(0, 1, 5.3, 9.4), (1, 2, 14.7, 10.5)]), (34.0, &[(3, 4, 12.0, 8.0)])]);
+    let truth = stored(&[(0, 5.3, 14.0, 10.0), (1, 14.7, 14.0, 10.5), (3, 12.0, 34.0, 8.0)]);
+    let p = scored("AV\nc", &g, &truth, &[0, 3], None);
+    assert_eq!(p.bucket("check: glyph x positions")[0], t(3, 3), "centred x on both lines");
+    assert_eq!(p.bucket("check: glyph x positions, first glyph of a line")[0], t(2, 2), "two line starts");
+    assert_eq!(p.bucket(STEPS)[0], t(3, 3), "one step across a kern, two line ends by advance");
+    assert_eq!(p.bucket("check: glyph advance of a line's last glyph")[0], t(2, 2));
+    assert_eq!(p.bucket("check: glyph advance alone, as the first version compared it")[0], t(2, 3));
+    let g = geometry_of(&[(14.0, &[(0, 1, 5.3, 9.4), (1, 2, 14.7, 10.5)]), (34.0, &[(3, 4, 10.0, 8.0)])]);
+    let p = scored("AV\nc", &g, &truth, &[0, 3], None);
+    assert_eq!(p.bucket("check: glyph x positions, first glyph of a line")[0], t(1, 2), "a second line that is not centred like Figma's");
+}
+
+#[test]
+fn glyph_checks_take_the_letter_spacing_of_the_last_glyph_off_by_run() {
+    // Figma's advance leaves the letter spacing out; Studio's cluster width holds it. Here only a run covering V sets it.
+    let g = geometry_of(&[(14.0, &[(0, 1, 0.0, 10.0), (1, 2, 10.0, 13.5)])]);
+    let mut props = TextProps { content: "AV".into(), ..TextProps::default() };
+    let mut run_style = props.style.clone();
+    run_style.letter_spacing = 3.0;
+    props.runs.push(TextRun { start: 1, end: 2, style: run_style });
+    let p = scored("AV", &g, &stored(&[(0, 0.0, 14.0, 10.0), (1, 10.0, 14.0, 10.5)]), &[0], Some(props));
+    assert_eq!(p.bucket("check: glyph advance of a line's last glyph")[0], t(1, 1), "V's width less the run's 3 px spacing is its advance");
 }
 
 #[test]

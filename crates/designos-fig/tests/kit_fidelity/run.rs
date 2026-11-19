@@ -82,21 +82,21 @@ pub fn run_bytes(bytes: &[u8], out: &std::path::Path, only: Option<&HashSet<Stri
             parts.push(layout::measurer_part(&doc, &keys, &refused_holders));
             lap("auto layout, text measurer installed", &mut timings);
         }
-        let mut p = layout::part(&doc, &keys, &refused_holders);
-        p.note(format!("instances left out because hydration refused their stored layout: {}", refused_holders.len()));
-        p.note(format!(
-            "census as kit_auto_layout_census.rs runs it (no page hydrated): {} of {} page layers move > 0.5 px ({} in hidden subtrees, {} visible); {} auto-layout frames on pages",
-            c0.moved, c0.page_layers, c0.moved_hidden, c0.moved - c0.moved_hidden, c0.auto_frames_on_pages
-        ));
-        p.note(format!(
-            "same census with every page hydrated: {} of {} page layers move ({} hidden, {} visible); {} auto-layout frames on pages",
-            c1.moved,
-            c1.page_layers,
-            c1.moved_hidden,
-            c1.moved - c1.moved_hidden,
-            c1.auto_frames_on_pages
-        ));
         if want("auto_layout") {
+            let mut p = layout::part(&doc, &keys, &refused_holders);
+            p.note(format!("instances left out because hydration refused their stored layout: {}", refused_holders.len()));
+            p.note(format!(
+                "census as kit_auto_layout_census.rs runs it (no page hydrated): {} of {} page layers move > 0.5 px ({} in hidden subtrees, {} visible); {} auto-layout frames on pages",
+                c0.moved, c0.page_layers, c0.moved_hidden, c0.moved - c0.moved_hidden, c0.auto_frames_on_pages
+            ));
+            p.note(format!(
+                "same census with every page hydrated: {} of {} page layers move ({} hidden, {} visible); {} auto-layout frames on pages",
+                c1.moved,
+                c1.page_layers,
+                c1.moved_hidden,
+                c1.moved - c1.moved_hidden,
+                c1.auto_frames_on_pages
+            ));
             parts.push(p);
         }
         lap("auto layout", &mut timings);

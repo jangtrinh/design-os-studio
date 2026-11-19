@@ -1,8 +1,9 @@
 //! Save loss by class. A no-edit save is compared with Figma's original in two classes:
 //!
-//! - Class 1: a field Figma's own file holds, on a record that came from Figma (its guid is in the original). The
-//!   walk follows only what the original holds, so a field the save drops or changes is lost or changed, and nothing
-//!   the save adds can fail it. It must be 0.
+//! - Class 1: a field Figma's own file holds, on a record that came from Figma (its guid is in the original). A field
+//!   the save drops or changes is lost or changed, and so is a field the save adds an entry or subfield inside (the
+//!   field no longer equals Figma's). Each key of each record counts once, however many paths were added, so the
+//!   denominator is the original's key count. It must be 0.
 //! - Class 2: what only the save holds: a record with no original record, a key the save adds to a Figma record, a
 //!   subfield or array entry it adds inside a Figma field. Reported apart and never scored.
 //!
@@ -92,7 +93,7 @@ pub fn part(original: &Raw, saved: &Raw, hidden: &HashSet<String>) -> Part {
         "Save loss by class",
         "class 1: each field of each record that came from Figma equal in a no-edit save (after the save loss part's normalisations); the save's own additions are class 2 and never fail it",
     );
-    p.note("class 1 walks only what the original holds: a field or subfield missing from the save is lost, a leaf that differs is changed, a record with no saved record is not written");
+    p.note("class 1 counts each key of each record once: a field or subfield missing from the save is lost, a leaf that differs or an entry or subfield added inside the field is changed, a record with no saved record is not written");
     p.note("class 2 counts what only the save holds (a record with no original record, a key or subfield it adds) and scores none of it");
     p.print_detail(FAILING_KEYS);
     p.print_detail(OUTCOMES);
@@ -118,9 +119,12 @@ pub fn part(original: &Raw, saved: &Raw, hidden: &HashSet<String>) -> Part {
                     walk(v, sv, k, "", &mut cx, &mut w);
                     if !w.lost.is_empty() {
                         "lost"
-                    } else if w.changed.is_empty() {
+                    } else if w.changed.is_empty() && w.added.is_empty() {
                         "equal"
-                    } else if &**k == "parentIndex" && w.changed == ["/position"] && same_parent_kept(v, sv, &kept_order) {
+                    } else if w.changed.is_empty() {
+                        // Figma reads the whole field: an entry or subfield the save appends inside it changes it.
+                        "changed, save added inside"
+                    } else if &**k == "parentIndex" && w.changed == ["/position"] && w.added.is_empty() && same_parent_kept(v, sv, &kept_order) {
                         "normalised: sibling order kept"
                     } else {
                         "changed"
