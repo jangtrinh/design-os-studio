@@ -112,8 +112,8 @@ pub(crate) struct MainTrust {
 }
 
 impl MainTrust {
-    /// Whether `doc` holds, for every main that `now` (the roots an instance depends on) reaches, the trusted content,
-    /// and `now` is the set of roots the instance had (`stored`).
+    /// Whether the roots an instance depends on are the ones it had (`stored`) and `doc` holds the trusted content for
+    /// every main that `now` reaches.
     pub(crate) fn holds(&self, fps: &mut Fingerprints, doc: &Document, stored: &[NodeId], now: &[NodeId]) -> bool {
         if stored.iter().collect::<BTreeSet<_>>() != now.iter().collect::<BTreeSet<_>>() {
             return false;

@@ -4740,7 +4740,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
 
     fn pending_instance_derived(&self, instance: NodeId) -> Option<designos_doc::PendingDerived> {
         let derived = &self.overrides.get(&instance)?.fast_derived;
-        let fingerprint = self.main_trust.fingerprint(self.instance_roots.get(&instance)?)?;
+        let fingerprint = self.main_trust.fingerprint(self.instance_roots.get(&instance)?);
         let swap_mains = self.swap_mains_of.get(&instance).cloned().unwrap_or_default();
         let outlines = |list: &Option<Vec<(usize, bool)>>| -> Vec<designos_doc::PendingOutline> {
             list.iter()
