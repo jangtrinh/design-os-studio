@@ -3,15 +3,16 @@
 //! `derivedTextData` is where Figma keeps the outlines it drew. A small file keeps it for every text. A heavy import
 //! (a message payload over 2 MB, or more than 5,000 entries) cannot afford that. The importer cannot ask the font
 //! database which families a machine has, and a document must not change with the machine that opened it, so it
-//! decides from what is the same everywhere: the bundled families. A text set in a bundled family always shapes
-//! with the bundled face, so its stored outlines would never be drawn and are not kept.
+//! decides from what is the same everywhere: the bundled families. A heavy file does not keep the outlines of a text
+//! set in a bundled family (they would use the allowance, and widening this is a change of its own), although the
+//! renderer draws them when a text has them.
 //!
-//! Of the others it keeps only what the drawing code can draw. `designos_render::embedded_glyphs` draws a text's
-//! stored outlines when they still describe the layer, its font is missing and it has no text decoration; the
-//! importer's `fig_text_geometry` builds them only for a text with content, no style runs, one font whose family is the
-//! layer's, at most [`MAX_DRAWN_GLYPHS`] glyphs, and a layout size equal to the layer's. Anything else would be held
-//! for the life of the document and never used, so it is not kept. A character style id other than 0 counts as a run
-//! here even when no style table entry makes it one, so such a text is left out although it could draw.
+//! Of the others it keeps only texts that carry what the importer keeps stored glyphs for today: no style runs, no
+//! text decoration, one font that is the layer's, at most [`MAX_DRAWN_GLYPHS`] glyphs and a layout size equal to the
+//! layer's. The importer's `fig_text_geometry` and the renderer's `stored_glyph_use` accept far more than that (runs,
+//! several fonts, underlines, installed and bundled fonts alike); this predicate is what still holds the allowance to
+//! the texts a heavy file used to keep. A character style id other than 0 counts as a run here even when no style table
+//! entry makes it one, so such a text is left out although it could draw.
 //!
 //! The decoder can only judge what it has already read. Figma writes a node's fields by ascending number, so `type`,
 //! `size`, `textDecoration`, `fontName` and `textData` all precede `derivedTextData`; a file written in another order

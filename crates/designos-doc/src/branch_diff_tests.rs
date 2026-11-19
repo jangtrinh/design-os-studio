@@ -406,6 +406,7 @@ fn edits_leaving_the_default_state_of_each_hash_guarded_group_are_changes() {
                 blobs: Vec::new(),
                 glyph_blobs: Vec::new(),
                 glyphs: Default::default(),
+                ..Default::default()
             }));
         }),
         (Group::Other, "source_id", |n| n.source_id = Some("1:2".into())),
@@ -525,6 +526,7 @@ fn nan_geometry() -> std::sync::Arc<crate::FigTextGeometry> {
         blobs: Vec::new(),
         glyph_blobs: Vec::new(),
         glyphs: Default::default(),
+        ..Default::default()
     })
 }
 
@@ -552,6 +554,7 @@ fn one_moved_glyph_in_a_stored_glyph_table_is_a_change_to_the_text() {
             blobs: vec![std::sync::Arc::from(vec![1u8, 2, 3])],
             glyph_blobs: Vec::new(),
             glyphs: glyphs.into(),
+            ..Default::default()
         })
     };
     let (mut base, _page, _f, _g, a, _b, _c) = base_fixture_with_frame_and_children();

@@ -20,6 +20,8 @@ pub struct StoredGlyph {
     pub first_char: u32,
     /// Style the glyph belongs to: 0 is the text's own style.
     pub style: u16,
+    /// [`StoredGlyph::EMOJI`] and [`StoredGlyph::ROTATED`]: what the importer saw about this glyph that decides whether the
+    /// text draws from stored outlines.
     pub flags: u16,
 }
 
@@ -27,6 +29,10 @@ const _: () = assert!(std::mem::size_of::<StoredGlyph>() == 24, "a stored glyph 
 
 impl StoredGlyph {
     pub const NO_BLOB: u32 = u32::MAX;
+    /// Flag: Figma draws this glyph as an image (an emoji), so there is no outline to draw.
+    pub const EMOJI: u16 = 1;
+    /// Flag: the glyph is rotated, and the builder places glyphs upright only.
+    pub const ROTATED: u16 = 2;
     /// `first_char` of a glyph whose `firstCharacter` the file did not give as an integer. Whoever maps glyphs to
     /// characters must treat it as unknown, not as the first character.
     pub const UNKNOWN_FIRST_CHAR: u32 = u32::MAX;

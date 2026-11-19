@@ -36,7 +36,15 @@ pub fn glyph_text(
     glyphs: &[(u32, f32)],
     mut extra: Vec<(&str, V)>,
 ) -> V {
-    let glyphs = glyphs.iter().map(|&(blob, x)| msg(vec![("commandsBlob", V::Uint(blob)), ("position", vec2(x, 20.0)), ("fontSize", fl(20.0))])).collect();
+    // Figma writes the index of each glyph's first character; a glyph beyond the last character shares the last
+    let last = characters.encode_utf16().count().saturating_sub(1) as u32;
+    let glyphs = glyphs
+        .iter()
+        .enumerate()
+        .map(|(i, &(blob, x))| {
+            msg(vec![("commandsBlob", V::Uint(blob)), ("position", vec2(x, 20.0)), ("fontSize", fl(20.0)), ("firstCharacter", V::Uint((i as u32).min(last)))])
+        })
+        .collect();
     let mut fields = vec![
         ("size", vec2(20.0, 20.0)),
         ("fontSize", fl(20.0)),
@@ -61,6 +69,110 @@ pub fn fig_file(nodes: Vec<V>, blobs: Vec<Vec<u8>>) -> Vec<u8> {
 
 pub fn document_and_page() -> Vec<V> {
     vec![node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]), node((0, 1), (0, 0), "a", "CANVAS", "Page", vec![])]
+}
+
+/// One stored glyph at baseline y = 20: `blob` names its command blob (a glyph without one is a space), `first` is its
+/// first character in UTF-16 units. `extra` adds fields of the glyph itself (rotation, emoji code points, ...).
+pub fn stored_glyph(blob: Option<u32>, x: f32, first: u32, extra: Vec<(&str, V)>) -> V {
+    let mut fields = vec![("position", vec2(x, 20.0)), ("fontSize", fl(20.0)), ("firstCharacter", V::Uint(first))];
+    if let Some(blob) = blob {
+        fields.insert(0, ("commandsBlob", V::Uint(blob)));
+    }
+    fields.extend(extra);
+    msg(fields)
+}
+
+/// One bar of a `Decoration`: `rects` are `(x, y, w, h)`, `style` is the id of the style it belongs to.
+pub fn stored_decoration(style: u32, rects: &[(f32, f32, f32, f32)]) -> V {
+    let rects = rects.iter().map(|&(x, y, w, h)| st(vec![("x", fl(x)), ("y", fl(y)), ("w", fl(w)), ("h", fl(h))])).collect();
+    msg(vec![("rects", V::Array(rects)), ("styleID", V::Uint(style))])
+}
+
+/// A 40 x 26 text layer built from parts: `base` family, `characters`, per-character `style_ids` with their override
+/// table entries `overrides`, the stored `glyphs`, the families of `fontMetaData`, and extra fields of the derived data
+/// (`decorations`, `truncationStartIndex`, ...) and of the layer.
+#[allow(clippy::too_many_arguments)]
+pub fn styled_glyph_text(
+    id: (u32, u32),
+    parent: (u32, u32),
+    pos: &str,
+    name: &str,
+    base: &str,
+    characters: &str,
+    style_ids: &[u32],
+    overrides: Vec<V>,
+    glyphs: Vec<V>,
+    fonts: &[&str],
+    derived_extra: Vec<(&str, V)>,
+    mut extra: Vec<(&str, V)>,
+) -> V {
+    let mut text_data = vec![("characters", V::String(characters.into()))];
+    if !style_ids.is_empty() {
+        text_data.push(("characterStyleIDs", V::Array(style_ids.iter().map(|&i| V::Uint(i)).collect())));
+        text_data.push(("styleOverrideTable", V::Array(overrides)));
+    }
+    let mut derived = vec![
+        ("layoutSize", vec2(40.0, 26.0)),
+        ("fontMetaData", V::Array(fonts.iter().map(|f| msg(vec![("key", font_key(f))])).collect())),
+        ("glyphs", V::Array(glyphs)),
+    ];
+    for (k, v) in derived_extra {
+        derived.retain(|(name, _)| *name != k);
+        derived.push((k, v));
+    }
+    let mut fields = vec![
+        ("size", vec2(40.0, 26.0)),
+        ("fontSize", fl(20.0)),
+        ("fontName", font_key(base)),
+        ("fillPaints", V::Array(vec![solid(0.0, 0.0, 0.0)])),
+        ("textData", msg(text_data)),
+        ("derivedTextData", msg(derived)),
+    ];
+    for (k, v) in extra.drain(..) {
+        fields.retain(|(name, _)| *name != k);
+        fields.push((k, v));
+    }
+    node(id, parent, pos, "TEXT", name, fields)
+}
+
+/// An entry of `styleOverrideTable`: style `id` in `family`, filled with the colour `rgb`, optionally underlined.
+pub fn style_override(id: u32, family: &str, rgb: (f32, f32, f32), underline: bool) -> V {
+    let mut fields = vec![("styleID", V::Uint(id)), ("fontName", font_key(family)), ("fillPaints", V::Array(vec![solid(rgb.0, rgb.1, rgb.2)]))];
+    if underline {
+        fields.push(("textDecoration", designos_fig::testkit::en("UNDERLINE")));
+    }
+    msg(fields)
+}
+
+/// The second font of [`two_run_fixture`].
+pub const SECOND_FAMILY: &str = "SecondIconFaceForTest";
+
+/// The text `Two runs` in a frame `Runs frame`, "abcd" in a 40 x 26 box: the first two characters in [`FAMILY`] in black, the last two in
+/// [`SECOND_FAMILY`] in red and underlined. Two triangles, then two curves; Figma's bar for the second run runs under
+/// the curves (x 20..40, y 22..24), and its glyphs carry no style id of their own, as Figma writes them.
+pub fn two_run_fixture() -> Vec<u8> {
+    let mut nodes = document_and_page();
+    nodes.push(node((1, 1), (0, 1), "a", "FRAME", "Runs frame", vec![("size", vec2(40.0, 26.0))]));
+    nodes.push(styled_glyph_text(
+        (1, 2),
+        (1, 1),
+        "a",
+        "Two runs",
+        FAMILY,
+        "abcd",
+        &[0, 0, 7, 7],
+        vec![style_override(7, SECOND_FAMILY, (1.0, 0.0, 0.0), true)],
+        vec![
+            stored_glyph(Some(0), 0.0, 0, vec![]),
+            stored_glyph(Some(0), 10.0, 1, vec![]),
+            stored_glyph(Some(1), 20.0, 2, vec![]),
+            stored_glyph(Some(1), 30.0, 3, vec![]),
+        ],
+        &[FAMILY, SECOND_FAMILY],
+        vec![("decorations", V::Array(vec![stored_decoration(7, &[(20.0, 22.0, 20.0, 2.0)])]))],
+        vec![],
+    ));
+    fig_file(nodes, vec![icon_blob(), curve_blob()])
 }
 
 /// A frame holding the text layer `Icon text` with one triangle glyph.
@@ -142,8 +254,10 @@ pub fn curve_blob() -> Vec<u8> {
 pub fn mixed_glyph_text(id: (u32, u32), parent: (u32, u32), pos: &str, name: &str, family: &str, glyphs: &[(Option<u32>, f32, f32, f32)]) -> V {
     let glyphs = glyphs
         .iter()
-        .map(|&(blob, x, y, size)| {
-            let mut fields = vec![("position", vec2(x, y)), ("fontSize", fl(size))];
+        .enumerate()
+        .map(|(i, &(blob, x, y, size))| {
+            // the text is "ab c": the fifth glyph shares the last character
+            let mut fields = vec![("position", vec2(x, y)), ("fontSize", fl(size)), ("firstCharacter", V::Uint((i as u32).min(3)))];
             if let Some(blob) = blob {
                 fields.insert(0, ("commandsBlob", V::Uint(blob)));
             }

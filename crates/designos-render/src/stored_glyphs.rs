@@ -166,41 +166,75 @@ fn is_finite(cmd: &PathCmd) -> bool {
     }
 }
 
-/// Every glyph outline of `saved` in node-local space as one path. A geometry from a document file written before the
-/// glyph table existed has no glyphs and already holds its path.
+/// The commands of a bar Figma stored, as a closed rectangle in the direction the shaped text draws its own bars.
+fn bar(rect: &d::StoredDecoration, out: &mut Vec<PathCmd>) {
+    let (x, y, right, bottom) = (rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
+    out.extend([
+        PathCmd::MoveTo(Vec2::new(x, y)),
+        PathCmd::LineTo(Vec2::new(right, y)),
+        PathCmd::LineTo(Vec2::new(right, bottom)),
+        PathCmd::LineTo(Vec2::new(x, bottom)),
+        PathCmd::Close,
+    ]);
+}
+
+/// Commands one stored bar adds to its style's path.
+const BAR_COMMANDS: usize = 5;
+
+/// The outline of `saved` for each of its `styles` (the text's own style, then one per run) in node-local space: the
+/// glyphs of a style in Figma's order, then the bars Figma stored for it. A geometry from a document file written
+/// before the glyph table existed has no glyphs and already holds its one path, which is the text's own style.
 ///
-/// `None` when the outline cannot be assembled within bounds: more than [`d::MAX_ASSEMBLED_COMMANDS`] commands (counted
-/// before anything is allocated), or a point that is not finite once the glyphs are placed. The caller shapes the text.
-/// Callers have already asked [`d::FigTextGeometry::draw_refusal`], which bounds the glyphs and the blob bytes.
-pub(crate) fn stored_path(saved: &d::FigTextGeometry) -> Option<Cow<'_, d::Path>> {
+/// `None` when the outline cannot be assembled within bounds: a glyph or bar names a style past `styles`, more than
+/// [`d::MAX_ASSEMBLED_COMMANDS`] commands (counted before anything is allocated), or a point that is not finite once the
+/// glyphs are placed. The caller shapes the text. Callers have already asked [`d::FigTextGeometry::draw_refusal`], which
+/// bounds the glyphs and the blob bytes.
+pub(crate) fn stored_paths(saved: &d::FigTextGeometry, styles: usize) -> Option<Vec<Cow<'_, d::Path>>> {
     if saved.glyphs.is_empty() {
-        return Some(Cow::Borrowed(&saved.path));
+        return Some(vec![Cow::Borrowed(&saved.path)]);
     }
     if saved.glyphs.len() > d::MAX_DRAWN_GLYPHS {
         return None;
     }
     let units = unit_paths(saved);
     let slot_unit = |g: &d::StoredGlyph| g.blob_slot().and_then(|slot| units.get(slot as usize)).and_then(Option::as_ref);
-    let total = saved.glyphs.iter().filter_map(slot_unit).try_fold(0usize, |sum, unit| sum.checked_add(unit.len()))?;
-    if total > d::MAX_ASSEMBLED_COMMANDS {
-        return None;
-    }
-    let mut cmds = Vec::with_capacity(total);
+    let mut counts = vec![0usize; styles];
     for glyph in &saved.glyphs {
         if let Some(unit) = slot_unit(glyph) {
-            cmds.extend(unit.iter().map(|&cmd| placed(cmd, glyph.x, glyph.y, glyph.font_size)));
+            let count = counts.get_mut(usize::from(glyph.style))?;
+            *count = count.checked_add(unit.len())?;
         }
     }
-    if cmds.iter().all(is_finite) {
-        Some(Cow::Owned(d::Path { cmds, fill_rule: d::FillRule::NonZero }))
-    } else {
-        None
+    for bar in saved.decorations.iter() {
+        let count = counts.get_mut(usize::from(bar.style))?;
+        *count = count.checked_add(BAR_COMMANDS)?;
     }
+    if counts.iter().try_fold(0usize, |sum, &n| sum.checked_add(n))? > d::MAX_ASSEMBLED_COMMANDS {
+        return None;
+    }
+    let mut cmds: Vec<Vec<PathCmd>> = counts.into_iter().map(Vec::with_capacity).collect();
+    for glyph in &saved.glyphs {
+        if let Some(unit) = slot_unit(glyph) {
+            cmds[usize::from(glyph.style)].extend(unit.iter().map(|&cmd| placed(cmd, glyph.x, glyph.y, glyph.font_size)));
+        }
+    }
+    for rect in saved.decorations.iter() {
+        bar(rect, &mut cmds[usize::from(rect.style)]);
+    }
+    if !cmds.iter().flatten().all(is_finite) {
+        return None;
+    }
+    Some(cmds.into_iter().map(|cmds| Cow::Owned(d::Path { cmds, fill_rule: d::FillRule::NonZero })).collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The one path of a text without runs.
+    fn stored_path(saved: &d::FigTextGeometry) -> Option<Cow<'_, d::Path>> {
+        stored_paths(saved, 1).map(|mut paths| paths.remove(0))
+    }
 
     fn blob_of(len_cmds: usize) -> Arc<[u8]> {
         let mut b = Vec::new();
@@ -279,6 +313,7 @@ mod tests {
             blobs: vec![triangle, curve],
             glyph_blobs: Vec::new(),
             glyphs: glyphs.clone().into(),
+            ..Default::default()
         };
         let mut expected = Vec::new();
         for g in glyphs.iter().filter(|g| g.blob < 2) {
@@ -316,6 +351,7 @@ mod tests {
                 .map(|i| d::StoredGlyph { x: i as f32, y: 0.0, font_size: 10.0, blob: 0, first_char: 0, style: 0, flags: 0 })
                 .collect::<Vec<_>>()
                 .into(),
+            ..Default::default()
         };
         assert!(stored_path(&saved).is_none());
         // and a table over the glyph limit is refused without a lookup
@@ -339,6 +375,7 @@ mod tests {
             blobs: vec![blob],
             glyph_blobs: Vec::new(),
             glyphs: vec![d::StoredGlyph { x: 0.0, y: 0.0, font_size: 1.0e38, blob: 0, first_char: 0, style: 0, flags: 0 }].into(),
+            ..Default::default()
         };
         assert!(stored_path(&saved).is_none());
     }

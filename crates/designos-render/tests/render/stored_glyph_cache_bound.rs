@@ -23,6 +23,7 @@ fn text_of(blobs: Vec<Arc<[u8]>>) -> Node {
         blobs,
         glyph_blobs: Vec::new(),
         glyphs: glyphs.into(),
+        ..Default::default()
     }));
     node
 }

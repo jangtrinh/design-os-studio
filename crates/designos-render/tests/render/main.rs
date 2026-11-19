@@ -41,6 +41,7 @@ mod shadow_fillless;
 mod stored_glyph_cache_bound;
 mod stored_glyph_crafted_input;
 mod stored_glyph_golden;
+mod stored_glyph_rule;
 mod stored_glyph_use;
 mod table_render;
 mod text_fill_source;

@@ -3,6 +3,8 @@
 //! where nothing else bounds the glyph count, the blobs a glyph names or the numbers in the table.
 
 use super::fig_text_geometry::FigTextGeometry;
+use super::glyph_table::StoredGlyph;
+use super::stored_text_extras::StoredFallback;
 
 /// The most glyphs of one text that draw stored outlines.
 pub const MAX_DRAWN_GLYPHS: usize = 4096;
@@ -18,23 +20,40 @@ impl FigTextGeometry {
     /// Why the renderer must not draw this geometry, `None` when it may. Allocates nothing and looks at each glyph once,
     /// after the glyph count is known to be within [`MAX_DRAWN_GLYPHS`]. A geometry from before the glyph table is its
     /// own built path and only has to have commands.
+    ///
+    /// The order is the scoreboard's ladder: what the table holds (count, numbers, blob bytes), then what the importer
+    /// saw about a glyph (emoji, rotation), then the importer's own verdict on the text.
     pub fn draw_refusal(&self) -> Option<&'static str> {
         if self.glyphs.is_empty() {
-            return self.path.cmds.is_empty().then_some("empty stored outline");
+            return match self.fallback {
+                Some(fallback) => Some(fallback.reason()),
+                None => self.path.cmds.is_empty().then_some("empty stored outline"),
+            };
         }
         if self.glyphs.len() > MAX_DRAWN_GLYPHS {
-            return Some("stored glyphs over budget");
+            return Some(StoredFallback::GlyphCount.reason());
         }
         let mut blob_bytes = 0usize;
+        let mut flags = 0u16;
         for glyph in &self.glyphs {
             if !(glyph.x.is_finite() && glyph.y.is_finite() && glyph.font_size.is_finite() && glyph.font_size > 0.0) {
                 return Some("stored glyphs not finite");
             }
+            flags |= glyph.flags;
             if let Some(blob) = glyph.blob_slot().and_then(|slot| self.blobs.get(slot as usize)) {
                 blob_bytes = blob_bytes.saturating_add(blob.len());
             }
         }
-        (blob_bytes > MAX_BLOB_BYTES_PER_TEXT).then_some("stored glyphs over budget")
+        if blob_bytes > MAX_BLOB_BYTES_PER_TEXT {
+            return Some(StoredFallback::BlobBudget.reason());
+        }
+        if flags & StoredGlyph::EMOJI != 0 {
+            return Some("emoji glyph");
+        }
+        if flags & StoredGlyph::ROTATED != 0 {
+            return Some(StoredFallback::RotatedGlyph.reason());
+        }
+        self.fallback.map(StoredFallback::reason)
     }
 }
 
@@ -52,6 +71,7 @@ mod tests {
             blobs: blobs.into_iter().map(Arc::from).collect(),
             glyph_blobs: Vec::new(),
             glyphs: glyphs.into(),
+            ..Default::default()
         }
     }
 
@@ -65,14 +85,14 @@ mod tests {
         assert_eq!(geometry(at_count.clone(), Vec::new()).draw_refusal(), None);
         let mut over = at_count;
         over.push(glyph(0.0, 0.0, 10.0, StoredGlyph::NO_BLOB));
-        assert_eq!(geometry(over, Vec::new()).draw_refusal(), Some("stored glyphs over budget"));
+        assert_eq!(geometry(over, Vec::new()).draw_refusal(), Some("too many stored glyphs"));
 
         let half = vec![0u8; MAX_BLOB_BYTES_PER_TEXT / 2];
         let two = vec![glyph(0.0, 0.0, 10.0, 0), glyph(1.0, 0.0, 10.0, 0)];
         assert_eq!(geometry(two.clone(), vec![half.clone()]).draw_refusal(), None, "a shared blob counts once per glyph: exactly the budget");
         let mut three = two;
         three.push(glyph(2.0, 0.0, 10.0, 0));
-        assert_eq!(geometry(three, vec![half]).draw_refusal(), Some("stored glyphs over budget"));
+        assert_eq!(geometry(three, vec![half]).draw_refusal(), Some("stored blobs over budget"));
     }
 
     #[test]

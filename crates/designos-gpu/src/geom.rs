@@ -595,6 +595,7 @@ mod tests {
             blobs: vec![Arc::from(triangle_blob())],
             glyph_blobs: Vec::new(),
             glyphs: vec![d::StoredGlyph { x: 0.0, y: 20.0, font_size: 20.0, blob: 0, first_char: 0, style: 0, flags: 0 }].into(),
+            ..Default::default()
         });
         assert_draws_the_icon_triangle_and_invalidates(doc, id);
     }
@@ -616,6 +617,7 @@ mod tests {
             blobs: Vec::new(),
             glyph_blobs: Vec::new(),
             glyphs: Default::default(),
+            ..Default::default()
         });
         assert_draws_the_icon_triangle_and_invalidates(doc, id);
     }
@@ -630,6 +632,7 @@ mod tests {
                 blobs: vec![Arc::from(triangle_blob())],
                 glyph_blobs: Vec::new(),
                 glyphs: vec![d::StoredGlyph { x: glyph_x, y: 20.0, font_size: 20.0, blob: 0, first_char: 0, style: 0, flags: 0 }].into(),
+                ..Default::default()
             })
         };
         let (doc, id) = build(0.0);

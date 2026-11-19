@@ -115,6 +115,7 @@ fn populated() -> Node {
         blobs: vec![std::sync::Arc::from(vec![1u8, 2])],
         glyph_blobs: Vec::new(),
         glyphs: vec![stored_glyph(0)].into(),
+        ..Default::default()
     }));
     n.fill_geometry = Some(vec![path_with(2)]);
     n.stroke_geometry = Some(vec![path_with(1)]);
@@ -197,6 +198,7 @@ fn field_edits() -> Vec<(&'static str, Vec<Edit>)> {
                     blobs: Vec::new(),
                     glyph_blobs: Vec::new(),
                     glyphs: vec![stored_glyph(3), stored_glyph(4)].into(),
+                    ..Default::default()
                 }))
             }],
         ),
@@ -1421,6 +1423,7 @@ fn a_stored_glyph_geometry_the_nodes_share_is_not_encoded_to_compare() {
         blobs: Vec::new(),
         glyph_blobs: Vec::new(),
         glyphs: (0..2_000).map(stored_glyph).collect::<Vec<_>>().into(),
+        ..Default::default()
     }));
     let mut after = before.clone();
     after.name = "renamed".into();
@@ -1440,6 +1443,7 @@ fn a_stored_geometry_is_reported_under_the_key_its_form_is_saved_under() {
             blobs: Vec::new(),
             glyph_blobs: Vec::new(),
             glyphs: vec![stored_glyph(first)].into(),
+            ..Default::default()
         }))
     };
     let legacy = |points: usize| {
@@ -1450,6 +1454,7 @@ fn a_stored_geometry_is_reported_under_the_key_its_form_is_saved_under() {
             blobs: Vec::new(),
             glyph_blobs: vec![None],
             glyphs: Default::default(),
+            ..Default::default()
         }))
     };
     let node_with = |geometry: Option<std::sync::Arc<designos_doc::FigTextGeometry>>| {

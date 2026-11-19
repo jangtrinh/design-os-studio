@@ -477,6 +477,7 @@ mod tests {
             blobs: Vec::new(),
             glyph_blobs: Vec::new(),
             glyphs: Default::default(),
+            ..Default::default()
         }));
         let mut cur = old.clone();
         assert!(!properties_changed(&old, &cur), "a snapshot clone shares the geometry and changed nothing");

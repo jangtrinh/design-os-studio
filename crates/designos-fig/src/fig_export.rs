@@ -1438,7 +1438,18 @@ fn def_slot_content_id<'a>(link: &'a ComponentLink, prop_name: &str) -> Option<&
 /// and instances use it.
 fn reindexed_derived_text(cx: &mut ExportCtx, node: &Node) -> Option<(Arc<str>, V)> {
     let saved = node.fig_text_geometry.as_deref().filter(|saved| saved.matches(node))?;
+    let NodeKind::Text(text) = &node.kind else { return None };
     let mut derived: serde_json::Value = serde_json::from_str(node.fig_metadata.get("derivedTextData")?).ok()?;
+    // Until the save maps Figma's style ids onto the ones this export writes and keeps every stored font, write only what
+    // an earlier version wrote: a text without style runs whose one stored font is the layer's own. Studio numbers its
+    // runs from 1 in run order, so the style ids stored in a text with runs would name other runs, or none.
+    let one_own_font = match derived.get("fontMetaData").and_then(|f| f.as_array()).map(Vec::as_slice) {
+        Some([font]) => font.pointer("/key/family").and_then(|f| f.as_str()).is_some_and(|f| f.eq_ignore_ascii_case(&text.style.font_family)),
+        _ => false,
+    };
+    if !text.runs.is_empty() || !saved.run_sids.is_empty() || !one_own_font {
+        return None;
+    }
     let glyphs = derived.get_mut("glyphs")?.as_array_mut().filter(|g| g.len() == saved.glyph_count())?;
     // every glyph must name a blob of the saved geometry before any blob is written, so a text that cannot be written
     // leaves no orphan blob in the table

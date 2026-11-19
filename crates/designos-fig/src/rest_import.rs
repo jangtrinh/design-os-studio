@@ -893,6 +893,9 @@ struct Ctx<'a> {
     grid_col_track_ids: HashMap<NodeId, Vec<String>>,
     grid_row_track_ids: HashMap<NodeId, Vec<String>>,
     no_auto_layout: HashSet<NodeId>,
+    /// The style id Figma gave each style run of a text layer, in run order (see `FigTextGeometry::run_sids`). Only a text
+    /// with runs has an entry; `attach_embedded_glyphs` takes them.
+    text_run_sids: HashMap<NodeId, Vec<u32>>,
     /// `.fig` `uniformScaleFactor` of instances made with the scale tool.
     scales: BTreeMap<NodeId, f32>,
     /// Library components and sets of `.fig` internal canvases: node ->
@@ -1099,6 +1102,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         grid_col_track_ids: HashMap::new(),
         grid_row_track_ids: HashMap::new(),
         no_auto_layout: HashSet::new(),
+        text_run_sids: HashMap::new(),
         scales: BTreeMap::new(),
         library_keys: BTreeMap::new(),
         pending_swaps: Vec::new(),
@@ -1264,6 +1268,7 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
         grid_col_track_ids: HashMap::new(),
         grid_row_track_ids: HashMap::new(),
         no_auto_layout: HashSet::new(),
+        text_run_sids: HashMap::new(),
         scales: BTreeMap::new(),
         library_keys: BTreeMap::new(),
         pending_swaps: Vec::new(),
@@ -1669,7 +1674,13 @@ impl<'a> Ctx<'a> {
                     };
                     NodeKind::Vector { paths, network }
                 }
-                "TEXT" => NodeKind::Text(text_props(v)),
+                "TEXT" => {
+                    let (props, sids) = text_props_with_run_sids(v);
+                    if !sids.is_empty() {
+                        self.text_run_sids.insert(id, sids);
+                    }
+                    NodeKind::Text(props)
+                }
                 "BOOLEAN_OPERATION" => NodeKind::BooleanOp(match fstr(v, "booleanOperation") {
                     Some("SUBTRACT") => BooleanOp::Subtract,
                     Some("INTERSECT") => BooleanOp::Intersect,
@@ -2116,7 +2127,7 @@ impl<'a> Ctx<'a> {
 
     fn finish(&mut self, expand_instances: bool) -> Result<(), FigError> {
         if !self.blobs.is_empty() {
-            crate::fig::attach_embedded_glyphs(&mut self.doc, self.blobs);
+            crate::fig::attach_embedded_glyphs(&mut self.doc, self.blobs, &self.text_run_sids);
         }
         let links = std::mem::take(&mut self.instances);
         let mut targets: BTreeMap<NodeId, NodeId> = BTreeMap::new();
@@ -4437,6 +4448,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             grid_col_track_ids: std::mem::take(&mut self.grid_col_track_ids),
             grid_row_track_ids: std::mem::take(&mut self.grid_row_track_ids),
             no_auto_layout: std::mem::take(&mut self.no_auto_layout),
+            text_run_sids: HashMap::new(),
             scales: std::mem::take(&mut self.scales),
             pending_swaps: Vec::new(),
             component_keys: BTreeMap::new(),
@@ -4756,6 +4768,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             grid_col_track_ids: scratch_col_tracks,
             grid_row_track_ids: scratch_row_tracks,
             no_auto_layout: scratch_no_auto_layout,
+            text_run_sids: HashMap::new(),
             scales: scratch_scales,
             pending_swaps: Vec::new(),
             component_keys: BTreeMap::new(),
@@ -5576,7 +5589,7 @@ fn frame_props(v: &Value) -> FrameProps {
     FrameProps { clips_content: fbool(v, "clipsContent").unwrap_or(false), auto_layout, grids: farr(v, "layoutGrids").iter().filter_map(parse_grid).collect() }
 }
 
-fn text_props(v: &Value) -> TextProps {
+fn text_props_with_run_sids(v: &Value) -> (TextProps, Vec<u32>) {
     let content = fstr(v, "characters").unwrap_or("").to_string();
     let mut style = TextStyle::default();
     let st = v.get("style");
@@ -5596,7 +5609,7 @@ fn text_props(v: &Value) -> TextProps {
     let decoration_skip_ink = fbool(v, "textDecorationSkipInk").or_else(|| st.and_then(|s| fbool(s, "textDecorationSkipInk"))).unwrap_or(true);
 
     let overrides: Vec<u64> = farr(v, "characterStyleOverrides").iter().map(|x| x.as_u64().unwrap_or(0)).collect();
-    let runs = build_runs(&content, &style, &overrides, v.get("styleOverrideTable"));
+    let (runs, run_sids) = build_runs_with_sids(&content, &style, &overrides, v.get("styleOverrideTable"));
     let text_wrap = match fstr(v, "textWrapStyle").or_else(|| st.and_then(|s| fstr(s, "textWrapStyle"))) {
         Some("BALANCE") => TextWrap::Balance,
         Some("PRETTY") => TextWrap::Pretty,
@@ -5611,12 +5624,19 @@ fn text_props(v: &Value) -> TextProps {
         crate::textfmt::apply_paragraph(&mut tp, st);
     }
     crate::textfmt::apply_lines(&mut tp, v);
-    tp
+    (tp, run_sids)
 }
 
 /// Style runs over byte ranges from per-UTF-16-unit override ids.
 fn build_runs(content: &str, base: &TextStyle, overrides: &[u64], table: Option<&Value>) -> Vec<TextRun> {
+    build_runs_with_sids(content, base, overrides, table).0
+}
+
+/// [`build_runs`] and, for each run it kept, the override id Figma gave it. A stretch the table has no entry for, or one
+/// with no characters, is no run and has no id.
+fn build_runs_with_sids(content: &str, base: &TextStyle, overrides: &[u64], table: Option<&Value>) -> (Vec<TextRun>, Vec<u32>) {
     let mut runs = Vec::new();
+    let mut sids = Vec::new();
     if overrides.iter().any(|&x| x != 0) {
         let offs = utf16_to_byte_offsets(content);
         let units = offs.len() - 1;
@@ -5634,13 +5654,14 @@ fn build_runs(content: &str, base: &TextStyle, overrides: &[u64], table: Option<
                     let (s, e) = (offs[i], offs[j]);
                     if e > s {
                         runs.push(TextRun { start: s, end: e, style: rs });
+                        sids.push(u32::try_from(sid).unwrap_or(u32::MAX));
                     }
                 }
             }
             i = j;
         }
     }
-    runs
+    (runs, sids)
 }
 
 /// A grid child's alignment key: `MIN` is Start. `None` for a value this model does not know.
@@ -6430,6 +6451,7 @@ mod expand_depth_tests {
             grid_col_track_ids: HashMap::new(),
             grid_row_track_ids: HashMap::new(),
             no_auto_layout: HashSet::new(),
+            text_run_sids: HashMap::new(),
             scales: BTreeMap::new(),
             library_keys: BTreeMap::new(),
             pending_swaps: Vec::new(),
@@ -6477,6 +6499,7 @@ mod expand_depth_tests {
             grid_col_track_ids: HashMap::new(),
             grid_row_track_ids: HashMap::new(),
             no_auto_layout: HashSet::new(),
+            text_run_sids: HashMap::new(),
             scales: BTreeMap::new(),
             library_keys: BTreeMap::new(),
             pending_swaps: Vec::new(),
