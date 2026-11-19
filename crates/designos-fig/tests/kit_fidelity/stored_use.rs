@@ -41,36 +41,26 @@ pub fn empty_derived(raw: &Raw) -> usize {
         .count()
 }
 
-/// Why a text node does not draw its saved glyphs. The ladder mirrors the gate `embedded_glyphs` in
-/// `designos-render/src/text.rs` (saved glyphs still match the node, no decoration, requested font not available);
-/// when that gate changes, the reasons here change with it. A node the gate refuses for none of those reasons falls
-/// through to "a reason this part does not name". For a node the importer kept none for, the cause is named too.
-/// `None` when it draws them.
+/// Why a text node does not draw its saved glyphs, named by the renderer's own gate (`stored_glyph_use`): the text no
+/// longer matches what Figma stored, or it is shaped for the named reason. For a node the importer kept no glyphs for,
+/// the cause is named too. `None` when it draws them.
 pub fn text_drop(node: &Node) -> Option<(&'static str, Option<&'static str>)> {
     let NodeKind::Text(props) = &node.kind else { return Some(("not a text layer", None)) };
-    let saved = node.fig_text_geometry.as_deref();
-    if designos_render::stored_glyph_use(node) == designos_render::StoredGlyphUse::Drawn {
-        return None;
-    }
-    Some(match saved {
-        None => (
+    match designos_render::stored_glyph_use(node) {
+        designos_render::StoredGlyphUse::Drawn => None,
+        designos_render::StoredGlyphUse::Edited => Some(("saved glyphs no longer match the text", None)),
+        designos_render::StoredGlyphUse::Fallback(reason) => Some((reason, None)),
+        designos_render::StoredGlyphUse::NoStoredData => Some((
             "importer kept no glyphs",
             Some(if !node.fig_metadata.contains_key("derivedTextData") {
                 "derivedTextData not kept on the layer"
-            } else if !props.runs.is_empty() {
-                "mixed style runs"
+            } else if props.content.is_empty() {
+                "no characters"
             } else {
-                "the importer's glyph rules failed (size, fonts, glyph count, rotation or blob budget)"
+                "nothing stored to draw (no glyphs, glyphs that draw nothing, or data that cannot be read)"
             }),
-        ),
-        Some(saved) if !saved.matches(node) => ("saved glyphs no longer match the text", None),
-        Some(_) if props.style.decoration != TextDecoration::None => ("underline or strikethrough", None),
-        Some(_) => match designos_render::resolve_font(&props.style.font_family, props.style.font_weight, props.style.italic) {
-            Some(f) if f.family.eq_ignore_ascii_case(&props.style.font_family) && f.bundled => ("font available (bundled)", None),
-            Some(f) if f.family.eq_ignore_ascii_case(&props.style.font_family) => ("font available (installed)", None),
-            _ => ("not drawn for a reason this part does not name", None),
-        },
-    })
+        )),
+    }
 }
 
 pub fn part(inst: &Truth, geo: &[GeoTruth], text_guids: &[String], empty_derived: usize, doc: &Document, keys: &NodeKeys) -> Part {
@@ -80,7 +70,7 @@ pub fn part(inst: &Truth, geo: &[GeoTruth], text_guids: &[String], empty_derived
         "a node that carries the data Figma stored for it draws or lays itself out from that data on open, by the decision the app makes",
     );
     p.print_detail("texts: importer kept no glyphs, by cause");
-    p.note("texts depend on the fonts of the machine that runs this: the gate draws saved glyphs only for a family that does not resolve here, and the app fetches and registers fonts when it opens a file, which this run does not");
+    p.note("texts: the drop reasons are the renderer's own, in the order its gate looks for them (see `designos_render::stored_glyph_use`); the fonts of the machine that runs this do not decide it");
     let broken = broken_comparator();
     let refused = instance_hydration::refused(inst, doc, keys);
     for i in &inst.instances {
@@ -107,6 +97,10 @@ pub fn part(inst: &Truth, geo: &[GeoTruth], text_guids: &[String], empty_derived
         };
         let Some(n) = doc.get(id) else { continue };
         let resolved = resolve_node(doc, n);
+        if matches!(&resolved.kind, NodeKind::Text(t) if t.content.is_empty()) {
+            p.unscored("text with no characters", "nothing to draw, so the stored data has nothing to say");
+            continue;
+        }
         let drop = text_drop(&resolved);
         let mut b = vec!["texts: total".to_string()];
         if let Some((reason, cause)) = drop {
