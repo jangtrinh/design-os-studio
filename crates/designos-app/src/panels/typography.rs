@@ -56,7 +56,14 @@ pub fn combine(a: &Summary, b: &Summary) -> Summary {
 pub fn nodes_summary(app: &App, sel: &[NodeId]) -> Option<Summary> {
     sel.iter()
         .take(64)
-        .filter_map(|id| app.doc.get(*id).and_then(|n| n.kind.any_text().map(|t| richtext::summary(t, 0..t.content.len()))))
+        .filter_map(|id| {
+            let n = app.doc.get(*id)?;
+            // a text in a scaled instance shows what it draws, which its stored values only match by chance
+            if let Some(drawn) = designos_doc::drawn_scaled_text(&app.doc, n) {
+                return Some(richtext::summary(&drawn, 0..drawn.content.len()));
+            }
+            n.kind.any_text().map(|t| richtext::summary(t, 0..t.content.len()))
+        })
         .reduce(|a, b| combine(&a, &b))
 }
 
@@ -752,9 +759,12 @@ fn details_rows(sets: usize, active_tab: usize, truncating: bool) -> f32 {
 pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &super::effects::PopState) {
     let ctx = ui.ctx().clone();
     let ids = st.ids.clone();
-    let Some(t) = ids.first().and_then(|id| match app.doc.get(*id).map(|n| &n.kind) {
-        Some(NodeKind::Text(t)) => Some(t.clone()),
-        _ => None,
+    let Some(t) = ids.first().and_then(|id| match app.doc.get(*id) {
+        Some(n) => match &n.kind {
+            NodeKind::Text(t) => Some(designos_doc::drawn_scaled_text(&app.doc, n).unwrap_or_else(|| t.clone())),
+            _ => None,
+        },
+        None => None,
     }) else {
         app.props.pop = None;
         return;
@@ -1198,5 +1208,96 @@ mod tests {
         assert_eq!(text.style_refs.get("text").map(String::as_str), Some("Body"));
         let NodeKind::Sticky(sticky) = &app.doc.get(sticky_id).expect("sticky layer").kind else { panic!("sticky layer") };
         assert!(matches!(sticky.text.style.fills.first().map(|p| &p.kind), Some(PaintKind::Solid(c)) if *c == Color::rgb(0, 0, 255)));
+    }
+    // ---- text in an instance made with the scale tool
+
+    /// A page with a number variable (14, then 18), a main text bound to it and linked to the `Body` style, and an
+    /// instance of that main scaled to 0.8. Returns the app, the text in the instance, the main's text and the
+    /// variable's id and mode.
+    fn scaled_bound_app() -> (App, NodeId, NodeId, String, String) {
+        let body = TextStyle { font_size: 14.0, line_height: LineHeight::Pixels(20.0), ..Default::default() };
+        let mut d = Document::new("scaled-typography");
+        let page = d.add_page("page");
+        d.styles.insert("Body".into(), Style::Text(body.clone()));
+        let main_id = d.alloc_id();
+        let main = d.insert(page, Node::frame(main_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 28.0))).unwrap();
+        let text_id = d.alloc_id();
+        let mut text = Node::text(text_id, designos_doc::Rect::new(6.0, 4.0, 88.0, 20.0), "Rating", body);
+        text.style_refs.insert("text".into(), "Body".into());
+        d.insert(main, text).unwrap();
+        let mut app = App::new(d);
+        let mut store = VariableStore::from_doc(&app.doc);
+        let coll = store.add_collection("Type");
+        let mode = store.collections[&coll].modes[0].id.clone();
+        let var = store.add_variable(&coll, "Font size/text-sm", VariableKind::Number).unwrap();
+        let dark = store.add_mode(&coll, "Dark").unwrap();
+        store.set_value(&var, &mode, VariableValue::Number(14.0));
+        store.set_value(&var, &dark, VariableValue::Number(20.0));
+        app.commit_store(store, &[], &[]);
+        app.doc.get_mut(text_id).unwrap().variables.bindings.insert("fontSize".into(), var.clone());
+        designos_doc::create_component(&mut app.doc, main).apply(&mut app.doc).unwrap();
+        designos_doc::create_instance(&mut app.doc, main, page, designos_doc::Vec2::ZERO).apply(&mut app.doc).unwrap();
+        let inst = *app.doc.get(page).unwrap().children.last().unwrap();
+        let inner = app.doc.get(inst).unwrap().children[0];
+        let n = app.doc.get_mut(inner).unwrap();
+        n.variables.bindings.insert("fontSize".into(), var.clone());
+        if let NodeKind::Text(t) = &mut n.kind {
+            t.apply_uniform_scale(0.8);
+        }
+        app.page = page;
+        (app, inner, text_id, var, mode)
+    }
+
+    #[test]
+    fn a_scaled_text_shows_the_values_it_draws() {
+        let (mut app, inner, _, var, mode) = scaled_bound_app();
+        let sum = nodes_summary(&app, &[inner]).expect("a text layer");
+        assert_eq!(sum.size, Some(11.2), "the 14 px variable draws at 0.8");
+        assert_eq!(sum.line_height, Some(LineHeight::Pixels(16.0)));
+        let mut store = VariableStore::from_doc(&app.doc);
+        store.set_value(&var, &mode, VariableValue::Number(18.0));
+        app.commit_store(store, &[], &[]);
+        let sum = nodes_summary(&app, &[inner]).expect("a text layer");
+        assert!((sum.size.unwrap() - 14.4).abs() < 1e-4, "the variable at 18 draws at 14.4, the row shows {:?}", sum.size);
+    }
+
+    #[test]
+    fn a_scaled_text_shows_no_linked_style_but_the_model_keeps_the_link_and_the_binding() {
+        let (app, inner, main_text, var, _) = scaled_bound_app();
+        let n = app.doc.get(inner).unwrap();
+        assert_eq!(n.style_refs.get("text").map(String::as_str), Some("Body"), "the model keeps the link");
+        assert_eq!(n.variables.bindings.get("fontSize"), Some(&var), "and the binding, so a change of the main still flows");
+        assert_eq!(style_picker::linked_style(&app, &[inner], StyleProperty::Text), None, "no style row");
+        assert_eq!(style_picker::linked_style(&app, &[main_text], StyleProperty::Text).as_deref(), Some("Body"), "the main's text shows it");
+    }
+
+    #[test]
+    fn a_scaled_text_shows_the_values_it_draws_in_a_dark_frame() {
+        let (mut app, inner, _, var, _) = scaled_bound_app();
+        let coll = app.doc.variables[&var].collection.clone();
+        let dark = app.doc.variable_collections[&coll].modes[1].id.clone();
+        let page = app.page;
+        app.set_node_mode(&[page], &coll, Some(&dark));
+        let sum = nodes_summary(&app, &[inner]).expect("a text layer");
+        assert!((sum.size.unwrap() - 16.0).abs() < 1e-4, "dark is 20, drawn at 0.8 as 16; the row shows {:?}", sum.size);
+    }
+
+    #[test]
+    fn a_text_session_on_a_scaled_text_whose_style_binds_the_size_shows_the_drawn_size() {
+        let (mut app, inner, _, var, _) = scaled_bound_app();
+        // the size is bound through the text style, not on the node, so no pill stands for it
+        app.doc.get_mut(inner).unwrap().variables.bindings.remove("fontSize");
+        app.doc.style_meta.insert(
+            "Body".into(),
+            StyleMeta { name: "Body".into(), property: StyleProperty::Text, bindings: [("fontSize".to_string(), var.clone())].into(), ..Default::default() },
+        );
+        let coll = app.doc.variables[&var].collection.clone();
+        let dark = app.doc.variable_collections[&coll].modes[1].id.clone();
+        let page = app.page;
+        app.set_node_mode(&[page], &coll, Some(&dark));
+        assert!((nodes_summary(&app, &[inner]).unwrap().size.unwrap() - 16.0).abs() < 1e-4, "outside a session");
+        ts::begin_text_edit(&mut app, inner);
+        let size = ts::session_summary(&app).expect("a session summary").size.expect("one size");
+        assert!((size - 16.0).abs() < 1e-4, "dark is 20, drawn at 0.8 as 16; the session row shows {size}");
     }
 }

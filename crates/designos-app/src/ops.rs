@@ -936,6 +936,7 @@ impl App {
         if let Some(notice) = self.paste_outside_notice(&clip, container, parent) {
             self.show_toast(notice, false);
         }
+        let clip = clipboard::baked_for_paste(&self.doc, clip, parent);
         let lists = clipboard::instantiate_linking_mains(&mut self.doc, &clip, |_, _| Some(parent));
         let roots: Vec<&Node> = lists.iter().filter_map(|l| l.first()).collect();
         if !self.slot_insert_allowed(parent, &roots) {
@@ -987,6 +988,7 @@ impl App {
         } else {
             (v2(0.0, 0.0), self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0))
         };
+        let clip = clipboard::baked_for_paste(&self.doc, clip, parent);
         let lists = clipboard::instantiate(&mut self.doc, &clip);
         let roots: Vec<&Node> = lists.iter().filter_map(|l| l.first()).collect();
         if !self.slot_insert_allowed(parent, &roots) {
@@ -1052,7 +1054,8 @@ impl App {
             if tx.cmd(&mut self.doc, Command::Remove { id: target_id }).is_err() {
                 continue;
             }
-            let lists = clipboard::instantiate(&mut self.doc, &clip);
+            let baked = clipboard::baked_for_paste(&self.doc, clip.clone(), parent);
+            let lists = clipboard::instantiate(&mut self.doc, &baked);
             // The target is already out of the slot, so the check sees the net count after the swap.
             let roots: Vec<&Node> = lists.iter().filter_map(|l| l.first()).collect();
             if !self.slot_insert_allowed(parent, &roots) {
@@ -1220,6 +1223,7 @@ impl App {
         } else {
             (v2(0.0, 0.0), self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0))
         };
+        let clip = clipboard::baked_for_paste(&self.doc, clip, parent);
         let lists = clipboard::instantiate(&mut self.doc, &clip);
         let roots: Vec<&Node> = lists.iter().filter_map(|l| l.first()).collect();
         if !self.slot_insert_allowed(parent, &roots) {

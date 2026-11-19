@@ -5,7 +5,7 @@
 //! multiplied values on the layer and the factor in [`TextProps::uniform_scale`], so whatever writes a
 //! style value or a typography variable into the layer multiplies it by that factor too.
 
-use crate::{LineHeight, TextProps, TextStyle};
+use crate::{detach_text_style_bindings, resolve_node, Document, LineHeight, Node, NodeId, NodeKind, OwnedFieldSet, TextProps, TextStyle};
 
 /// Variable binding keys of the text lengths a uniform scale multiplies. The family and weight are not lengths.
 pub const SCALED_TEXT_METRIC_KEYS: [&str; 6] = ["fontSize", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent", "listSpacing"];
@@ -82,6 +82,66 @@ impl TextProps {
             1.0
         }
     }
+}
+
+/// Key of the `style_refs` entry that links a text layer to its text style.
+const TEXT_STYLE_REF: &str = "text";
+
+impl TextProps {
+    /// Whether this text draws its style at a factor other than 1 (see [`Self::uniform_scale`]).
+    pub fn has_uniform_scale(&self) -> bool {
+        applies(self.uniform_scale_factor())
+    }
+}
+
+/// The text `node` draws right now, when it is a text layer with a factor (see [`TextProps::uniform_scale`]): its
+/// lengths with the variables and the linked style applied, at the scale. `None` for any other layer.
+pub fn drawn_scaled_text(doc: &Document, node: &Node) -> Option<TextProps> {
+    let NodeKind::Text(own) = &node.kind else { return None };
+    if !own.has_uniform_scale() {
+        return None;
+    }
+    match resolve_node(doc, node).into_owned().kind {
+        NodeKind::Text(drawn) => Some(drawn),
+        _ => None,
+    }
+}
+
+/// Whether `from` or a layer above it is an instance. A layer for which this is false sits outside every instance, so
+/// a text with a factor there has nothing left to multiply its values.
+pub fn in_instance_chain(doc: &Document, from: NodeId) -> bool {
+    let mut at = Some(from);
+    while let Some(n) = at.and_then(|id| doc.get(id)) {
+        if matches!(n.kind, NodeKind::Instance { .. }) {
+            return true;
+        }
+        at = n.parent;
+    }
+    false
+}
+
+/// `node` as it must be once it sits outside every instance: a text layer with a factor takes the values it draws
+/// now as its own (size, line height, letter and paragraph spacing, indent, list spacing and the family, weight and
+/// style of the base and of each run), and loses the text style link, the typography variable bindings, the style
+/// overrides and the factor. Its colour, and every other variable binding, stay. `None` when `node` is not a text
+/// layer with a factor, which has nothing to take.
+pub fn baked_uniform_scale(doc: &Document, node: &Node) -> Option<Node> {
+    let drawn = drawn_scaled_text(doc, node)?;
+    let mut out = node.clone();
+    let NodeKind::Text(t) = &mut out.kind else { return None };
+    let held = |own: &TextStyle, drawn: &TextStyle| TextStyle { fills: own.fills.clone(), ..drawn.clone() };
+    t.style = held(&t.style, &drawn.style);
+    // resolving never changes the runs, so they pair up one to one
+    debug_assert_eq!(t.runs.len(), drawn.runs.len());
+    for (run, d) in t.runs.iter_mut().zip(&drawn.runs) {
+        run.style = held(&run.style, &d.style);
+    }
+    t.paragraph = drawn.paragraph;
+    t.uniform_scale = 1.0;
+    detach_text_style_bindings(&mut out);
+    out.style_refs.remove(TEXT_STYLE_REF);
+    out.text_style_overrides = OwnedFieldSet::EMPTY;
+    Some(out)
 }
 
 #[cfg(test)]

@@ -645,8 +645,11 @@ pub fn edit_text_props(app: &mut App, f: impl Fn(&mut TextProps)) {
 
 /// Style summary of the open session's selection (for the inspector).
 pub fn session_summary(app: &App) -> Option<richtext::Summary> {
-    let t = stored_of(app)?;
     let s = app.canvas.text.as_ref()?;
+    // A text in a scaled instance shows what it draws; its stored values only match that by chance. Runs pair one to
+    // one with the stored ones, so the selected range holds. Typing and edits keep working on the stored text.
+    let node = app.doc.get(s.id)?;
+    let t = designos_doc::drawn_scaled_text(&app.doc, node).or_else(|| node.kind.any_text().cloned())?;
     let mut sum = richtext::summary(&t, s.range());
     if let (true, Some(ty)) = (s.range().is_empty(), &s.typing) {
         sum = richtext::summary(&TextProps { content: "x".into(), style: ty.clone(), runs: vec![], ..t }, 0..0);

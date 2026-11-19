@@ -1163,6 +1163,8 @@ fn detach_into(c: &mut Ctx, id: NodeId, as_component: bool) {
     let NodeKind::Instance { frame, .. } = &n.kind else { return };
     let frame = frame.clone();
     let nested = !is_top(&n);
+    // A text with a factor holds the values it draws once no instance is above it any more.
+    let bake_text = !n.parent.is_some_and(|p| in_instance_chain(c.s, p));
     n.kind = if as_component { NodeKind::Component(frame) } else { NodeKind::Frame(frame) };
     if nested && !as_component {
         // Stays mirrored by the outer instance, but is no longer synced.
@@ -1193,6 +1195,9 @@ fn detach_into(c: &mut Ctx, id: NodeId, as_component: bool) {
             dn.component.grid_align_overrides = [false, false];
         } else {
             dn.component = ComponentLink::default();
+            if let Some(baked) = bake_text.then(|| baked_uniform_scale(c.s, &dn)).flatten() {
+                dn = baked;
+            }
         }
         let kids = dn.children.clone();
         c.update(dn);

@@ -47,13 +47,24 @@ fn a_style_created_from_an_unlinked_scaled_text_holds_the_main_scale_values() {
 }
 
 #[test]
-fn a_style_created_after_detaching_the_scaled_instance_holds_the_main_scale_values() {
+fn a_style_created_after_detaching_the_scaled_instance_holds_the_drawn_values() {
     let mut doc = import_fig_node_changes(&badge_doc(vec![text((5, 2), (5, 1), "Rating", (8, 3), json!({}))], 0.8), "t").unwrap();
     let inst = find(&doc, "Scaled badge").id;
     detach_instance(&mut doc, inst).apply(&mut doc).unwrap();
     assert!(!matches!(doc.get(inst).unwrap().kind, NodeKind::Instance { .. }), "the instance is detached");
     let id = scaled_rating(&doc).id;
-    assert_kept_and_style_unscaled(&mut doc, id);
+    assert_eq!(text_of(doc.get(id).unwrap()).uniform_scale, 1.0, "the detached text has no factor");
+    let (size, lh) = drawn(&doc, doc.get(id).unwrap());
+    assert!(close(size, 11.2) && close(lh, 16.0), "before: drawn {size} / {lh}");
+    let style = create_style(&mut doc, id);
+    assert!(
+        close(style.font_size, 11.2) && close(px(style.line_height), 16.0),
+        "the style holds the drawn 11.2 / 16, got {} / {:?}",
+        style.font_size,
+        style.line_height
+    );
+    let (size, lh) = drawn(&doc, doc.get(id).unwrap());
+    assert!(close(size, 11.2) && close(lh, 16.0), "creating a style must not change what is drawn: drawn {size} / {lh}");
 }
 
 #[test]
