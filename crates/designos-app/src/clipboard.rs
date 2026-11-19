@@ -449,6 +449,61 @@ pub fn capture(doc: &Document, ids: &[NodeId]) -> Option<Clip> {
     Some(Clip { magic: MAGIC, roots: ids.to_vec(), nodes, origin: Some(Origin::of(doc)) })
 }
 
+/// `clip` as it must be pasted into `parent`. A text with a factor (see [`designos_doc::TextProps::uniform_scale`])
+/// that is not inside an instance of the clip, going where no instance is above it, takes the values it drew where it
+/// was copied from, as Figma does: it holds them as its own and has no style link, no typography variable and no
+/// factor. Pasting into an instance, and copying a whole instance, leave every text as it is. Where the copy came from
+/// this document the variables resolve as they did at the layer it was copied from; a clip from another file only
+/// carries the values it has.
+pub fn baked_for_paste(doc: &Document, mut clip: Clip, parent: NodeId) -> Clip {
+    let scaled = |n: &Node| matches!(&n.kind, NodeKind::Text(t) if t.has_uniform_scale());
+    if !clip.nodes.iter().any(scaled) {
+        return clip;
+    }
+    let mut above = Some(parent);
+    while let Some(n) = above.and_then(|id| doc.get(id)) {
+        if matches!(n.kind, NodeKind::Instance { .. }) {
+            return clip;
+        }
+        above = n.parent;
+    }
+    // the clip's layers that sit inside one of its own instances stay as they are
+    let by_id: HashMap<NodeId, &Node> = clip.nodes.iter().map(|n| (n.id, n)).collect();
+    let mut inside: HashSet<NodeId> = HashSet::new();
+    for root in &clip.roots {
+        let mut stack = vec![(*root, false)];
+        while let Some((id, in_instance)) = stack.pop() {
+            let Some(n) = by_id.get(&id) else { continue };
+            if in_instance {
+                inside.insert(id);
+            }
+            let into = in_instance || matches!(n.kind, NodeKind::Instance { .. });
+            stack.extend(n.children.iter().map(|c| (*c, into)));
+        }
+    }
+    let same_file = clip.origin == Some(Origin::of(doc));
+    let baked: Vec<(usize, Node)> = clip
+        .nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| scaled(n) && !inside.contains(&n.id))
+        .filter_map(|(i, n)| {
+            // a layer of another file may share its id with an unrelated layer here, which must not pick its modes
+            let mut probe = n.clone();
+            if !same_file {
+                probe.id = NodeId(u64::MAX);
+            }
+            let mut out = designos_doc::baked_uniform_scale(doc, &probe)?;
+            out.id = n.id;
+            Some((i, out))
+        })
+        .collect();
+    for (i, node) in baked {
+        clip.nodes[i] = node;
+    }
+    clip
+}
+
 pub fn to_json(clip: &Clip) -> Option<String> {
     let mut clip = clip.clone();
     for n in &mut clip.nodes {
@@ -1456,5 +1511,132 @@ pub(crate) mod tests {
             let own_entry = inst_nc["symbolData"]["symbolOverrides"].get(0).cloned();
             assert_eq!(own_entry, Some(source_own_entry.clone()), "pasted unopened instance own entry equals source own entry");
         }
+    }
+    // ---- text copied out of an instance made with the scale tool
+
+    /// A page with a main component holding a text linked to the `Body` style (14 / 20), an instance of it scaled
+    /// to 0.8 (its text holds 11.2 / 16 and a factor of 0.8) and a loose rectangle. Returns the app and the ids of
+    /// the instance, the text inside it and the rectangle.
+    fn scaled_instance_app() -> (App, NodeId, NodeId, NodeId) {
+        let body = designos_doc::TextStyle { font_size: 14.0, line_height: designos_doc::LineHeight::Pixels(20.0), ..Default::default() };
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        d.styles.insert("Body".into(), designos_doc::Style::Text(body.clone()));
+        let main_id = d.alloc_id();
+        let main = d.insert(page, Node::frame(main_id, Rect::new(0.0, 0.0, 100.0, 28.0))).unwrap();
+        let text_id = d.alloc_id();
+        let mut text = Node::text(text_id, Rect::new(6.0, 4.0, 88.0, 20.0), "Rating", body);
+        text.name = "Rating".into();
+        text.style_refs.insert("text".into(), "Body".into());
+        d.insert(main, text).unwrap();
+        designos_doc::create_component(&mut d, main).apply(&mut d).unwrap();
+        designos_doc::create_instance(&mut d, main, page, Vec2::ZERO).apply(&mut d).unwrap();
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let inner = d.get(inst).unwrap().children[0];
+        if let NodeKind::Text(t) = &mut d.get_mut(inner).unwrap().kind {
+            t.apply_uniform_scale(0.8);
+        }
+        let rect_id = d.alloc_id();
+        let rect = d.insert(page, Node::rectangle(rect_id, Rect::new(300.0, 0.0, 10.0, 10.0))).unwrap();
+        let mut app = App::new(d);
+        app.page = page;
+        (app, inst, inner, rect)
+    }
+
+    fn last_child_text(app: &App) -> Node {
+        let n = app.doc.get(*app.doc.get(app.page).unwrap().children.last().unwrap()).unwrap().clone();
+        assert!(matches!(n.kind, NodeKind::Text(_)), "the last layer of the page is the pasted text, got {:?}", n.kind);
+        n
+    }
+
+    fn size_and_line_height(n: &Node) -> (f32, f32) {
+        let NodeKind::Text(t) = &n.kind else { panic!("not text") };
+        let designos_doc::LineHeight::Pixels(lh) = t.style.line_height else { panic!("line height {:?}", t.style.line_height) };
+        (t.style.font_size, lh)
+    }
+
+    #[test]
+    fn a_text_pasted_out_of_a_scaled_instance_holds_the_values_it_drew() {
+        let (mut app, _, inner, _) = scaled_instance_app();
+        app.selection = vec![inner];
+        app.copy_selection().expect("copied");
+        app.selection.clear();
+        app.paste(None);
+        let n = last_child_text(&app);
+        let NodeKind::Text(t) = &n.kind else { unreachable!() };
+        assert_eq!(t.uniform_scale, 1.0, "no factor outside the instance");
+        assert!(!n.style_refs.contains_key("text"), "no text style link outside the instance");
+        let (size, lh) = size_and_line_height(&n);
+        assert!((size - 11.2).abs() < 1e-3 && (lh - 16.0).abs() < 1e-3, "drawn 11.2 / 16, got {size} / {lh}");
+    }
+
+    #[test]
+    fn a_text_pasted_back_into_its_instance_keeps_the_factor_and_the_link() {
+        let (mut app, inst, inner, _) = scaled_instance_app();
+        app.selection = vec![inner];
+        app.copy_selection().expect("copied");
+        app.paste(None);
+        let kids = &app.doc.get(inst).unwrap().children;
+        let pasted = app.doc.get(*kids.last().unwrap()).unwrap();
+        assert_ne!(pasted.id, inner, "a new layer");
+        let NodeKind::Text(t) = &pasted.kind else { panic!("not text") };
+        assert!((t.uniform_scale - 0.8).abs() < 1e-6, "keeps the factor, got {}", t.uniform_scale);
+        assert_eq!(pasted.style_refs.get("text").map(String::as_str), Some("Body"));
+    }
+
+    #[test]
+    fn a_whole_scaled_instance_copied_and_pasted_stays_scaled() {
+        let (mut app, inst, inner, _) = scaled_instance_app();
+        app.selection = vec![inst];
+        app.copy_selection().expect("copied");
+        app.selection.clear();
+        app.paste(None);
+        let copy = app.doc.get(*app.doc.get(app.page).unwrap().children.last().unwrap()).unwrap();
+        assert!(matches!(copy.kind, NodeKind::Instance { .. }) && copy.id != inst);
+        let copied_text = app.doc.get(copy.children[0]).unwrap();
+        let NodeKind::Text(t) = &copied_text.kind else { panic!("not text") };
+        assert!((t.uniform_scale - 0.8).abs() < 1e-6, "the text in the copied instance keeps its factor");
+        assert!(copied_text.style_refs.contains_key("text"));
+        assert_ne!(copied_text.id, inner);
+    }
+
+    #[test]
+    fn pasting_over_a_selection_or_to_replace_bakes_a_text_taken_out_of_a_scaled_instance_too() {
+        let (mut app, _, inner, rect) = scaled_instance_app();
+        app.selection = vec![inner];
+        app.copy_selection().expect("copied");
+        app.selection = vec![rect];
+        app.paste_over_selection();
+        let over = last_child_text(&app);
+        let NodeKind::Text(t) = &over.kind else { unreachable!() };
+        assert_eq!(t.uniform_scale, 1.0, "pasted over the selection");
+        assert!(!over.style_refs.contains_key("text"));
+        app.selection = vec![rect];
+        app.paste_to_replace();
+        let replaced = last_child_text(&app);
+        assert!(app.doc.get(rect).is_none(), "the rectangle was replaced");
+        let NodeKind::Text(t) = &replaced.kind else { unreachable!() };
+        assert_eq!(t.uniform_scale, 1.0, "pasted to replace");
+        assert!(!replaced.style_refs.contains_key("text"));
+        let (size, lh) = size_and_line_height(&replaced);
+        assert!((size - 11.2).abs() < 1e-3 && (lh - 16.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_text_from_another_file_pasted_outside_an_instance_holds_the_values_it_carries() {
+        let (mut app, _, inner, _) = scaled_instance_app();
+        app.selection = vec![inner];
+        let json = app.copy_selection().expect("copied");
+        let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let process = value["origin"]["process"].as_u64().unwrap();
+        value["origin"]["process"] = serde_json::json!(process.wrapping_add(1));
+        app.selection.clear();
+        app.paste_from_system(Some(&value.to_string()));
+        let n = last_child_text(&app);
+        let NodeKind::Text(t) = &n.kind else { unreachable!() };
+        assert_eq!(t.uniform_scale, 1.0);
+        assert!(!n.style_refs.contains_key("text"));
+        let (size, lh) = size_and_line_height(&n);
+        assert!((size - 11.2).abs() < 1e-3 && (lh - 16.0).abs() < 1e-3, "got {size} / {lh}");
     }
 }

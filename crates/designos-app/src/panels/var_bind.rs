@@ -855,6 +855,18 @@ fn open_style_picker(app: &mut App, style_key: &str, prop: &str, kind: VariableK
         Some(BindPicker { keys: vec![prop.to_string()], kind, nodes: Vec::new(), style_key: Some(style_key.to_string()), anchor, query: String::new() });
 }
 
+/// The variable the layer `node` has bound to `key` itself, as the inspector shows it in a pill. A binding that comes
+/// from a linked style is shown elsewhere. A text in an instance made with the scale tool shows none of its typography
+/// bindings, as in Figma: it draws them at the instance's scale, so the field shows the value it draws. The binding
+/// stays in the model, and a change of the variable still reaches the text.
+pub(super) fn shown_node_binding<'a>(doc: &'a Document, node: NodeId, key: &str) -> Option<&'a Variable> {
+    let n = doc.get(node)?;
+    if designos_doc::TEXT_STYLE_BINDING_KEYS.contains(&key) && matches!(&n.kind, NodeKind::Text(t) if t.has_uniform_scale()) {
+        return None;
+    }
+    n.variables.bindings.get(key).and_then(|id| doc.variables.get(id))
+}
+
 /// Draws the bound-variable pill in place of a field when `keys[0]` is bound
 /// on the first selected node. Returns whether it did.
 pub fn pill_field(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str]) -> bool {
@@ -867,8 +879,7 @@ pub fn pill_field(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: 
 pub fn pill_field_in(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], scope: Option<&str>) -> bool {
     let Some(first) = sel.first() else { return false };
     let k0 = keys[0];
-    // Only the node's own binding draws a detachable pill here; a binding that comes from a linked style is shown elsewhere.
-    let node_var = app.doc.get(*first).and_then(|n| n.variables.bindings.get(k0)).and_then(|id| app.doc.variables.get(id)).cloned();
+    let node_var = shown_node_binding(&app.doc, *first, k0).cloned();
     let (label, kind) = match node_var {
         Some(var) => (var.name.clone(), var.kind),
         None => {

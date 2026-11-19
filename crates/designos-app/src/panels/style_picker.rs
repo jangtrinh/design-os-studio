@@ -86,9 +86,15 @@ fn button_key(prop: StyleProperty) -> &'static str {
 const MIXED_TEXT_TIP: &str = "Text has mixed styles";
 const MIXED_SELECTION_TIP: &str = "Selected text has mixed styles";
 
-/// Style of `prop` the first selected node is linked to, when that style exists.
+/// Style of `prop` the first selected node is linked to, when that style exists. A text in an instance made with the
+/// scale tool shows no text style, as in Figma: it draws the style at the instance's scale, so its rows show the
+/// values it draws. The model keeps the link, and an edit of the style still reaches the text.
 pub(super) fn linked_style(app: &App, sel: &[NodeId], prop: StyleProperty) -> Option<String> {
-    let key = app.doc.get(*sel.first()?)?.style_refs.get(kind_of(prop).ref_key())?;
+    let node = app.doc.get(*sel.first()?)?;
+    if prop == StyleProperty::Text && matches!(&node.kind, NodeKind::Text(t) if t.has_uniform_scale()) {
+        return None;
+    }
+    let key = node.style_refs.get(kind_of(prop).ref_key())?;
     app.doc.is_table_style(key).then(|| key.clone())
 }
 

@@ -1199,4 +1199,65 @@ mod tests {
         let NodeKind::Sticky(sticky) = &app.doc.get(sticky_id).expect("sticky layer").kind else { panic!("sticky layer") };
         assert!(matches!(sticky.text.style.fills.first().map(|p| &p.kind), Some(PaintKind::Solid(c)) if *c == Color::rgb(0, 0, 255)));
     }
+    // ---- text in an instance made with the scale tool
+
+    /// A page with a number variable (14, then 18), a main text bound to it and linked to the `Body` style, and an
+    /// instance of that main scaled to 0.8. Returns the app, the text in the instance, the main's text and the
+    /// variable's id and mode.
+    fn scaled_bound_app() -> (App, NodeId, NodeId, String, String) {
+        let body = TextStyle { font_size: 14.0, line_height: LineHeight::Pixels(20.0), ..Default::default() };
+        let mut d = Document::new("scaled-typography");
+        let page = d.add_page("page");
+        d.styles.insert("Body".into(), Style::Text(body.clone()));
+        let main_id = d.alloc_id();
+        let main = d.insert(page, Node::frame(main_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 28.0))).unwrap();
+        let text_id = d.alloc_id();
+        let mut text = Node::text(text_id, designos_doc::Rect::new(6.0, 4.0, 88.0, 20.0), "Rating", body);
+        text.style_refs.insert("text".into(), "Body".into());
+        d.insert(main, text).unwrap();
+        let mut app = App::new(d);
+        let mut store = VariableStore::from_doc(&app.doc);
+        let coll = store.add_collection("Type");
+        let mode = store.collections[&coll].modes[0].id.clone();
+        let var = store.add_variable(&coll, "Font size/text-sm", VariableKind::Number).unwrap();
+        store.set_value(&var, &mode, VariableValue::Number(14.0));
+        app.commit_store(store, &[], &[]);
+        app.doc.get_mut(text_id).unwrap().variables.bindings.insert("fontSize".into(), var.clone());
+        designos_doc::create_component(&mut app.doc, main).apply(&mut app.doc).unwrap();
+        designos_doc::create_instance(&mut app.doc, main, page, designos_doc::Vec2::ZERO).apply(&mut app.doc).unwrap();
+        let inst = *app.doc.get(page).unwrap().children.last().unwrap();
+        let inner = app.doc.get(inst).unwrap().children[0];
+        let n = app.doc.get_mut(inner).unwrap();
+        n.variables.bindings.insert("fontSize".into(), var.clone());
+        if let NodeKind::Text(t) = &mut n.kind {
+            t.apply_uniform_scale(0.8);
+        }
+        app.page = page;
+        (app, inner, text_id, var, mode)
+    }
+
+    #[test]
+    fn a_scaled_text_shows_the_values_it_draws() {
+        let (mut app, inner, _, var, mode) = scaled_bound_app();
+        let sum = nodes_summary(&app, &[inner]).expect("a text layer");
+        assert_eq!(sum.size, Some(11.2), "the 14 px variable draws at 0.8");
+        assert_eq!(sum.line_height, Some(LineHeight::Pixels(16.0)));
+        let mut store = VariableStore::from_doc(&app.doc);
+        store.set_value(&var, &mode, VariableValue::Number(18.0));
+        app.commit_store(store, &[], &[]);
+        let sum = nodes_summary(&app, &[inner]).expect("a text layer");
+        assert!((sum.size.unwrap() - 14.4).abs() < 1e-4, "the variable at 18 draws at 14.4, the row shows {:?}", sum.size);
+    }
+
+    #[test]
+    fn a_scaled_text_shows_no_linked_style_and_no_bound_variable_but_the_model_keeps_both() {
+        let (app, inner, main_text, var, _) = scaled_bound_app();
+        let n = app.doc.get(inner).unwrap();
+        assert_eq!(n.style_refs.get("text").map(String::as_str), Some("Body"), "the model keeps the link");
+        assert_eq!(n.variables.bindings.get("fontSize"), Some(&var), "and the binding, so a change of the main still flows");
+        assert_eq!(style_picker::linked_style(&app, &[inner], StyleProperty::Text), None, "no style row");
+        assert!(var_bind::shown_node_binding(&app.doc, inner, "fontSize").is_none(), "no variable pill");
+        assert_eq!(style_picker::linked_style(&app, &[main_text], StyleProperty::Text).as_deref(), Some("Body"), "the main's text shows both");
+        assert!(var_bind::shown_node_binding(&app.doc, main_text, "fontSize").is_some());
+    }
 }
