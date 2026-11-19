@@ -35,6 +35,8 @@ pub struct Part {
     pub unscored: BTreeMap<String, (u64, String)>,
     /// Per-bucket breakdown counts (for example equal / changed / lost of one record key).
     pub details: BTreeMap<String, BTreeMap<String, u64>>,
+    /// Names of detail tables whose largest entries are printed with the bucket lines.
+    pub printed: BTreeSet<String>,
     pub matched: BTreeSet<String>,
     pub failed: BTreeSet<String>,
     pub notes: Vec<String>,
@@ -50,6 +52,7 @@ impl Part {
             buckets: BTreeMap::new(),
             unscored: BTreeMap::new(),
             details: BTreeMap::new(),
+            printed: BTreeSet::new(),
             matched: BTreeSet::new(),
             failed: BTreeSet::new(),
             notes: Vec::new(),
@@ -74,13 +77,35 @@ impl Part {
         self.buckets.entry(bucket.to_string()).or_default()[usize::from(hidden)].add(ok);
     }
 
+    /// `measured` more items in `bucket`, `matched` of them matching. An empty batch adds no bucket.
+    pub fn tally_n(&mut self, bucket: &str, hidden: bool, matched: u64, measured: u64) {
+        if measured == 0 {
+            return;
+        }
+        let t = &mut self.buckets.entry(bucket.to_string()).or_default()[usize::from(hidden)];
+        t.measured += measured;
+        t.matched += matched;
+    }
+
     pub fn unscored(&mut self, bucket: &str, reason: &str) {
         let e = self.unscored.entry(bucket.to_string()).or_insert_with(|| (0, reason.to_string()));
         e.0 += 1;
     }
 
+    /// `n` more items that are not measured, with their reason. Nothing is added for `n == 0`.
+    pub fn unscored_n(&mut self, bucket: &str, reason: &str, n: u64) {
+        if n > 0 {
+            self.unscored.entry(bucket.to_string()).or_insert_with(|| (0, reason.to_string())).0 += n;
+        }
+    }
+
     pub fn detail(&mut self, bucket: &str, what: &str) {
         *self.details.entry(bucket.to_string()).or_default().entry(what.to_string()).or_default() += 1;
+    }
+
+    /// Prints the largest entries of detail table `bucket` with the bucket lines.
+    pub fn print_detail(&mut self, bucket: &str) {
+        self.printed.insert(bucket.to_string());
     }
 
     pub fn note(&mut self, s: impl Into<String>) {
@@ -131,6 +156,14 @@ pub fn lines(p: &Part) -> Vec<String> {
     }
     for (b, (n, why)) in &p.unscored {
         out.push(format!("{} / {b}: NOT MEASURED, {} items ({why})", p.title, thousands(*n)));
+    }
+    for name in &p.printed {
+        let Some(m) = p.details.get(name) else { continue };
+        let mut v: Vec<(&String, &u64)> = m.iter().collect();
+        v.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+        for (k, n) in v.into_iter().take(15) {
+            out.push(format!("{} / {name}: {k} {}", p.title, thousands(*n)));
+        }
     }
     out
 }

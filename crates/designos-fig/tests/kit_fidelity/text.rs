@@ -1,6 +1,8 @@
 //! Text layout: Studio's shaping of a text layer against the `derivedTextData` Figma stored for it. Three
 //! checks: the same line breaks (each line starts at the same character, counted in UTF-16 units as Figma counts),
 //! each baseline within 0.5 px, and the layout size within 0.5 px (width only where the text sizes its own width).
+//! Three more buckets sit beside them and do not enter the per-text pass: each glyph's x position and advance within
+//! 0.05 px of the stored glyph (`text_glyphs.rs`), and the texts whose every glyph matches.
 //! Layers whose font face (family, weight and style) is not available are scored apart: shaping then uses another
 //! face. A baseline Figma stored without a position is a mismatch, never a pass.
 
@@ -8,6 +10,7 @@ use super::board::{broken_comparator, Part};
 use super::keys::NodeKeys;
 use super::raw::{field_str, record_guid, u64_of, vec2_of, Raw};
 use super::text_fonts::{font_state, variable_weight_applied, FontState};
+use super::text_glyphs::{self, GlyphScore, GlyphTruth};
 use designos_doc::*;
 use designos_fig::kiwi::KiwiValue;
 use std::collections::BTreeSet;
@@ -25,6 +28,7 @@ pub struct TextTruth {
     pub baselines: Vec<Baseline>,
     pub line_height_unit: String,
     pub letter_spacing_unit: String,
+    pub glyphs: Vec<GlyphTruth>,
 }
 
 fn unit(r: &KiwiValue, key: &str) -> String {
@@ -52,12 +56,13 @@ pub fn truth(raw: &Raw) -> (Vec<TextTruth>, usize) {
             baselines,
             line_height_unit: unit(r, "lineHeight"),
             letter_spacing_unit: unit(r, "letterSpacing"),
+            glyphs: text_glyphs::truth_of(d),
         });
     }
     (out, without)
 }
 
-fn utf16_at(s: &str, byte: usize) -> u64 {
+pub(super) fn utf16_at(s: &str, byte: usize) -> u64 {
     s.get(..byte.min(s.len())).map_or(0, |p| p.encode_utf16().count() as u64)
 }
 
@@ -73,6 +78,9 @@ pub struct Checks {
     pub line_count_delta: i64,
     pub first_baseline_delta: Option<f32>,
     pub size_delta: Option<Vec2>,
+    /// `None` when Figma stored no glyphs for the text or its line breaks differ (one wrap difference would fail
+    /// every glyph after it).
+    pub glyphs: Option<GlyphScore>,
 }
 
 pub fn checks(props: &TextProps, size: Vec2, t: &TextTruth) -> Checks {
@@ -95,6 +103,7 @@ pub fn checks(props: &TextProps, size: Vec2, t: &TextTruth) -> Checks {
         line_count_delta: g.lines.len() as i64 - t.baselines.len() as i64,
         first_baseline_delta: off,
         size_delta,
+        glyphs: (breaks && !t.glyphs.is_empty()).then(|| text_glyphs::score(&g, &props.content, &t.glyphs)),
     }
 }
 
@@ -105,7 +114,10 @@ fn bin(x: f32) -> String {
 
 pub fn part(truth: &[TextTruth], without: usize, doc: &Document, keys: &NodeKeys) -> Part {
     let mut p = Part::new("text_layout", "Text layout", "same line breaks, every baseline and the layout size within 0.5 px of derivedTextData");
+    p.print_detail(text_glyphs::X_DELTAS);
+    p.print_detail(text_glyphs::ADVANCE_DELTAS);
     p.note(format!("text records without derivedTextData: {without}"));
+    p.note(text_glyphs::unit_note(truth));
     p.note(format!("embedded variable Inter drawn wider at weight 700 than 400 (weight applied by shaping): {}", variable_weight_applied()));
     let mut fonts: BTreeSet<(String, u16, bool, FontState)> = BTreeSet::new();
     for t in truth {
@@ -143,6 +155,15 @@ pub fn part(truth: &[TextTruth], without: usize, doc: &Document, keys: &NodeKeys
         match c.size {
             Some(ok) => p.tally(&format!("{scope}check: layout size"), hidden, ok),
             None => p.unscored(&format!("{scope}check: layout size of a fixed or truncated box"), "Figma stores the box there, not the laid-out text"),
+        }
+        if present {
+            match &c.glyphs {
+                Some(gs) => text_glyphs::tally(&mut p, scope, hidden, gs),
+                None if !t.glyphs.is_empty() => {
+                    p.unscored("glyph positions of a text whose line breaks differ", "one wrap difference would fail every later glyph")
+                }
+                None => {}
+            }
         }
         if present && !hidden {
             let mode = format!("{:?}", props.auto_resize);
