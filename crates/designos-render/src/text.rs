@@ -109,6 +109,8 @@ pub fn stored_glyph_use(node: &d::Node) -> StoredGlyphUse {
     if !saved.matches(node) {
         return StoredGlyphUse::Edited;
     }
+    // Defensive: the importer keeps no geometry for an empty text and an edit to empty is `Edited` first, so only a
+    // crafted document reaches this.
     if props.content.is_empty() {
         return StoredGlyphUse::Fallback("no characters");
     }
@@ -123,9 +125,18 @@ pub fn stored_glyph_use(node: &d::Node) -> StoredGlyphUse {
     if saved.glyphs.iter().any(|g| usize::from(g.style) >= styles) || saved.decorations.iter().any(|b| usize::from(b.style) >= styles) {
         return StoredGlyphUse::Fallback("stored glyph style missing");
     }
+    // Figma gives identical override styles one id, and one id can sit on two separate stretches, so a run is covered by
+    // any bar whose style is a run with the same Figma id (the importer gives all of that id's bars to the first). Style
+    // 0 is covered by bars of style 0 only.
+    let figma_id = |style: usize| style.checked_sub(1).and_then(|run| saved.run_sids.get(run)).copied();
+    let covered = |style: usize| {
+        saved.decorations.iter().any(|b| {
+            usize::from(b.style) == style || (style > 0 && figma_id(usize::from(b.style)).is_some() && figma_id(usize::from(b.style)) == figma_id(style))
+        })
+    };
     let drawn_style = std::iter::once(&props.style).chain(props.runs.iter().map(|r| &r.style));
     for (i, style) in drawn_style.enumerate() {
-        if style.decoration != d::TextDecoration::None && !saved.decorations.iter().any(|b| usize::from(b.style) == i) {
+        if style.decoration != d::TextDecoration::None && !covered(i) {
             return StoredGlyphUse::Fallback("decoration missing from stored data");
         }
     }

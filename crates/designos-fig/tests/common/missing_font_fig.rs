@@ -175,6 +175,28 @@ pub fn two_run_fixture() -> Vec<u8> {
     fig_file(nodes, vec![icon_blob(), curve_blob()])
 }
 
+/// The text `Repeated id`, "abcdefgh" in a 40 x 26 box: one underlined override (Figma id 3) on characters 2..4 and 6..8, so
+/// Figma gives both stretches one id and stores one decoration for it, with a bar under each stretch (x 10..20 and 30..40).
+/// Studio makes two runs of it, `[3, 3]`.
+pub fn repeated_id_fixture() -> Vec<u8> {
+    let mut nodes = document_and_page();
+    nodes.push(styled_glyph_text(
+        (1, 2),
+        (0, 1),
+        "a",
+        "Repeated id",
+        FAMILY,
+        "abcdefgh",
+        &[0, 0, 3, 3, 0, 0, 3, 3],
+        vec![style_override(3, FAMILY, (1.0, 0.0, 0.0), true)],
+        (0..8).map(|i| stored_glyph(Some(0), i as f32 * 5.0, i, vec![])).collect(),
+        &[FAMILY],
+        vec![("decorations", V::Array(vec![stored_decoration(3, &[(10.0, 22.0, 10.0, 2.0), (30.0, 22.0, 10.0, 2.0)])]))],
+        vec![],
+    ));
+    fig_file(nodes, vec![icon_blob()])
+}
+
 /// A frame holding the text layer `Icon text` with one triangle glyph.
 pub fn icon_fixture(family: &str) -> Vec<u8> {
     let mut nodes = document_and_page();

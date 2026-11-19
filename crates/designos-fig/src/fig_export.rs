@@ -1447,7 +1447,9 @@ fn reindexed_derived_text(cx: &mut ExportCtx, node: &Node) -> Option<(Arc<str>, 
         Some([font]) => font.pointer("/key/family").and_then(|f| f.as_str()).is_some_and(|f| f.eq_ignore_ascii_case(&text.style.font_family)),
         _ => false,
     };
-    if !text.runs.is_empty() || !saved.run_sids.is_empty() || !one_own_font {
+    // and, as main did, only a text with an outline to draw: a text of emoji or of underlined spaces stays unwritten
+    let has_outline = saved.glyph_blob_slots().flatten().next().is_some();
+    if !text.runs.is_empty() || !saved.run_sids.is_empty() || !one_own_font || !has_outline {
         return None;
     }
     let glyphs = derived.get_mut("glyphs")?.as_array_mut().filter(|g| g.len() == saved.glyph_count())?;

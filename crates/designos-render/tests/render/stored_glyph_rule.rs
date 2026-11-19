@@ -76,6 +76,33 @@ fn an_underline_on_the_second_run_comes_from_the_stored_bar_and_stays_on_that_ru
 }
 
 #[test]
+fn a_style_id_figma_reuses_for_two_stretches_still_draws_both_bars_under_their_glyphs() {
+    let (doc, text) = text_in(repeated_id_fixture(), "Repeated id");
+    let NodeKind::Text(props) = &text.kind else { unreachable!() };
+    assert_eq!(props.runs.len(), 2, "two stretches are two runs");
+    assert_eq!(&*text.fig_text_geometry.as_ref().unwrap().run_sids, &[3, 3], "with one Figma id");
+    assert_eq!(stored_glyph_use(&text), StoredGlyphUse::Drawn, "the second run is covered by the bar Figma stored for its id");
+    let outlines = text_outlines_for_node(&text);
+    let bar_starts = |i: usize, x: f32| {
+        outlines.get(i).map_or(0, |o| {
+            o.path.segments().filter(|s| matches!(s, tiny_skia::PathSegment::MoveTo(p) if (p.y - 22.0).abs() < 1e-3 && (p.x - x).abs() < 1e-3)).count()
+        })
+    };
+    assert_eq!((bar_starts(1, 10.0), bar_starts(1, 30.0)), (1, 1), "both bars are in the id's first run, at their stored places");
+    assert_eq!((bar_starts(0, 10.0), bar_starts(0, 30.0), bar_starts(2, 10.0), bar_starts(2, 30.0)), (0, 0, 0, 0), "and in no other path");
+    // on the canvas each bar is under its own glyphs (stored x 10..20 under characters c, d; 30..40 under g, h), and in the
+    // fill of the style both runs share
+    let pm = render_node(&doc, text.id, 1.0).expect("the text renders");
+    let px = |x: u32, y: u32| {
+        let p = pm.pixel(x, y).unwrap();
+        (p.red(), p.green(), p.blue(), p.alpha())
+    };
+    assert_eq!(px(15, 23), (255, 0, 0, 255), "the bar under the first stretch");
+    assert_eq!(px(35, 23), (255, 0, 0, 255), "the bar under the second stretch");
+    assert_eq!(px(25, 23).3, 0, "and none between them");
+}
+
+#[test]
 fn recolouring_one_run_keeps_the_stored_glyphs() {
     let (_, mut text) = text_in(two_run_fixture(), "Two runs");
     let NodeKind::Text(props) = &mut text.kind else { unreachable!() };

@@ -143,9 +143,15 @@ pub fn same_fig_text_geometry(a: &Option<Arc<FigTextGeometry>>, b: &Option<Arc<F
     }
 }
 
-/// The same runs over the same ranges in the same glyph-shaping style: a run's paints do not move a glyph.
+/// The same runs over the same ranges in the same glyph-shaping style: a run's paints do not move a glyph. Both sides
+/// are destructured without a catch-all, so a field added to [`TextRun`] has to be classified here first.
 fn same_runs(a: &[TextRun], b: &[TextRun]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.start == b.start && a.end == b.end && same_glyph_style(&a.style, &b.style))
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(a, b)| {
+            let TextRun { start, end, style } = a;
+            let TextRun { start: b_start, end: b_end, style: b_style } = b;
+            start == b_start && end == b_end && same_glyph_style(style, b_style)
+        })
 }
 
 /// Equality of two texts in everything but the paints (of the text and of each run) and the layer's name. Both sides are

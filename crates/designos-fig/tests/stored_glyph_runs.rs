@@ -136,3 +136,26 @@ fn a_text_with_runs_draws_the_same_after_a_round_trip_through_the_document_file(
     let bounds = |n: &Node| designos_render::text_outlines_for_node(n).iter().map(|o| o.path.bounds()).collect::<Vec<_>>();
     assert_eq!(bounds(a), bounds(b));
 }
+
+#[test]
+fn a_save_writes_no_derived_data_for_a_text_without_an_outline() {
+    // glyphs that all lack a blob (an emoji, spaces): the importer keeps them, and main kept nothing
+    let mut nodes = document_and_page();
+    nodes.push(styled_glyph_text(
+        (1, 2),
+        (0, 1),
+        "a",
+        "Emoji only",
+        FAMILY,
+        "\u{1F600}",
+        &[],
+        vec![],
+        vec![stored_glyph(None, 0.0, 0, vec![("emojiCodePoints", V::Array(vec![V::Uint(0x1F600)]))])],
+        &[FAMILY],
+        vec![],
+        vec![],
+    ));
+    let doc = import_fig(&fig_file(nodes, vec![icon_blob()])).unwrap();
+    assert!(named(&doc, "Emoji only").fig_text_geometry.is_some(), "the importer keeps it");
+    assert!(saved_derived(&export_fig(&doc).unwrap(), "Emoji only").is_none(), "and the save writes what main wrote: nothing");
+}

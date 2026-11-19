@@ -38,7 +38,8 @@ pub enum StoredFallback {
     Truncated,
     /// The text has blockquote bars or checklist markers Figma draws outside its glyphs.
     Markers,
-    /// The style runs the importer found are not the ones the stored style ids were counted against.
+    /// The style runs the importer found are not the ones the stored style ids were counted against. Defensive: the
+    /// importer takes both from the same node, so only a future change of the import can reach it.
     RunIds,
     /// A name this build does not know, from a file written by a later one.
     #[serde(other)]
