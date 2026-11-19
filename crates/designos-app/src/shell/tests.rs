@@ -1336,6 +1336,7 @@ mod proto_vars;
 mod relayout_budget;
 mod release_pick_menus;
 mod resized_shape_geometry;
+mod scaled_text_inspector;
 mod screenshot_capture;
 mod screenshot_targets;
 mod select_cli;
