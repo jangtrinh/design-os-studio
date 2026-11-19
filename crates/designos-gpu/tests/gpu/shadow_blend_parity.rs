@@ -1,7 +1,7 @@
 //! #161: CPU and GPU composite drop and inner shadows with the same blend mode. Needs a hardware GPU
 //! adapter and skips without one.
 
-mod common;
+use crate::common;
 
 use designos_doc::*;
 use designos_render::Viewport;

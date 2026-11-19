@@ -7,7 +7,7 @@
 //!
 //! These tests need a hardware GPU and skip without one.
 
-mod common;
+use crate::common;
 
 use designos_doc::*;
 use designos_gpu::{HeadlessGpu, HAL_BUFFERS_PER_PASS, MAX_HAL_COMMAND_BUFFERS, SUBMIT_HAL_BUDGET};

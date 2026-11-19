@@ -2,7 +2,7 @@
 //! CENTER line's band sits at local y in [-weight, 0] and a ROUND cap stays inside x in [0, length].
 //! The GPU half is skipped when the machine has no GPU adapter; the CPU half always runs.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

@@ -2,7 +2,7 @@
 //! the line is resized directly or through a parent frame. The GPU half is skipped when the machine has
 //! no GPU adapter; the CPU half always runs.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

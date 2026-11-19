@@ -5,7 +5,7 @@
 //! The line runs at `y = 20` from `x = 10`, weight 4, dashes `[10, 6]`, so the stroke fills rows 18..22 and
 //! the dashes cover x = 10..20, 26..36, 42..52, 58..68, 74..84 and 90..94 on a line 84 long.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

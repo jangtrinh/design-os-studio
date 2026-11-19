@@ -112,7 +112,7 @@ Literal pixel for the first acceptance criterion: a backdrop rectangle `#C8C8C8`
 | `blend_row_changes_the_effect_through_edit_nodes` (app test) | one undo step, style-linked layer behaves as for other rows | yes |
 | `zero_fake_ui_gate` | `python3 scripts/zero_fake_ui_gate.py` green | guard |
 
-Run: `cargo test -p designos-doc`, `cargo test -p designos-render`, `cargo test -p designos-gpu --test fidelity`, `cargo test -p designos-fig`, `cargo test -p designos-app effects`. Evidence: red/green capture, the CPU and GPU renders of the literal-pixel fixture, the 1440 popover capture.
+Run: `cargo test -p designos-doc`, `cargo test -p designos-render`, `cargo test -p designos-gpu --test gpu fidelity::`, `cargo test -p designos-fig`, `cargo test -p designos-app effects`. Evidence: red/green capture, the CPU and GPU renders of the literal-pixel fixture, the 1440 popover capture.
 
 Owner-manual check (flagged, never claimed by an agent): **live Figma read** for the two UNKNOWNs in section 2: set a Multiply drop shadow and an Overlay inner shadow through the plugin API on a layer inside a 50% opacity frame, export at 1x, and read back the stored `blendMode` for PASS_THROUGH.
 

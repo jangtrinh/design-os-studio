@@ -2,7 +2,7 @@
 //! `designos_doc::silhouette_source`: own fill, children of a fill-less frame (clipped or not),
 //! a hidden fill, and a stroke-only node. Pixel tests need a GPU adapter and skip without one.
 
-mod common;
+use crate::common;
 
 use designos_doc::*;
 use designos_render::Viewport;

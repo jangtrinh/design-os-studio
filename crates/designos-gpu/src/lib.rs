@@ -2,7 +2,7 @@
 //!
 //! See `README.md` for the backend decision. The CPU renderer in
 //! `designos-render` stays the deterministic reference; this crate is held to it
-//! by the fidelity tests (`tests/fidelity.rs`).
+//! by the fidelity tests (`tests/gpu/fidelity.rs`).
 //!
 //! Usage: a [`SceneCompiler`] turns the visible part of a page into a
 //! [`Frame`] (CPU, needs the document); a [`Renderer`] executes frames on the

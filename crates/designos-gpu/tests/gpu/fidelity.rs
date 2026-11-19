@@ -1,7 +1,7 @@
 //! GPU renderer vs the CPU reference. Tests print a note and return when the
 //! machine has no GPU adapter.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

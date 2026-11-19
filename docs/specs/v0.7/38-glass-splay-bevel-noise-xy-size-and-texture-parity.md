@@ -182,7 +182,7 @@ Slice B (numbers from section 3; hand-computed from the rules as written, INFERE
 | `cpu_and_gpu_agree_on_glass_and_texture` | within the fidelity tolerance | yes |
 | `cpu_and_gpu_noise_have_matching_coverage` | statistical parity (coverage within 0.03 of density-model) | yes |
 
-Run: `cargo test -p designos-doc`, `cargo test -p designos-fig`, `cargo test -p designos-render`, `cargo test -p designos-gpu --test fidelity`, `cargo test -p designos-app effects`. Evidence: red/green capture, the three popovers at 1440, the glass and noise renders before and after.
+Run: `cargo test -p designos-doc`, `cargo test -p designos-fig`, `cargo test -p designos-render`, `cargo test -p designos-gpu --test gpu fidelity::`, `cargo test -p designos-app effects`. Evidence: red/green capture, the three popovers at 1440, the glass and noise renders before and after.
 
 Owner-manual check (flagged, never claimed by an agent): **live Figma read.** In a scratch Figma file add Glass, Noise (each of the three types) and Texture through the UI, with the Size field at 2 and then 4, light angle at 0 and 90 degrees, then (1) read the plugin values, (2) export the file as `.fig` and read the stored `specularAngle`, `noiseSize`, `reflectionDistance`, `bevelSize` and the defaults, (3) take a screenshot of each panel for the labels. This closes the angle unit, the noise size direction, the defaults and the labels.
 

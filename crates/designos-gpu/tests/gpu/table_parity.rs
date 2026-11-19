@@ -1,7 +1,7 @@
 //! Tables on the GPU renderer against the CPU reference: a plain 3x3 table, a table with a merged
 //! 2x2 block, Vietnamese multi-line text and a cell fill. The compile tests run without a GPU.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

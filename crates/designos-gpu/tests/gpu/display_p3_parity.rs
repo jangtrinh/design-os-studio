@@ -1,7 +1,7 @@
 //! A Display P3 document converts its colours to sRGB the same way on the CPU and the GPU renderer, and
 //! an sRGB document is untouched. Needs a hardware GPU adapter and skips without one.
 
-mod common;
+use crate::common;
 
 use designos_doc::*;
 use designos_render::Viewport;

@@ -8,7 +8,7 @@
 //! covered by the unit tests of `silhouette_source`. Pixel tests need a GPU adapter and skip
 //! without one.
 
-mod common;
+use crate::common;
 
 use designos_doc::*;
 use designos_render::Viewport;

@@ -4,7 +4,7 @@
 //! The pixel tests need a GPU adapter and skip without one; the ceiling tests
 //! at the end only compile.
 
-mod common;
+use crate::common;
 
 use designos_doc::*;
 use designos_gpu::{Frame, SceneCompiler, DEFAULT_REFINE_MAX_PROGRAMS};

@@ -133,7 +133,7 @@ Seams: CPU pixel tests in `designos-render/tests/` (new file `progressive_blur.r
 
 Literal numbers come from the model in section 3; the `blur_count` expectations change only when the calibration below says so (the test then moves with the one function).
 
-Run: `cargo test -p designos-doc`, `cargo test -p designos-render`, `cargo test -p designos-gpu --test fidelity`, `cargo test -p designos-fig`, `cargo test -p designos-app effects`. Evidence: red/green capture, the CPU and GPU renders of a vertical ramp over a stripe pattern, the 1440 popover capture.
+Run: `cargo test -p designos-doc`, `cargo test -p designos-render`, `cargo test -p designos-gpu --test gpu fidelity::`, `cargo test -p designos-fig`, `cargo test -p designos-app effects`. Evidence: red/green capture, the CPU and GPU renders of a vertical ramp over a stripe pattern, the 1440 popover capture.
 
 Owner-manual check (flagged, never claimed by an agent): **live Figma read.** In a scratch Figma file: (1) a hard black/white vertical edge with a uniform layer blur at radius 10, 20 and 40, exported at 1x and 2x (closes the radius-to-count mapping and the uniform kernel question); (2) a progressive layer blur and a progressive background blur created through the UI, with the stored start radius, offsets and defaults read through the plugin API (closes the defaults, labels and REST names); (3) a node with two layer blurs (closes the combining rule).
 

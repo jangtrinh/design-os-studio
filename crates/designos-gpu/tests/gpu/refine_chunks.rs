@@ -3,7 +3,7 @@
 //! finished frame is cut into chunks that are submitted one per frame into a page
 //! texture of their own. Compiling needs no adapter; the pixel test skips without one.
 
-mod common;
+use crate::common;
 
 use designos_doc::*;
 use designos_gpu::SceneCompiler;

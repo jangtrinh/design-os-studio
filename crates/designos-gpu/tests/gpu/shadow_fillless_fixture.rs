@@ -1,7 +1,7 @@
 //! #520: CPU and GPU agree on the fixture pair of `520-spec.md` section 2 (white frame 1, fill-less
 //! frame 2 under rule F2). Needs a hardware GPU adapter and skips without one.
 
-mod common;
+use crate::common;
 
 use designos_doc::*;
 use designos_render::Viewport;

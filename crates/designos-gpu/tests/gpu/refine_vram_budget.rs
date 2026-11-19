@@ -5,7 +5,7 @@
 //! `refine_max_programs`. Also verifies that pooled GPU targets are trimmed to
 //! one frame's working set after a refine and across a zoom sequence.
 
-mod common;
+use crate::common;
 
 use designos_doc::*;
 use designos_gpu::{CompileOptions, Frame, SceneCompiler, DEFAULT_REFINE_MAX_PROGRAMS};

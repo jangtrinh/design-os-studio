@@ -2,7 +2,7 @@
 //! size by both renderers. Tests print a note and skip the GPU half when the machine has no GPU adapter;
 //! the CPU half (the drawn ink reaches the new box) always runs.
 
-mod common;
+use crate::common;
 
 use common::*;
 use designos_doc::*;

@@ -2,7 +2,7 @@
 //! the idle refine pass lifts the cap, and headless renders never cap.
 //! Compiling is CPU-only; only the last test needs a GPU adapter (it skips without one).
 
-mod common;
+use crate::common;
 
 use designos_diff::{diff_image, DiffOptions};
 use designos_doc::*;
