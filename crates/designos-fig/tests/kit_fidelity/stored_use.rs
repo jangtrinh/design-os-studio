@@ -19,6 +19,16 @@ use super::keys::NodeKeys;
 use super::raw::Raw;
 use designos_doc::*;
 
+/// Box layers (their own geometry is a rounded rectangle) against path layers, so a drop reads by group.
+fn type_group(ty: &str) -> &'static str {
+    match ty {
+        "FRAME" | "INSTANCE" | "SYMBOL" | "RECTANGLE" | "ROUNDED_RECTANGLE" | "SECTION" | "COMPONENT_SET" => {
+            "box layers (frame, instance, component, rectangle)"
+        }
+        _ => "path layers (vector, boolean, ellipse, star, polygon, line)",
+    }
+}
+
 /// Instance records whose `derivedSymbolData` key is present and empty: nothing stored to keep.
 pub fn empty_derived(raw: &Raw) -> usize {
     raw.live()
@@ -117,7 +127,7 @@ pub fn part(inst: &Truth, geo: &[GeoTruth], text_guids: &[String], empty_derived
         let hidden = keys.is_hidden(id);
         if !t.fill.is_empty() {
             let drawn = node.fill_geometry.as_deref().is_some_and(|g| g.iter().any(|path| !path.cmds.is_empty()));
-            let mut b = vec!["fills: total".to_string(), format!("fills: type {}", t.ty)];
+            let mut b = vec!["fills: total".to_string(), format!("fills: type {}", t.ty), format!("fills: {}", type_group(&t.ty))];
             if !drawn {
                 b.push("fills: not drawn from stored outline, no fill outline left on the layer".to_string());
             }
@@ -125,7 +135,7 @@ pub fn part(inst: &Truth, geo: &[GeoTruth], text_guids: &[String], empty_derived
         }
         if !t.stroke.is_empty() {
             let drawn = node.live_stroke_outline().is_some();
-            let mut b = vec!["strokes: total".to_string(), format!("strokes: type {}", t.ty)];
+            let mut b = vec!["strokes: total".to_string(), format!("strokes: type {}", t.ty), format!("strokes: {}", type_group(&t.ty))];
             if !drawn {
                 b.push(if node.stroke_geometry.as_deref().is_some_and(|g| !g.is_empty()) {
                     "strokes: not drawn, stale outline".to_string()

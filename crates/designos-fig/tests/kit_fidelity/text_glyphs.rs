@@ -16,6 +16,7 @@ pub const GLYPH_TOL: f32 = 0.05;
 
 pub const X_BUCKET: &str = "check: glyph x positions";
 pub const ADVANCE_BUCKET: &str = "check: glyph advances";
+pub const FIRST_X_BUCKET: &str = "check: glyph x positions, first glyph of a line";
 pub const WHOLE_BUCKET: &str = "check: glyph x and advance, whole text";
 pub const X_DELTAS: &str = "glyph x delta, Studio minus Figma (0.05 px bins)";
 pub const ADVANCE_DELTAS: &str = "glyph advance delta, Studio minus Figma (0.05 px bins)";
@@ -25,8 +26,16 @@ pub struct GlyphTruth {
     pub first: u64,
     pub x: f32,
     pub y: f32,
+    /// As stored: a fraction of the glyph's font size (`unit_note` measures it on the file; px is not the unit).
     pub advance: Option<f32>,
     pub font_size: f32,
+}
+
+impl GlyphTruth {
+    /// The stored advance in px.
+    pub fn advance_px(&self) -> Option<f32> {
+        self.advance.filter(|_| self.font_size > 0.0).map(|a| a * self.font_size)
+    }
 }
 
 pub fn truth_of(derived: &KiwiValue) -> Vec<GlyphTruth> {
@@ -50,6 +59,9 @@ pub fn truth_of(derived: &KiwiValue) -> Vec<GlyphTruth> {
 pub struct GlyphScore {
     pub x_ok: u64,
     pub x_total: u64,
+    /// The x position of the glyphs that start a line alone: a miss there is an offset (alignment, indent), not drift.
+    pub first_ok: u64,
+    pub first_total: u64,
     pub adv_ok: u64,
     pub adv_total: u64,
     /// Stored glyphs with no Studio cluster at their character (whitespace Studio drops at a wrap, merged clusters).
@@ -61,8 +73,9 @@ pub struct GlyphScore {
     pub adv_misses: Vec<f32>,
 }
 
-/// Scores every stored glyph of one text against Studio's clusters in `g`.
-pub fn score(g: &TextGeometry, content: &str, glyphs: &[GlyphTruth]) -> GlyphScore {
+/// Scores every stored glyph of one text against Studio's clusters in `g`. `line_starts` are the characters Figma
+/// starts a line at.
+pub fn score(g: &TextGeometry, content: &str, glyphs: &[GlyphTruth], line_starts: &[u64]) -> GlyphScore {
     let mut at: HashMap<u64, (f32, f32, bool)> = HashMap::new();
     for c in g.lines.iter().flat_map(|l| &l.glyphs) {
         at.entry(utf16_at(content, c.start)).or_insert((c.x, c.w, c.rtl));
@@ -80,12 +93,16 @@ pub fn score(g: &TextGeometry, content: &str, glyphs: &[GlyphTruth]) -> GlyphSco
         }
         s.x_total += 1;
         let dx = x - t.x;
-        if broken || dx.abs() <= GLYPH_TOL {
-            s.x_ok += 1;
-        } else {
+        let ok = broken || dx.abs() <= GLYPH_TOL;
+        s.x_ok += u64::from(ok);
+        if line_starts.contains(&t.first) {
+            s.first_total += 1;
+            s.first_ok += u64::from(ok);
+        }
+        if !ok {
             s.x_misses.push(dx);
         }
-        if let Some(a) = t.advance {
+        if let Some(a) = t.advance_px() {
             s.adv_total += 1;
             let da = w - a;
             if broken || da.abs() <= GLYPH_TOL {
@@ -105,6 +122,7 @@ fn bin(d: f32) -> String {
 
 pub fn tally(p: &mut Part, scope: &str, hidden: bool, s: &GlyphScore) {
     p.tally_n(&format!("{scope}{X_BUCKET}"), hidden, s.x_ok, s.x_total);
+    p.tally_n(&format!("{scope}{FIRST_X_BUCKET}"), hidden, s.first_ok, s.first_total);
     p.tally_n(&format!("{scope}{ADVANCE_BUCKET}"), hidden, s.adv_ok, s.adv_total);
     if s.x_total + s.adv_total > 0 {
         p.tally(&format!("{scope}{WHOLE_BUCKET}"), hidden, s.x_ok == s.x_total && s.adv_ok == s.adv_total);
@@ -121,9 +139,8 @@ pub fn tally(p: &mut Part, scope: &str, hidden: bool, s: &GlyphScore) {
     }
 }
 
-/// How far the stored advance reaches: on consecutive glyphs of one line, the share where the next x equals this x plus
-/// the advance taken as px, and the share where it equals this x plus the advance times the font size. The first says
-/// the advance is in px, the second that it is in em.
+/// What unit the stored advance is in, measured on the file: on consecutive glyphs of one line, how often the next x
+/// equals this x plus the advance taken as px, and how often it equals this x plus the advance times the font size.
 pub fn unit_note(truth: &[TextTruth]) -> String {
     let (mut pairs, mut px, mut em) = (0u64, 0u64, 0u64);
     for t in truth {

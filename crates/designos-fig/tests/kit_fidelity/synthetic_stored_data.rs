@@ -64,7 +64,9 @@ fn stored_use_counts_an_instance_that_lost_its_stored_layout() {
 #[test]
 fn stored_use_counts_a_shape_whose_stored_outline_is_gone_or_stale() {
     let (r, mut doc, keys) = load(&rectangle_fig(10.0));
-    assert_eq!(use_part(&r, &doc, &keys).bucket("fills: total")[0], t(1, 1), "the stored fill outline is drawn");
+    let p = use_part(&r, &doc, &keys);
+    assert_eq!(p.bucket("fills: total")[0], t(1, 1), "the stored fill outline is drawn");
+    assert_eq!(p.bucket("fills: box layers (frame, instance, component, rectangle)")[0], t(1, 1), "a rectangle is a box layer");
     doc.get_mut(keys.by_source["1:2"]).unwrap().fill_geometry = None;
     assert_eq!(use_part(&r, &doc, &keys).bucket("fills: total")[0], t(0, 1), "a layer with no fill outline left draws its live path");
     let (r, mut doc, keys) = load(&stroke_fig("CENTER", 1.0, band_blob(0.5, 0.5)));
@@ -147,8 +149,8 @@ fn glyph_truth_is_read_from_the_stored_glyph_records() {
     let (truth, _) = text::truth(&r);
     let g = &truth[0].glyphs;
     assert_eq!(g.len(), 2);
-    assert_eq!((g[0].first, g[0].x, g[0].advance), (0, 0.0, Some(11.5)));
-    assert_eq!((g[1].first, g[1].x, g[1].advance), (1, 11.5, Some(9.0)));
+    assert_eq!((g[0].first, g[0].x, g[0].advance, g[0].advance_px()), (0, 0.0, Some(0.75), Some(12.0)));
+    assert_eq!((g[1].first, g[1].x, g[1].advance, g[1].advance_px()), (1, 12.0, Some(0.5625), Some(9.0)));
 }
 
 /// The stored truth of the fixture's text with each glyph taken from Studio's own shaping, moved by `dx` in x and
@@ -165,7 +167,7 @@ fn shaped_truth(doc: &Document, keys: &NodeKeys, dx: f32, dadv: f32) -> TextTrut
                 first: props.content[..c.start].encode_utf16().count() as u64,
                 x: c.x + dx,
                 y: l.baseline,
-                advance: Some(c.w + dadv),
+                advance: Some((c.w + dadv) / 16.0),
                 font_size: 16.0,
             })
         })
@@ -188,12 +190,14 @@ fn glyph_checks_count_a_glyph_off_its_stored_position_or_advance() {
     assert_eq!(p.bucket("check: glyph x positions")[0], t(5, 5), "Figma's glyphs are Studio's");
     assert_eq!(p.bucket("check: glyph advances")[0], t(5, 5));
     assert_eq!(p.bucket("check: glyph x and advance, whole text")[0], t(1, 1));
+    assert_eq!(p.bucket("check: glyph x positions, first glyph of a line")[0], t(1, 1), "the glyph that starts the line");
     let p = score(0.04, -0.04);
     assert_eq!(p.bucket("check: glyph x positions")[0], t(5, 5), "0.04 px is inside the 0.05 px tolerance");
     assert_eq!(p.bucket("check: glyph advances")[0], t(5, 5));
     let p = score(0.2, 0.0);
     assert_eq!(p.bucket("check: glyph x positions")[0], t(0, 5), "every glyph stored 0.2 px to the right");
     assert_eq!(p.bucket("check: glyph advances")[0], t(5, 5), "the advances are untouched");
+    assert_eq!(p.bucket("check: glyph x positions, first glyph of a line")[0], t(0, 1), "the offset shows on the glyph that starts the line");
     assert_eq!(p.bucket("check: glyph x and advance, whole text")[0], t(0, 1));
     assert_eq!(p.details["glyph x delta, Studio minus Figma (0.05 px bins)"].get("-0.20"), Some(&5), "the bin shows the half-pixel hypothesis directly");
     let p = score(0.0, 0.1);
@@ -213,11 +217,11 @@ fn glyph_checks_leave_out_a_text_whose_line_breaks_differ() {
 }
 
 #[test]
-fn glyph_checks_name_the_unit_of_the_stored_advance() {
+fn glyph_checks_measure_the_unit_of_the_stored_advance() {
     let (r, _, _) = load(&text_fig(12.0));
     let (truth, _) = text::truth(&r);
     let note = text_glyphs::unit_note(&truth);
-    assert!(note.contains("1 of 1") && note.contains("advance in px"), "the 11.5 px advance leads 11.5 px to the next glyph: {note}");
+    assert!(note.contains("in px on 0 of 1") && note.contains("font size on 1 of 1"), "the stored advance is a fraction of the font size: {note}");
 }
 
 #[test]

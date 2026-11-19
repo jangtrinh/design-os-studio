@@ -103,7 +103,7 @@ pub fn checks(props: &TextProps, size: Vec2, t: &TextTruth) -> Checks {
         line_count_delta: g.lines.len() as i64 - t.baselines.len() as i64,
         first_baseline_delta: off,
         size_delta,
-        glyphs: (breaks && !t.glyphs.is_empty()).then(|| text_glyphs::score(&g, &props.content, &t.glyphs)),
+        glyphs: (breaks && !t.glyphs.is_empty()).then(|| text_glyphs::score(&g, &props.content, &t.glyphs, &figma)),
     }
 }
 

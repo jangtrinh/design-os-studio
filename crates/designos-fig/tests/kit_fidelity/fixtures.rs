@@ -107,7 +107,7 @@ pub fn instance_fig() -> Vec<u8> {
 }
 
 /// A text layer with stored derived text data: one line starting at character 0, baseline at `y`, and the stored
-/// position and advance of its first two glyphs.
+/// position and advance (a fraction of the 16 px font size) of its first two glyphs.
 pub fn text_fig(y: f32) -> Vec<u8> {
     let font = st(vec![("family", V::String("Inter".into())), ("style", V::String("Regular".into())), ("postscript", V::String(String::new()))]);
     let glyph = |first: u32, x: f32, advance: f32| {
@@ -116,7 +116,7 @@ pub fn text_fig(y: f32) -> Vec<u8> {
     let derived = msg(vec![
         ("layoutSize", vec2(80.0, 20.0)),
         ("baselines", V::Array(vec![msg(vec![("position", vec2(0.0, y)), ("width", fl(80.0)), ("firstCharacter", V::Uint(0)), ("endCharacter", V::Uint(5))])])),
-        ("glyphs", V::Array(vec![glyph(0, 0.0, 11.5), glyph(1, 11.5, 9.0)])),
+        ("glyphs", V::Array(vec![glyph(0, 0.0, 0.75), glyph(1, 12.0, 0.5625)])),
     ]);
     let t = layer(
         30,
