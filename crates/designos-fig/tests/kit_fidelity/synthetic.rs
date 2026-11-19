@@ -13,7 +13,7 @@ use designos_fig::kiwi::KiwiValue as V;
 use designos_fig::testkit::{en, fl, guid, msg, square_blob, triangle_blob};
 use std::collections::HashSet;
 
-fn load(bytes: &[u8]) -> (Raw, Document, NodeKeys) {
+pub(super) fn load(bytes: &[u8]) -> (Raw, Document, NodeKeys) {
     let r = raw::decode(bytes);
     let mut doc = designos_fig::import_fig(bytes).expect("import");
     doc.hydrate_all_pages();
@@ -21,7 +21,7 @@ fn load(bytes: &[u8]) -> (Raw, Document, NodeKeys) {
     (r, doc, keys)
 }
 
-fn t(matched: u64, measured: u64) -> Tally {
+pub(super) fn t(matched: u64, measured: u64) -> Tally {
     Tally { matched, measured }
 }
 
@@ -198,6 +198,7 @@ fn text_counts_a_baseline_off_the_stored_one() {
         baselines: g.lines.iter().map(|l| Baseline { first: l.start as u64, y: l.baseline + shift }).collect(),
         line_height_unit: "absent".into(),
         letter_spacing_unit: "absent".into(),
+        glyphs: Vec::new(),
     };
     assert_eq!(text::part(&[studio(0.0)], 0, &doc, &keys).bucket("total")[0], t(1, 1), "Figma's lines are Studio's");
     assert_eq!(text::part(&[studio(3.0)], 0, &doc, &keys).bucket("total")[0], t(0, 1), "a baseline 3 px lower");

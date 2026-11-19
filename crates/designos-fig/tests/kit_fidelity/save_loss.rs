@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 /// Fields that hold an index into the file's blob table. Two files number their blobs independently, so these are
 /// compared by the bytes they point at.
-const BLOB_FIELDS: &[&str] = &["commandsBlob", "vectorNetworkBlob", "dataBlob"];
+pub(super) const BLOB_FIELDS: &[&str] = &["commandsBlob", "vectorNetworkBlob", "dataBlob"];
 
 /// Normalisations the comparison accepts, each with its reason. Anything else that differs is a change or a loss.
 pub const NORMALISATIONS: &[(&str, &str)] = &[
@@ -20,7 +20,7 @@ pub const NORMALISATIONS: &[(&str, &str)] = &[
 ];
 
 /// Parents whose children (those both files place under that parent) come in the same order in both files.
-fn order_kept(original: &Raw, saved: &Raw) -> HashSet<String> {
+pub(super) fn order_kept(original: &Raw, saved: &Raw) -> HashSet<String> {
     let order = |raw: &Raw| -> HashMap<String, Vec<(String, String)>> {
         let mut m: HashMap<String, Vec<(String, String)>> = HashMap::new();
         for r in raw.live() {
@@ -46,13 +46,13 @@ fn order_kept(original: &Raw, saved: &Raw) -> HashSet<String> {
         .collect()
 }
 
-struct Ctx<'a> {
-    a_blobs: &'a [Vec<u8>],
-    b_blobs: &'a [Vec<u8>],
-    renumbered: bool,
+pub(super) struct Ctx<'a> {
+    pub a_blobs: &'a [Vec<u8>],
+    pub b_blobs: &'a [Vec<u8>],
+    pub renumbered: bool,
 }
 
-fn shape(path: &str) -> String {
+pub(super) fn shape(path: &str) -> String {
     path.split('/').map(|s| if s.parse::<usize>().is_ok() { "#" } else { s }).collect::<Vec<_>>().join("/")
 }
 
@@ -103,16 +103,16 @@ fn diff(a: &KiwiValue, b: &KiwiValue, field: &str, path: &str, cx: &mut Ctx) -> 
 }
 
 /// Both parent indexes name the same parent, and that parent's children keep their order.
-fn same_parent_kept(a: &KiwiValue, b: &KiwiValue, kept: &HashSet<String>) -> bool {
+pub(super) fn same_parent_kept(a: &KiwiValue, b: &KiwiValue, kept: &HashSet<String>) -> bool {
     let pa = a.get("guid").and_then(super::raw::guid_of);
     pa.is_some() && pa == b.get("guid").and_then(super::raw::guid_of) && pa.is_some_and(|p| kept.contains(&p))
 }
 
-fn by_guid(raw: &Raw) -> HashMap<String, &KiwiValue> {
+pub(super) fn by_guid(raw: &Raw) -> HashMap<String, &KiwiValue> {
     raw.live().filter_map(|r| Some((record_guid(r)?, r))).collect()
 }
 
-fn fields(r: &KiwiValue) -> &[(std::sync::Arc<str>, KiwiValue)] {
+pub(super) fn fields(r: &KiwiValue) -> &[(std::sync::Arc<str>, KiwiValue)] {
     match r {
         KiwiValue::Message(f) | KiwiValue::Struct(f) => f,
         _ => &[],
