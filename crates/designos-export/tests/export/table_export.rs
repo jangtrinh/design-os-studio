@@ -1,7 +1,7 @@
 //! Exporting tables: SVG, PNG and PDF carry the cells, their fills and text, and the grid.
 
 #[allow(dead_code)]
-mod pdf_probe;
+use crate::pdf_probe;
 
 use designos_doc::*;
 use designos_export::{export_pdf, export_png, export_svg, render_export, SvgOptions};
@@ -230,7 +230,7 @@ fn a_frame_with_an_inside_border_exports_at_its_own_size() {
 }
 
 /// Writes the exports the visual evidence is captured from. Set `DESIGNOS_TABLE_EVIDENCE_DIR` and run
-/// `cargo test -p designos-export --test table_export -- --ignored write_evidence_exports`.
+/// `cargo test -p designos-export --test export -- --ignored table_export::write_evidence_exports`.
 #[test]
 #[ignore = "writes export files for screenshots"]
 fn write_evidence_exports() {

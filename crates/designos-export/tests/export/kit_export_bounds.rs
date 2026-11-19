@@ -1,5 +1,5 @@
 //! Kit frames export bounds check against the private Untitled UI kit file.
-//! Ignored by default; run with `cargo test -p designos-export --test kit_export_bounds -- --ignored`.
+//! Ignored by default; run with `cargo test -p designos-export --test export -- --ignored kit_export_bounds::`.
 
 use designos_export::{export_png, export_svg, render_bounds, SvgOptions};
 use std::path::PathBuf;

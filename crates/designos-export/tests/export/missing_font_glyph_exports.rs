@@ -1,11 +1,11 @@
 //! A text layer whose font is not installed exports the glyph outlines Figma saved in the file, the same
 //! shapes the canvas draws: SVG paths and PDF pages show the saved triangle, not a stand-in font's glyph.
 
-#[path = "../../designos-fig/tests/common/missing_font_fig.rs"]
+#[path = "../../../designos-fig/tests/common/missing_font_fig.rs"]
 mod missing_font_fig;
 // the shared PDF reader has more helpers than this file needs
 #[allow(dead_code)]
-mod pdf_probe;
+use crate::pdf_probe;
 
 use designos_doc::{Document, NodeId};
 use designos_export::{export_pdf, export_svg, SvgOptions};

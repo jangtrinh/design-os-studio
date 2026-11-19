@@ -3,7 +3,7 @@
 //! renderer draws for the node. Where the vector writer cannot express a feature the page may be a
 //! flattened image instead, but it may never be silently wrong.
 
-mod pdf_probe;
+use crate::pdf_probe;
 
 use designos_doc::*;
 use designos_export::export_pdf;
