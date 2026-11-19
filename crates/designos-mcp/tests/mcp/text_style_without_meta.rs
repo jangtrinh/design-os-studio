@@ -3,7 +3,7 @@
 //! style's values, and leaves the layer's colour binding alone.
 #![allow(clippy::result_large_err)]
 
-mod support;
+use crate::support;
 
 use designos_doc::{style_property, Document, LeadingTrim, NodeId, NodeKind, Style, StyleProperty, TextStyle};
 use designos_mcp::engine::Engine;

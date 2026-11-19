@@ -4,7 +4,7 @@ use std::path::Path;
 
 use serde_json::{json, Value};
 
-#[path = "../src/bin/gen-tool-docs.rs"]
+#[path = "../../src/bin/gen-tool-docs.rs"]
 mod gen_tool_docs;
 
 use gen_tool_docs::{
@@ -333,9 +333,9 @@ fn parity_rows_valid() {
 #[test]
 fn stdio_count_follows_snapshot() {
     let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let stdio_src = fs::read_to_string(crate_dir.join("tests/stdio.rs")).expect("read tests/stdio.rs");
-    assert!(stdio_src.contains("tests/snapshots/tools.json"), "tests/stdio.rs must read tests/snapshots/tools.json");
-    assert!(!stdio_src.contains("assert_eq!(tools.len(), 22)"), "tests/stdio.rs must not hardcode tool count 22");
+    let stdio_src = fs::read_to_string(crate_dir.join("tests/mcp/stdio.rs")).expect("read tests/mcp/stdio.rs");
+    assert!(stdio_src.contains("tests/snapshots/tools.json"), "tests/mcp/stdio.rs must read tests/snapshots/tools.json");
+    assert!(!stdio_src.contains("assert_eq!(tools.len(), 22)"), "tests/mcp/stdio.rs must not hardcode tool count 22");
 
     let snapshot_raw = fs::read_to_string(crate_dir.join("tests/snapshots/tools.json")).expect("read tests/snapshots/tools.json");
     let snapshot: Vec<Value> = serde_json::from_str(&snapshot_raw).expect("parse tools.json");

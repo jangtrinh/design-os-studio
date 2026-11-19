@@ -2,7 +2,7 @@
 //! linked to, so the canvas shows the colour that was sent, and one undo brings both back.
 #![allow(clippy::result_large_err)]
 
-mod support;
+use crate::support;
 
 use designos_doc::live_patch::{replay_live_patch, LiveLogLine, LivePatchState};
 use designos_doc::{Document, NodeId, NodeKind, Paint};

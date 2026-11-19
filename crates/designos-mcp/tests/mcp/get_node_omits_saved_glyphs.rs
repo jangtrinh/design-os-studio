@@ -2,7 +2,7 @@
 //! kilobytes of path data that say nothing an agent can act on.
 #![allow(clippy::result_large_err)]
 
-#[path = "../../designos-fig/tests/common/missing_font_fig.rs"]
+#[path = "../../../designos-fig/tests/common/missing_font_fig.rs"]
 mod missing_font_fig;
 
 use designos_mcp::engine::Engine;

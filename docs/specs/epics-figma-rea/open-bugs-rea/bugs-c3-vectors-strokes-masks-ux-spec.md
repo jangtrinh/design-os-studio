@@ -980,7 +980,7 @@ export PATH="$HOME/.cargo/bin:$PATH"
 cargo test -p designos-doc --lib layout_constraints::tests::line_arrow_resize_preserves_head_and_origin
 
 # #1754: Unified line resize across MCP update_node and variables
-cargo test -p designos-mcp --test resized_vector_via_update
+cargo test -p designos-mcp --test mcp resized_vector_via_update::
 cargo test -p designos-doc --lib variables_apply::tests::variable_line_width_resize_stretches_outline
 
 # #1755: Stale baked outline cleared on stroke property edit

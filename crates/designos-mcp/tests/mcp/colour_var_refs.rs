@@ -2,7 +2,7 @@
 //! `apply_spec` does, and an unknown or mistyped variable is reported as such.
 #![allow(clippy::result_large_err)]
 
-mod support;
+use crate::support;
 
 use designos_doc::{NodeId, Paint};
 use designos_mcp::engine::Engine;
