@@ -25,8 +25,8 @@ use crate::kiwi::KiwiValue;
 use std::sync::Arc;
 
 /// The most glyphs of one text the importer builds stored outlines for (`fig_text_geometry`). A text with more is kept
-/// by nobody: it would use the allowance and never draw.
-pub(crate) const MAX_DRAWN_GLYPHS: usize = 4096;
+/// by nobody: it would use the allowance and never draw. The renderer checks the same limit before it draws.
+pub(crate) use designos_doc::MAX_DRAWN_GLYPHS;
 
 /// How many wire bytes of `derivedTextData` one import keeps (4 MiB). The allowance bounds what is retained, in bytes of
 /// the file; kept glyphs count toward the decode value cap, so what is decoded is bounded by that cap.

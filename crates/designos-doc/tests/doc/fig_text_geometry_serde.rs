@@ -46,8 +46,7 @@ fn the_glyph_table_is_written_as_hex_and_round_trips() {
     let saved = geometry(vec![vec![1, 2, 3], vec![4, 5]]);
     let json = serde_json::to_value(&saved).unwrap();
     assert!(json["glyphs"][0].as_str().is_some_and(|s| s.starts_with("hex:") && s.len() == 4 + 2 * 24 * 2), "two glyphs in one chunk: {}", json["glyphs"]);
-    assert_eq!(json["path"]["cmds"], serde_json::json!([]), "the old fields are written, empty, for a geometry that has a table: {json}");
-    assert_eq!(json["glyph_blobs"], serde_json::json!([]));
+    assert!(json.get("path").is_none() && json.get("glyph_blobs").is_none(), "the old fields are not written for a geometry that has a table: {json}");
     assert_eq!(serde_json::from_value::<FigTextGeometry>(json).unwrap(), saved);
 }
 
@@ -71,8 +70,19 @@ fn a_geometry_written_before_the_glyph_table_loads_and_is_written_back_the_same_
     assert_eq!(serde_json::from_value::<FigTextGeometry>(again).unwrap(), loaded);
 }
 
-/// `FigTextGeometry` as 0.7.17 declares it: every field required, no defaults, and `blobs` as the hex strings its own
-/// reader decodes.
+/// The parts of `Node` that 0.7.17 reads for a text layer, with `fig_text_geometry` as 0.7.17 declares it: every field
+/// required, no defaults, and `blobs` as the hex strings its own reader decodes. `Node` itself has no
+/// `deny_unknown_fields` there (`node.rs:68-69` at `v0.7.17`), so a key it does not know is skipped, as it is here.
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct Node0717 {
+    id: designos_doc::NodeId,
+    name: String,
+    kind: designos_doc::NodeKind,
+    #[serde(default)]
+    fig_text_geometry: Option<FigTextGeometry0717>,
+}
+
 #[derive(serde::Deserialize)]
 #[allow(dead_code)]
 struct FigTextGeometry0717 {
@@ -83,19 +93,56 @@ struct FigTextGeometry0717 {
     glyph_blobs: Vec<Option<u32>>,
 }
 
-#[test]
-fn a_geometry_saved_with_the_glyph_table_still_opens_in_0_7_17() {
-    let saved = geometry(vec![vec![1, 2, 3], vec![4, 5]]);
+fn text_node_with(geometry: FigTextGeometry) -> designos_doc::Node {
     let mut node = designos_doc::Node::text(designos_doc::NodeId(1), designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0), "x", designos_doc::TextStyle::default());
-    node.fig_text_geometry = Some(Arc::new(saved.clone()));
-    // the node as a document file holds it, read back by the old shape of the field
-    let json = serde_json::to_value(&node).unwrap();
-    let old: FigTextGeometry0717 = serde_json::from_value(json["fig_text_geometry"].clone()).expect("0.7.17 reads the geometry");
-    assert!(old.path.cmds.is_empty(), "nothing for 0.7.17 to draw, so it shapes the text");
-    assert!(old.glyph_blobs.is_empty());
-    assert_eq!(old.blobs.len(), 2);
-    assert!(old.blobs.iter().all(|b| b.starts_with("hex:")));
-    // and the new reader gets the table back
+    node.fig_text_geometry = Some(Arc::new(geometry));
+    node
+}
+
+#[test]
+fn a_geometry_with_a_glyph_table_is_saved_under_a_key_0_7_17_does_not_know() {
+    let saved = geometry(vec![vec![1, 2, 3], vec![4, 5]]);
+    let json = serde_json::to_value(text_node_with(saved.clone())).unwrap();
+    assert!(json.get("fig_text_geometry").is_none(), "the old key is not written for a table: {json}");
+    assert!(json.get("stored_text_glyphs").is_some_and(serde_json::Value::is_object), "the table is under its own key");
+
+    // 0.7.17 reads the node and finds no stored geometry, so it shapes the text everywhere
+    let old: Node0717 = serde_json::from_value(json.clone()).expect("0.7.17 reads the node");
+    assert!(old.fig_text_geometry.is_none(), "0.7.17 sees no stored geometry");
+
+    // this build gets the table back from the new key
     let back: designos_doc::Node = serde_json::from_value(json).unwrap();
     assert_eq!(back.fig_text_geometry.as_deref(), Some(&saved));
+}
+
+#[test]
+fn a_geometry_from_before_the_table_keeps_the_old_key_in_the_shape_0_7_17_reads() {
+    let legacy = FigTextGeometry {
+        text: TextProps::default(),
+        size: Vec2::new(10.0, 10.0),
+        path: Path { cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 1.0)), PathCmd::Close], ..Default::default() },
+        blobs: vec![Arc::from(vec![1u8, 2, 3])],
+        glyph_blobs: vec![Some(0), None],
+        glyphs: Default::default(),
+    };
+    let json = serde_json::to_value(text_node_with(legacy.clone())).unwrap();
+    assert!(json.get("stored_text_glyphs").is_none());
+    let old: Node0717 = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(old.fig_text_geometry.map(|g| (g.path.cmds.len(), g.glyph_blobs)), Some((2, vec![Some(0), None])));
+    let back: designos_doc::Node = serde_json::from_value(json).unwrap();
+    assert_eq!(back.fig_text_geometry.as_deref(), Some(&legacy));
+}
+
+/// What a crafted document file or clipboard payload can hold: 4,096 glyphs, all naming one blob. The limits are not
+/// checked on load; the renderer checks them before it assembles anything (see `stored_glyph_use`).
+#[test]
+fn a_crafted_table_loads_unchanged_so_the_renderer_has_to_look_at_it() {
+    let glyphs: Vec<StoredGlyph> =
+        (0..4096).map(|i| StoredGlyph { x: f32::NAN * i as f32, y: 0.0, font_size: 0.0, blob: 0, first_char: 0, style: 0, flags: 0 }).collect();
+    let crafted = FigTextGeometry { glyphs: glyphs.into(), ..geometry(vec![vec![0u8; 1000]]) };
+    let back: designos_doc::Node = serde_json::from_value(serde_json::to_value(text_node_with(crafted)).unwrap()).unwrap();
+    let g = back.fig_text_geometry.unwrap();
+    assert_eq!(g.glyphs.len(), 4096);
+    assert!(g.glyphs.iter().all(|g| g.x.is_nan() && g.font_size == 0.0), "NaN and a zero size survive the hex form");
+    assert_eq!(g.draw_refusal(), Some("stored glyphs not finite"));
 }

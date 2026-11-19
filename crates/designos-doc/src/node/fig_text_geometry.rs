@@ -12,14 +12,14 @@ use std::sync::Arc;
 /// The glyphs are a table of 24 bytes each plus the command blobs Figma stored; the outlines are built from them when
 /// the text is drawn. A node holds the geometry behind an [`Arc`], so cloning a node (undo snapshots, duplicates,
 /// instance copies) shares one copy and costs one pointer.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct FigTextGeometry {
     /// The text as it was when the glyphs were taken. [`FigTextGeometry::matches`] compares against it.
     pub text: TextProps,
     pub size: Vec2,
     /// Every glyph outline in node-local space, fully built. Only a document file written before the glyph table
-    /// existed fills it: its `glyphs` are empty and this path is what draws. It is always written, empty when the table
-    /// is used, because 0.7.17 requires the field: it then loads the geometry, finds nothing to draw and shapes the text.
+    /// existed fills it: its `glyphs` are empty and this path is what draws. A geometry with a table is not written
+    /// with this field or `glyph_blobs`.
     #[serde(default)]
     pub path: Path,
     /// The distinct glyph command blobs of this text, in first-use order. Figma shares one blob
@@ -28,13 +28,40 @@ pub struct FigTextGeometry {
     #[serde(with = "hex_blobs")]
     pub blobs: Vec<Arc<[u8]>>,
     /// For each entry of `derivedTextData.glyphs`, the index into [`blobs`](Self::blobs) of its command blob (`None` for
-    /// a glyph without one). Only a document file written before the glyph table existed fills it, and it is always
-    /// written for the same reason as [`path`](Self::path).
+    /// a glyph without one). Only a document file written before the glyph table existed fills it; see [`path`](Self::path).
     #[serde(default)]
     pub glyph_blobs: Vec<Option<u32>>,
     /// The glyphs in Figma's order.
     #[serde(default, skip_serializing_if = "GlyphTable::is_empty")]
     pub glyphs: GlyphTable,
+}
+
+/// A geometry with a table is written without `path` and `glyph_blobs`; one from before the table is written with them,
+/// in the shape 0.7.17 reads, whatever they hold. [`Node`] writes the first kind under a key of its own.
+impl Serialize for FigTextGeometry {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        struct Blobs<'a>(&'a [Arc<[u8]>]);
+        impl Serialize for Blobs<'_> {
+            fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                hex_blobs::serialize(self.0, s)
+            }
+        }
+        let table = !self.glyphs.is_empty();
+        let mut out = s.serialize_struct("FigTextGeometry", if table { 4 } else { 5 })?;
+        out.serialize_field("text", &self.text)?;
+        out.serialize_field("size", &self.size)?;
+        if !table {
+            out.serialize_field("path", &self.path)?;
+        }
+        out.serialize_field("blobs", &Blobs(&self.blobs))?;
+        if table {
+            out.serialize_field("glyphs", &self.glyphs)?;
+        } else {
+            out.serialize_field("glyph_blobs", &self.glyph_blobs)?;
+        }
+        out.end()
+    }
 }
 
 impl FigTextGeometry {

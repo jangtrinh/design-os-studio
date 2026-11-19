@@ -187,7 +187,8 @@ fn field_edits() -> Vec<(&'static str, Vec<Edit>)> {
         ("mask_type", vec![|n| n.mask_type = MaskType::Alpha, |n| n.mask_type = MaskType::Luminance]),
         ("style_refs", vec![|n| n.style_refs.clear(), |n| n.style_refs.insert("stroke".into(), "S:2".into()).map_or((), |_| ())]),
         (
-            "fig_text_geometry",
+            // a geometry with a glyph table is saved under this key; one from before the table under `fig_text_geometry`
+            "stored_text_glyphs",
             vec![|n| n.fig_text_geometry = None, |n| {
                 n.fig_text_geometry = Some(std::sync::Arc::new(designos_doc::FigTextGeometry {
                     text: TextProps::default(),
@@ -1427,4 +1428,45 @@ fn a_stored_glyph_geometry_the_nodes_share_is_not_encoded_to_compare() {
     assert_eq!(diff_node_fields(&before, &after), vec!["name".to_string()]);
     let encoded = crate::node_field_diff::encoded_bytes_on_this_thread() - bytes_before;
     assert!(encoded < 512, "comparing two nodes that share one geometry encoded {encoded} bytes");
+}
+
+#[test]
+fn a_stored_geometry_is_reported_under_the_key_its_form_is_saved_under() {
+    let table = |first: u32| {
+        Some(std::sync::Arc::new(designos_doc::FigTextGeometry {
+            text: TextProps::default(),
+            size: Vec2::new(10.0, 10.0),
+            path: Path::default(),
+            blobs: Vec::new(),
+            glyph_blobs: Vec::new(),
+            glyphs: vec![stored_glyph(first)].into(),
+        }))
+    };
+    let legacy = |points: usize| {
+        Some(std::sync::Arc::new(designos_doc::FigTextGeometry {
+            text: TextProps::default(),
+            size: Vec2::new(10.0, 10.0),
+            path: path_with(points),
+            blobs: Vec::new(),
+            glyph_blobs: vec![None],
+            glyphs: Default::default(),
+        }))
+    };
+    let node_with = |geometry: Option<std::sync::Arc<designos_doc::FigTextGeometry>>| {
+        let mut n = Node::rectangle(NodeId(3), designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0));
+        n.fig_text_geometry = geometry;
+        n
+    };
+    for (what, before, after, keys) in [
+        ("a table changes", table(1), table(2), vec!["stored_text_glyphs"]),
+        ("a legacy path changes", legacy(1), legacy(2), vec!["fig_text_geometry"]),
+        ("a legacy geometry gains a table", legacy(1), table(1), vec!["fig_text_geometry", "stored_text_glyphs"]),
+        ("a table is removed", table(1), None, vec!["stored_text_glyphs"]),
+        ("a legacy geometry is removed", legacy(1), None, vec!["fig_text_geometry"]),
+        ("a legacy geometry appears", None, legacy(1), vec!["fig_text_geometry"]),
+    ] {
+        let (before, after) = (node_with(before), node_with(after));
+        assert_same_as_value_diff(&before, &after, what);
+        assert_eq!(diff_node_fields(&before, &after), keys, "{what}");
+    }
 }

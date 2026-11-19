@@ -111,6 +111,12 @@ pub(crate) fn for_each_changed_field(before: &Node, after: &Node, mut report: im
         corner_smoothing, constraints, layout_child, is_mask, mask_type, style_refs, text_style_overrides, fig_text_geometry, fill_geometry, stroke_geometry, stroke_geometry_for, component,
         prototype, variables, export_settings, dev, slide, lock_aspect, hyperlink, plugin_data, detached_symbol_id,
         fig_metadata, motion, extra);
+    // A stored geometry is saved under `fig_text_geometry` or, with a glyph table, under `stored_text_glyphs`: the
+    // encoded fields are named by what the node serializes, so both keys are looked at and the encoding says which one
+    // each node wrote.
+    if candidates.as_slice().contains(&"fig_text_geometry") {
+        candidates.push("stored_text_glyphs");
+    }
     if before.stroke_geometry_for == after.stroke_geometry_for && before.stale_stroke_geometry_stamp() != after.stale_stroke_geometry_stamp() {
         candidates.push("stroke_geometry_for");
     }

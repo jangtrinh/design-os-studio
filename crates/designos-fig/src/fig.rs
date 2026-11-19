@@ -459,7 +459,10 @@ fn fig_text_geometry(node: &Node, blobs: &[&[u8]], shared: &mut HashMap<usize, S
         if !scale.is_finite() || scale <= 0.0 || !x.is_finite() || !y.is_finite() || fnum(glyph, "rotation").unwrap_or(0.0).abs() > 1e-5 {
             return None;
         }
-        let first_char = glyph.get("firstCharacter").and_then(Value::as_u64).map_or(0, |c| u32::try_from(c).unwrap_or(u32::MAX));
+        let first_char = glyph
+            .get("firstCharacter")
+            .and_then(Value::as_u64)
+            .map_or(StoredGlyph::UNKNOWN_FIRST_CHAR, |c| u32::try_from(c).unwrap_or(StoredGlyph::UNKNOWN_FIRST_CHAR));
         let mut stored = StoredGlyph { x, y, font_size: scale, blob: StoredGlyph::NO_BLOB, first_char, style: 0, flags: 0 };
         let Some(blob_index) = glyph.get("commandsBlob").and_then(Value::as_u64) else {
             table.push(stored);
@@ -469,7 +472,7 @@ fn fig_text_geometry(node: &Node, blobs: &[&[u8]], shared: &mut HashMap<usize, S
         let blob = *blobs.get(blob_index)?;
         // every glyph that draws a blob costs its bytes, so a shared blob counts once per glyph
         blob_bytes = blob_bytes.checked_add(blob.len())?;
-        if blob_bytes > 2_000_000 {
+        if blob_bytes > designos_doc::MAX_BLOB_BYTES_PER_TEXT {
             return None;
         }
         let entry = shared.entry(blob_index).or_insert_with(|| SharedBlob { bytes: Arc::from(blob), extent: designos_doc::glyph_blob_extent(blob) });
@@ -3978,6 +3981,34 @@ mod tests {
         assert_eq!((doc[2].format, doc[2].constraint), (F::Pdf, C::Height(64.0)));
         assert_eq!(convert_guides(&nc).unwrap(), json!([{"axis": "X", "offset": 10.0}, {"axis": "Y", "offset": 4.5}]));
         assert!(convert_export_settings(&json!({})).is_none() && convert_guides(&json!({})).is_none());
+    }
+
+    #[test]
+    fn a_glyph_whose_first_character_is_not_an_integer_gets_the_unknown_sentinel() {
+        let mut node = Node::text(
+            designos_doc::NodeId(1),
+            designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0),
+            "abcde",
+            designos_doc::TextStyle { font_family: "Some Face".into(), font_size: 10.0, ..Default::default() },
+        );
+        let glyph = |first: serde_json::Value| {
+            let mut g = json!({"fontSize": 10.0, "position": {"x": 0.0, "y": 8.0}, "commandsBlob": 0});
+            if !first.is_null() {
+                g["firstCharacter"] = first;
+            }
+            g
+        };
+        let derived = json!({
+            "layoutSize": {"x": 10.0, "y": 10.0},
+            "fontMetaData": [{"key": {"family": "Some Face"}}],
+            "glyphs": [glyph(json!(3)), glyph(json!("4")), glyph(json!(1.5)), glyph(json!(null)), glyph(json!(4_294_967_296u64)), glyph(json!(0))],
+        });
+        node.fig_metadata.insert("derivedTextData".into(), derived.to_string());
+        let blob = [1u8, 0, 0, 0, 0, 0, 0, 0, 0];
+        let saved = fig_text_geometry(&node, &[&blob[..]], &mut HashMap::new()).expect("the text keeps its glyphs");
+        let first: Vec<u32> = saved.glyphs.iter().map(|g| g.first_char).collect();
+        let unknown = StoredGlyph::UNKNOWN_FIRST_CHAR;
+        assert_eq!(first, vec![3, unknown, unknown, unknown, unknown, 0], "only an integer in range is an index; 0 is a real index");
     }
 
     #[test]

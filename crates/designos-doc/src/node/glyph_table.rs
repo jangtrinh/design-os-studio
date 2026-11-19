@@ -27,6 +27,9 @@ const _: () = assert!(std::mem::size_of::<StoredGlyph>() == 24, "a stored glyph 
 
 impl StoredGlyph {
     pub const NO_BLOB: u32 = u32::MAX;
+    /// `first_char` of a glyph whose `firstCharacter` the file did not give as an integer. Whoever maps glyphs to
+    /// characters must treat it as unknown, not as the first character.
+    pub const UNKNOWN_FIRST_CHAR: u32 = u32::MAX;
     /// The bytes one glyph takes in the document file.
     const WIRE_BYTES: usize = 24;
 
@@ -78,10 +81,6 @@ impl GlyphTable {
     }
     pub fn as_slice(&self) -> &[StoredGlyph] {
         &self.0
-    }
-    /// The address of the shared table, for a cache that keys on identity.
-    pub fn as_ptr(&self) -> *const StoredGlyph {
-        self.0.as_ptr()
     }
 }
 

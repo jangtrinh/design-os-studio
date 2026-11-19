@@ -1,8 +1,9 @@
-//! Own test binary: it sets `DESIGNOS_BUNDLED_FONTS_ONLY` before the first text layout, which is read once per process.
+//! Own process (it sets `DESIGNOS_BUNDLED_FONTS_ONLY` before the first layout); a red here after a dependency bump means re-record, not a regression.
 //! Golden for the SVG and PDF of the texts that draw Figma's stored glyphs (an icon font glyph, a missing-font text of
 //! several glyphs, an instance copy). The constants were recorded on the commit before the glyph data moved into a
 //! compact table, so this test cannot fail on that commit: it pins the exported bytes the table must keep reproducing.
-//! The PDF carries an invisible text layer positioned by shaping, so the fonts are the bundled ones, never the host's.
+//! They depend on the deflate and font-subsetting crates: after a bump of those, record them again on a checkout without
+//! the table. The PDF carries an invisible text layer positioned by shaping, so the fonts are the bundled ones.
 #[path = "../../designos-fig/tests/common/missing_font_fig.rs"]
 mod missing_font_fig;
 

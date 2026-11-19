@@ -4,13 +4,11 @@
 //! the pixels and the outlines the table must keep reproducing. The outline hashes cover every coordinate bit for bit on
 //! every platform; the pixel hashes depend on the rasteriser's vector units, so they are checked on the arm64 CI and
 //! development hosts the constants come from.
-#[path = "../../../designos-fig/tests/common/missing_font_fig.rs"]
-mod missing_font_fig;
 
+use crate::missing_font_fig::*;
 use designos_doc::{Document, Node, NodeId};
 use designos_fig::import_fig;
 use designos_render::{render_node, text_outlines_for_node, vectorops::text_flatten_runs};
-use missing_font_fig::*;
 use tiny_skia::PathSegment;
 
 const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;

@@ -102,6 +102,10 @@ pub fn stored_glyph_use(node: &d::Node) -> StoredGlyphUse {
     if !saved.matches(node) {
         return StoredGlyphUse::Edited;
     }
+    // what a document file or a clipboard payload may hold is not bounded by the importer: look before anything is built
+    if let Some(reason) = saved.draw_refusal() {
+        return StoredGlyphUse::Fallback(reason);
+    }
     if props.style.decoration != d::TextDecoration::None {
         return StoredGlyphUse::Fallback("decoration");
     }
@@ -128,10 +132,11 @@ pub(crate) fn embedded_glyphs(node: &d::Node) -> Option<&d::FigTextGeometry> {
 pub fn layout_node(node: &d::Node) -> Option<Rc<TextLayout>> {
     let d::NodeKind::Text(props) = &node.kind else { return None };
     if let Some(saved) = embedded_glyphs(node) {
-        let path = crate::stored_glyphs::stored_path(saved);
-        let shape = crate::geom::vector_paths(std::slice::from_ref(&*path));
-        if let Some((path, _)) = shape.paths.into_iter().next() {
-            return Some(Rc::new(TextLayout { styles: vec![props.style.clone()], paths: vec![Some(path)], line_box: node.size }));
+        if let Some(path) = crate::stored_glyphs::stored_path(saved) {
+            let shape = crate::geom::vector_paths(std::slice::from_ref(&*path));
+            if let Some((path, _)) = shape.paths.into_iter().next() {
+                return Some(Rc::new(TextLayout { styles: vec![props.style.clone()], paths: vec![Some(path)], line_box: node.size }));
+            }
         }
     }
     Some(layout(props, node.size))
@@ -870,11 +875,10 @@ pub fn text_runs(props: &TextProps, size: Vec2) -> TextRuns {
 pub fn text_runs_for_node(node: &d::Node) -> Option<TextRuns> {
     let d::NodeKind::Text(props) = &node.kind else { return None };
     let mut runs = text_runs(props, node.size);
-    if let Some(saved) = embedded_glyphs(node) {
+    if let Some(outline) = embedded_glyphs(node).and_then(crate::stored_glyphs::stored_path).map(|path| path.into_owned().cmds) {
         for span in runs.lines.iter_mut().flat_map(|l| l.spans.iter_mut()) {
             span.outline.clear();
         }
-        let outline = crate::stored_glyphs::stored_path(saved).into_owned().cmds;
         match runs.lines.iter_mut().flat_map(|l| l.spans.iter_mut()).next() {
             Some(first) => first.outline = outline,
             None => runs.lines.push(RunLine { baseline: node.size.y, spans: vec![GlyphRun { style: 0, x: 0.0, text: String::new(), outline }] }),

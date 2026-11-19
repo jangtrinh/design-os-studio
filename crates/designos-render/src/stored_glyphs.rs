@@ -155,22 +155,47 @@ fn placed(cmd: PathCmd, x: f32, y: f32, scale: f32) -> PathCmd {
     }
 }
 
+/// Whether every point of `cmd` is finite.
+fn is_finite(cmd: &PathCmd) -> bool {
+    let ok = |p: &Vec2| p.x.is_finite() && p.y.is_finite();
+    match cmd {
+        PathCmd::MoveTo(p) | PathCmd::LineTo(p) => ok(p),
+        PathCmd::QuadTo(a, b) => ok(a) && ok(b),
+        PathCmd::CubicTo(a, b, c) => ok(a) && ok(b) && ok(c),
+        PathCmd::Close => true,
+    }
+}
+
 /// Every glyph outline of `saved` in node-local space as one path. A geometry from a document file written before the
 /// glyph table existed has no glyphs and already holds its path.
-pub(crate) fn stored_path(saved: &d::FigTextGeometry) -> Cow<'_, d::Path> {
+///
+/// `None` when the outline cannot be assembled within bounds: more than [`d::MAX_ASSEMBLED_COMMANDS`] commands (counted
+/// before anything is allocated), or a point that is not finite once the glyphs are placed. The caller shapes the text.
+/// Callers have already asked [`d::FigTextGeometry::draw_refusal`], which bounds the glyphs and the blob bytes.
+pub(crate) fn stored_path(saved: &d::FigTextGeometry) -> Option<Cow<'_, d::Path>> {
     if saved.glyphs.is_empty() {
-        return Cow::Borrowed(&saved.path);
+        return Some(Cow::Borrowed(&saved.path));
+    }
+    if saved.glyphs.len() > d::MAX_DRAWN_GLYPHS {
+        return None;
     }
     let units = unit_paths(saved);
     let slot_unit = |g: &d::StoredGlyph| g.blob_slot().and_then(|slot| units.get(slot as usize)).and_then(Option::as_ref);
-    let total: usize = saved.glyphs.iter().filter_map(slot_unit).map(|unit| unit.len()).sum();
+    let total = saved.glyphs.iter().filter_map(slot_unit).try_fold(0usize, |sum, unit| sum.checked_add(unit.len()))?;
+    if total > d::MAX_ASSEMBLED_COMMANDS {
+        return None;
+    }
     let mut cmds = Vec::with_capacity(total);
     for glyph in &saved.glyphs {
         if let Some(unit) = slot_unit(glyph) {
             cmds.extend(unit.iter().map(|&cmd| placed(cmd, glyph.x, glyph.y, glyph.font_size)));
         }
     }
-    Cow::Owned(d::Path { cmds, fill_rule: d::FillRule::NonZero })
+    if cmds.iter().all(is_finite) {
+        Some(Cow::Owned(d::Path { cmds, fill_rule: d::FillRule::NonZero }))
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -268,13 +293,54 @@ mod tests {
                 });
             }
         }
-        let path = stored_path(&saved);
+        let path = stored_path(&saved).expect("within bounds");
         assert_eq!(path.cmds, expected);
         assert_eq!(path.cmds.len(), 4 + 4 + 4);
         assert!(matches!(path, Cow::Owned(_)));
         // a geometry from before the table is its own path
         let legacy = d::FigTextGeometry { path: d::Path { cmds: expected.clone(), ..Default::default() }, glyphs: Default::default(), ..saved };
-        assert!(matches!(stored_path(&legacy), Cow::Borrowed(p) if p.cmds == expected));
+        assert!(matches!(stored_path(&legacy), Some(Cow::Borrowed(p)) if p.cmds == expected));
+    }
+
+    #[test]
+    fn a_text_whose_outline_would_pass_the_command_bound_is_refused_before_it_is_allocated() {
+        // 3,000 close commands in one blob, named by 4,096 glyphs: 12.3 million commands, counted and not built
+        let blob: Arc<[u8]> = vec![0u8; 3000].into();
+        let saved = d::FigTextGeometry {
+            text: d::TextProps::default(),
+            size: Vec2::new(10.0, 10.0),
+            path: d::Path::default(),
+            blobs: vec![blob],
+            glyph_blobs: Vec::new(),
+            glyphs: (0..4096)
+                .map(|i| d::StoredGlyph { x: i as f32, y: 0.0, font_size: 10.0, blob: 0, first_char: 0, style: 0, flags: 0 })
+                .collect::<Vec<_>>()
+                .into(),
+        };
+        assert!(stored_path(&saved).is_none());
+        // and a table over the glyph limit is refused without a lookup
+        let many = d::FigTextGeometry {
+            glyphs: (0..4097)
+                .map(|_| d::StoredGlyph { x: 0.0, y: 0.0, font_size: 10.0, blob: 0, first_char: 0, style: 0, flags: 0 })
+                .collect::<Vec<_>>()
+                .into(),
+            ..saved
+        };
+        assert!(stored_path(&many).is_none());
+    }
+
+    #[test]
+    fn a_placed_point_that_is_not_finite_refuses_the_whole_outline() {
+        let blob = blob_of_commands(&[(1, &[0.0, 0.0]), (2, &[1000.0, 1000.0])]);
+        let saved = d::FigTextGeometry {
+            text: d::TextProps::default(),
+            size: Vec2::new(10.0, 10.0),
+            path: d::Path::default(),
+            blobs: vec![blob],
+            glyph_blobs: Vec::new(),
+            glyphs: vec![d::StoredGlyph { x: 0.0, y: 0.0, font_size: 1.0e38, blob: 0, first_char: 0, style: 0, flags: 0 }].into(),
+        };
+        assert!(stored_path(&saved).is_none());
     }
 
     #[test]
