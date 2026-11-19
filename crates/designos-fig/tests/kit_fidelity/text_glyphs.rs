@@ -18,7 +18,7 @@ pub const X_BUCKET: &str = "check: glyph x positions";
 pub const ADVANCE_BUCKET: &str = "check: glyph advances";
 pub const FIRST_X_BUCKET: &str = "check: glyph x positions, first glyph of a line";
 pub const ZERO_SPACING_ADVANCE_BUCKET: &str = "check: glyph advances, texts with zero letter spacing";
-pub const SPACED_ADVANCE_BUCKET: &str = "check: glyph advances, texts with letter spacing set";
+pub const SPACED_ADVANCE_BUCKET: &str = "check: glyph advances, texts with letter spacing set, Studio's width as shaped";
 pub const SPACED_NET_ADVANCE_BUCKET: &str = "check: glyph advances, texts with letter spacing set, Studio's width minus its spacing";
 pub const WHOLE_BUCKET: &str = "check: glyph x and advance, whole text";
 pub const X_DELTAS: &str = "glyph x delta, Studio minus Figma (0.05 px bins)";
@@ -93,8 +93,9 @@ pub struct GlyphScore {
     pub first_total: u64,
     pub adv_ok: u64,
     pub adv_total: u64,
-    /// The advance misses split by whether the text sets a letter spacing, and for those texts how many match once
-    /// Studio's spacing is taken off its width.
+    /// The advance matches split by whether the text sets a letter spacing: zero-spacing texts, spaced texts against
+    /// Studio's width as shaped, and spaced texts once its spacing is taken off the width (the like-for-like count that
+    /// `adv_ok` holds for them).
     pub adv_zero: (u64, u64),
     pub adv_spaced: (u64, u64),
     pub adv_spaced_net: u64,
@@ -140,16 +141,24 @@ pub fn score(g: &TextGeometry, content: &str, glyphs: &[GlyphTruth], line_starts
         }
         if let Some(a) = t.advance_px() {
             s.adv_total += 1;
-            let da = w - a;
+            // Figma's advance leaves the letter spacing out (measured: a spaced text steps by advance plus spacing),
+            // Studio's cluster width holds it, so the like-for-like width takes the spacing off Studio's side.
+            let spacing_px = if spacing.set { spacing.px } else { 0.0 };
+            let raw = w - a;
+            let da = raw - spacing_px;
             let ok = broken || da.abs() <= GLYPH_TOL;
             s.adv_ok += u64::from(ok);
             if !ok {
                 s.adv_misses.push(da);
             }
-            let split = if spacing.set { &mut s.adv_spaced } else { &mut s.adv_zero };
-            split.0 += u64::from(ok);
-            split.1 += 1;
-            s.adv_spaced_net += u64::from(spacing.set && (broken || (da - spacing.px).abs() <= GLYPH_TOL));
+            if spacing.set {
+                s.adv_spaced.0 += u64::from(broken || raw.abs() <= GLYPH_TOL);
+                s.adv_spaced.1 += 1;
+                s.adv_spaced_net += u64::from(ok);
+            } else {
+                s.adv_zero.0 += u64::from(ok);
+                s.adv_zero.1 += 1;
+            }
         }
     }
     for w in glyphs.windows(2) {

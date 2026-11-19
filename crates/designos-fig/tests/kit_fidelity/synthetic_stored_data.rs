@@ -215,7 +215,12 @@ fn glyph_checks_split_letter_spaced_texts_and_say_what_the_stored_advance_holds(
     // Studio's cluster width holds the letter spacing; here Figma's advance leaves it out and its next x adds it.
     let p = text::part(&[shaped_truth(&doc, &keys, 0.0, -2.0)], 0, &doc, &keys);
     assert_eq!(p.bucket("check: glyph advances, texts with zero letter spacing")[0], t(0, 0), "this text sets a spacing");
-    assert_eq!(p.bucket("check: glyph advances, texts with letter spacing set")[0], t(0, 5), "Studio's width is 2 px wider than the stored advance");
+    assert_eq!(p.bucket("check: glyph advances")[0], t(5, 5), "the headline compares like with like: the spacing is off Studio's side");
+    assert_eq!(
+        p.bucket("check: glyph advances, texts with letter spacing set, Studio's width as shaped")[0],
+        t(0, 5),
+        "Studio's width as shaped is 2 px wider than the stored advance"
+    );
     assert_eq!(
         p.bucket("check: glyph advances, texts with letter spacing set, Studio's width minus its spacing")[0],
         t(5, 5),
