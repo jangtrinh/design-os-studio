@@ -827,6 +827,7 @@ fn eq_text_style_without_content(a: Option<&TextProps>, b: Option<&TextProps>) -
                 && ta.auto_rename == tb.auto_rename
                 && ta.decoration_skip_ink == tb.decoration_skip_ink
                 && ta.text_wrap == tb.text_wrap
+                && ta.uniform_scale == tb.uniform_scale
         }
         _ => false,
     }
