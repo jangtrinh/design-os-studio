@@ -32,6 +32,9 @@ fn stored_glyph_exports_are_the_recorded_bytes() {
     let pdf = fnv(&export_pdf(&doc, &ids).unwrap());
     assert_eq!(pdf, fnv(&export_pdf(&doc, &ids).unwrap()), "the PDF bytes are deterministic, so they can be recorded");
     let expected_svg: [u64; 3] = [0xfbd1_b749_baf7_685b, 0x44a9_bd49_d736_d60c, 0xfb22_b860_32d9_fe16];
-    let expected_pdf: u64 = 0x0;
-    assert!((svg.as_slice(), pdf) == (expected_svg.as_slice(), expected_pdf), "recorded svg {expected_svg:x?} pdf {expected_pdf:#x}; drawn svg {svg:x?} pdf {pdf:#x}");
+    let expected_pdf: u64 = 0xa716_49dd_6eb6_5302;
+    assert!(
+        (svg.as_slice(), pdf) == (expected_svg.as_slice(), expected_pdf),
+        "recorded svg {expected_svg:x?} pdf {expected_pdf:#x}; drawn svg {svg:x?} pdf {pdf:#x}"
+    );
 }

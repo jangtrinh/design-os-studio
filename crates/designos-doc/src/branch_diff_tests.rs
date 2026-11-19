@@ -562,5 +562,5 @@ fn one_moved_glyph_in_a_stored_glyph_table_is_a_change_to_the_text() {
     equal_copy.get_mut(a).unwrap().fig_text_geometry = Some(table(0.0));
     let diff = diff3(&base, &ours, &base);
     assert_eq!(diff.ours.nodes.get(&a), Some(&NodeChange::Changed { groups: BTreeSet::from([Group::Other]) }));
-    assert!(diff3(&base, &equal_copy, &base).ours.nodes.get(&a).is_none(), "a separate geometry with the same glyphs is the same text");
+    assert!(!diff3(&base, &equal_copy, &base).ours.nodes.contains_key(&a), "a separate geometry with the same glyphs is the same text");
 }
