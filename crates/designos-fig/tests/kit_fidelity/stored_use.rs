@@ -4,8 +4,8 @@
 //!
 //! - instances: a top-level instance with `derivedSymbolData` keeps it when hydration recorded an imported layout for
 //!   it (the set the layout leg calls refused is the rest);
-//! - texts: `designos_render::text_runs_for_node` draws the saved glyphs when its gate lets them through (the saved
-//!   outlines then come back as the first span's outline); the drops are named by the first rule that explains them;
+//! - texts: `designos_render::stored_glyph_use` says whether the renderer draws the saved glyphs (the gate that
+//!   `text_runs_for_node` and `layout_node` share); the drops are named by the first rule that explains them;
 //! - fills and strokes: the renderer draws a non-empty `fill_geometry`, and a stored stroke outline only while
 //!   `Node::live_stroke_outline` still holds (its stamp matches the layer's size and stroke).
 //!
@@ -49,12 +49,8 @@ pub fn empty_derived(raw: &Raw) -> usize {
 pub fn text_drop(node: &Node) -> Option<(&'static str, Option<&'static str>)> {
     let NodeKind::Text(props) = &node.kind else { return Some(("not a text layer", None)) };
     let saved = node.fig_text_geometry.as_deref();
-    if let Some(saved) = saved {
-        let drawn = designos_render::text_runs_for_node(node)
-            .is_some_and(|runs| runs.lines.iter().flat_map(|l| &l.spans).next().is_some_and(|first| first.outline == saved.path.cmds));
-        if drawn {
-            return None;
-        }
+    if designos_render::stored_glyph_use(node) == designos_render::StoredGlyphUse::Drawn {
+        return None;
     }
     Some(match saved {
         None => (
