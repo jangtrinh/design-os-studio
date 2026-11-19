@@ -844,9 +844,11 @@ pub struct ImportReport {
     /// keeps them all, and neither case counts. A text over the allowance is counted without reading its font list, so
     /// one that names several fonts counts too.
     ///
-    /// The allowance is charged on wire bytes inside the decoder, so it bounds decoding as well as what is kept. Kept
-    /// data costs about 60 bytes of peak memory per wire byte (value tree, JSON string, glyph paths and shared blobs),
-    /// so the allowance bounds an import's extra memory at about 270 MB and its extra time at under a second.
+    /// The allowance bounds the bytes of the file that are read and kept, charged on wire bytes inside the decoder, so it
+    /// also bounds decoding. It does not bound memory by itself: kept data costs 60 to 100 bytes of peak memory per wire
+    /// byte on a Latin kit (value tree, JSON string, glyph paths and shared blobs), so 4 MiB adds about 300 to 500 MB
+    /// and under a second to an import. That cost is not measured for CJK or other scripts, whose glyph outlines are
+    /// larger.
     pub dropped_stored_glyphs: usize,
 }
 

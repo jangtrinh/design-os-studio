@@ -30,14 +30,14 @@ pub(crate) const MAX_DRAWN_GLYPHS: usize = 4096;
 /// How many wire bytes of `derivedTextData` one import keeps (4 MiB). The allowance bounds the bytes of the file that
 /// are read and kept; what they cost in memory depends on the glyph outlines they point at.
 ///
-/// Measured on a Latin design kit whose every text was set in a font that is not bundled, what is kept costs about 60
+/// Measured on a Latin design kit whose every text was set in a font that is not bundled, what is kept costs 60 to 100
 /// bytes of peak memory per wire byte: the decoded value tree, then a JSON string, then the glyph paths (28 bytes a
-/// path command, by far the largest part) and the shared blobs. There 4 MiB took the import's peak from 9.63 to 9.90
-/// GB and made it about 0.7 seconds longer; all of that kit (about 11 MB, so 16 MiB) took the peak to 10.3 GB and
-/// about 1.5 seconds longer. A real kit that uses a few non-bundled fonts needs a few kilobytes. The cost per wire byte
-/// is NOT measured for CJK or other scripts, whose outlines are larger and so cost more memory per wire byte. A text
-/// that does not fit is left out and counted in [`crate::rest_import::ImportReport::dropped_stored_glyphs`]; texts are
-/// taken in file order.
+/// path command, by far the largest part) and the shared blobs. There 4 MiB took the import's peak from about 9.65 GB
+/// to between 9.9 and 10.2 GB (the peak itself varies by about 0.25 GB from run to run) and made it about 0.6 seconds
+/// longer; all of that kit (about 11 MB, so 16 MiB) took the peak to 10.3 GB and about 1.5 seconds longer. A real kit
+/// that uses a few non-bundled fonts needs a few kilobytes. The cost per wire byte is NOT measured for CJK or other
+/// scripts, whose outlines are larger and so cost more memory per wire byte. A text that does not fit is left out and
+/// counted in [`crate::rest_import::ImportReport::dropped_stored_glyphs`]; texts are taken in file order.
 pub(crate) const ALLOWANCE_WIRE_BYTES: usize = 4 * 1024 * 1024;
 
 /// Whether `family` is one of the families the app embeds. Exact name, ignoring case: a family that only has a
