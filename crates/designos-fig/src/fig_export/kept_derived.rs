@@ -77,7 +77,7 @@ pub(super) fn pending_derived_symbol_data(cx: &mut ExportCtx<'_>, inst_id: NodeI
     let held = cx.doc.pending_instance_derived(inst_id)?;
     // The fingerprint names the main it was taken from, so an instance pointed at another main does not match.
     let mains = crate::component_fingerprint::instance_mains(cx.doc, inst_id, main, &held.swap_mains);
-    if cx.fingerprints.of_mains(cx.doc, &mains) != held.fingerprint {
+    if Some(cx.fingerprints.of_mains(cx.doc, &mains)) != held.fingerprint {
         return None;
     }
     let main_guid = cx.node_guids.get(&main).copied();
@@ -137,7 +137,7 @@ mod tests {
         let inst = Node::new(inst_id, NodeKind::Instance { frame: FrameProps::default(), component: Some(main_id), component_key: None });
         doc.insert(page, inst).unwrap();
         let entry = PendingDerivedEntry { path: vec!["1:11".into()], size: Some([9.0, 8.0]), ..Default::default() };
-        let held = PendingDerived { fingerprint: Fingerprints::default().of_mains(&doc, &[main_id]), entries: vec![entry], swap_mains: Vec::new() };
+        let held = PendingDerived { fingerprint: Some(Fingerprints::default().of_mains(&doc, &[main_id])), entries: vec![entry], swap_mains: Vec::new() };
         doc.page_hydrator = Some(Arc::new(Mutex::new(Fixed(held))));
         (doc, main_id, inst_id)
     }

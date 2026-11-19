@@ -701,7 +701,9 @@ pub struct PendingDerivedEntry {
 pub struct PendingDerived {
     /// A fingerprint of the main component the data was computed for, and of the mains inside it, as they were when the
     /// file was opened. The loader and the format writer share its definition; the document does not interpret it.
-    pub fingerprint: u64,
+    /// `None` when the loader can no longer vouch for the mains the data depends on: it never matches, so the writer
+    /// refuses the data while the loader still holds the record.
+    pub fingerprint: Option<u64>,
     pub entries: Vec<PendingDerivedEntry>,
     /// The mains the file's record swaps nested instances to, which the fingerprint also covers.
     pub swap_mains: Vec<NodeId>,
