@@ -2037,9 +2037,10 @@ mod import_notice_tests {
     fn doc_hash_sees_a_stored_glyph_table_without_allocating() {
         use super::{doc_hash, node_fingerprint};
         use crate::test_alloc_count::allocations_in;
-        use designos_doc::{Document, FigTextGeometry, Node, Rect, StoredGlyph};
+        use designos_doc::{Document, FigTextGeometry, Node, Rect, StoredDecoration, StoredFallback, StoredGlyph};
         use std::sync::Arc;
 
+        // the bars, the style ids of the runs and the verdict are hashed along with the table, and allocate nothing either
         let geometry = |first_x: f32| {
             let glyphs: Vec<StoredGlyph> = (0..1_000)
                 .map(|i| StoredGlyph { x: if i == 0 { first_x } else { i as f32 }, y: 18.0, font_size: 14.0, blob: 0, first_char: i, style: 0, flags: 0 })
@@ -2051,6 +2052,9 @@ mod import_notice_tests {
                 blobs: vec![Arc::from(vec![1u8; 300])],
                 glyph_blobs: Vec::new(),
                 glyphs: glyphs.into(),
+                decorations: vec![StoredDecoration { style: 1, x: first_x, y: 22.0, w: 30.0, h: 2.0 }; 3].into(),
+                run_sids: vec![4, 9].into(),
+                fallback: Some(StoredFallback::Truncated),
             })
         };
         let mut d = Document::new("glyph-table-hash");

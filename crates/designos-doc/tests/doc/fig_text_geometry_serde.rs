@@ -1,7 +1,7 @@
 //! The saved glyph geometry of a text layer in a document file: blobs are hex strings, of any size, and a
 //! malformed one is refused rather than guessed.
 
-use designos_doc::{FigTextGeometry, Path, PathCmd, StoredGlyph, TextProps, Vec2};
+use designos_doc::{FigTextGeometry, Path, PathCmd, StoredDecoration, StoredFallback, StoredGlyph, TextProps, Vec2};
 use std::sync::Arc;
 
 fn geometry(blobs: Vec<Vec<u8>>) -> FigTextGeometry {
@@ -14,6 +14,7 @@ fn geometry(blobs: Vec<Vec<u8>>) -> FigTextGeometry {
         blobs: blobs.into_iter().map(Arc::from).collect(),
         glyph_blobs: Vec::new(),
         glyphs: glyphs.into(),
+        ..Default::default()
     }
 }
 
@@ -124,6 +125,7 @@ fn a_geometry_from_before_the_table_keeps_the_old_key_in_the_shape_0_7_17_reads(
         blobs: vec![Arc::from(vec![1u8, 2, 3])],
         glyph_blobs: vec![Some(0), None],
         glyphs: Default::default(),
+        ..Default::default()
     };
     let json = serde_json::to_value(text_node_with(legacy.clone())).unwrap();
     assert!(json.get("stored_text_glyphs").is_none());
@@ -145,4 +147,52 @@ fn a_crafted_table_loads_unchanged_so_the_renderer_has_to_look_at_it() {
     assert_eq!(g.glyphs.len(), 4096);
     assert!(g.glyphs.iter().all(|g| g.x.is_nan() && g.font_size == 0.0), "NaN and a zero size survive the hex form");
     assert_eq!(g.draw_refusal(), Some("stored glyphs not finite"));
+}
+
+#[test]
+fn bars_run_ids_and_a_verdict_round_trip_under_the_table_key() {
+    let mut saved = geometry(vec![vec![1, 2, 3], vec![4, 5]]);
+    saved.decorations = vec![StoredDecoration { style: 2, x: 1.0, y: 22.5, w: 30.0, h: 2.0 }].into();
+    saved.run_sids = vec![7, 9].into();
+    saved.fallback = Some(StoredFallback::Truncated);
+    let json = serde_json::to_value(text_node_with(saved.clone())).unwrap();
+    assert!(json.get("fig_text_geometry").is_none(), "the old key is not written: {json}");
+    let table = &json["stored_text_glyphs"];
+    assert_eq!(table["run_sids"], serde_json::json!([7, 9]));
+    assert_eq!(table["fallback"], "truncated");
+    assert_eq!(table["decorations"][0]["style"], 2);
+
+    let old: Node0717 = serde_json::from_value(json.clone()).expect("0.7.17 reads the node");
+    assert!(old.fig_text_geometry.is_none(), "0.7.17 still sees no stored geometry");
+    let back: designos_doc::Node = serde_json::from_value(json).unwrap();
+    assert_eq!(back.fig_text_geometry.as_deref(), Some(&saved));
+}
+
+#[test]
+fn a_geometry_without_bars_run_ids_or_a_verdict_writes_none_of_them() {
+    let json = serde_json::to_value(geometry(vec![vec![1, 2, 3]])).unwrap();
+    for key in ["decorations", "run_sids", "fallback"] {
+        assert!(json.get(key).is_none(), "{key} is not written when it is empty: {json}");
+    }
+}
+
+#[test]
+fn a_geometry_that_only_says_why_is_saved_in_table_form_and_a_newer_reason_loads() {
+    let refused = FigTextGeometry { text: TextProps::default(), size: Vec2::new(10.0, 10.0), fallback: Some(StoredFallback::LayoutSize), ..Default::default() };
+    assert!(refused.is_table_form());
+    let json = serde_json::to_value(text_node_with(refused.clone())).unwrap();
+    assert!(json.get("fig_text_geometry").is_none(), "the older form would read back as an empty outline, which 0.7.17 exports as blank text: {json}");
+    let old: Node0717 = serde_json::from_value(json.clone()).unwrap();
+    assert!(old.fig_text_geometry.is_none());
+    let back: designos_doc::Node = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(back.fig_text_geometry.as_deref(), Some(&refused));
+
+    let mut newer = json;
+    newer["stored_text_glyphs"]["fallback"] = "a_reason_from_a_later_build".into();
+    let loaded: designos_doc::Node = serde_json::from_value(newer).unwrap();
+    assert_eq!(
+        loaded.fig_text_geometry.as_ref().and_then(|g| g.fallback),
+        Some(StoredFallback::Unrecognised),
+        "a name this build does not know does not fail the load"
+    );
 }

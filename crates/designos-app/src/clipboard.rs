@@ -824,13 +824,14 @@ pub(crate) mod tests {
                 .map(|i| StoredGlyph { x: i as f32 * 0.01, y: 10.0, font_size: 12.0, blob: 0, first_char: 0, style: 0, flags: 0 })
                 .collect::<Vec<_>>()
                 .into(),
+            ..Default::default()
         }));
         d.insert(f, text).unwrap();
         let payload = to_json(&capture(&d, &[id]).unwrap()).unwrap();
         let pasted = from_json(&payload).expect("a payload is not checked for its glyph table when it is read");
         let node = pasted.nodes.iter().find(|n| matches!(n.kind, NodeKind::Text(_))).unwrap();
         assert_eq!(node.fig_text_geometry.as_ref().map(|g| g.glyphs.len()), Some(4096));
-        assert_eq!(stored_glyph_use(node), StoredGlyphUse::Fallback("stored glyphs over budget"));
+        assert_eq!(stored_glyph_use(node), StoredGlyphUse::Fallback("stored blobs over budget"));
     }
 
     #[test]

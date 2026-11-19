@@ -29,8 +29,13 @@ fn stored_use_counts_a_text_that_draws_from_its_stored_glyphs() {
     assert_eq!(p.bucket("texts: total")[0], t(1, 1), "a font that is not installed draws Figma's stored glyphs");
     let (r, doc, keys) = load(&mf::icon_fixture("Inter"));
     let p = use_part(&r, &doc, &keys);
-    assert_eq!(p.bucket("texts: total")[0], t(0, 1), "Inter is bundled, so shaping draws it");
-    assert_eq!(p.bucket("texts: not drawn, font available (bundled)")[0], t(0, 1), "and the drop names its reason");
+    assert_eq!(p.bucket("texts: total")[0], t(1, 1), "Inter is bundled, and the stored glyphs draw whatever the font");
+    let mut nodes = mf::document_and_page();
+    nodes.push(mf::glyph_text((1, 2), (0, 1), "a", "Underlined", mf::FAMILY, "\u{e900}", &[(0, 0.0)], vec![("textDecoration", en("UNDERLINE"))]));
+    let (r, doc, keys) = load(&mf::fig_file(nodes, vec![mf::icon_blob()]));
+    let p = use_part(&r, &doc, &keys);
+    assert_eq!(p.bucket("texts: total")[0], t(0, 1));
+    assert_eq!(p.bucket("texts: not drawn, decoration missing from stored data")[0], t(0, 1), "the drop is the renderer's own reason");
 }
 
 #[test]

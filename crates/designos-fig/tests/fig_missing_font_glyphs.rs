@@ -154,14 +154,40 @@ fn serialized_glyph_blobs_use_the_compact_hex_form() {
 }
 
 #[test]
-fn underlined_text_is_shaped_until_decorations_are_drawn() {
+fn an_underlined_text_draws_the_bar_figma_stored() {
     let mut nodes = document_and_page();
-    nodes.push(glyph_text((1, 2), (0, 1), "a", "Icon text", FAMILY, "\u{e900}", &[(0, 0.0)], vec![("textDecoration", en("UNDERLINE"))]));
+    nodes.push(styled_glyph_text(
+        (1, 2),
+        (0, 1),
+        "a",
+        "Icon text",
+        FAMILY,
+        "\u{e900}",
+        &[],
+        vec![],
+        vec![stored_glyph(Some(0), 0.0, 0, vec![])],
+        &[FAMILY],
+        vec![("decorations", V::Array(vec![stored_decoration(0, &[(0.0, 22.0, 20.0, 2.0)])]))],
+        vec![("textDecoration", en("UNDERLINE"))],
+    ));
     let doc = import_fig(&fig_file(nodes, vec![icon_blob()])).unwrap();
     let icon = icon_node(&doc);
     let NodeKind::Text(t) = &icon.kind else { unreachable!() };
     assert_ne!(t.style.decoration, designos_doc::TextDecoration::None, "the fixture imports as underlined");
-    assert!(!draws_saved_triangle(icon), "the saved outlines carry no underline, so shaping draws the text");
+    assert!(icon.fig_text_geometry.as_ref().is_some_and(|g| g.matches(icon)), "the underline is part of the snapshot");
+    let b = designos_render::text_outlines_for_node(icon)[0].path.bounds();
+    assert!(
+        (b.left() - 0.0).abs() < 1e-3 && (b.right() - 20.0).abs() < 1e-3 && (b.top() - 4.0).abs() < 1e-3 && (b.bottom() - 24.0).abs() < 1e-3,
+        "the glyph and Figma's bar: {b:?}"
+    );
+}
+
+#[test]
+fn an_underlined_text_with_no_stored_bar_is_shaped() {
+    let mut nodes = document_and_page();
+    nodes.push(glyph_text((1, 2), (0, 1), "a", "Icon text", FAMILY, "\u{e900}", &[(0, 0.0)], vec![("textDecoration", en("UNDERLINE"))]));
+    let doc = import_fig(&fig_file(nodes, vec![icon_blob()])).unwrap();
+    assert!(!draws_saved_triangle(icon_node(&doc)), "the saved outlines carry no underline, so shaping draws the text");
 }
 
 #[test]
@@ -325,6 +351,7 @@ fn text_using_one_blob(times: usize) -> Node {
 fn a_blob_shared_by_many_glyphs_counts_once_per_glyph_against_the_size_limit() {
     assert_eq!(long_blob().len(), 1999);
     // 1,000 uses decode 1,999,000 bytes, under the 2 MB a text may decode; 1,001 uses go over it.
-    assert!(text_using_one_blob(1000).fig_text_geometry.is_some(), "under the limit the saved glyphs are kept");
-    assert!(text_using_one_blob(1001).fig_text_geometry.is_none(), "a shared blob still costs its bytes for every glyph that draws it");
+    let drawn = |n: &Node| designos_render::stored_glyph_use(n) == designos_render::StoredGlyphUse::Drawn;
+    assert!(drawn(&text_using_one_blob(1000)), "under the limit the saved glyphs draw");
+    assert!(!drawn(&text_using_one_blob(1001)), "a shared blob still costs its bytes for every glyph that draws it");
 }

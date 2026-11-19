@@ -1,4 +1,5 @@
-//! A face that arrives after a missing-font text drew Figma's embedded glyphs: the text switches to the real face.
+//! A face that arrives after a text drew Figma's embedded glyphs: the text keeps Figma's glyphs, because the glyphs
+//! describe the text whatever fonts the machine has. (They used to give way to the real face.)
 //! Own test binary: registering fonts bumps a process-wide generation that would invalidate caches used by tests
 //! running in parallel.
 
@@ -7,7 +8,7 @@ mod missing_font_fig;
 
 use designos_doc::{Document, Node};
 use designos_fig::import_fig;
-use designos_render::{register_font, text_outlines_for_node};
+use designos_render::{register_font, resolve_font, stored_glyph_use, text_outlines_for_node, StoredGlyphUse};
 use missing_font_fig::*;
 
 /// Eleven characters, the length of the bundled Roboto Mono's own family name, so it can be swapped in place.
@@ -56,9 +57,10 @@ fn ink(node: &Node) -> (f32, f32, f32, f32) {
 }
 
 #[test]
-fn installing_the_face_replaces_the_saved_glyphs_with_real_shaping() {
+fn installing_the_face_keeps_the_saved_glyphs() {
     hermetic_fonts();
     let (_doc, node) = letter_w();
+    assert_eq!(stored_glyph_use(&node), StoredGlyphUse::Drawn);
     let before = ink(&node);
     assert!(
         (before.0 - 0.0).abs() < 1e-3 && (before.2 - 20.0).abs() < 1e-3 && (before.1 - 4.0).abs() < 1e-3,
@@ -66,7 +68,7 @@ fn installing_the_face_replaces_the_saved_glyphs_with_real_shaping() {
     );
 
     register_font(face_named(FAMILY_NAME));
-    let after = ink(&node);
-    assert!(after.2 > after.0, "the installed face draws a glyph: {after:?}");
-    assert_ne!(before, after, "the saved glyph no longer stands in once the face is installed");
+    assert!(resolve_font(FAMILY_NAME, 400, false).is_some_and(|f| f.family.eq_ignore_ascii_case(FAMILY_NAME)), "the face is installed now");
+    assert_eq!(stored_glyph_use(&node), StoredGlyphUse::Drawn, "an installed face does not take the text back");
+    assert_eq!(ink(&node), before, "the saved glyphs stand, the real face does not reshape the text");
 }

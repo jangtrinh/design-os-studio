@@ -23,14 +23,14 @@ fn the_reason_a_text_does_not_draw_stored_glyphs_is_named() {
     assert_eq!(stored_glyph_use(&bare), StoredGlyphUse::NoStoredData);
     let frame = doc.nodes.values().find(|n| n.name == "Icon frame").unwrap();
     assert_eq!(stored_glyph_use(frame), StoredGlyphUse::NoStoredData);
-    // a file whose text is in a bundled family keeps its glyphs, and shaping draws it
+    // a file whose text is in a bundled family keeps its glyphs, and they draw: the font does not decide
     let inter = import_fig(&icon_fixture("Inter")).unwrap();
     let inter_icon = inter.nodes.values().find(|n| n.name == "Icon text").unwrap();
-    assert_eq!(stored_glyph_use(inter_icon), StoredGlyphUse::Fallback("font installed"));
-    // an imported underline is part of the snapshot, so the glyphs still match; the saved outlines carry no bar, shaping draws it
+    assert_eq!(stored_glyph_use(inter_icon), StoredGlyphUse::Drawn);
+    // an imported underline is part of the snapshot, so the glyphs still match; Figma stored no bar for it, so the text is shaped
     let mut nodes = document_and_page();
     nodes.push(glyph_text((1, 2), (0, 1), "a", "Icon text", FAMILY, "\u{e900}", &[(0, 0.0)], vec![("textDecoration", designos_fig::testkit::en("UNDERLINE"))]));
     let underlined = import_fig(&fig_file(nodes, vec![icon_blob()])).unwrap();
     let underlined = underlined.nodes.values().find(|n| n.name == "Icon text").unwrap();
-    assert_eq!(stored_glyph_use(underlined), StoredGlyphUse::Fallback("decoration"));
+    assert_eq!(stored_glyph_use(underlined), StoredGlyphUse::Fallback("decoration missing from stored data"));
 }

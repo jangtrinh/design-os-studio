@@ -22,6 +22,7 @@ fn loaded_text(glyphs: Vec<StoredGlyph>, blobs: Vec<Vec<u8>>, path: Path) -> Nod
         blobs: blobs.into_iter().map(Arc::from).collect(),
         glyph_blobs: Vec::new(),
         glyphs: glyphs.into(),
+        ..Default::default()
     }));
     doc.insert(page, node).unwrap();
     let reloaded = Document::from_json(&doc.to_json().unwrap()).unwrap();
@@ -60,7 +61,7 @@ fn four_thousand_glyphs_over_one_large_blob_are_refused_before_anything_is_assem
     let big = lines(116_000);
     assert!(big.len() > 1_000_000);
     let node = loaded_text((0..4096).map(|i| glyph(i as f32 * 0.01, 10.0, 12.0, 0)).collect(), vec![big], Path::default());
-    assert_eq!(stored_glyph_use(&node), StoredGlyphUse::Fallback("stored glyphs over budget"));
+    assert_eq!(stored_glyph_use(&node), StoredGlyphUse::Fallback("stored blobs over budget"));
     // nothing is assembled: the exporters and the canvas get the shaped text
     assert_eq!(drawn_outline(&node), shaped_outline(&node));
     assert_eq!(text_outlines_for_node(&node).len(), 1);
@@ -69,7 +70,7 @@ fn four_thousand_glyphs_over_one_large_blob_are_refused_before_anything_is_assem
 #[test]
 fn more_glyphs_than_the_importer_builds_are_refused() {
     let node = loaded_text((0..4097).map(|_| glyph(0.0, 10.0, 12.0, StoredGlyph::NO_BLOB)).collect(), Vec::new(), Path::default());
-    assert_eq!(stored_glyph_use(&node), StoredGlyphUse::Fallback("stored glyphs over budget"));
+    assert_eq!(stored_glyph_use(&node), StoredGlyphUse::Fallback("too many stored glyphs"));
 }
 
 #[test]

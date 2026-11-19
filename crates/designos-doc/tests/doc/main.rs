@@ -7,6 +7,7 @@ mod color_profile_json;
 mod copy_layer_links;
 mod copy_links_after_studio_edits;
 mod copy_links_on_load;
+mod fig_text_geometry_matches;
 mod fig_text_geometry_serde;
 mod fig_text_geometry_size;
 mod glass_noise_texture_fields;

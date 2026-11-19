@@ -1,6 +1,7 @@
 //! The importer refuses a text whose stored glyphs it cannot draw. These are the cases it refused when it built every
 //! outline at import; it must refuse them just the same now that it keeps only a table. Each case was checked against
-//! the importer before the table, so this test cannot fail there.
+//! the importer before the table, so this test cannot fail there. A refused text keeps a geometry without glyphs that
+//! names the reason (or none, when it has nothing stored at all), so "refused" means no glyph is kept.
 #[path = "common/missing_font_fig.rs"]
 mod missing_font_fig;
 
@@ -27,7 +28,7 @@ fn float_blob(op: u8, pts: &[f32]) -> Vec<u8> {
 fn keeps_glyphs(bytes: &[u8]) -> bool {
     let doc = import_fig(bytes).unwrap();
     let text = doc.nodes.values().find(|n| n.name == "Probe" && matches!(n.kind, NodeKind::Text(_))).expect("the probe text");
-    text.fig_text_geometry.is_some()
+    text.fig_text_geometry.as_ref().is_some_and(|g| !g.glyphs.is_empty() && g.fallback.is_none())
 }
 
 #[test]

@@ -14,7 +14,7 @@ use crate::rest_import::{self, fnum, fstr};
 use crate::stored_glyphs;
 use crate::svgpath::write_path;
 use crate::FigError;
-use designos_doc::{Affine, Document, FigTextGeometry, FillRule, Node, NodeKind, Path, StoredGlyph, Vec2};
+use designos_doc::{Affine, Document, FigTextGeometry, FillRule, Node, NodeId, NodeKind, Path, StoredDecoration, StoredFallback, StoredGlyph, TextProps, Vec2};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -409,78 +409,124 @@ fn import_with_budgets(bytes: &[u8], clone_budget_total: usize, stored_glyph_all
     Ok((doc, report))
 }
 
-/// Keeps Figma's embedded glyph outlines on every single-style text layer of `doc` that carries them. Runs on
-/// the importer's nodes before instances are expanded, so a copy of a component's text starts with the glyphs of
-/// the component's own text: an instance that changes the characters or the style then no longer matches them.
-pub(crate) fn attach_embedded_glyphs(doc: &mut Document, blobs: &[&[u8]]) {
+/// Keeps Figma's embedded glyph outlines on every text layer of `doc` that carries them. Runs on the importer's nodes
+/// before instances are expanded, so a copy of a component's text starts with the glyphs of the component's own text:
+/// an instance that changes the characters or the style then no longer matches them.
+///
+/// `run_sids` holds, for a text with style runs, the style id Figma gave each run.
+pub(crate) fn attach_embedded_glyphs(doc: &mut Document, blobs: &[&[u8]], run_sids: &HashMap<NodeId, Vec<u32>>) {
     let mut shared: HashMap<usize, SharedBlob> = HashMap::new();
     for node in doc.nodes.values_mut() {
         if matches!(node.kind, NodeKind::Text(_)) && node.fig_metadata.contains_key("derivedTextData") {
-            node.fig_text_geometry = fig_text_geometry(node, blobs, &mut shared).map(Arc::new);
+            let sids = run_sids.get(&node.id).map_or(&[][..], Vec::as_slice);
+            node.fig_text_geometry = fig_text_geometry(node, blobs, &mut shared, sids).map(Arc::new);
         }
     }
 }
 
+/// A geometry that holds no glyphs and only says why the text is not drawn from them.
+fn refused_geometry(text: &TextProps, size: Vec2, why: StoredFallback) -> FigTextGeometry {
+    FigTextGeometry { text: text.clone(), size, fallback: Some(why), ..Default::default() }
+}
+
 /// Figma stores each shaped glyph's path in a blob, in font-em coordinates with the y axis pointing up. Keep the
-/// glyph table and the blobs for missing-font display; the renderer builds the outlines from them when the text is
-/// drawn, and the editable text remains the source of truth after an edit.
+/// glyph table and the blobs; the renderer builds the outlines from them when the text is drawn, and the editable
+/// text remains the source of truth after an edit.
 ///
 /// `shared` holds each file blob once for the whole import: Figma shares one blob between every occurrence of a
-/// glyph, and so do the geometries built from it.
-fn fig_text_geometry(node: &Node, blobs: &[&[u8]], shared: &mut HashMap<usize, SharedBlob>) -> Option<FigTextGeometry> {
+/// glyph, and so do the geometries built from it. `run_sids` is the style id of each of the text's runs (see
+/// [`attach_embedded_glyphs`]).
+///
+/// `None` when the node has nothing stored: no characters, no readable derived data, no glyphs, or glyphs that draw
+/// nothing. A text that has stored data the renderer must not draw keeps a geometry that names the reason
+/// ([`StoredFallback`]); one whose data cannot be trusted at all keeps no glyphs.
+fn fig_text_geometry(node: &Node, blobs: &[&[u8]], shared: &mut HashMap<usize, SharedBlob>, run_sids: &[u32]) -> Option<FigTextGeometry> {
     let NodeKind::Text(text) = &node.kind else { return None };
-    if text.content.is_empty() || !text.runs.is_empty() {
+    if text.content.is_empty() {
         return None;
     }
     let raw = node.fig_metadata.get("derivedTextData")?;
     let derived: Value = serde_json::from_str(raw).ok()?;
-    let size = derived.get("layoutSize")?;
-    if (fnum(size, "x")? - node.size.x).abs() > 0.1 || (fnum(size, "y")? - node.size.y).abs() > 0.1 {
-        return None;
-    }
-    let fonts = derived.get("fontMetaData")?.as_array()?;
-    if fonts.len() != 1 || fstr(fonts.first()?.get("key")?, "family")?.to_lowercase() != text.style.font_family.to_lowercase() {
-        return None;
-    }
     let glyphs = derived.get("glyphs")?.as_array()?;
-    if glyphs.is_empty() || glyphs.len() > stored_glyphs::MAX_DRAWN_GLYPHS {
+    if glyphs.is_empty() {
         return None;
     }
+    let refuse = |why| Some(refused_geometry(text, node.size, why));
+    let truncated = derived.get("truncationStartIndex").and_then(Value::as_i64).is_some_and(|i| i >= 0);
+    let layout_ok = derived
+        .get("layoutSize")
+        .and_then(|size| Some(((fnum(size, "x")? - node.size.x).abs() <= 0.1) && ((fnum(size, "y")? - node.size.y).abs() <= 0.1)))
+        .unwrap_or(false);
+    if !layout_ok {
+        // a truncated text's stored size is the untruncated one: the cause is the truncation
+        return refuse(if truncated { StoredFallback::Truncated } else { StoredFallback::LayoutSize });
+    }
+    // The fonts Figma stored must include one the text uses (its own, or a run's): else the data is of another text.
+    let own_fonts: Vec<String> = std::iter::once(&text.style).chain(text.runs.iter().map(|r| &r.style)).map(|s| s.font_family.to_lowercase()).collect();
+    let stored_fonts = derived.get("fontMetaData").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    if !stored_fonts.iter().filter_map(|f| f.get("key").and_then(|k| fstr(k, "family"))).any(|family| own_fonts.contains(&family.to_lowercase())) {
+        return refuse(StoredFallback::Fonts);
+    }
+    if run_sids.len() != text.runs.len() {
+        return refuse(StoredFallback::RunIds);
+    }
+    if glyphs.len() > stored_glyphs::MAX_DRAWN_GLYPHS {
+        return refuse(StoredFallback::GlyphCount);
+    }
+    // UTF-16 index of each character boundary, to put each glyph in the run that holds its first character
+    let offsets = (!text.runs.is_empty()).then(|| rest_import::utf16_to_byte_offsets(&text.content));
+    let units = text.content.chars().map(char::len_utf16).sum::<usize>();
+    let style_of = |first: usize| -> u16 {
+        let Some(offsets) = &offsets else { return 0 };
+        let at = offsets[first];
+        let run = text.runs.partition_point(|r| r.start <= at);
+        run.checked_sub(1).filter(|&i| at < text.runs[i].end).map_or(0, |i| u16::try_from(i + 1).unwrap_or(0))
+    };
     let mut unique: Vec<Arc<[u8]>> = Vec::new();
     let mut slot_of: HashMap<usize, u32> = HashMap::new();
     let mut table = Vec::with_capacity(glyphs.len());
     let mut blob_bytes = 0usize;
     let mut drawn_commands = 0usize;
+    let mut emoji = false;
+    let mut first_char_outside = false;
     for glyph in glyphs {
-        let scale = fnum(glyph, "fontSize")?;
-        let pos = glyph.get("position")?;
-        let x = fnum(pos, "x")?;
-        let y = fnum(pos, "y")?;
-        if !scale.is_finite() || scale <= 0.0 || !x.is_finite() || !y.is_finite() || fnum(glyph, "rotation").unwrap_or(0.0).abs() > 1e-5 {
-            return None;
+        let (Some(scale), Some(pos)) = (fnum(glyph, "fontSize"), glyph.get("position")) else { return refuse(StoredFallback::Malformed) };
+        let (Some(x), Some(y)) = (fnum(pos, "x"), fnum(pos, "y")) else { return refuse(StoredFallback::Malformed) };
+        if !scale.is_finite() || scale <= 0.0 || !x.is_finite() || !y.is_finite() {
+            return refuse(StoredFallback::Malformed);
+        }
+        if fnum(glyph, "rotation").unwrap_or(0.0).abs() > 1e-5 {
+            return refuse(StoredFallback::RotatedGlyph);
         }
         let first_char = glyph
             .get("firstCharacter")
             .and_then(Value::as_u64)
             .map_or(StoredGlyph::UNKNOWN_FIRST_CHAR, |c| u32::try_from(c).unwrap_or(StoredGlyph::UNKNOWN_FIRST_CHAR));
-        let mut stored = StoredGlyph { x, y, font_size: scale, blob: StoredGlyph::NO_BLOB, first_char, style: 0, flags: 0 };
+        let inside = first_char != StoredGlyph::UNKNOWN_FIRST_CHAR && (first_char as usize) < units;
+        first_char_outside |= !inside;
+        let is_emoji =
+            glyph.get("emojiCodePoints").and_then(Value::as_array).is_some_and(|c| !c.is_empty()) || glyph.get("emojiImageSet").is_some_and(|s| !s.is_null());
+        emoji |= is_emoji;
+        let style = if inside { style_of(first_char as usize) } else { 0 };
+        let flags = if is_emoji { StoredGlyph::EMOJI } else { 0 };
+        let mut stored = StoredGlyph { x, y, font_size: scale, blob: StoredGlyph::NO_BLOB, first_char, style, flags };
         let Some(blob_index) = glyph.get("commandsBlob").and_then(Value::as_u64) else {
             table.push(stored);
             continue;
         };
-        let blob_index = usize::try_from(blob_index).ok()?;
-        let blob = *blobs.get(blob_index)?;
+        let Some(blob) = usize::try_from(blob_index).ok().and_then(|i| blobs.get(i).copied().map(|b| (i, b))) else { return refuse(StoredFallback::Malformed) };
+        let (blob_index, blob) = blob;
         // every glyph that draws a blob costs its bytes, so a shared blob counts once per glyph
-        blob_bytes = blob_bytes.checked_add(blob.len())?;
+        blob_bytes = blob_bytes.saturating_add(blob.len());
         if blob_bytes > designos_doc::MAX_BLOB_BYTES_PER_TEXT {
-            return None;
+            return refuse(StoredFallback::BlobBudget);
         }
         let entry = shared.entry(blob_index).or_insert_with(|| SharedBlob { bytes: Arc::from(blob), extent: designos_doc::glyph_blob_extent(blob) });
-        let extent = entry.extent?;
+        let Some(extent) = entry.extent else { return refuse(StoredFallback::Malformed) };
         let slot = match slot_of.get(&blob_index) {
             Some(&slot) => slot,
             None => {
-                let slot = u32::try_from(unique.len()).ok()?;
+                let Ok(slot) = u32::try_from(unique.len()) else { return refuse(StoredFallback::Malformed) };
                 unique.push(Arc::clone(&entry.bytes));
                 slot_of.insert(blob_index, slot);
                 slot
@@ -493,18 +539,52 @@ fn fig_text_geometry(node: &Node, blobs: &[&[u8]], shared: &mut HashMap<usize, S
         if extent.commands > 0 {
             let corners = [x + extent.min.x * scale, x + extent.max.x * scale, y - extent.min.y * scale, y - extent.max.y * scale];
             if !corners.iter().all(|c| c.is_finite()) {
-                return None;
+                return refuse(StoredFallback::Malformed);
             }
             drawn_commands += extent.commands;
         }
     }
-    (drawn_commands > 0).then(|| FigTextGeometry {
+    // a bar belongs to the run Figma gave its style id, and to the text's own style when no run has it
+    let style_of_id = |sid: u64| -> u16 {
+        u32::try_from(sid).ok().and_then(|sid| run_sids.iter().position(|&r| r == sid)).and_then(|i| u16::try_from(i + 1).ok()).unwrap_or(0)
+    };
+    let mut decorations = Vec::new();
+    for deco in derived.get("decorations").and_then(Value::as_array).map_or(&[][..], Vec::as_slice) {
+        let style = style_of_id(deco.get("styleID").and_then(Value::as_u64).unwrap_or(0));
+        for rect in deco.get("rects").and_then(Value::as_array).map_or(&[][..], Vec::as_slice) {
+            let (Some(x), Some(y), Some(w), Some(h)) = (fnum(rect, "x"), fnum(rect, "y"), fnum(rect, "w"), fnum(rect, "h")) else {
+                return refuse(StoredFallback::Malformed);
+            };
+            if ![x, y, w, h].iter().all(|v| v.is_finite()) {
+                return refuse(StoredFallback::Malformed);
+            }
+            decorations.push(StoredDecoration { style, x, y, w, h });
+        }
+    }
+    if drawn_commands == 0 && !emoji && decorations.is_empty() {
+        return None;
+    }
+    let non_empty = |key: &str| derived.get(key).and_then(Value::as_array).is_some_and(|a| !a.is_empty());
+    let fallback = if truncated {
+        Some(StoredFallback::Truncated)
+    } else if non_empty("blockquotes") || non_empty("checklistMarkers") {
+        Some(StoredFallback::Markers)
+    } else if first_char_outside && text.lists.is_empty() {
+        // a list's marker is a glyph with no character of the text, so a list is named by its list when it is drawn
+        Some(StoredFallback::FirstCharacter)
+    } else {
+        None
+    };
+    Some(FigTextGeometry {
         text: text.clone(),
         size: node.size,
         path: Path { cmds: Vec::new(), fill_rule: FillRule::NonZero },
         blobs: unique,
         glyph_blobs: Vec::new(),
         glyphs: table.into(),
+        decorations: decorations.into(),
+        run_sids: run_sids.into(),
+        fallback,
     })
 }
 
@@ -4005,7 +4085,7 @@ mod tests {
         });
         node.fig_metadata.insert("derivedTextData".into(), derived.to_string());
         let blob = [1u8, 0, 0, 0, 0, 0, 0, 0, 0];
-        let saved = fig_text_geometry(&node, &[&blob[..]], &mut HashMap::new()).expect("the text keeps its glyphs");
+        let saved = fig_text_geometry(&node, &[&blob[..]], &mut HashMap::new(), &[]).expect("the text keeps its glyphs");
         let first: Vec<u32> = saved.glyphs.iter().map(|g| g.first_char).collect();
         let unknown = StoredGlyph::UNKNOWN_FIRST_CHAR;
         assert_eq!(first, vec![3, unknown, unknown, unknown, unknown, 0], "only an integer in range is an index; 0 is a real index");

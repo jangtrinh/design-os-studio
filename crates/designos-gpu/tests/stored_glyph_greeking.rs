@@ -40,6 +40,7 @@ fn stored_texts() -> (Document, NodeId) {
             blobs: vec![Arc::from(triangle_blob())],
             glyph_blobs: Vec::new(),
             glyphs: vec![StoredGlyph { x: 0.0, y: 20.0, font_size: 10.0, blob: 0, first_char: 0, style: 0, flags: 0 }].into(),
+            ..Default::default()
         }));
         doc.insert(page, node).unwrap();
     }

@@ -52,6 +52,7 @@ fn a_document_written_before_the_table_still_writes_the_same_derived_text() {
             blobs: saved.blobs.clone(),
             glyph_blobs: saved.glyph_blob_slots().collect(),
             glyphs: Default::default(),
+            ..Default::default()
         };
         node.fig_text_geometry = Some(std::sync::Arc::new(old));
     }

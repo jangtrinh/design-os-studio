@@ -977,12 +977,21 @@ mod stored_geometry_tests {
             blobs: vec![Arc::from(vec![1u8])],
             glyph_blobs: Vec::new(),
             glyphs: vec![glyph].into(),
+            ..Default::default()
         }
     }
 
     fn legacy(text: &crate::TextProps) -> FigTextGeometry {
         let path = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 1.0)), PathCmd::Close], ..Default::default() };
-        FigTextGeometry { text: text.clone(), size: Vec2::new(10.0, 10.0), path, blobs: Vec::new(), glyph_blobs: vec![None], glyphs: Default::default() }
+        FigTextGeometry {
+            text: text.clone(),
+            size: Vec2::new(10.0, 10.0),
+            path,
+            blobs: Vec::new(),
+            glyph_blobs: vec![None],
+            glyphs: Default::default(),
+            ..Default::default()
+        }
     }
 
     fn set_of(node: &Node, key: &str) -> Map<String, Value> {

@@ -7,10 +7,12 @@ mod fig_text_geometry;
 mod glyph_blob;
 mod glyph_limits;
 mod glyph_table;
+mod stored_text_extras;
 pub use fig_text_geometry::{same_fig_text_geometry, FigTextGeometry};
 pub use glyph_blob::{decode_glyph_commands, glyph_blob_extent, GlyphBlobExtent};
 pub use glyph_limits::{MAX_ASSEMBLED_COMMANDS, MAX_BLOB_BYTES_PER_TEXT, MAX_DRAWN_GLYPHS};
 pub use glyph_table::{GlyphTable, StoredGlyph};
+pub use stored_text_extras::{StoredDecoration, StoredFallback};
 
 fn default_true() -> bool {
     true
@@ -125,8 +127,8 @@ pub struct Node {
     /// the style leaves these alone; "Reapply text style" clears them.
     #[serde(default, skip_serializing_if = "OwnedFieldSet::is_empty")]
     pub text_style_overrides: OwnedFieldSet,
-    /// Figma's cached glyph outlines for a text layer. Used only while the requested font is
-    /// unavailable and the text/style/size still match the imported layer.
+    /// Figma's cached glyph outlines for a text layer. Drawn while the text, its style runs and its size still match the
+    /// imported layer, whatever fonts the machine has.
     ///
     /// A geometry with a glyph table is saved under the key `stored_text_glyphs`, which 0.7.17 does not know: it ignores
     /// the key (its `Node` has no `deny_unknown_fields`, `node.rs:68-69` at `v0.7.17`), shapes the text on the canvas and
@@ -346,8 +348,8 @@ impl Serialize for Node {
             mask_type,
             style_refs,
             text_style_overrides,
-            fig_text_geometry: fig_text_geometry.as_ref().filter(|g| g.glyphs.is_empty()),
-            stored_text_glyphs: fig_text_geometry.as_ref().filter(|g| !g.glyphs.is_empty()),
+            fig_text_geometry: fig_text_geometry.as_ref().filter(|g| !g.is_table_form()),
+            stored_text_glyphs: fig_text_geometry.as_ref().filter(|g| g.is_table_form()),
             fill_geometry,
             stroke_geometry,
             stroke_geometry_for: self.stale_stroke_geometry_stamp(),

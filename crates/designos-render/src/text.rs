@@ -95,29 +95,63 @@ pub enum StoredGlyphUse {
     Fallback(&'static str),
 }
 
-/// What `node` draws: [`StoredGlyphUse::Drawn`] when the stored glyphs still describe it, the requested font is not
-/// installed, and the text has no underline or strikethrough (the saved outlines carry no decoration bars, so shaping
-/// draws those). The scoreboard counts texts through this.
+/// What `node` draws: [`StoredGlyphUse::Drawn`] when the stored glyphs still describe it, whatever its fonts (installed,
+/// bundled or neither), style runs or underlines. The scoreboard counts texts through this.
+///
+/// The reasons a text with stored glyphs is shaped, in the order they are looked for: the node has no characters; what
+/// the table holds (count, numbers, blob bytes); what the importer saw (an emoji, a rotated glyph, a truncated text,
+/// blockquote or checklist markers, a first character outside the text, and the data it could not use at all); the node
+/// is a list (Figma may draw its markers outside the glyphs); a glyph or bar names a style the text does not have; a
+/// style is underlined or struck through and Figma stored no bar for it.
 pub fn stored_glyph_use(node: &d::Node) -> StoredGlyphUse {
     let d::NodeKind::Text(props) = &node.kind else { return StoredGlyphUse::NoStoredData };
     let Some(saved) = node.fig_text_geometry.as_deref() else { return StoredGlyphUse::NoStoredData };
     if !saved.matches(node) {
         return StoredGlyphUse::Edited;
     }
+    // Defensive: the importer keeps no geometry for an empty text and an edit to empty is `Edited` first, so only a
+    // crafted document reaches this.
+    if props.content.is_empty() {
+        return StoredGlyphUse::Fallback("no characters");
+    }
     // what a document file or a clipboard payload may hold is not bounded by the importer: look before anything is built
     if let Some(reason) = saved.draw_refusal() {
         return StoredGlyphUse::Fallback(reason);
     }
-    if props.style.decoration != d::TextDecoration::None {
-        return StoredGlyphUse::Fallback("decoration");
+    if !props.lists.is_empty() {
+        return StoredGlyphUse::Fallback("list");
     }
-    let missing_font = resolve_font(&props.style.font_family, props.style.font_weight, props.style.italic)
-        .is_none_or(|resolved| !resolved.family.eq_ignore_ascii_case(&props.style.font_family));
-    if missing_font {
-        StoredGlyphUse::Drawn
-    } else {
-        StoredGlyphUse::Fallback("font installed")
+    let styles = 1 + props.runs.len();
+    if saved.glyphs.iter().any(|g| usize::from(g.style) >= styles) || saved.decorations.iter().any(|b| usize::from(b.style) >= styles) {
+        return StoredGlyphUse::Fallback("stored glyph style missing");
     }
+    // Figma gives identical override styles one id, and one id can sit on two separate stretches, so a run is covered by
+    // any bar whose style is a run with the same Figma id (the importer gives all of that id's bars to the first). Style
+    // 0 is covered by bars of style 0 only.
+    let figma_id = |style: usize| style.checked_sub(1).and_then(|run| saved.run_sids.get(run)).copied();
+    let covered = |style: usize| {
+        saved.decorations.iter().any(|b| {
+            usize::from(b.style) == style || (style > 0 && figma_id(usize::from(b.style)).is_some() && figma_id(usize::from(b.style)) == figma_id(style))
+        })
+    };
+    let drawn_style = std::iter::once(&props.style).chain(props.runs.iter().map(|r| &r.style));
+    for (i, style) in drawn_style.enumerate() {
+        if style.decoration != d::TextDecoration::None && !covered(i) {
+            return StoredGlyphUse::Fallback("decoration missing from stored data");
+        }
+    }
+    // All of an id's bars are drawn in the first run's path, so they take that run's fills. At import every run of an id has
+    // the same style, but a fill edit of one run keeps the glyphs: when a decorated run shares its id with a run that is now
+    // painted differently, the bar would be the wrong colour, so the text is shaped.
+    for (i, run) in props.runs.iter().enumerate() {
+        let shares = |j: usize| saved.run_sids.get(j).is_some_and(|id| Some(id) == saved.run_sids.get(i));
+        if run.style.decoration != d::TextDecoration::None
+            && props.runs.iter().enumerate().any(|(j, other)| j != i && shares(j) && other.style.fills != run.style.fills)
+        {
+            return StoredGlyphUse::Fallback("decoration fill differs between runs that share a bar");
+        }
+    }
+    StoredGlyphUse::Drawn
 }
 
 /// The glyphs Figma saved with an imported text node, when they are what the node must draw (see [`stored_glyph_use`]).
@@ -129,15 +163,21 @@ pub(crate) fn embedded_glyphs(node: &d::Node) -> Option<&d::FigTextGeometry> {
     }
 }
 
-/// Layout an imported text node. When its original font is unavailable, use the glyph paths Figma embedded
-/// in the file until the text is edited. `None` for a node that is not text.
+/// Layout an imported text node. While the stored glyphs still describe it, use the glyph paths Figma embedded in the
+/// file, one path per style (the text's own, then each run's) so each run keeps its own fills. `None` for a node that is
+/// not text.
 pub fn layout_node(node: &d::Node) -> Option<Rc<TextLayout>> {
     let d::NodeKind::Text(props) = &node.kind else { return None };
     if let Some(saved) = embedded_glyphs(node) {
-        if let Some(path) = crate::stored_glyphs::stored_path(saved) {
-            let shape = crate::geom::vector_paths(std::slice::from_ref(&*path));
-            if let Some((path, _)) = shape.paths.into_iter().next() {
-                return Some(Rc::new(TextLayout { styles: vec![props.style.clone()], paths: vec![Some(path)], line_box: node.size }));
+        let styles = 1 + props.runs.len();
+        if let Some(stored) = crate::stored_glyphs::stored_paths(saved, styles) {
+            let mut paths: Vec<Option<sk::Path>> =
+                stored.iter().map(|p| crate::geom::vector_paths(std::slice::from_ref(&**p)).paths.into_iter().next().map(|(path, _)| path)).collect();
+            if paths.iter().any(Option::is_some) {
+                paths.resize_with(styles, || None);
+                let mut all = vec![props.style.clone()];
+                all.extend(props.runs.iter().map(|r| r.style.clone()));
+                return Some(Rc::new(TextLayout { styles: all, paths, line_box: node.size }));
             }
         }
     }
@@ -871,19 +911,30 @@ pub fn text_runs(props: &TextProps, size: Vec2) -> TextRuns {
     with_fonts(|f| compute_runs(f, props, size))
 }
 
-/// [`text_runs`] of a text node for exporters. When the node draws Figma's embedded glyphs, the lines
-/// and styles are the shaped ones (so selectable text keeps its place) and the visible outlines are the
-/// saved ones, held by the first span. `None` for a node that is not text.
+/// [`text_runs`] of a text node for exporters. When the node draws Figma's embedded glyphs, the lines and styles are
+/// the shaped ones (so selectable text keeps its place) and the visible outlines are the saved ones: each style's
+/// outline sits in the first span of that style, or in an extra span without text when shaping made none. `None` for a
+/// node that is not text.
 pub fn text_runs_for_node(node: &d::Node) -> Option<TextRuns> {
     let d::NodeKind::Text(props) = &node.kind else { return None };
     let mut runs = text_runs(props, node.size);
-    if let Some(outline) = embedded_glyphs(node).and_then(crate::stored_glyphs::stored_path).map(|path| path.into_owned().cmds) {
+    if let Some(stored) = embedded_glyphs(node).and_then(|saved| crate::stored_glyphs::stored_paths(saved, runs.styles.len())) {
         for span in runs.lines.iter_mut().flat_map(|l| l.spans.iter_mut()) {
             span.outline.clear();
         }
-        match runs.lines.iter_mut().flat_map(|l| l.spans.iter_mut()).next() {
-            Some(first) => first.outline = outline,
-            None => runs.lines.push(RunLine { baseline: node.size.y, spans: vec![GlyphRun { style: 0, x: 0.0, text: String::new(), outline }] }),
+        let mut spanless = Vec::new();
+        for (style, path) in stored.into_iter().enumerate() {
+            let outline = path.into_owned().cmds;
+            if outline.is_empty() {
+                continue;
+            }
+            match runs.lines.iter_mut().flat_map(|l| l.spans.iter_mut()).find(|span| span.style == style) {
+                Some(span) => span.outline = outline,
+                None => spanless.push(GlyphRun { style, x: 0.0, text: String::new(), outline }),
+            }
+        }
+        if !spanless.is_empty() {
+            runs.lines.push(RunLine { baseline: node.size.y, spans: spanless });
         }
     }
     Some(runs)

@@ -37,8 +37,15 @@ fn imported_text(doc: &mut Document, parent: NodeId, content: &str, auto_resize:
     let NodeKind::Text(tp) = &mut node.kind else { unreachable!() };
     tp.auto_resize = auto_resize;
     let text = tp.clone();
-    node.fig_text_geometry =
-        Some(Arc::new(FigTextGeometry { text, size: stored, path: Path::default(), blobs: Vec::new(), glyph_blobs: Vec::new(), glyphs: Default::default() }));
+    node.fig_text_geometry = Some(Arc::new(FigTextGeometry {
+        text,
+        size: stored,
+        path: Path::default(),
+        blobs: Vec::new(),
+        glyph_blobs: Vec::new(),
+        glyphs: Default::default(),
+        ..Default::default()
+    }));
     doc.insert(parent, node).unwrap();
     id
 }

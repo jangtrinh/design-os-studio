@@ -1,18 +1,19 @@
-//! Figma's cached glyph outlines for a text layer, kept so a font that is not installed still draws like Figma.
+//! Figma's cached glyph outlines for a text layer, kept so an imported text draws like Figma until it is edited.
 
 use super::glyph_table::{GlyphTable, StoredGlyph};
+use super::stored_text_extras::{StoredDecoration, StoredFallback};
 use super::{Node, NodeKind, TextProps};
-use crate::{Path, TextStyle, Vec2};
+use crate::{Path, TextRun, TextStyle, Vec2};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// Original Figma glyph geometry, retained while the imported text has not changed.
-/// It lets a missing font display with the exact outlines embedded in a `.fig` file.
+/// It lets the text display with the exact outlines embedded in a `.fig` file, whatever fonts are installed.
 ///
 /// The glyphs are a table of 24 bytes each plus the command blobs Figma stored; the outlines are built from them when
 /// the text is drawn. A node holds the geometry behind an [`Arc`], so cloning a node (undo snapshots, duplicates,
 /// instance copies) shares one copy and costs one pointer.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub struct FigTextGeometry {
     /// The text as it was when the glyphs were taken. [`FigTextGeometry::matches`] compares against it.
     pub text: TextProps,
@@ -34,9 +35,19 @@ pub struct FigTextGeometry {
     /// The glyphs in Figma's order.
     #[serde(default, skip_serializing_if = "GlyphTable::is_empty")]
     pub glyphs: GlyphTable,
+    /// The underline and strikethrough bars Figma stored, each tagged with the style it belongs to.
+    #[serde(default)]
+    pub decorations: Arc<[StoredDecoration]>,
+    /// The style id Figma gave each of the text's style runs, in run order: what a later save maps the stored style ids
+    /// through. Empty for a text without runs.
+    #[serde(default)]
+    pub run_sids: Arc<[u32]>,
+    /// Why the importer decided this text is shaped although it holds data; `None` when the data alone does not say so.
+    #[serde(default)]
+    pub fallback: Option<StoredFallback>,
 }
 
-/// A geometry with a table is written without `path` and `glyph_blobs`; one from before the table is written with them,
+/// A geometry in table form is written without `path` and `glyph_blobs`; one from before the table is written with them,
 /// in the shape 0.7.17 reads, whatever they hold. [`Node`] writes the first kind under a key of its own.
 impl Serialize for FigTextGeometry {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
@@ -47,8 +58,8 @@ impl Serialize for FigTextGeometry {
                 hex_blobs::serialize(self.0, s)
             }
         }
-        let table = !self.glyphs.is_empty();
-        let mut out = s.serialize_struct("FigTextGeometry", if table { 4 } else { 5 })?;
+        let table = self.is_table_form();
+        let mut out = s.serialize_struct("FigTextGeometry", if table { 7 } else { 5 })?;
         out.serialize_field("text", &self.text)?;
         out.serialize_field("size", &self.size)?;
         if !table {
@@ -57,6 +68,15 @@ impl Serialize for FigTextGeometry {
         out.serialize_field("blobs", &Blobs(&self.blobs))?;
         if table {
             out.serialize_field("glyphs", &self.glyphs)?;
+            if !self.decorations.is_empty() {
+                out.serialize_field("decorations", &self.decorations)?;
+            }
+            if !self.run_sids.is_empty() {
+                out.serialize_field("run_sids", &self.run_sids)?;
+            }
+            if let Some(fallback) = &self.fallback {
+                out.serialize_field("fallback", fallback)?;
+            }
         } else {
             out.serialize_field("glyph_blobs", &self.glyph_blobs)?;
         }
@@ -65,6 +85,13 @@ impl Serialize for FigTextGeometry {
 }
 
 impl FigTextGeometry {
+    /// Whether this geometry is the glyph table (saved under its own key) rather than a path built before the table
+    /// existed. A geometry with no glyphs that says why it is not drawn is in table form too: the older form would read
+    /// back as an empty outline, which 0.7.17 exports as blank text.
+    pub fn is_table_form(&self) -> bool {
+        !self.glyphs.is_empty() || self.fallback.is_some()
+    }
+
     /// Whether the saved outlines still describe `node`: same box, and the same text with the same
     /// settings that decide where a glyph lands. The text colour does not, so a recolour keeps them.
     pub fn matches(&self, node: &Node) -> bool {
@@ -98,6 +125,8 @@ impl FigTextGeometry {
     pub fn retained_bytes(&self) -> usize {
         self.glyphs.len() * std::mem::size_of::<StoredGlyph>()
             + self.glyph_blobs.len() * std::mem::size_of::<Option<u32>>()
+            + self.decorations.len() * std::mem::size_of::<StoredDecoration>()
+            + self.run_sids.len() * std::mem::size_of::<u32>()
             + self.blobs.iter().map(|blob| blob.len()).sum::<usize>()
             + self.path.cmds.len() * std::mem::size_of::<crate::PathCmd>()
     }
@@ -114,12 +143,35 @@ pub fn same_fig_text_geometry(a: &Option<Arc<FigTextGeometry>>, b: &Option<Arc<F
     }
 }
 
-/// Equality of two texts in everything but the paints. Both sides are destructured without a
-/// catch-all, so a field added to either type has to be classified here before the crate builds.
+/// The same runs over the same ranges in the same glyph-shaping style: a run's paints do not move a glyph. Both sides
+/// are destructured without a catch-all, so a field added to [`TextRun`] has to be classified here first.
+fn same_runs(a: &[TextRun], b: &[TextRun]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(a, b)| {
+            let TextRun { start, end, style } = a;
+            let TextRun { start: b_start, end: b_end, style: b_style } = b;
+            start == b_start && end == b_end && same_glyph_style(style, b_style)
+        })
+}
+
+/// Equality of two texts in everything but the paints (of the text and of each run) and the layer's name. Both sides are
+/// destructured without a catch-all, so a field added to either type has to be classified here before the crate builds.
 fn same_glyph_shapes(a: &TextProps, b: &TextProps) -> bool {
     // The factor a layer applies to style values does not place a glyph by itself: the values it scaled do.
-    let TextProps { content, style, runs, auto_resize, max_lines, paragraph, lists, direction, auto_rename, decoration_skip_ink, text_wrap, uniform_scale: _ } =
-        a;
+    let TextProps {
+        content,
+        style,
+        runs,
+        auto_resize,
+        max_lines,
+        paragraph,
+        lists,
+        direction,
+        auto_rename: _,
+        decoration_skip_ink,
+        text_wrap,
+        uniform_scale: _,
+    } = a;
     let TextProps {
         content: b_content,
         style: b_style,
@@ -129,20 +181,19 @@ fn same_glyph_shapes(a: &TextProps, b: &TextProps) -> bool {
         paragraph: b_paragraph,
         lists: b_lists,
         direction: b_direction,
-        auto_rename: b_auto_rename,
+        auto_rename: _,
         decoration_skip_ink: b_decoration_skip_ink,
         text_wrap: b_text_wrap,
         uniform_scale: _,
     } = b;
     content == b_content
         && same_glyph_style(style, b_style)
-        && runs == b_runs
+        && same_runs(runs, b_runs)
         && auto_resize == b_auto_resize
         && max_lines == b_max_lines
         && paragraph == b_paragraph
         && lists == b_lists
         && direction == b_direction
-        && auto_rename == b_auto_rename
         && decoration_skip_ink == b_decoration_skip_ink
         && text_wrap == b_text_wrap
 }
