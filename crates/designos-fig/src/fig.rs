@@ -268,11 +268,8 @@ fn extract_fast_derived(raw_changes: &mut [KiwiValue], num_blobs: usize) -> Hash
 /// Moves the `derivedTextData` of the node change `kc` out of it when a large-file import keeps it (a text in a
 /// font that is not bundled, within the import's allowance), as JSON. Whatever else `kc` holds of it is dropped here.
 pub(crate) fn take_stored_glyphs(kc: &mut KiwiValue, budget: &mut stored_glyphs::Budget) -> Option<Value> {
-    let keep = match &*kc {
-        KiwiValue::Message(fields) => stored_glyphs::keeps_stored_glyphs(fields),
-        _ => false,
-    };
     let derived = kc.take_field("derivedTextData")?;
+    let keep = matches!(&*kc, KiwiValue::Message(fields) if stored_glyphs::keeps_stored_glyphs(fields));
     if !keep {
         return None;
     }
