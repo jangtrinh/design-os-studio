@@ -1,4 +1,4 @@
-//! A large `.fig` file keeps the glyph outlines Figma stored for a text whose font is not installed, the way a small
+//! A big `.fig` file (more than 5,000 entries, or a message payload over 2 MB) keeps the glyph outlines Figma stored for a text whose font is not installed, the way a small
 //! file does, and keeps nothing for a text in a bundled family (it always shapes with the bundled face).
 #[path = "common/missing_font_fig.rs"]
 mod missing_font_fig;
@@ -11,7 +11,7 @@ use missing_font_fig::*;
 use std::sync::Arc;
 
 /// More node changes than the importer's large-file threshold (5,000), with a message payload far below 2 MB.
-fn large_by_entry_count(texts: Vec<V>) -> Vec<u8> {
+fn big_by_entry_count(texts: Vec<V>) -> Vec<u8> {
     let mut nodes = document_and_page();
     nodes.extend(texts);
     nodes.extend((1..=5_001u32).map(|i| node((2, i), (0, 1), "z", "FRAME", "Filler", vec![("size", vec2(4.0, 4.0))])));
@@ -19,7 +19,7 @@ fn large_by_entry_count(texts: Vec<V>) -> Vec<u8> {
 }
 
 /// A handful of node changes whose message payload passes 2 MB (a padding blob), the other way a file is large.
-fn large_by_payload(texts: Vec<V>) -> Vec<u8> {
+fn big_by_payload(texts: Vec<V>) -> Vec<u8> {
     let mut nodes = document_and_page();
     nodes.extend(texts);
     fig_file(nodes, vec![icon_blob(), vec![0u8; 2_100_000]])
@@ -71,22 +71,22 @@ fn assert_draws_stored_glyph(doc: &Document, name: &str) {
 }
 
 #[test]
-fn large_file_by_entry_count_draws_stored_glyphs_of_a_missing_font() {
-    let doc = import_fig(&large_by_entry_count(vec![missing_text()])).unwrap();
-    assert!(doc.nodes.len() > 5_000, "the fixture is a large file");
+fn big_file_by_entry_count_draws_stored_glyphs_of_a_missing_font() {
+    let doc = import_fig(&big_by_entry_count(vec![missing_text()])).unwrap();
+    assert!(doc.nodes.len() > 5_000, "the fixture is a big file");
     assert_draws_stored_glyph(&doc, "Missing font text");
 }
 
 #[test]
-fn large_file_by_payload_draws_stored_glyphs_of_a_missing_font() {
-    let doc = import_fig(&large_by_payload(vec![missing_text()])).unwrap();
+fn big_file_by_payload_draws_stored_glyphs_of_a_missing_font() {
+    let doc = import_fig(&big_by_payload(vec![missing_text()])).unwrap();
     assert_draws_stored_glyph(&doc, "Missing font text");
 }
 
 #[test]
-fn large_file_keeps_nothing_for_a_text_in_a_bundled_family() {
+fn big_file_keeps_nothing_for_a_text_in_a_bundled_family() {
     for (what, bytes) in
-        [("entry count", large_by_entry_count(vec![missing_text(), bundled_text()])), ("payload", large_by_payload(vec![missing_text(), bundled_text()]))]
+        [("entry count", big_by_entry_count(vec![missing_text(), bundled_text()])), ("payload", big_by_payload(vec![missing_text(), bundled_text()]))]
     {
         let doc = import_fig(&bytes).unwrap();
         let inter = named(&doc, "Bundled font text");
@@ -108,9 +108,9 @@ fn small_file_keeps_stored_glyphs_for_every_text() {
 }
 
 #[test]
-fn large_file_shares_one_blob_between_texts_that_draw_the_same_glyph() {
+fn big_file_shares_one_blob_between_texts_that_draw_the_same_glyph() {
     let second = glyph_text((1, 4), (0, 1), "c", "Second missing text", FAMILY, "\u{e900}", &[(0, 0.0)], vec![]);
-    for bytes in [large_by_entry_count(vec![missing_text(), second.clone()]), large_by_payload(vec![missing_text(), second])] {
+    for bytes in [big_by_entry_count(vec![missing_text(), second.clone()]), big_by_payload(vec![missing_text(), second])] {
         let doc = import_fig(&bytes).unwrap();
         let a = named(&doc, "Missing font text").fig_text_geometry.as_ref().expect("first keeps glyphs");
         let b = named(&doc, "Second missing text").fig_text_geometry.as_ref().expect("second keeps glyphs");
@@ -125,8 +125,8 @@ fn derived_text_in(saved: &[u8], name: &str) -> Option<serde_json::Value> {
 }
 
 #[test]
-fn large_file_saves_back_the_stored_glyphs_it_kept() {
-    let doc = import_fig(&large_by_entry_count(vec![missing_text(), bundled_text()])).unwrap();
+fn big_file_saves_back_the_stored_glyphs_it_kept() {
+    let doc = import_fig(&big_by_entry_count(vec![missing_text(), bundled_text()])).unwrap();
     let saved = export_fig(&doc).unwrap();
     let derived = derived_text_in(&saved, "Missing font text").expect("a kept text writes its derived data back");
     assert_eq!(derived["glyphs"].as_array().map(Vec::len), Some(1));
@@ -138,7 +138,7 @@ fn large_file_saves_back_the_stored_glyphs_it_kept() {
 }
 
 #[test]
-fn derived_text_data_on_a_node_that_is_not_text_is_dropped_in_a_large_file() {
+fn derived_text_data_on_a_node_that_is_not_text_is_dropped_in_a_big_file() {
     let frame = node(
         (1, 9),
         (0, 1),
@@ -147,7 +147,7 @@ fn derived_text_data_on_a_node_that_is_not_text_is_dropped_in_a_large_file() {
         "Frame with derived text",
         vec![("size", vec2(20.0, 20.0)), ("derivedTextData", msg(vec![("layoutSize", vec2(20.0, 20.0))]))],
     );
-    let doc = import_fig(&large_by_payload(vec![frame])).unwrap();
+    let doc = import_fig(&big_by_payload(vec![frame])).unwrap();
     let frame = named(&doc, "Frame with derived text");
     assert!(matches!(frame.kind, NodeKind::Frame(_)));
     assert!(!holds_derived_text(frame));

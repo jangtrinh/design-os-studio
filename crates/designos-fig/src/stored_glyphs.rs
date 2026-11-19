@@ -14,8 +14,9 @@ use std::sync::Arc;
 /// whose texts all use a non-bundled font stops keeping at this size and counts the texts it dropped
 /// ([`crate::rest_import::ImportReport::dropped_stored_glyphs`]).
 ///
-/// The bytes kept cost about 3.5 times this in memory once the outlines are built (JSON string, glyph paths and
-/// the shared blobs), measured on the kit's own texts.
+/// What is kept costs about 5.3 times its JSON size in memory once the outlines are built (JSON string, glyph
+/// paths and the shared blobs): the kit's 109 KB of JSON retain 581 KB. So the allowance bounds an import's extra
+/// memory at roughly 340 MiB.
 pub(crate) const BUDGET_BYTES: usize = 64 * 1024 * 1024;
 
 /// Whether `family` is one of the families the app embeds. Exact name, ignoring case: a family that only has a
