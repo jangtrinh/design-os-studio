@@ -672,7 +672,7 @@ In Studio, `wgpu` default swapchains use `TextureFormat::Bgra8UnormSrgb` without
 | `#1404` | `designos-app` | `cargo test -p designos-app --lib font_refit` | Sliced late font settlement without dirtying clean docs passes |
 | `#1817` | `designos-doc` | `cargo test -p designos-doc --lib live_patch::table_replay_tests` | Concurrent track preservation and differential replay pass |
 | `#1799` | `designos-app` | `cargo test -p designos-app --lib board::table::grips` | Merged span track selection closure passes |
-| `#521` | `designos-doc` | `cargo test -p designos-doc --test headless_layout_fill_vector` | Image crop/rotation and instance fills pass |
+| `#521` | `designos-doc` | `cargo test -p designos-doc --test doc headless_layout_fill_vector::` | Image crop/rotation and instance fills pass |
 | `#528` / `#831` | `designos-export` | `cargo test -p designos-export --test export kit_export_bounds:: -- --ignored` | 4 verified frames remain $\pm 1\text{ px}$; 6 cause-5 frames calibrated |
 | `#1738` | `designos-export` | `cargo test -p designos-export --lib raster` | Parent-aligned AABB export of rotated layers passes |
 | `#1798` | `designos-gpu` | `cargo test -p designos-gpu --test gpu display_p3_parity::` | P3 GPU rendering and eyedropper color accuracy pass |

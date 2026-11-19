@@ -3,8 +3,8 @@
 use designos_doc::*;
 use serde_json::Value;
 
-const DEPTH1: &str = include_str!("fixtures/older-native-after-fig-import-depth1.designos.json");
-const DEPTH2: &str = include_str!("fixtures/older-native-after-fig-import-depth2.designos.json");
+const DEPTH1: &str = include_str!("../fixtures/older-native-after-fig-import-depth1.designos.json");
+const DEPTH2: &str = include_str!("../fixtures/older-native-after-fig-import-depth2.designos.json");
 
 fn fixture(depth: usize) -> &'static str {
     if depth == 1 {
