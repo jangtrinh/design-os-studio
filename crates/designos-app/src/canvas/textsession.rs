@@ -345,7 +345,8 @@ pub fn edit_node_text_detaching(n: &mut Node, f: impl FnOnce(&mut TextProps)) {
     let is_text = matches!(n.kind, NodeKind::Text(_));
     let linked = n.style_refs.contains_key(text_ref());
     let Some(t) = n.kind.any_text_mut() else { return };
-    let before = linked.then(|| t.clone());
+    // a text with a factor also loses the bindings of what the edit changed
+    let before = (linked || t.has_uniform_scale()).then(|| t.clone());
     f(t);
     if let Some(before) = before {
         designos_doc::apply_text_link_rule(n, &before);

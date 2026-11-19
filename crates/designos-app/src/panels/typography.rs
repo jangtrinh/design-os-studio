@@ -56,7 +56,14 @@ pub fn combine(a: &Summary, b: &Summary) -> Summary {
 pub fn nodes_summary(app: &App, sel: &[NodeId]) -> Option<Summary> {
     sel.iter()
         .take(64)
-        .filter_map(|id| app.doc.get(*id).and_then(|n| n.kind.any_text().map(|t| richtext::summary(t, 0..t.content.len()))))
+        .filter_map(|id| {
+            let n = app.doc.get(*id)?;
+            // a text in a scaled instance shows what it draws, which its stored values only match by chance
+            if let Some(drawn) = designos_doc::drawn_scaled_text(&app.doc, n) {
+                return Some(richtext::summary(&drawn, 0..drawn.content.len()));
+            }
+            n.kind.any_text().map(|t| richtext::summary(t, 0..t.content.len()))
+        })
         .reduce(|a, b| combine(&a, &b))
 }
 
@@ -752,9 +759,12 @@ fn details_rows(sets: usize, active_tab: usize, truncating: bool) -> f32 {
 pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &super::effects::PopState) {
     let ctx = ui.ctx().clone();
     let ids = st.ids.clone();
-    let Some(t) = ids.first().and_then(|id| match app.doc.get(*id).map(|n| &n.kind) {
-        Some(NodeKind::Text(t)) => Some(t.clone()),
-        _ => None,
+    let Some(t) = ids.first().and_then(|id| match app.doc.get(*id) {
+        Some(n) => match &n.kind {
+            NodeKind::Text(t) => Some(designos_doc::drawn_scaled_text(&app.doc, n).unwrap_or_else(|| t.clone())),
+            _ => None,
+        },
+        None => None,
     }) else {
         app.props.pop = None;
         return;
@@ -1220,7 +1230,9 @@ mod tests {
         let coll = store.add_collection("Type");
         let mode = store.collections[&coll].modes[0].id.clone();
         let var = store.add_variable(&coll, "Font size/text-sm", VariableKind::Number).unwrap();
+        let dark = store.add_mode(&coll, "Dark").unwrap();
         store.set_value(&var, &mode, VariableValue::Number(14.0));
+        store.set_value(&var, &dark, VariableValue::Number(20.0));
         app.commit_store(store, &[], &[]);
         app.doc.get_mut(text_id).unwrap().variables.bindings.insert("fontSize".into(), var.clone());
         designos_doc::create_component(&mut app.doc, main).apply(&mut app.doc).unwrap();
@@ -1259,5 +1271,78 @@ mod tests {
         assert!(var_bind::shown_node_binding(&app.doc, inner, "fontSize").is_none(), "no variable pill");
         assert_eq!(style_picker::linked_style(&app, &[main_text], StyleProperty::Text).as_deref(), Some("Body"), "the main's text shows both");
         assert!(var_bind::shown_node_binding(&app.doc, main_text, "fontSize").is_some());
+    }
+    /// Binds a new number variable `value` to `key` on `node`.
+    fn bind_number(app: &mut App, node: NodeId, key: &str, name: &str, value: f32) -> String {
+        let mut store = VariableStore::from_doc(&app.doc);
+        let coll = store.collections.keys().next().cloned().expect("a collection");
+        let mode = store.collections[&coll].modes[0].id.clone();
+        let var = store.add_variable(&coll, name, VariableKind::Number).unwrap();
+        store.set_value(&var, &mode, VariableValue::Number(value));
+        app.commit_store(store, &[], &[]);
+        app.doc.get_mut(node).unwrap().variables.bindings.insert(key.into(), var.clone());
+        var
+    }
+
+    fn drawn_text_of(app: &App, id: NodeId) -> TextProps {
+        let n = app.doc.get(id).unwrap();
+        match resolve_node(&app.doc, n).into_owned().kind {
+            NodeKind::Text(t) => t,
+            _ => panic!("text layer"),
+        }
+    }
+
+    #[test]
+    fn a_scaled_text_shows_the_values_it_draws_in_a_dark_frame() {
+        let (mut app, inner, _, var, _) = scaled_bound_app();
+        let coll = app.doc.variables[&var].collection.clone();
+        let dark = app.doc.variable_collections[&coll].modes[1].id.clone();
+        let page = app.page;
+        app.set_node_mode(&[page], &coll, Some(&dark));
+        let sum = nodes_summary(&app, &[inner]).expect("a text layer");
+        assert!((sum.size.unwrap() - 16.0).abs() < 1e-4, "dark is 20, drawn at 0.8 as 16; the row shows {:?}", sum.size);
+    }
+
+    #[test]
+    fn typing_a_size_into_a_scaled_text_bound_to_a_variable_draws_it() {
+        let (mut app, inner, _, _, _) = scaled_bound_app();
+        set_style(&mut app, &[inner], |s| s.font_size = 12.0);
+        let n = app.doc.get(inner).unwrap();
+        assert!(!n.variables.bindings.contains_key("fontSize"), "the typed value replaces the variable");
+        assert!(!n.style_refs.contains_key("text"), "and the style link goes, as for any style-owned edit");
+        assert_eq!(drawn_text_of(&app, inner).style.font_size, 12.0, "the canvas draws what was typed");
+    }
+
+    #[test]
+    fn typing_any_typography_value_into_a_scaled_bound_text_draws_it() {
+        let (mut app, inner, _, _, _) = scaled_bound_app();
+        for (key, name) in
+            [("lineHeight", "Line height/text-sm"), ("letterSpacing", "Letter spacing/text-sm"), ("paragraphSpacing", "Paragraph spacing/text-sm")]
+        {
+            bind_number(&mut app, inner, key, name, 3.0);
+        }
+        bind_number(&mut app, inner, "paragraphIndent", "Paragraph indent/text-sm", 3.0);
+        set_style(&mut app, &[inner], |s| s.line_height = LineHeight::Pixels(30.0));
+        set_style(&mut app, &[inner], |s| s.letter_spacing = 1.5);
+        set_base(&mut app, &[inner], |s| s.paragraph_spacing = 9.0);
+        set_text_props(&mut app, &[inner], |t| t.paragraph.indent = 7.0);
+        let n = app.doc.get(inner).unwrap();
+        for key in ["lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent"] {
+            assert!(!n.variables.bindings.contains_key(key), "{key}: the typed value replaces the variable");
+        }
+        assert!(n.variables.bindings.contains_key("fontSize"), "a key that was not edited keeps its binding");
+        let t = drawn_text_of(&app, inner);
+        assert_eq!(t.style.line_height, LineHeight::Pixels(30.0));
+        assert_eq!(t.style.letter_spacing, 1.5);
+        assert_eq!(t.style.paragraph_spacing, 9.0);
+        assert_eq!(t.paragraph.indent, 7.0);
+        assert!((t.style.font_size - 11.2).abs() < 1e-4, "the untouched size still follows its variable at the scale");
+    }
+
+    #[test]
+    fn the_bind_picker_marks_no_current_variable_for_a_scaled_text_but_does_for_the_main() {
+        let (app, inner, main_text, var, _) = scaled_bound_app();
+        assert_eq!(var_bind::current_binding_id(&app.doc, inner, "fontSize"), None, "the inspector shows it unbound");
+        assert_eq!(var_bind::current_binding_id(&app.doc, main_text, "fontSize"), Some(var));
     }
 }

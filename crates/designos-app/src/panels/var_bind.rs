@@ -855,16 +855,31 @@ fn open_style_picker(app: &mut App, style_key: &str, prop: &str, kind: VariableK
         Some(BindPicker { keys: vec![prop.to_string()], kind, nodes: Vec::new(), style_key: Some(style_key.to_string()), anchor, query: String::new() });
 }
 
+/// Whether the inspector hides the layer's own binding of `key`: a text in an instance made with the scale tool shows
+/// none of its typography bindings, as in Figma. It draws them at the instance's scale, so the field shows the value it
+/// draws. The binding stays in the model, and a change of the variable still reaches the text.
+fn hides_binding(n: &Node, key: &str) -> bool {
+    designos_doc::TEXT_STYLE_BINDING_KEYS.contains(&key) && matches!(&n.kind, NodeKind::Text(t) if t.has_uniform_scale())
+}
+
 /// The variable the layer `node` has bound to `key` itself, as the inspector shows it in a pill. A binding that comes
-/// from a linked style is shown elsewhere. A text in an instance made with the scale tool shows none of its typography
-/// bindings, as in Figma: it draws them at the instance's scale, so the field shows the value it draws. The binding
-/// stays in the model, and a change of the variable still reaches the text.
+/// from a linked style is shown elsewhere; one the inspector hides (see [`hides_binding`]) is not shown.
 pub(super) fn shown_node_binding<'a>(doc: &'a Document, node: NodeId, key: &str) -> Option<&'a Variable> {
     let n = doc.get(node)?;
-    if designos_doc::TEXT_STYLE_BINDING_KEYS.contains(&key) && matches!(&n.kind, NodeKind::Text(t) if t.has_uniform_scale()) {
+    if hides_binding(n, key) {
         return None;
     }
     n.variables.bindings.get(key).and_then(|id| doc.variables.get(id))
+}
+
+/// The id of the variable the bind picker marks as current for `key` on `node`: its own binding, unless the inspector
+/// hides it.
+pub(super) fn current_binding_id(doc: &Document, node: NodeId, key: &str) -> Option<String> {
+    let n = doc.get(node)?;
+    if hides_binding(n, key) {
+        return None;
+    }
+    n.variables.bindings.get(key).cloned()
 }
 
 /// Draws the bound-variable pill in place of a field when `keys[0]` is bound
@@ -1051,7 +1066,7 @@ pub fn bind_picker(app: &mut App, ctx: &Context) {
         let Some(node) = app.doc.get(first) else {
             return;
         };
-        (node.variables.bindings.get(&key0).cloned(), node.kind.clone(), key0.clone())
+        (current_binding_id(&app.doc, first, &key0), node.kind.clone(), key0.clone())
     };
     let mut items = Vec::new();
     for c in app.doc.variable_collections.values().filter(|c| !c.is_soft_deleted()) {
