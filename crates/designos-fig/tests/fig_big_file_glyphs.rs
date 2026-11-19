@@ -6,7 +6,7 @@ mod missing_font_fig;
 use designos_doc::{Document, Node, NodeKind};
 use designos_fig::kiwi::KiwiValue as V;
 use designos_fig::testkit::{msg, node, vec2};
-use designos_fig::{decode_fig_to_json, export_fig, import_fig};
+use designos_fig::{decode_fig_to_json, export_fig, import_fig, import_fig_with_report, import_fig_with_stored_glyph_allowance};
 use missing_font_fig::*;
 use std::sync::Arc;
 
@@ -29,6 +29,46 @@ fn small(texts: Vec<V>) -> Vec<u8> {
     let mut nodes = document_and_page();
     nodes.extend(texts);
     fig_file(nodes, vec![icon_blob()])
+}
+
+/// Both ways a file is big at once: more than 5,000 entries and a payload over 2 MB.
+fn big_by_both(texts: Vec<V>) -> Vec<u8> {
+    let mut nodes = document_and_page();
+    nodes.extend(texts);
+    nodes.extend((1..=5_001u32).map(|i| node((2, i), (0, 1), "z", "FRAME", "Filler", vec![("size", vec2(4.0, 4.0))])));
+    fig_file(nodes, vec![icon_blob(), vec![0u8; 2_100_000]])
+}
+
+/// Replaces the value of the field `name` of the node change `change`.
+fn set_field(change: &mut V, name: &str, value: V) {
+    let V::Message(fields) = change else { unreachable!() };
+    fields.iter_mut().find(|(k, _)| &**k == name).expect("the field exists").1 = value;
+}
+
+/// A text in the missing font whose second character carries a style run.
+fn styled_text() -> V {
+    let mut text = glyph_text((1, 6), (0, 1), "d", "Styled text", FAMILY, "\u{e900}\u{e900}", &[(0, 0.0), (0, 10.0)], vec![]);
+    let run = msg(vec![("styleID", V::Uint(1)), ("fontSize", designos_fig::testkit::fl(12.0))]);
+    let data = msg(vec![
+        ("characters", V::String("\u{e900}\u{e900}".into())),
+        ("characterStyleIDs", V::Array(vec![V::Uint(0), V::Uint(1)])),
+        ("styleOverrideTable", V::Array(vec![run])),
+    ]);
+    set_field(&mut text, "textData", data);
+    text
+}
+
+/// A text in the missing font whose derived data names two fonts.
+fn two_font_text() -> V {
+    let mut text = glyph_text((1, 7), (0, 1), "e", "Two font text", FAMILY, "\u{e900}", &[(0, 0.0)], vec![]);
+    let derived = match &text {
+        V::Message(fields) => fields.iter().find(|(k, _)| &**k == "derivedTextData").unwrap().1.clone(),
+        _ => unreachable!(),
+    };
+    let mut derived = derived;
+    set_field(&mut derived, "fontMetaData", V::Array(vec![msg(vec![("key", font_key(FAMILY))]), msg(vec![("key", font_key("Another Missing Face"))])]));
+    set_field(&mut text, "derivedTextData", derived);
+    text
 }
 
 fn missing_text() -> V {
@@ -145,7 +185,12 @@ fn derived_text_data_on_a_node_that_is_not_text_is_dropped_in_a_big_file() {
         "d",
         "FRAME",
         "Frame with derived text",
-        vec![("size", vec2(20.0, 20.0)), ("derivedTextData", msg(vec![("layoutSize", vec2(20.0, 20.0))]))],
+        vec![
+            ("size", vec2(20.0, 20.0)),
+            // a font that is not bundled, so only the node's type keeps this out
+            ("fontName", font_key(FAMILY)),
+            ("derivedTextData", msg(vec![("layoutSize", vec2(20.0, 20.0)), ("fontMetaData", V::Array(vec![msg(vec![("key", font_key(FAMILY))])]))])),
+        ],
     );
     let doc = import_fig(&big_by_payload(vec![frame])).unwrap();
     let frame = named(&doc, "Frame with derived text");
@@ -189,4 +234,101 @@ fn saving_stored_glyphs_never_renumbers_another_blob() {
     let glyph_slot = derived_text_in(&with_glyphs, "Missing font text").unwrap()["glyphs"][0]["commandsBlob"].as_u64().unwrap();
     let table = decode_fig_to_json(&without_glyphs).unwrap()["message"]["blobs"].as_array().map_or(0, Vec::len) as u64;
     assert_eq!(glyph_slot, table, "the glyph blob is the first one behind the rest of the table");
+}
+
+/// Every shape a file can be big in, with the name the failure message gives it.
+fn big_shapes(texts: &dyn Fn() -> Vec<V>) -> Vec<(&'static str, Vec<u8>)> {
+    vec![("entry count", big_by_entry_count(texts())), ("payload", big_by_payload(texts())), ("both", big_by_both(texts()))]
+}
+
+#[test]
+fn big_file_keeps_only_texts_that_can_draw_their_stored_glyphs() {
+    for (shape, bytes) in big_shapes(&|| vec![missing_text(), styled_text(), two_font_text()]) {
+        let doc = import_fig(&bytes).unwrap();
+        assert!(holds_derived_text(named(&doc, "Missing font text")), "big by {shape}: the control text keeps its data");
+        assert!(!holds_derived_text(named(&doc, "Styled text")), "big by {shape}: a text with a style run is never drawn from stored glyphs");
+        assert!(!holds_derived_text(named(&doc, "Two font text")), "big by {shape}: nor is a text whose derived data names two fonts");
+    }
+}
+
+#[test]
+fn a_small_file_still_keeps_the_data_of_a_styled_text() {
+    let doc = import_fig(&small(vec![styled_text()])).unwrap();
+    assert!(holds_derived_text(named(&doc, "Styled text")), "a small file keeps every text's data, as before");
+}
+
+#[test]
+fn the_import_report_counts_texts_the_allowance_leaves_out() {
+    // a text that is bundled or styled is never counted: it would not have been kept
+    let texts = || vec![missing_text(), bundled_text(), styled_text()];
+    for (shape, bytes) in [("payload", big_by_payload(texts())), ("both", big_by_both(texts()))] {
+        let (doc, report) = import_fig_with_report(&bytes).unwrap();
+        assert_eq!(report.dropped_stored_glyphs, 0, "big by {shape}: the default allowance holds one small text");
+        assert!(named(&doc, "Missing font text").fig_text_geometry.is_some());
+
+        let (doc, report) = import_fig_with_stored_glyph_allowance(&bytes, 0).unwrap();
+        assert_eq!(report.dropped_stored_glyphs, 1, "big by {shape}: with no allowance the one drawable text is counted");
+        assert!(named(&doc, "Missing font text").fig_text_geometry.is_none() && !holds_derived_text(named(&doc, "Missing font text")));
+    }
+    // a payload under 2 MB is bounded by its own size: the decoder skips nothing, so there is nothing to count
+    let (doc, report) = import_fig_with_stored_glyph_allowance(&big_by_entry_count(texts()), 0).unwrap();
+    assert_eq!(report.dropped_stored_glyphs, 0);
+    assert!(named(&doc, "Missing font text").fig_text_geometry.is_some(), "under 2 MB the allowance does not apply");
+}
+
+#[test]
+fn the_allowance_is_spent_in_file_order() {
+    let second = glyph_text((1, 4), (0, 1), "c", "Second missing text", FAMILY, "\u{e900}", &[(0, 0.0)], vec![]);
+    let bytes = big_by_payload(vec![missing_text(), second]);
+    let report_at = |allowance: usize| import_fig_with_stored_glyph_allowance(&bytes, allowance).unwrap();
+    // the smallest allowance that keeps both, found by search so the test does not hard-code a wire size
+    let both = (0..100_000).find(|&a| report_at(a).1.dropped_stored_glyphs == 0).expect("both texts fit some allowance");
+    let (doc, report) = report_at(both - 1);
+    assert_eq!(report.dropped_stored_glyphs, 1);
+    assert!(named(&doc, "Missing font text").fig_text_geometry.is_some(), "the first text in the file is kept");
+    assert!(named(&doc, "Second missing text").fig_text_geometry.is_none(), "the one that no longer fits is left out");
+}
+
+/// A component with a missing-font text, copied by `copies` instances, in a file of more than 5,000 and fewer than
+/// 10,000 nodes: the size at which instance copies carry their source's metadata along.
+fn component_with_copies(copies: u32) -> Vec<u8> {
+    let mut nodes = document_and_page();
+    nodes.push(node((1, 10), (0, 1), "a", "SYMBOL", "Icon main", vec![("size", vec2(20.0, 20.0))]));
+    nodes.push(glyph_text((1, 11), (1, 10), "a", "Source text", FAMILY, "\u{e900}", &[(0, 0.0)], vec![]));
+    for i in 0..copies {
+        nodes.push(node(
+            (1, 20 + i),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            &format!("Copy {i}"),
+            vec![("size", vec2(20.0, 20.0)), ("symbolData", msg(vec![("symbolID", designos_fig::testkit::guid(1, 10))]))],
+        ));
+    }
+    nodes.extend((1..=5_001u32).map(|i| node((2, i), (0, 1), "z", "FRAME", "Filler", vec![("size", vec2(4.0, 4.0))])));
+    fig_file(nodes, vec![icon_blob()])
+}
+
+#[test]
+fn instance_copies_of_a_text_share_its_glyphs_and_carry_no_copy_of_its_json() {
+    let doc = import_fig(&component_with_copies(6)).unwrap();
+    assert!(doc.nodes.len() > 5_000 && doc.nodes.len() < 10_000, "the fixture is in the size where copies keep their metadata ({} nodes)", doc.nodes.len());
+    let texts: Vec<&Node> = doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Text(_))).collect();
+    assert_eq!(texts.len(), 7, "the source and six copies");
+    assert_eq!(texts.iter().filter(|n| holds_derived_text(n)).count(), 1, "only the source holds the stored JSON");
+    let geometries: Vec<_> = texts.iter().map(|n| n.fig_text_geometry.as_ref().expect("every copy draws the stored glyphs")).collect();
+    assert!(geometries.iter().all(|g| Arc::ptr_eq(g, geometries[0])), "the copies share the source's geometry");
+}
+
+#[test]
+fn big_file_saves_back_stored_glyphs_it_read_from_a_payload_over_2_mb() {
+    // The saved file must also be read back the way a heavy file is: `type` and `fontName` have to come before
+    // `derivedTextData` in what Studio writes. A node name pads both the first import and the saved file past 2 MB.
+    let padding = node((1, 9), (0, 1), "f", "FRAME", &"x".repeat(2_100_000), vec![("size", vec2(4.0, 4.0))]);
+    let doc = import_fig(&small(vec![missing_text(), padding])).unwrap();
+    let saved = export_fig(&doc).unwrap();
+    let reopened = import_fig(&saved).unwrap();
+    assert!(named(&reopened, "Missing font text").fig_text_geometry.is_some(), "the glyphs survive a save read back as a heavy file");
+    assert_eq!(named(&reopened, "Missing font text").fig_text_geometry, named(&doc, "Missing font text").fig_text_geometry);
+    assert_draws_stored_glyph(&reopened, "Missing font text");
 }

@@ -838,14 +838,15 @@ pub struct ImportReport {
     /// `variables/local` response) resolves them. Callers use this count to tell the user the variables are missing.
     pub missing_variable_bindings: usize,
     /// How many texts that could have drawn the glyph outlines Figma stored with them lost them because they did not fit
-    /// the import's allowance for such data (16 MiB of the file's own bytes). Such a text still draws with a substitute
+    /// the import's allowance for such data (4 MiB of the file's own bytes). Such a text still draws with a substitute
     /// font when its own font is missing. A heavy import (a message payload over 2 MB, or more than 5,000 entries)
     /// keeps stored glyphs only for a text in a non-bundled font with no style runs and one font; a small file
-    /// keeps them all, and neither case counts.
+    /// keeps them all, and neither case counts. A text over the allowance is counted without reading its font list, so
+    /// one that names several fonts counts too.
     ///
-    /// The allowance is charged on wire bytes inside the decoder, so it bounds decoding as well as what is kept. Kept data
-    /// takes about 8 bytes of memory per wire byte once built: the value tree while decoding, then a JSON string, the
-    /// glyph paths and the shared blobs. In the worst case that is about 130 MB extra for an import.
+    /// The allowance is charged on wire bytes inside the decoder, so it bounds decoding as well as what is kept. Kept
+    /// data costs about 60 bytes of peak memory per wire byte (value tree, JSON string, glyph paths and shared blobs),
+    /// so the allowance bounds an import's extra memory at about 250 MB, and its extra time at about a second.
     pub dropped_stored_glyphs: usize,
 }
 

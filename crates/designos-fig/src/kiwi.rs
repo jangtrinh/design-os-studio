@@ -550,11 +550,14 @@ impl Schema {
         }
         let end = r.pos;
         r.pos = start;
-        let values_before = r.values_left;
-        let field = self.decode_field(f, r, depth, true)?;
+        // the field is bounded by the allowance, not by the decoded-value budget: it neither draws on that budget nor can
+        // run it out part-way
+        let values_before = std::mem::replace(&mut r.values_left, usize::MAX);
+        let field = self.decode_field(f, r, depth, true);
+        r.values_left = values_before;
+        let field = field?;
         debug_assert_eq!(r.pos, end, "skipping and decoding a field read different spans");
         r.pos = end;
-        r.values_left = values_before;
         if !stored_glyphs::is_one_font(&field) {
             return Ok(None);
         }
@@ -1559,6 +1562,97 @@ mod tests {
         assert!(nc.get("editInfo").is_none());
         assert!(nc.get("derivedTextData").is_none());
         assert_eq!(nc.get("opacity"), Some(&KiwiValue::Float(0.85)));
+    }
+
+    /// A heavy payload (over 2 MB through a padding field) of text node changes, each with a derived font list of
+    /// `baselines` floats, followed by a `name` that a desynchronised stream would misread.
+    fn text_payload(texts: &[(&str, usize)]) -> (Schema, usize, Vec<u8>) {
+        let mut b = SchemaBuilder::new();
+        let node_type = b.define("NodeType", DefKind::Enum);
+        b.variant(node_type, "FRAME", 0);
+        b.variant(node_type, "TEXT", 1);
+        let font_name = b.define("FontName", DefKind::Struct);
+        b.field(font_name, "family", FieldType::Native(Native::String), false, 1);
+        let font_meta = b.define("FontMeta", DefKind::Message);
+        b.field(font_meta, "weight", FieldType::Native(Native::Uint), false, 1);
+        let derived = b.define("DerivedTextData", DefKind::Message);
+        b.field(derived, "fontMetaData", FieldType::Def(font_meta), true, 1);
+        b.field(derived, "baselines", FieldType::Native(Native::Float), true, 2);
+        let node_change = b.define("NodeChange", DefKind::Message);
+        b.field(node_change, "type", FieldType::Def(node_type), false, 1);
+        b.field(node_change, "fontName", FieldType::Def(font_name), false, 2);
+        b.field(node_change, "derivedTextData", FieldType::Def(derived), false, 3);
+        b.field(node_change, "name", FieldType::Native(Native::String), false, 4);
+        let root = b.define("Message", DefKind::Message);
+        b.field(root, "nodeChanges", FieldType::Def(node_change), true, 1);
+        b.field(root, "pad", FieldType::Native(Native::Byte), true, 2);
+        let schema = b.build();
+        let changes = texts
+            .iter()
+            .map(|&(family, floats)| {
+                KiwiValue::Message(vec![
+                    ("type".into(), KiwiValue::Enum("TEXT".into())),
+                    ("fontName".into(), KiwiValue::Struct(vec![("family".into(), KiwiValue::String(family.into()))])),
+                    (
+                        "derivedTextData".into(),
+                        KiwiValue::Message(vec![
+                            ("fontMetaData".into(), KiwiValue::Array(vec![KiwiValue::Message(vec![("weight".into(), KiwiValue::Uint(400))])])),
+                            ("baselines".into(), KiwiValue::Array(vec![KiwiValue::Float(1.5); floats])),
+                        ]),
+                    ),
+                    ("name".into(), KiwiValue::String(format!("after {family}"))),
+                ])
+            })
+            .collect();
+        let message = KiwiValue::Message(vec![("nodeChanges".into(), KiwiValue::Array(changes)), ("pad".into(), KiwiValue::Bytes(vec![0; 2_100_000]))]);
+        let bytes = schema.encode_message(root, &message).unwrap();
+        (schema, root, bytes)
+    }
+
+    fn kept_text_count(message: &KiwiValue) -> usize {
+        message.get("nodeChanges").unwrap().as_array().unwrap().iter().filter(|nc| nc.get("derivedTextData").is_some()).count()
+    }
+
+    #[test]
+    fn a_heavy_decode_keeps_a_drawable_text_and_reads_on_after_it() {
+        let (s, root, bytes) = text_payload(&[("Some Icon Font", 40), ("Inter", 40), ("Another Icon Font", 40)]);
+        let (message, dropped) = s.decode_message_for_import_counting(root, &bytes, MAX_DECODED_VALUES, usize::MAX).unwrap();
+        let changes = message.get("nodeChanges").unwrap().as_array().unwrap();
+        assert_eq!(dropped, 0);
+        assert!(changes[0].get("derivedTextData").is_some(), "a text in a font that is not bundled keeps its glyph data");
+        assert!(changes[1].get("derivedTextData").is_none(), "a bundled family keeps none");
+        assert!(changes[2].get("derivedTextData").is_some());
+        for (nc, family) in changes.iter().zip(["Some Icon Font", "Inter", "Another Icon Font"]) {
+            assert_eq!(nc.get("name"), Some(&KiwiValue::String(format!("after {family}"))), "the field after it is read from the right place");
+        }
+    }
+
+    #[test]
+    fn a_heavy_decode_leaves_out_what_does_not_fit_and_counts_it() {
+        let (s, root, bytes) = text_payload(&[("Some Icon Font", 40), ("Another Icon Font", 40), ("Third Icon Font", 4000)]);
+        let decode = |allowance: usize| s.decode_message_for_import_counting(root, &bytes, MAX_DECODED_VALUES, allowance).unwrap();
+        // the smallest allowance that keeps the two small texts, found by search so the test does not hard-code a wire size
+        let two = (0..4000).find(|&a| kept_text_count(&decode(a).0) == 2).expect("two small texts fit some allowance");
+        let (message, dropped) = decode(two);
+        assert_eq!((kept_text_count(&message), dropped), (2, 1), "the large third text does not fit and is counted");
+        let (message, dropped) = decode(two - 1);
+        assert_eq!((kept_text_count(&message), dropped), (1, 2), "one byte less leaves out the second text, in file order, and the third");
+        let changes = message.get("nodeChanges").unwrap().as_array().unwrap();
+        assert!(changes[0].get("derivedTextData").is_some() && changes[1].get("derivedTextData").is_none());
+        assert_eq!(changes[2].get("name"), Some(&KiwiValue::String("after Third Icon Font".into())), "the stream stays in step past a skipped text");
+        assert_eq!(decode(0).1, 3, "with no allowance every drawable text is counted");
+    }
+
+    #[test]
+    fn kept_glyph_data_does_not_use_the_decoded_value_budget() {
+        let (s, root, bytes) = text_payload(&[("Some Icon Font", 400), ("Another Icon Font", 400)]);
+        // the fewest values a decode that keeps nothing needs: a paste that fits this must not start failing because it keeps glyphs
+        let needed = (1..100_000).find(|&v| s.decode_message_for_import_counting(root, &bytes, v, 0).is_ok()).expect("a payload that keeps nothing decodes");
+        let (message, _) = s.decode_message_for_import_counting(root, &bytes, needed, usize::MAX).expect("keeping glyphs fits the same value budget");
+        assert_eq!(kept_text_count(&message), 2);
+        assert!(needed < 400, "the glyph data alone would not fit the budget ({needed} values for the rest)");
+        // and the budget the paste path passes is honoured as before
+        assert!(s.decode_message_for_import_counting(root, &bytes, needed - 1, usize::MAX).is_err());
     }
 
     #[test]

@@ -17,11 +17,15 @@
 use crate::kiwi::KiwiValue;
 use std::sync::Arc;
 
-/// How many wire bytes of `derivedTextData` one import keeps. Kept data is decoded to a value tree first and then
-/// becomes a JSON string, glyph paths and shared blobs; the module-level notes in the import report document what
-/// that costs per wire byte, measured on an all-non-bundled copy of a real design kit. A text that does not fit is
-/// left out and counted in [`crate::rest_import::ImportReport::dropped_stored_glyphs`].
-pub(crate) const ALLOWANCE_WIRE_BYTES: usize = 16 * 1024 * 1024;
+/// How many wire bytes of `derivedTextData` one import keeps (4 MiB).
+///
+/// What is kept costs about 60 bytes of peak memory per wire byte: the decoded value tree, then a JSON string, then
+/// the glyph paths (28 bytes a path command, by far the largest part) and the shared blobs. Measured on a design kit
+/// whose every text was set in a font that is not bundled, 4 MiB took the import's peak from 9.66 to 9.98 GB and about
+/// a second longer, and 16 MiB (all of that kit) took it to 10.3 GB and about 1.5 seconds longer. A real kit that uses
+/// a few non-bundled fonts needs a few kilobytes. A text that does not fit is left out and counted in
+/// [`crate::rest_import::ImportReport::dropped_stored_glyphs`]; texts are taken in file order.
+pub(crate) const ALLOWANCE_WIRE_BYTES: usize = 4 * 1024 * 1024;
 
 /// Whether `family` is one of the families the app embeds. Exact name, ignoring case: a family that only has a
 /// substitute (Helvetica to Arimo) is not bundled, which is how the render path treats it too.
