@@ -846,13 +846,31 @@ pub struct ImportReport {
     /// The bindings remain attached to the document, so importing the variables later (for example a Figma
     /// `variables/local` response) resolves them. Callers use this count to tell the user the variables are missing.
     pub missing_variable_bindings: usize,
+    /// How many texts that could have drawn the glyph outlines Figma stored with them lost them because they did not fit
+    /// the import's allowance for such data (4 MiB of the file's own bytes). Such a text still draws with a substitute
+    /// font when its own font is missing. A heavy import (a message payload over 2 MB, or more than 5,000 entries)
+    /// keeps stored glyphs only for the texts the drawing code can draw (see `stored_glyphs` for the conditions); a
+    /// small file keeps them all, and neither case counts. A text over the allowance is counted without reading its font
+    /// list, so one that could never draw counts too.
+    ///
+    /// Kept glyphs count toward the decode value cap; the allowance bounds what is retained. It does not bound memory by
+    /// itself: kept data costs 60 to 100 bytes of peak memory per wire byte on a Latin kit (value tree, JSON string, glyph
+    /// paths and shared blobs), so 4 MiB adds about 300 to 500 MB and under a second to an import. That cost is not
+    /// measured for CJK or other scripts, whose glyph outlines are larger.
+    pub dropped_stored_glyphs: usize,
 }
+
+/// Root key of the REST value that tells the importer the kiwi decoder ran heavy (a payload over 2 MB), whatever the
+/// number of entries: the stored glyphs it kept were bounded by an allowance, and instance copies must not multiply them.
+pub(crate) const HEAVY_DECODE_KEY: &str = "_heavyDecode";
 
 struct Ctx<'a> {
     doc: Document,
     blobs: &'a [&'a [u8]],
     fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
     large_file: bool,
+    /// The decoder ran heavy ([`HEAVY_DECODE_KEY`]); a copy of a text then carries no JSON of its own.
+    heavy_decode: bool,
     ids: BTreeMap<String, NodeId>,
     /// (instance, REST componentId)
     instances: Vec<(NodeId, String)>,
@@ -1064,6 +1082,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         blobs,
         fast_derived_map,
         large_file,
+        heavy_decode: v.get(HEAVY_DECODE_KEY).and_then(Value::as_bool) == Some(true),
         ids: BTreeMap::new(),
         instances: Vec::new(),
         unresolved: Vec::new(),
@@ -1166,6 +1185,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         dropped_variable_bindings: 0,
         dropped_variable_overrides: 0,
         missing_variable_bindings,
+        dropped_stored_glyphs: 0,
     };
     cx.install_deferred_hydrator();
     let mut doc = cx.doc;
@@ -1227,6 +1247,7 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
         blobs,
         fast_derived_map,
         large_file,
+        heavy_decode: v.get(HEAVY_DECODE_KEY).and_then(Value::as_bool) == Some(true),
         ids: BTreeMap::new(),
         instances: Vec::new(),
         unresolved: Vec::new(),
@@ -1317,6 +1338,7 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
         dropped_variable_bindings: 0,
         dropped_variable_overrides: 0,
         missing_variable_bindings,
+        dropped_stored_glyphs: 0,
     };
     cx.install_deferred_hydrator();
     let mut doc = cx.doc;
@@ -3328,7 +3350,16 @@ impl<'a> Ctx<'a> {
                 break;
             }
             budget -= 1;
-            let Some(mut n) = self.doc.get(src).cloned() else { continue };
+            // A copy of a text draws the geometry it shares with its source. Its own copy of the stored JSON would be one
+            // more string per instance that the import's allowance never counted, so the JSON stays out of the clone.
+            // Through `nodes` directly, as the rest of this function does: `Document::get_mut` marks the node dirty.
+            let held =
+                if self.large_file || self.heavy_decode { self.doc.nodes.get_mut(&src).and_then(|s| s.fig_metadata.remove("derivedTextData")) } else { None };
+            let copy = self.doc.get(src).cloned();
+            if let (Some(json), Some(source)) = (held, self.doc.nodes.get_mut(&src)) {
+                source.fig_metadata.insert("derivedTextData".into(), json);
+            }
+            let Some(mut n) = copy else { continue };
             let orig_children = std::mem::take(&mut n.children);
             let id = match self.fresh_id() {
                 Ok(id) => id,
@@ -4418,6 +4449,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             blobs: &[],
             fast_derived_map: None,
             large_file: true,
+            heavy_decode: false,
             expanded_comps: std::mem::take(&mut self.expanded_comps),
             next_clone,
             clone_budget_total: self.clone_budget_total,
@@ -4736,6 +4768,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             blobs: &[],
             fast_derived_map: None,
             large_file: true,
+            heavy_decode: false,
             expanded_comps: self.expanded_comps.clone(),
             next_clone,
             clone_budget_total: self.clone_budget_total,
@@ -6380,6 +6413,7 @@ mod expand_depth_tests {
             blobs: &[],
             fast_derived_map: None,
             large_file: false,
+            heavy_decode: false,
             ids: BTreeMap::new(),
             instances: Vec::new(),
             unresolved: Vec::new(),
@@ -6426,6 +6460,7 @@ mod expand_depth_tests {
             blobs: &[],
             fast_derived_map: None,
             large_file: false,
+            heavy_decode: false,
             ids: BTreeMap::new(),
             instances: Vec::new(),
             unresolved: Vec::new(),
