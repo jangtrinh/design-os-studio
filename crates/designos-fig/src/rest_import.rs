@@ -3282,9 +3282,11 @@ impl<'a> Ctx<'a> {
             budget -= 1;
             // A copy of a text draws the geometry it shares with its source. Its own copy of the stored JSON would be one
             // more string per instance that the import's allowance never counted, so the JSON stays out of the clone.
-            let held = if self.large_file || self.heavy_decode { self.doc.get_mut(src).and_then(|s| s.fig_metadata.remove("derivedTextData")) } else { None };
+            // Through `nodes` directly, as the rest of this function does: `Document::get_mut` marks the node dirty.
+            let held =
+                if self.large_file || self.heavy_decode { self.doc.nodes.get_mut(&src).and_then(|s| s.fig_metadata.remove("derivedTextData")) } else { None };
             let copy = self.doc.get(src).cloned();
-            if let (Some(json), Some(source)) = (held, self.doc.get_mut(src)) {
+            if let (Some(json), Some(source)) = (held, self.doc.nodes.get_mut(&src)) {
                 source.fig_metadata.insert("derivedTextData".into(), json);
             }
             let Some(mut n) = copy else { continue };

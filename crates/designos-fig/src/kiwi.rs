@@ -540,7 +540,7 @@ impl Schema {
     /// as every other node's is) and only while the allowance lasts. The wire size is learned by skipping first, so
     /// a text that does not fit is never decoded. The span counts toward the decode value cap and the zero-size cap like
     /// any other field, whether or not the text is kept, and nothing is given back. A text whose data the drawing code
-    /// cannot use (several fonts, another family than the layer's, no or too many glyphs, another size) is dropped
+    /// cannot use (several fonts, another family than the layer's, no or too many glyphs, no layout size, another size) is dropped
     /// again after the decode without using any allowance. Kept glyphs count toward the value cap; the allowance
     /// bounds what is retained.
     fn keep_stored_glyphs(&self, f: &Field, r: &mut Reader, depth: usize, out: &[(Arc<str>, KiwiValue)]) -> Result<Option<KiwiValue>> {

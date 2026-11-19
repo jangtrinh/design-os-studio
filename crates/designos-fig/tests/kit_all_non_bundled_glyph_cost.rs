@@ -8,24 +8,25 @@
 //! ```
 //!
 //! The first rewrites every text's `fontName.family` and the family in its derived font list to a made-up name, so the
-//! importer sees the glyphs as drawable. The second imports the copy and prints open time, how many texts kept their
-//! glyphs and how many the allowance left out. Run it with the test binary built from the branch and from its base, and
-//! compare the peak resident size `time -l` reports.
+//! importer sees the glyphs as drawable. `write_rejected_copy` is the other worst case: the layer's family is made up
+//! and the family stored in the derived font list is a different one, so the decoder reads every text's glyph data and
+//! then rejects it. The last test imports a copy and prints open time, how many texts kept their glyphs and how many
+//! the allowance left out. Run it with the test binary built from the branch and from its base, and compare the peak
+//! resident size `time -l` reports.
 
 use designos_fig::container::{self, Compression};
 use designos_fig::kiwi::{KiwiValue as V, Schema};
 
 const MADE_UP_FAMILY: &str = "Zzz Not Installed Sans";
 
-fn rewrite_family(holder: &mut V) {
+fn rewrite_family(holder: &mut V, name: &str) {
     if let Some(family) = holder.get_mut("family") {
-        *family = V::String(MADE_UP_FAMILY.into());
+        *family = V::String(name.into());
     }
 }
 
-#[test]
-#[ignore = "measurement: needs KIT_CLONE and KIT_OUT"]
-fn write_copy() {
+/// Writes a copy of the kit whose texts all carry the made-up layer family and `stored_family` in their derived font list.
+fn write_family_copy(stored_family: &str) {
     let src = std::env::var_os("KIT_CLONE").expect("KIT_CLONE");
     let out = std::env::var_os("KIT_OUT").expect("KIT_OUT");
     let bytes = std::fs::read(src).expect("read the kit clone");
@@ -42,12 +43,12 @@ fn write_copy() {
                 continue;
             }
             if let Some(font) = change.get_mut("fontName") {
-                rewrite_family(font);
+                rewrite_family(font, MADE_UP_FAMILY);
             }
             if let Some(V::Array(fonts)) = change.get_mut("derivedTextData").and_then(|d| d.get_mut("fontMetaData")) {
                 for font in fonts {
                     if let Some(key) = font.get_mut("key") {
-                        rewrite_family(key);
+                        rewrite_family(key, stored_family);
                     }
                 }
             }
@@ -57,6 +58,18 @@ fn write_copy() {
     let body = schema.encode_message(root, &message).expect("encode");
     std::fs::write(out, container::write_container(&schema.encode(), &body, Compression::Zstd, 161)).expect("write the copy");
     eprintln!("MEASURE rewrote the family of {rewritten} texts");
+}
+
+#[test]
+#[ignore = "measurement: needs KIT_CLONE and KIT_OUT"]
+fn write_copy() {
+    write_family_copy(MADE_UP_FAMILY);
+}
+
+#[test]
+#[ignore = "measurement: needs KIT_CLONE and KIT_OUT"]
+fn write_rejected_copy() {
+    write_family_copy("Zzz Another Stored Face");
 }
 
 #[test]
