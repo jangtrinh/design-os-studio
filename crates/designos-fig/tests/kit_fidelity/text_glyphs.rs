@@ -17,6 +17,9 @@ pub const GLYPH_TOL: f32 = 0.05;
 pub const X_BUCKET: &str = "check: glyph x positions";
 pub const ADVANCE_BUCKET: &str = "check: glyph advances";
 pub const FIRST_X_BUCKET: &str = "check: glyph x positions, first glyph of a line";
+pub const ZERO_SPACING_ADVANCE_BUCKET: &str = "check: glyph advances, texts with zero letter spacing";
+pub const SPACED_ADVANCE_BUCKET: &str = "check: glyph advances, texts with letter spacing set";
+pub const SPACED_NET_ADVANCE_BUCKET: &str = "check: glyph advances, texts with letter spacing set, Studio's width minus its spacing";
 pub const WHOLE_BUCKET: &str = "check: glyph x and advance, whole text";
 pub const X_DELTAS: &str = "glyph x delta, Studio minus Figma (0.05 px bins)";
 pub const ADVANCE_DELTAS: &str = "glyph advance delta, Studio minus Figma (0.05 px bins)";
@@ -55,6 +58,32 @@ pub fn truth_of(derived: &KiwiValue) -> Vec<GlyphTruth> {
         .collect()
 }
 
+/// The letter spacing of a text: whether any style sets it, and the base style's value in px. Studio's cluster width
+/// includes the spacing (the shaper adds it to each advance); whether Figma's stored advance does is measured, not
+/// assumed.
+#[derive(Clone, Copy)]
+pub struct Spacing {
+    pub set: bool,
+    pub px: f32,
+}
+
+/// How the next glyph's x on one line follows the stored advance: the step equals the advance, equals the advance plus
+/// the letter spacing, or neither.
+#[derive(Default, Clone, Copy)]
+pub struct Steps {
+    pub pairs: u64,
+    pub advance: u64,
+    pub advance_plus_spacing: u64,
+}
+
+impl Steps {
+    pub fn add(&mut self, o: &Steps) {
+        self.pairs += o.pairs;
+        self.advance += o.advance;
+        self.advance_plus_spacing += o.advance_plus_spacing;
+    }
+}
+
 #[derive(Default)]
 pub struct GlyphScore {
     pub x_ok: u64,
@@ -64,6 +93,13 @@ pub struct GlyphScore {
     pub first_total: u64,
     pub adv_ok: u64,
     pub adv_total: u64,
+    /// The advance misses split by whether the text sets a letter spacing, and for those texts how many match once
+    /// Studio's spacing is taken off its width.
+    pub adv_zero: (u64, u64),
+    pub adv_spaced: (u64, u64),
+    pub adv_spaced_net: u64,
+    pub steps_zero: Steps,
+    pub steps_spaced: Steps,
     /// Stored glyphs with no Studio cluster at their character (whitespace Studio drops at a wrap, merged clusters).
     pub no_cluster: u64,
     /// Stored glyphs whose Studio cluster is right-to-left (its left edge is not the pen position).
@@ -75,7 +111,7 @@ pub struct GlyphScore {
 
 /// Scores every stored glyph of one text against Studio's clusters in `g`. `line_starts` are the characters Figma
 /// starts a line at.
-pub fn score(g: &TextGeometry, content: &str, glyphs: &[GlyphTruth], line_starts: &[u64]) -> GlyphScore {
+pub fn score(g: &TextGeometry, content: &str, glyphs: &[GlyphTruth], line_starts: &[u64], spacing: Spacing) -> GlyphScore {
     let mut at: HashMap<u64, (f32, f32, bool)> = HashMap::new();
     for c in g.lines.iter().flat_map(|l| &l.glyphs) {
         at.entry(utf16_at(content, c.start)).or_insert((c.x, c.w, c.rtl));
@@ -105,14 +141,39 @@ pub fn score(g: &TextGeometry, content: &str, glyphs: &[GlyphTruth], line_starts
         if let Some(a) = t.advance_px() {
             s.adv_total += 1;
             let da = w - a;
-            if broken || da.abs() <= GLYPH_TOL {
-                s.adv_ok += 1;
-            } else {
+            let ok = broken || da.abs() <= GLYPH_TOL;
+            s.adv_ok += u64::from(ok);
+            if !ok {
                 s.adv_misses.push(da);
             }
+            let split = if spacing.set { &mut s.adv_spaced } else { &mut s.adv_zero };
+            split.0 += u64::from(ok);
+            split.1 += 1;
+            s.adv_spaced_net += u64::from(spacing.set && (broken || (da - spacing.px).abs() <= GLYPH_TOL));
         }
     }
+    for w in glyphs.windows(2) {
+        let (a, b) = (&w[0], &w[1]);
+        let Some(adv) = a.advance_px() else { continue };
+        if (a.y - b.y).abs() > 0.01 || b.x <= a.x {
+            continue;
+        }
+        let step = b.x - a.x;
+        let st = if spacing.set { &mut s.steps_spaced } else { &mut s.steps_zero };
+        st.pairs += 1;
+        st.advance += u64::from((step - adv).abs() <= GLYPH_TOL);
+        st.advance_plus_spacing += u64::from(spacing.set && (step - adv - spacing.px).abs() <= GLYPH_TOL);
+    }
     s
+}
+
+/// The note that says what a stored advance contains: for texts with no letter spacing and for texts with it, how many
+/// same-line glyph pairs step by the advance, and for the spaced texts by the advance plus the spacing.
+pub fn steps_note(zero: &Steps, spaced: &Steps) -> String {
+    format!(
+        "glyph steps, texts with matching line breaks: zero letter spacing {} pairs, next x = x + advance x font size on {}; letter spacing set {} pairs, = advance on {}, = advance + spacing on {}",
+        zero.pairs, zero.advance, spaced.pairs, spaced.advance, spaced.advance_plus_spacing
+    )
 }
 
 /// `d` rounded to the nearest 0.05 px, signed, and clamped to two pixels.
@@ -124,6 +185,9 @@ pub fn tally(p: &mut Part, scope: &str, hidden: bool, s: &GlyphScore) {
     p.tally_n(&format!("{scope}{X_BUCKET}"), hidden, s.x_ok, s.x_total);
     p.tally_n(&format!("{scope}{FIRST_X_BUCKET}"), hidden, s.first_ok, s.first_total);
     p.tally_n(&format!("{scope}{ADVANCE_BUCKET}"), hidden, s.adv_ok, s.adv_total);
+    p.tally_n(&format!("{scope}{ZERO_SPACING_ADVANCE_BUCKET}"), hidden, s.adv_zero.0, s.adv_zero.1);
+    p.tally_n(&format!("{scope}{SPACED_ADVANCE_BUCKET}"), hidden, s.adv_spaced.0, s.adv_spaced.1);
+    p.tally_n(&format!("{scope}{SPACED_NET_ADVANCE_BUCKET}"), hidden, s.adv_spaced_net, s.adv_spaced.1);
     if s.x_total + s.adv_total > 0 {
         p.tally(&format!("{scope}{WHOLE_BUCKET}"), hidden, s.x_ok == s.x_total && s.adv_ok == s.adv_total);
     }

@@ -83,6 +83,11 @@ pub struct Checks {
     pub glyphs: Option<GlyphScore>,
 }
 
+fn spacing_of(props: &TextProps) -> text_glyphs::Spacing {
+    let set = props.style.letter_spacing != 0.0 || props.runs.iter().any(|r| r.style.letter_spacing != 0.0);
+    text_glyphs::Spacing { set, px: props.style.letter_spacing }
+}
+
 pub fn checks(props: &TextProps, size: Vec2, t: &TextTruth) -> Checks {
     let g = designos_render::text_geometry(props, size);
     let truncated = props.auto_resize == TextAutoResize::Truncate || props.max_lines.is_some();
@@ -103,7 +108,7 @@ pub fn checks(props: &TextProps, size: Vec2, t: &TextTruth) -> Checks {
         line_count_delta: g.lines.len() as i64 - t.baselines.len() as i64,
         first_baseline_delta: off,
         size_delta,
-        glyphs: (breaks && !t.glyphs.is_empty()).then(|| text_glyphs::score(&g, &props.content, &t.glyphs, &figma)),
+        glyphs: (breaks && !t.glyphs.is_empty()).then(|| text_glyphs::score(&g, &props.content, &t.glyphs, &figma, spacing_of(props))),
     }
 }
 
@@ -120,6 +125,7 @@ pub fn part(truth: &[TextTruth], without: usize, doc: &Document, keys: &NodeKeys
     p.note(text_glyphs::unit_note(truth));
     p.note(format!("embedded variable Inter drawn wider at weight 700 than 400 (weight applied by shaping): {}", variable_weight_applied()));
     let mut fonts: BTreeSet<(String, u16, bool, FontState)> = BTreeSet::new();
+    let (mut steps_zero, mut steps_spaced) = (text_glyphs::Steps::default(), text_glyphs::Steps::default());
     for t in truth {
         let Some(&id) = keys.by_source.get(&t.guid) else {
             p.unscored("text record with no layer", "the record did not become a layer on a page");
@@ -158,7 +164,11 @@ pub fn part(truth: &[TextTruth], without: usize, doc: &Document, keys: &NodeKeys
         }
         if present {
             match &c.glyphs {
-                Some(gs) => text_glyphs::tally(&mut p, scope, hidden, gs),
+                Some(gs) => {
+                    text_glyphs::tally(&mut p, scope, hidden, gs);
+                    steps_zero.add(&gs.steps_zero);
+                    steps_spaced.add(&gs.steps_spaced);
+                }
                 None if !t.glyphs.is_empty() => {
                     p.unscored("glyph positions of a text whose line breaks differ", "one wrap difference would fail every later glyph")
                 }
@@ -179,6 +189,7 @@ pub fn part(truth: &[TextTruth], without: usize, doc: &Document, keys: &NodeKeys
         }
         p.record(t.guid.clone(), hidden, breaks && baselines && size_ok, &b);
     }
+    p.note(text_glyphs::steps_note(&steps_zero, &steps_spaced));
     for (f, w, italic, st) in fonts {
         let what = match st {
             FontState::Present => "embedded face covers it",

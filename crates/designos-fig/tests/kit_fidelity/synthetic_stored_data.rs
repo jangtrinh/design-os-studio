@@ -191,6 +191,7 @@ fn glyph_checks_count_a_glyph_off_its_stored_position_or_advance() {
     assert_eq!(p.bucket("check: glyph advances")[0], t(5, 5));
     assert_eq!(p.bucket("check: glyph x and advance, whole text")[0], t(1, 1));
     assert_eq!(p.bucket("check: glyph x positions, first glyph of a line")[0], t(1, 1), "the glyph that starts the line");
+    assert_eq!(p.bucket("check: glyph advances, texts with zero letter spacing")[0], t(5, 5), "a text with no letter spacing");
     let p = score(0.04, -0.04);
     assert_eq!(p.bucket("check: glyph x positions")[0], t(5, 5), "0.04 px is inside the 0.05 px tolerance");
     assert_eq!(p.bucket("check: glyph advances")[0], t(5, 5));
@@ -204,6 +205,23 @@ fn glyph_checks_count_a_glyph_off_its_stored_position_or_advance() {
     assert_eq!(p.bucket("check: glyph x positions")[0], t(5, 5));
     assert_eq!(p.bucket("check: glyph advances")[0], t(0, 5), "every advance stored 0.1 px wider");
     assert_eq!(p.bucket("total")[0], t(1, 1), "the glyph buckets stay out of the per-text pass, which keeps its meaning");
+}
+
+#[test]
+fn glyph_checks_split_letter_spaced_texts_and_say_what_the_stored_advance_holds() {
+    let (_, mut doc, keys) = load(&text_fig(12.0));
+    let NodeKind::Text(props) = &mut doc.get_mut(keys.by_source["1:30"]).unwrap().kind else { panic!("a text layer") };
+    props.style.letter_spacing = 2.0;
+    // Studio's cluster width holds the letter spacing; here Figma's advance leaves it out and its next x adds it.
+    let p = text::part(&[shaped_truth(&doc, &keys, 0.0, -2.0)], 0, &doc, &keys);
+    assert_eq!(p.bucket("check: glyph advances, texts with zero letter spacing")[0], t(0, 0), "this text sets a spacing");
+    assert_eq!(p.bucket("check: glyph advances, texts with letter spacing set")[0], t(0, 5), "Studio's width is 2 px wider than the stored advance");
+    assert_eq!(
+        p.bucket("check: glyph advances, texts with letter spacing set, Studio's width minus its spacing")[0],
+        t(5, 5),
+        "and equals it once the spacing is taken off"
+    );
+    assert!(p.notes.iter().any(|n| n.contains("letter spacing set 4 pairs, = advance on 0, = advance + spacing on 4")), "{:?}", p.notes);
 }
 
 #[test]
