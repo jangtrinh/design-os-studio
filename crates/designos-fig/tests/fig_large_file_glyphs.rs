@@ -152,3 +152,41 @@ fn derived_text_data_on_a_node_that_is_not_text_is_dropped_in_a_large_file() {
     assert!(matches!(frame.kind, NodeKind::Frame(_)));
     assert!(!holds_derived_text(frame));
 }
+
+/// The index each saved `commandsBlob` of the node named `name` has in `saved`'s blob table.
+fn fill_blob_index(saved: &[u8], name: &str) -> u64 {
+    let changes = decode_fig_to_json(saved).unwrap();
+    let node = changes["message"]["nodeChanges"].as_array().unwrap().iter().find(|n| n["name"] == name).unwrap().clone();
+    node["fillGeometry"][0]["commandsBlob"].as_u64().expect("the vector writes a fill blob")
+}
+
+#[test]
+fn saving_stored_glyphs_never_renumbers_another_blob() {
+    // The text is written before the vector. Blobs that other fields carry by number (the original file's numbers inside
+    // an instance's overrides) must not move because a glyph was written.
+    let mut nodes = document_and_page();
+    nodes.push(missing_text());
+    nodes.push(node(
+        (1, 5),
+        (0, 1),
+        "b",
+        "VECTOR",
+        "Square",
+        vec![
+            ("size", vec2(10.0, 10.0)),
+            ("fillPaints", V::Array(vec![designos_fig::testkit::solid(0.0, 0.0, 0.0)])),
+            ("fillGeometry", V::Array(vec![msg(vec![("windingRule", designos_fig::testkit::en("NONZERO")), ("commandsBlob", V::Uint(1))])])),
+        ],
+    ));
+    let doc = import_fig(&fig_file(nodes, vec![icon_blob(), designos_fig::testkit::square_blob()])).unwrap();
+    let with_glyphs = export_fig(&doc).unwrap();
+    let mut bare = doc.clone();
+    let id = named(&bare, "Missing font text").id;
+    bare.get_mut(id).unwrap().fig_text_geometry = None;
+    let without_glyphs = export_fig(&bare).unwrap();
+
+    assert_eq!(fill_blob_index(&with_glyphs, "Square"), fill_blob_index(&without_glyphs, "Square"), "the vector keeps its blob number");
+    let glyph_slot = derived_text_in(&with_glyphs, "Missing font text").unwrap()["glyphs"][0]["commandsBlob"].as_u64().unwrap();
+    let table = decode_fig_to_json(&without_glyphs).unwrap()["message"]["blobs"].as_array().map_or(0, Vec::len) as u64;
+    assert_eq!(glyph_slot, table, "the glyph blob is the first one behind the rest of the table");
+}
