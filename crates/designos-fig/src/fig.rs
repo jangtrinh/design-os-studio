@@ -569,7 +569,8 @@ fn fig_text_geometry(node: &Node, blobs: &[&[u8]], shared: &mut HashMap<usize, S
         Some(StoredFallback::Truncated)
     } else if non_empty("blockquotes") || non_empty("checklistMarkers") {
         Some(StoredFallback::Markers)
-    } else if first_char_outside {
+    } else if first_char_outside && text.lists.is_empty() {
+        // a list's marker is a glyph with no character of the text, so a list is named by its list when it is drawn
         Some(StoredFallback::FirstCharacter)
     } else {
         None

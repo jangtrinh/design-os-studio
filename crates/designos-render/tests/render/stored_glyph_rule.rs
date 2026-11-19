@@ -195,6 +195,20 @@ fn a_list_stays_shaped_until_its_markers_are_known_to_be_among_the_glyphs() {
 }
 
 #[test]
+fn a_list_text_is_named_by_its_list_though_its_marker_glyph_has_no_character() {
+    // the shape of the kit's lists: a glyph for the marker whose first character is past the end of the text
+    let lines = V::Array(vec![msg(vec![("lineType", designos_fig::testkit::en("UNORDERED_LIST")), ("indentationLevel", V::Int(0))])]);
+    let glyphs = vec![stored_glyph(Some(0), 0.0, 2, vec![]), stored_glyph(Some(0), 10.0, 0, vec![]), stored_glyph(Some(0), 20.0, 1, vec![])];
+    let text_data = msg(vec![("characters", V::String("ab".into())), ("lines", lines)]);
+    let mut nodes = document_and_page();
+    nodes.push(styled_glyph_text((1, 2), (0, 1), "a", "Case", FAMILY, "ab", &[], vec![], glyphs, &[FAMILY], vec![], vec![("textData", text_data)]));
+    let (_, node) = text_in(fig_file(nodes, vec![icon_blob()]), "Case");
+    let NodeKind::Text(props) = &node.kind else { unreachable!() };
+    assert!(!props.lists.is_empty(), "the fixture imports as a list");
+    assert_eq!(stored_glyph_use(&node), fallback("list"), "named by the cause, not by the marker glyph");
+}
+
+#[test]
 fn a_geometry_that_names_a_style_the_text_does_not_have_stays_shaped() {
     let (_, mut node) = text_in(icon_fixture(FAMILY), "Icon text");
     let mut geometry = (**node.fig_text_geometry.as_ref().unwrap()).clone();
