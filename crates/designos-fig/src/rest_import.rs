@@ -911,6 +911,8 @@ struct Ctx<'a> {
     connectors: Vec<(NodeId, Option<String>, Option<String>)>,
     /// Deferred multi-page hydrator state assembled during `finish`.
     deferred_pending: Option<DeferredHydration>,
+    /// The mains a deferred page's hydration is about to write into (see [`crate::component_fingerprint::MainTrust`]).
+    loader_writes: Option<crate::component_fingerprint::LoaderWrites>,
 }
 
 /// Overrides carried on `.fig` instance JSON as `_overrides` / `_derived`:
@@ -1094,6 +1096,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         keep_unknown_keys,
         connectors: Vec::new(),
         deferred_pending: None,
+        loader_writes: None,
     };
     for section in ["components", "componentSets"] {
         if let Some(comps) = v.get(section).and_then(Value::as_object) {
@@ -1256,6 +1259,7 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
         keep_unknown_keys,
         connectors: Vec::new(),
         deferred_pending: None,
+        loader_writes: None,
     };
     for section in ["components", "componentSets"] {
         if let Some(comps) = v.get(section).and_then(Value::as_object) {
@@ -2292,7 +2296,7 @@ impl<'a> Ctx<'a> {
             }
         }
         let mut fingerprints = crate::component_fingerprint::Fingerprints::default();
-        let mut instance_fingerprints = HashMap::new();
+        let mut instance_roots = HashMap::new();
         let mut swap_mains_of: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
         for &inst in pending_by_page.values().flatten() {
             if self.overrides.get(&inst).is_none_or(|o| o.fast_derived.is_empty()) {
@@ -2301,11 +2305,12 @@ impl<'a> Ctx<'a> {
             if let Some(&main) = targets.get(&inst) {
                 let swaps = self.record_swap_targets(inst);
                 let mains = crate::component_fingerprint::instance_mains(&self.doc, inst, main, &swaps);
-                instance_fingerprints.insert(inst, fingerprints.of_mains(&self.doc, &mains));
+                let _ = fingerprints.of_mains(&self.doc, &mains);
+                instance_roots.insert(inst, mains);
                 swap_mains_of.insert(inst, swaps);
             }
         }
-        drop(fingerprints);
+        let main_trust = fingerprints.into_trust();
         let mut derived_outlines: HashMap<usize, std::sync::Arc<[u8]>> = HashMap::new();
         for inst in pending_by_page.values().flatten() {
             let Some(ov) = self.overrides.get(inst) else { continue };
@@ -2358,7 +2363,8 @@ impl<'a> Ctx<'a> {
             budget_exhausted: self.budget_exhausted,
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
-            instance_fingerprints,
+            instance_roots,
+            main_trust,
             derived_outlines,
             swap_mains_of,
             self_digests,
@@ -2887,6 +2893,9 @@ impl<'a> Ctx<'a> {
     fn take_nested_instances(&mut self, comp: NodeId, targets: &BTreeMap<NodeId, NodeId>) -> Vec<NodeId> {
         if !self.expanded_comps.insert(comp) {
             return Vec::new();
+        }
+        if let Some(writes) = self.loader_writes.as_mut() {
+            writes.about_to_write(&self.doc, comp);
         }
         let mut stack = vec![comp];
         let mut nested = Vec::new();
@@ -4217,7 +4226,7 @@ struct RemovedDeferredPage {
     no_auto_layout: HashSet<NodeId>,
     scales: BTreeMap<NodeId, f32>,
     unexpanded_instances: BTreeSet<NodeId>,
-    instance_fingerprints: HashMap<NodeId, u64>,
+    instance_roots: HashMap<NodeId, Vec<NodeId>>,
     swap_mains_of: HashMap<NodeId, Vec<NodeId>>,
     self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>>,
 }
@@ -4282,9 +4291,11 @@ struct DeferredFigHydrator {
     budget_exhausted: bool,
     unexpanded_instances: BTreeSet<NodeId>,
     last_error: Option<String>,
-    /// Instance -> the fingerprint, when the file was opened, of every main its derived data was computed against, for
-    /// the instances that still have derived data here (see [`crate::component_fingerprint`]).
-    instance_fingerprints: HashMap<NodeId, u64>,
+    /// Instance -> the mains its derived data was computed against (before the mains they name in turn), for the
+    /// instances that still have derived data here (see [`crate::component_fingerprint`]).
+    instance_roots: HashMap<NodeId, Vec<NodeId>>,
+    /// What those mains held when the file was opened, moved forward over this loader's own writes into them.
+    main_trust: crate::component_fingerprint::MainTrust,
     /// Blob index -> the bytes of the outline, for the outlines the derived data of the held instances names.
     derived_outlines: HashMap<usize, std::sync::Arc<[u8]>>,
     /// Instance -> the mains its file record swaps nested instances to (part of its fingerprint).
@@ -4358,10 +4369,10 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         let mut cleared_derived = HashMap::new();
         for &inst in &insts {
             let Some(&main) = self.targets.get(&inst) else { continue };
-            let Some(&stored) = self.instance_fingerprints.get(&inst) else { continue };
+            let Some(stored) = self.instance_roots.get(&inst) else { continue };
             let swaps = self.swap_mains_of.get(&inst).map(Vec::as_slice).unwrap_or(&[]);
             let mains = crate::component_fingerprint::instance_mains(doc, inst, main, swaps);
-            if fingerprints.of_mains(doc, &mains) != stored {
+            if !self.main_trust.holds(&mut fingerprints, doc, stored, &mains) {
                 if let Some(ov) = self.overrides.get_mut(&inst) {
                     let taken = std::mem::take(&mut ov.fast_derived);
                     if !taken.is_empty() {
@@ -4418,8 +4429,15 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             keep_unknown_keys: KEEP_UNKNOWN_KEYS_FROM_BINARY,
             connectors: Vec::new(),
             deferred_pending: None,
+            loader_writes: Some(crate::component_fingerprint::LoaderWrites::new(&self.main_trust)),
         };
         let mut hydration_err: Option<FigError> = None;
+        // An instance that sits inside a main component of this page changes that main when it is filled.
+        if let Some(writes) = cx.loader_writes.as_mut() {
+            for &inst in &insts {
+                writes.about_to_write_inside(&cx.doc, inst);
+            }
+        }
         for &inst in &insts {
             if let Some(opened) = self.self_digests.get(&inst) {
                 let layout_edited = cx.doc.get(inst).is_some_and(|n| crate::instance_self_digest::edited_fields(n, opened).contains(&OverrideField::Layout));
@@ -4506,6 +4524,9 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         }
         if cx.next_clone > 1 {
             cx.doc.reserve_ids(NodeId(cx.next_clone - 1));
+        }
+        if let Some(writes) = cx.loader_writes.take() {
+            self.main_trust.advance(&cx.doc, &writes);
         }
         self.next_clone = cx.next_clone;
         self.cloned_nodes = cx.cloned_nodes;
@@ -4643,10 +4664,10 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         let mut scratch_overrides = BTreeMap::new();
         for &inst in &pending_insts {
             let Some(mut ov) = self.overrides.get(&inst).cloned() else { continue };
-            if let (Some(&main), Some(&stored)) = (self.targets.get(&inst), self.instance_fingerprints.get(&inst)) {
+            if let (Some(&main), Some(stored)) = (self.targets.get(&inst), self.instance_roots.get(&inst)) {
                 let swaps = self.swap_mains_of.get(&inst).map(Vec::as_slice).unwrap_or(&[]);
                 let mains = crate::component_fingerprint::instance_mains(doc, inst, main, swaps);
-                if fingerprints.of_mains(doc, &mains) != stored {
+                if !self.main_trust.holds(&mut fingerprints, doc, stored, &mains) {
                     ov.fast_derived.clear();
                 }
             }
@@ -4726,6 +4747,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             keep_unknown_keys: KEEP_UNKNOWN_KEYS_FROM_BINARY,
             connectors: Vec::new(),
             deferred_pending: None,
+            loader_writes: None,
         };
         let res = cx.expand_nested(component, &scratch_targets, &mut scratch_done);
         if res.is_ok() && !cx.budget_exhausted && cx.unexpanded_instances.is_empty() {
@@ -4779,7 +4801,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
 
     fn pending_instance_derived(&self, instance: NodeId) -> Option<designos_doc::PendingDerived> {
         let derived = &self.overrides.get(&instance)?.fast_derived;
-        let fingerprint = *self.instance_fingerprints.get(&instance)?;
+        let fingerprint = self.main_trust.fingerprint(self.instance_roots.get(&instance)?);
         let swap_mains = self.swap_mains_of.get(&instance).cloned().unwrap_or_default();
         let outlines = |list: &Option<Vec<(usize, bool)>>| -> Vec<designos_doc::PendingOutline> {
             list.iter()
@@ -4826,7 +4848,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
                 self.no_auto_layout.extend(removed.no_auto_layout);
                 self.scales.extend(removed.scales);
                 self.unexpanded_instances.extend(removed.unexpanded_instances);
-                self.instance_fingerprints.extend(removed.instance_fingerprints);
+                self.instance_roots.extend(removed.instance_roots);
                 self.swap_mains_of.extend(removed.swap_mains_of);
                 self.self_digests.extend(removed.self_digests);
                 self.pending_by_page.insert(page, removed.insts);
@@ -4887,8 +4909,8 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             if self.unexpanded_instances.contains(&old_inst) {
                 self.unexpanded_instances.insert(new_inst);
             }
-            if let Some(&fp) = self.instance_fingerprints.get(&old_inst) {
-                self.instance_fingerprints.insert(new_inst, fp);
+            if let Some(roots) = self.instance_roots.get(&old_inst).cloned() {
+                self.instance_roots.insert(new_inst, roots);
             }
             if let Some(swaps) = self.swap_mains_of.get(&old_inst).cloned() {
                 self.swap_mains_of.insert(new_inst, swaps);
@@ -4964,7 +4986,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             no_auto_layout: HashSet::new(),
             scales: BTreeMap::new(),
             unexpanded_instances: BTreeSet::new(),
-            instance_fingerprints: HashMap::new(),
+            instance_roots: HashMap::new(),
             swap_mains_of: HashMap::new(),
             self_digests: HashMap::new(),
         };
@@ -4984,8 +5006,8 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             if self.unexpanded_instances.remove(&inst) {
                 removed.unexpanded_instances.insert(inst);
             }
-            if let Some(v) = self.instance_fingerprints.remove(&inst) {
-                removed.instance_fingerprints.insert(inst, v);
+            if let Some(v) = self.instance_roots.remove(&inst) {
+                removed.instance_roots.insert(inst, v);
             }
             if let Some(v) = self.swap_mains_of.remove(&inst) {
                 removed.swap_mains_of.insert(inst, v);
@@ -6102,7 +6124,8 @@ mod expand_depth_tests {
             budget_exhausted: false,
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
-            instance_fingerprints: HashMap::new(),
+            instance_roots: HashMap::new(),
+            main_trust: Default::default(),
             derived_outlines: HashMap::new(),
             swap_mains_of: HashMap::new(),
             self_digests: HashMap::new(),
@@ -6154,7 +6177,8 @@ mod expand_depth_tests {
             budget_exhausted: false,
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
-            instance_fingerprints: HashMap::new(),
+            instance_roots: HashMap::new(),
+            main_trust: Default::default(),
             derived_outlines: HashMap::new(),
             swap_mains_of: HashMap::new(),
             self_digests: HashMap::new(),
@@ -6255,7 +6279,8 @@ mod expand_depth_tests {
             budget_exhausted: false,
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
-            instance_fingerprints: HashMap::new(),
+            instance_roots: HashMap::new(),
+            main_trust: Default::default(),
             derived_outlines: HashMap::new(),
             swap_mains_of: HashMap::new(),
             self_digests: HashMap::new(),
@@ -6387,6 +6412,7 @@ mod expand_depth_tests {
             keep_unknown_keys: true,
             connectors: Vec::new(),
             deferred_pending: None,
+            loader_writes: None,
         };
         cx.doc.nodes.insert(NodeId(u64::MAX), Node::new(NodeId(u64::MAX), NodeKind::Rectangle));
         let err = cx.finish(true).unwrap_err();
@@ -6432,6 +6458,7 @@ mod expand_depth_tests {
             keep_unknown_keys: true,
             connectors: Vec::new(),
             deferred_pending: None,
+            loader_writes: None,
         };
         // Edge case 4: highest id is u64::MAX - 1 -> first clone id (u64::MAX) works, second reports exhaustion.
         let page = cx.doc.add_page("P");

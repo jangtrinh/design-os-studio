@@ -1026,7 +1026,7 @@ fn probe_kit_wrapped_auto_layout_line_gap() {
             fn pending_instance_derived(&self, instance: NodeId) -> Option<PendingDerived> {
                 let mut held = self.inner.lock().unwrap().pending_instance_derived(instance)?;
                 if let Some(&fp) = self.fps.get(&instance) {
-                    held.fingerprint = fp;
+                    held.fingerprint = Some(fp);
                 }
                 Some(held)
             }
