@@ -122,3 +122,79 @@ pub fn shared_blob_fixture() -> Vec<u8> {
     nodes.push(glyph_text((1, 2), (0, 1), "b", "Two glyphs", FAMILY, "\u{e900}\u{e900}", &[(0, 0.0), (0, 10.0)], vec![]));
     fig_file(nodes, vec![icon_blob(), designos_fig::testkit::square_blob()])
 }
+
+/// A smooth glyph in font-em space: M(0.1,0) Q(0.5,0.9)(0.9,0) C(0.7,0.3)(0.3,0.3)(0.1,0) Z.
+pub fn curve_blob() -> Vec<u8> {
+    let mut blob = Vec::new();
+    let mut points = |op: u8, pts: &[f32]| {
+        blob.push(op);
+        blob.extend(pts.iter().flat_map(|v| v.to_le_bytes()));
+    };
+    points(1, &[0.1, 0.0]);
+    points(3, &[0.5, 0.9, 0.9, 0.0]);
+    points(4, &[0.7, 0.3, 0.3, 0.3, 0.1, 0.0]);
+    points(0, &[]);
+    blob
+}
+
+/// A 40 x 24 text layer in `family` whose derived data holds one glyph per `(blob index, x, y, font size)` entry; a
+/// `None` blob is a glyph Figma stored without outline (a space).
+pub fn mixed_glyph_text(id: (u32, u32), parent: (u32, u32), pos: &str, name: &str, family: &str, glyphs: &[(Option<u32>, f32, f32, f32)]) -> V {
+    let glyphs = glyphs
+        .iter()
+        .map(|&(blob, x, y, size)| {
+            let mut fields = vec![("position", vec2(x, y)), ("fontSize", fl(size))];
+            if let Some(blob) = blob {
+                fields.insert(0, ("commandsBlob", V::Uint(blob)));
+            }
+            msg(fields)
+        })
+        .collect();
+    node(
+        id,
+        parent,
+        pos,
+        "TEXT",
+        name,
+        vec![
+            ("size", vec2(40.0, 24.0)),
+            ("fontSize", fl(20.0)),
+            ("fontName", font_key(family)),
+            ("fillPaints", V::Array(vec![solid(0.2, 0.4, 0.8)])),
+            ("textData", msg(vec![("characters", V::String("ab c".into()))])),
+            (
+                "derivedTextData",
+                msg(vec![("layoutSize", vec2(40.0, 24.0)), ("fontMetaData", V::Array(vec![msg(vec![("key", font_key(family))])])), ("glyphs", V::Array(glyphs))]),
+            ),
+        ],
+    )
+}
+
+/// The texts every stored-glyph golden draws: an icon font glyph in a frame, a missing-font text of several glyphs
+/// (two outlines, one reused, one glyph without outline, two sizes), and a component's text with an instance copy.
+pub fn golden_fixture() -> Vec<u8> {
+    let mut nodes = document_and_page();
+    nodes.push(node((1, 1), (0, 1), "a", "FRAME", "Icon frame", vec![("size", vec2(24.0, 24.0))]));
+    nodes.push(glyph_text((1, 2), (1, 1), "a", "Icon text", FAMILY, "\u{e900}", &[(0, 0.0)], vec![]));
+    nodes.push(node((1, 4), (0, 1), "e", "FRAME", "Mixed frame", vec![("size", vec2(40.0, 24.0))]));
+    nodes.push(mixed_glyph_text(
+        (1, 3),
+        (1, 4),
+        "a",
+        "Mixed glyphs",
+        FAMILY,
+        &[(Some(0), 0.0, 20.0, 20.0), (Some(1), 9.5, 20.0, 20.0), (None, 17.0, 20.0, 20.0), (Some(0), 20.25, 18.5, 14.0), (Some(1), 29.0, 18.5, 14.0)],
+    ));
+    nodes.push(node((1, 10), (0, 1), "c", "SYMBOL", "Icon main", vec![("size", vec2(20.0, 20.0))]));
+    nodes.push(glyph_text((1, 11), (1, 10), "a", "Glyph source", FAMILY, "\u{e900}", &[(0, 0.0)], vec![]));
+    nodes.push(node((1, 5), (0, 1), "f", "FRAME", "Copy frame", vec![("size", vec2(20.0, 20.0))]));
+    nodes.push(node(
+        (1, 20),
+        (1, 5),
+        "a",
+        "INSTANCE",
+        "Icon copy",
+        vec![("size", vec2(20.0, 20.0)), ("symbolData", msg(vec![("symbolID", guid(1, 10))]))],
+    ));
+    fig_file(nodes, vec![icon_blob(), curve_blob()])
+}
