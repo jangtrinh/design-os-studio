@@ -115,7 +115,8 @@ impl Document {
                 });
             if tp.auto_resize == crate::TextAutoResize::WidthAndHeight && (bound.layout_child.max_w.is_some() || text_changed) {
                 if let Some(measure) = layout_measurer() {
-                    natural = crate::text_measure::measure_hug_text_with(tp, bound.layout_child.max_w, |t, w| measure.measure(t, w));
+                    natural = crate::text_measure::stored_hug_text_size(&bound, bound.layout_child.max_w)
+                        .unwrap_or_else(|| crate::text_measure::measure_hug_text_with(tp, bound.layout_child.max_w, |t, w| measure.measure(t, w)));
                 }
             }
         }

@@ -73,6 +73,30 @@ pub fn measure_hug_text_with(tp: &TextProps, max_w: Option<f32>, mut measure: im
     }
 }
 
+/// The size Figma stored for `n`, while the text is unedited: its glyph snapshot still matches
+/// the node, so the stored box is the one Figma laid this text out in. Returned bit-exact, because
+/// [`crate::FigTextGeometry::matches`] compares the box with `==` and a size that went through
+/// layout arithmetic would drop the stored glyphs.
+fn stored_text_size(n: &Node) -> Option<Vec2> {
+    let geometry = n.fig_text_geometry.as_deref()?;
+    geometry.matches(n).then_some(geometry.size)
+}
+
+/// Stored size of a hug-width text that may carry a `max_width` cap: the stored box while it
+/// fits under the cap, otherwise `None` so the caller shapes the text (it wraps, its size moves
+/// and the stored glyphs go, as Figma would re-wrap).
+pub fn stored_hug_text_size(n: &Node, max_w: Option<f32>) -> Option<Vec2> {
+    let stored = stored_text_size(n)?;
+    max_w.map(|w| w.max(1.0)).is_none_or(|limit| stored.x <= limit + 0.01).then_some(stored)
+}
+
+/// Stored size of a fixed-width, auto-height text that the parent gives `width`: the stored box
+/// when the parent's width is the width Figma wrapped the lines at, otherwise `None`.
+pub fn stored_wrapped_text_size(n: &Node, width: f32) -> Option<Vec2> {
+    let stored = stored_text_size(n)?;
+    ((width - stored.x).abs() <= 0.1).then_some(stored)
+}
+
 /// Height of wrapping `TextAutoResize::Height` text (or `TextAutoResize::WidthAndHeight` text
 /// clamped by `max_w`) at `width`, or `None` when `n` does not wrap its height. A text turned off
 /// the page axes (quarter turn or tilt) is never refit: the solved box width is not its text
@@ -83,9 +107,9 @@ pub fn height_resize_text_height(n: &Node, width: f32, measure: &dyn TextMeasure
         return None;
     }
     match t.auto_resize {
-        TextAutoResize::Height => Some(measure.measure(t, Some(width.max(1.0))).y),
+        TextAutoResize::Height => Some(stored_wrapped_text_size(n, width).unwrap_or_else(|| measure.measure(t, Some(width.max(1.0)))).y),
         TextAutoResize::WidthAndHeight if n.layout_child.max_w.is_some() => {
-            Some(measure_hug_text_with(t, Some(width.max(1.0)), |tp, w| measure.measure(tp, w)).y)
+            Some(stored_hug_text_size(n, Some(width)).unwrap_or_else(|| measure_hug_text_with(t, Some(width.max(1.0)), |tp, w| measure.measure(tp, w))).y)
         }
         _ => None,
     }
