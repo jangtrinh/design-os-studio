@@ -103,12 +103,15 @@ fn hug_text_narrower_than_its_stored_width_is_shaped_and_drops_the_glyphs() {
     assert!(!keeps_glyphs(&doc, label), "a wrapped text no longer matches Figma's lines");
 }
 
+/// A height the shaper never produces (it wraps to 40), so only the stored path can return it.
+const STORED_WRAPPED_HEIGHT: f32 = 38.5;
+
 /// 32 characters shape to 320 px unwrapped, so a cap above that never wraps.
 const LONG: &str = "abcdefghijklmnopqrstuvwxyz012345";
 
 fn wrapped_at_its_cap(doc: &mut Document, cap: f32) -> (NodeId, NodeId) {
     let row = row_frame(doc, doc.pages[0], LayoutDirection::Horizontal, 600.0, Sizing::Hug);
-    let label = imported_text(doc, row, LONG, TextAutoResize::WidthAndHeight, Vec2::new(cap, 40.0));
+    let label = imported_text(doc, row, LONG, TextAutoResize::WidthAndHeight, Vec2::new(cap, STORED_WRAPPED_HEIGHT));
     doc.get_mut(label).unwrap().layout_child.max_w = Some(cap);
     (row, label)
 }
@@ -122,7 +125,7 @@ fn hug_text_wrapped_at_an_unchanged_cap_keeps_its_stored_size() {
 
     doc.relayout_subtree(row);
     let n = doc.get(label).unwrap();
-    assert_eq!((n.size.x.to_bits(), n.size.y.to_bits()), (200.0f32.to_bits(), 40.0f32.to_bits()));
+    assert_eq!((n.size.x.to_bits(), n.size.y.to_bits()), (200.0f32.to_bits(), STORED_WRAPPED_HEIGHT.to_bits()));
     assert!(keeps_glyphs(&doc, label));
 }
 
@@ -253,6 +256,8 @@ fn padded_column(doc: &mut Document, stored: Vec2, with_snapshot: bool) -> (Node
         doc.get_mut(body).unwrap().fig_text_geometry = None;
     }
     let sibling = plain_text(doc, col, "Other");
+    // A capped hug text is measured on every layout, so a content change moves its size.
+    doc.get_mut(sibling).unwrap().layout_child.max_w = Some(400.0);
     (col, body, sibling)
 }
 
@@ -275,17 +280,22 @@ fn auto_height_text_in_a_padded_column_is_never_a_mixed_box() {
     probe.relayout_subtree(col);
     let slot = probe.get(body).unwrap().size.x;
 
-    for (label, x) in
-        [("exact slot width", slot), ("decimal of the slot width", 350.4), ("one ulp above", f32::from_bits(slot.to_bits() + 1)), ("a pixel off", slot + 1.0)]
-    {
+    for (label, x) in [
+        ("exact slot width", slot),
+        ("decimal value of the slot, the same f32", 350.4),
+        ("one ulp above", f32::from_bits(slot.to_bits() + 1)),
+        ("a pixel off", slot + 1.0),
+    ] {
         let stored = Vec2::new(x, 19.25);
         let mut doc = Document::new("stored-height-padded");
         let (col, body, sibling) = padded_column(&mut doc, stored, true);
         doc.relayout_subtree(col);
         assert_whole_box(&doc, body, stored, label);
 
+        let sibling_before = doc.get(sibling).unwrap().size;
         set_content(&mut doc, sibling, "A much longer sibling");
         doc.relayout_subtree(col);
+        assert!(doc.get(sibling).unwrap().size != sibling_before, "{label}: the sibling change must reach the solver");
         assert_whole_box(&doc, body, stored, label);
         if x.to_bits() == slot.to_bits() {
             assert!(keeps_glyphs(&doc, body), "{label}: the slot width equals the stored width, so the box is Figma's");
