@@ -846,7 +846,7 @@ pub struct ImportReport {
     ///
     /// The allowance is charged on wire bytes inside the decoder, so it bounds decoding as well as what is kept. Kept
     /// data costs about 60 bytes of peak memory per wire byte (value tree, JSON string, glyph paths and shared blobs),
-    /// so the allowance bounds an import's extra memory at about 250 MB, and its extra time at about a second.
+    /// so the allowance bounds an import's extra memory at about 270 MB and its extra time at under a second.
     pub dropped_stored_glyphs: usize,
 }
 
