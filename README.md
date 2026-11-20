@@ -937,7 +937,7 @@ Built by [Jang Trịnh](https://github.com/jangtrinh), creative technologist and
 <p align="left">
   <a href="https://mcpservers.org/servers/jangtrinh/design-os-studio"><img src="https://mcpservers.org/badge.svg" alt="Listed on mcpservers.org" width="163" height="20"></a>
   <a href="https://fazier.com" target="_blank" rel="noopener"><img src="https://fazier.com/api/v1//public/badges/launch_badges.svg?badge_type=launched&theme=light" width="120" alt="Fazier badge" /></a>
-  <a href="https://abacklaunch.com" target="_blank" rel="noopener"><img src="https://abacklaunch.com/badges/listed-on-light.svg" alt="Listed on Aback Launch" width="150" height="32" /></a>
+  <a href="https://abacklaunch.com/launch/designos-studio?ref=badge" target="_blank" rel="noopener"><img src="https://abacklaunch.com/badges/launched-on-light.svg" alt="Launched on Aback Launch" width="150" height="32" /></a>
 </p>
 
 ---
