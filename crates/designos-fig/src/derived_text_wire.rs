@@ -27,6 +27,12 @@ fn target() -> Option<&'static Target> {
         .as_ref()
 }
 
+/// Whether definition `idx` of `schema` (a file's) is the `DerivedTextData` Studio writes, field for field. Bytes of such a
+/// file's `derivedTextData` are the bytes of Studio's schema as they stand.
+pub(crate) fn is_studio_definition(schema: &Schema, idx: usize) -> bool {
+    target().is_some_and(|t| schema.same_definition(idx, t.schema, t.derived))
+}
+
 /// The wire bytes of a decoded `derivedTextData`, or `None` when it cannot be written whole in the export schema (an
 /// enum name it does not have, a value that does not fit its field).
 pub(crate) fn wire_from_kiwi(derived: &KiwiValue) -> Option<Vec<u8>> {

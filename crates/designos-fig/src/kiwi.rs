@@ -215,11 +215,26 @@ pub struct Reader<'a> {
     /// Wire bytes of `derivedTextData` an import may still keep (see `stored_glyphs`), and how many texts it had to leave out.
     stored_glyphs_left: usize,
     stored_glyphs_dropped: usize,
+    /// While set, skipping a value charges the budgets exactly as decoding it would (see [`Schema::keep_stored_glyphs`]).
+    charge_skipped: bool,
+    /// Whether the definition of `derivedTextData` (by index in the schema being read) is the one Studio writes, so a kept
+    /// span can be copied as it is. Worked out once per decode.
+    derived_verbatim: Option<(usize, bool)>,
 }
 
 impl<'a> Reader<'a> {
     pub fn new(data: &'a [u8]) -> Self {
-        Self { data, pos: 0, values_left: usize::MAX, zero_wire: Vec::new(), zero_wire_left: usize::MAX, stored_glyphs_left: 0, stored_glyphs_dropped: 0 }
+        Self {
+            data,
+            pos: 0,
+            values_left: usize::MAX,
+            zero_wire: Vec::new(),
+            zero_wire_left: usize::MAX,
+            stored_glyphs_left: 0,
+            stored_glyphs_dropped: 0,
+            charge_skipped: false,
+            derived_verbatim: None,
+        }
     }
     pub fn remaining(&self) -> usize {
         self.data.len() - self.pos
@@ -578,6 +593,30 @@ impl Schema {
         };
         let end = r.pos;
         r.pos = start;
+        // A file written by a Figma whose `DerivedTextData` is Studio's own definition keeps the span as it is: it is walked
+        // again with the budgets charged exactly as a decode would charge them, and no value tree is built.
+        let verbatim = match r.derived_verbatim {
+            Some((def, verbatim)) if matches!(f.ty, FieldType::Def(i) if i == def) => verbatim,
+            _ => {
+                let verbatim = match f.ty {
+                    FieldType::Def(i) if !f.is_array => crate::derived_text_wire::is_studio_definition(self, i),
+                    _ => false,
+                };
+                if let FieldType::Def(i) = f.ty {
+                    r.derived_verbatim = Some((i, verbatim));
+                }
+                verbatim
+            }
+        };
+        if verbatim {
+            r.charge_skipped = true;
+            let walked = self.skip_field(f, r, depth);
+            r.charge_skipped = false;
+            walked?;
+            debug_assert_eq!(r.pos, end, "skipping twice read different spans");
+            r.stored_glyphs_left = left_after;
+            return Ok(Some(KiwiValue::Bytes(r.data[start..end].to_vec())));
+        }
         // Decoded without the heavy rules, so nothing inside it is kept or charged again. It draws on the same value and
         // zero-size budgets as every other field, and nothing is given back if the text is then left out.
         let field = self.decode_field(f, r, depth, false)?;
@@ -646,6 +685,13 @@ impl Schema {
     }
 
     fn skip_type(&self, ty: FieldType, r: &mut Reader, depth: usize) -> Result<()> {
+        if r.charge_skipped {
+            // the same charges `decode_type` makes for this value
+            r.charge()?;
+            if matches!(ty, FieldType::Def(i) if r.zero_wire.get(i) == Some(&true)) {
+                r.charge_zero_wire()?;
+            }
+        }
         match ty {
             FieldType::Native(n) => match n {
                 Native::Bool | Native::Byte => {
@@ -1792,6 +1838,82 @@ mod tests {
         assert_eq!((kept_text_count(&message), dropped), (2, 0), "two fonts: read, kept, charged to the allowance");
         let smallest = (0..100_000).find(|&a| kept_text_count(&s2.decode_message_for_import_counting(root2, &bytes2, kept, a).unwrap().0) == 2).unwrap();
         assert_eq!(kept_text_count(&s2.decode_message_for_import_counting(root2, &bytes2, kept, smallest - 1).unwrap().0), 1, "and the allowance counts it");
+    }
+
+    /// A heavy payload over Studio's own schema (so the kept span is copied as it is) and the same payload over a schema whose
+    /// `DerivedTextData` has one more field (so the span is decoded, written in Studio's schema and encoded again): the same
+    /// message, with `texts` text nodes of `glyphs` glyphs each.
+    fn studio_schema_payloads(texts: usize, glyphs: usize) -> ((Schema, usize, Vec<u8>), (Schema, usize, Vec<u8>)) {
+        use crate::testkit::{figma_like_schema, fl, msg, node, st, vec2};
+        let message = |schema: &Schema| {
+            let glyph = |i: usize| {
+                msg(vec![
+                    ("commandsBlob", KiwiValue::Uint(0)),
+                    ("position", vec2(i as f32, 8.0)),
+                    ("fontSize", fl(12.0)),
+                    ("firstCharacter", KiwiValue::Uint(i as u32)),
+                ])
+            };
+            let font = st(vec![
+                ("family", KiwiValue::String("Some Face".into())),
+                ("style", KiwiValue::String("Regular".into())),
+                ("postscript", KiwiValue::String(String::new())),
+            ]);
+            let nodes = (0..texts)
+                .map(|t| {
+                    node(
+                        (1, t as u32 + 1),
+                        (0, 1),
+                        "a",
+                        "TEXT",
+                        &format!("text {t}"),
+                        vec![(
+                            "derivedTextData",
+                            msg(vec![
+                                ("layoutSize", vec2(20.0, 10.0)),
+                                ("glyphs", KiwiValue::Array((0..glyphs).map(glyph).collect())),
+                                ("fontMetaData", KiwiValue::Array(vec![msg(vec![("key", font.clone())])])),
+                            ]),
+                        )],
+                    )
+                })
+                .collect();
+            let blobs = KiwiValue::Array(vec![st(vec![("bytes", KiwiValue::Bytes(vec![0; 2_100_000]))])]);
+            let root = schema.find("Message").unwrap();
+            let bytes = schema.encode_message(root, &msg(vec![("nodeChanges", KiwiValue::Array(nodes)), ("blobs", blobs)])).unwrap();
+            (root, bytes)
+        };
+        let studio = figma_like_schema();
+        let (root, bytes) = message(&studio);
+        let mut other = figma_like_schema();
+        let derived = other.find("DerivedTextData").unwrap();
+        other.defs[derived].fields.push(Field { name: "futureField".into(), ty: FieldType::Native(Native::Uint), is_array: false, value: 99 });
+        let (other_root, other_bytes) = message(&other);
+        assert_eq!(bytes, other_bytes, "the extra field is unused, so both schemas write the same message");
+        ((studio, root, bytes), (other, other_root, other_bytes))
+    }
+
+    #[test]
+    fn a_span_in_studios_own_definition_is_kept_as_it_is_and_costs_what_a_decode_costs() {
+        let ((studio, root, bytes), (other, other_root, _)) = studio_schema_payloads(3, 40);
+        let derived = studio.find("DerivedTextData").unwrap();
+        assert!(crate::derived_text_wire::is_studio_definition(&studio, derived), "the schema Studio writes is its own definition");
+        assert!(!crate::derived_text_wire::is_studio_definition(&other, other.find("DerivedTextData").unwrap()), "one more field is another definition");
+
+        let decode = |s: &Schema, r: usize, cap: usize| s.decode_message_for_import_counting(r, &bytes, cap, 1 << 30);
+        assert_eq!(
+            fewest_values(|cap| decode(&studio, root, cap)),
+            fewest_values(|cap| decode(&other, other_root, cap)),
+            "skipping with charges costs the values a decode does"
+        );
+        let (copied, dropped) = decode(&studio, root, MAX_DECODED_VALUES).unwrap();
+        let (rewritten, _) = decode(&other, other_root, MAX_DECODED_VALUES).unwrap();
+        assert_eq!(dropped, 0);
+        assert_eq!(kept_text_count(&copied), 3);
+        assert_eq!(copied.get("nodeChanges"), rewritten.get("nodeChanges"), "copied bytes and re-encoded bytes are the same bytes");
+        let KiwiValue::Bytes(kept) = copied.get("nodeChanges").unwrap().as_array().unwrap()[0].get("derivedTextData").unwrap() else { panic!("wire bytes") };
+        let value = crate::derived_text_wire::decode_wire(kept).expect("they decode");
+        assert_eq!(value.get("glyphs").and_then(KiwiValue::as_array).map(<[_]>::len), Some(40));
     }
 
     /// A hostile schema: `DerivedTextData` holds a `derivedTextData` of its own, with the `type`, `fontName` and font list

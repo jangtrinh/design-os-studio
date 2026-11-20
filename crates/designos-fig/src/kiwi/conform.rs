@@ -7,6 +7,34 @@
 use super::{DefKind, Field, FieldType, KiwiValue, Native, Schema, MAX_DEPTH};
 
 impl Schema {
+    /// Whether definition `idx` of this schema is definition `other_idx` of `other`: the same kind, and at every depth the
+    /// same fields, by name, type, array flag and number. Bytes written with one then read the same with the other.
+    pub fn same_definition(&self, idx: usize, other: &Schema, other_idx: usize) -> bool {
+        let mut seen = std::collections::HashSet::new();
+        self.same_definition_at(idx, other, other_idx, &mut seen)
+    }
+
+    fn same_definition_at(&self, idx: usize, other: &Schema, other_idx: usize, seen: &mut std::collections::HashSet<(usize, usize)>) -> bool {
+        if !seen.insert((idx, other_idx)) {
+            return true;
+        }
+        let (Some(a), Some(b)) = (self.defs.get(idx), other.defs.get(other_idx)) else { return false };
+        a.kind == b.kind
+            && a.fields.len() == b.fields.len()
+            && a.fields.iter().zip(&b.fields).all(|(x, y)| {
+                x.name == y.name
+                    && x.is_array == y.is_array
+                    && x.value == y.value
+                    && match (x.ty, y.ty) {
+                        (FieldType::Native(p), FieldType::Native(q)) => p == q,
+                        // the variants of an enum are fields that point nowhere, whatever `Def` index they carry
+                        (FieldType::Def(_), FieldType::Def(_)) if a.kind == DefKind::Enum => true,
+                        (FieldType::Def(p), FieldType::Def(q)) => self.same_definition_at(p, other, q, seen),
+                        _ => false,
+                    }
+            })
+    }
+
     /// `v` as an instance of definition `idx`, matched by name. `None` when it cannot be written whole, so the caller
     /// never keeps a shortened value:
     /// - a message field the definition does not name is left out (a file written by a newer Figma may hold more);
