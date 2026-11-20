@@ -133,10 +133,27 @@ fn a_save_keeps_the_style_ids_figma_gave_the_runs_when_every_run_has_one_of_its_
 }
 
 #[test]
-fn a_save_numbers_the_rows_and_maps_the_stored_ids_when_figma_gave_two_runs_one_id() {
-    // Figma's id 3 sits on two stretches, so Studio has two runs and cannot write two rows under one id: it numbers them 1 and 2,
-    // and the one stored bar, which names Figma's id, must name a row that is written
+fn runs_that_share_a_figma_id_and_a_style_are_written_as_the_one_row_figma_wrote() {
+    // Figma's id 3 sits on two stretches: Studio has two runs of one style, and writes one row under 3, as Figma did
     let doc = import_fig(&repeated_id_fixture()).unwrap();
+    let saved = export_fig(&doc).unwrap();
+    assert_eq!(saved_style_rows(&saved, "Repeated id"), vec![3]);
+    let derived = saved_derived(&saved, "Repeated id").expect("written back");
+    assert_eq!(derived_style_ids(&derived), vec![3], "{derived}");
+    assert_eq!(derived["decorations"][0]["rects"].as_array().map(Vec::len), Some(2), "both bars are kept");
+    let node = decode_fig_to_json(&saved).unwrap()["message"]["nodeChanges"].as_array().unwrap().iter().find(|n| n["name"] == "Repeated id").cloned().unwrap();
+    assert_eq!(node["textData"]["characterStyleIDs"], serde_json::json!([0, 0, 3, 3, 0, 0, 3, 3]));
+}
+
+#[test]
+fn a_save_numbers_the_rows_and_maps_the_stored_ids_when_two_runs_that_share_an_id_no_longer_share_a_style() {
+    // a fill edit keeps the glyphs but the two runs of Figma's id 3 now differ: two rows, so the ids are numbered 1 and 2 and the one
+    // stored bar, which names Figma's id, must name a row that is written
+    let mut doc = import_fig(&repeated_id_fixture()).unwrap();
+    let id = named(&doc, "Repeated id").id;
+    let NodeKind::Text(props) = &mut doc.get_mut(id).unwrap().kind else { unreachable!() };
+    props.runs[1].style.fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(0, 0, 255))];
+    assert!(named(&doc, "Repeated id").fig_text_geometry.as_ref().unwrap().matches(named(&doc, "Repeated id")), "a fill keeps the glyphs");
     let saved = export_fig(&doc).unwrap();
     let rows = saved_style_rows(&saved, "Repeated id");
     assert_eq!(rows, vec![1, 2]);
@@ -144,7 +161,6 @@ fn a_save_numbers_the_rows_and_maps_the_stored_ids_when_figma_gave_two_runs_one_
     let ids = derived_style_ids(&derived);
     assert_eq!(ids, vec![1], "Figma's id 3 became the row of the first run that had it: {derived}");
     assert!(ids.iter().all(|id| rows.contains(id)), "every style id written is a row written");
-    assert_eq!(derived["decorations"][0]["rects"].as_array().map(Vec::len), Some(2), "both bars are kept");
 }
 
 #[test]

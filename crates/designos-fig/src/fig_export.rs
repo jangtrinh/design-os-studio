@@ -4373,15 +4373,20 @@ fn append_paragraph_fields(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) 
 }
 
 /// The style ids of the rows of the character style table written for the runs of `node`, when they can be the ids Figma gave
-/// its runs: the text is unedited, every run has an id of its own, none is 0 (the text's own style), and no row besides the
-/// runs' is written (rows for the text's own characters would need ids of their own). Then a save writes the ids Figma
-/// wrote, in the style table and in the stored data alike. `None` numbers the rows from 1.
+/// its runs: the text is unedited, none is 0 (the text's own style), runs that share an id have one style (they are one row),
+/// and no row besides the runs' is written (rows for the text's own characters would need ids of their own). Then a save
+/// writes the ids Figma wrote, in the style table and in the stored data alike. `None` numbers the rows from 1.
 fn run_row_ids(node: &Node, text: &TextProps, link: Option<OwnedFieldSet>) -> Option<Vec<u32>> {
     let saved = node.fig_text_geometry.as_deref().filter(|saved| !saved.wire.is_empty() && saved.matches(node))?;
     let ids = &*saved.run_sids;
-    let distinct: std::collections::HashSet<u32> = ids.iter().copied().collect();
-    if ids.is_empty() || ids.len() != text.runs.len() || distinct.len() != ids.len() || distinct.contains(&0) {
+    if ids.is_empty() || ids.len() != text.runs.len() || ids.contains(&0) {
         return None;
+    }
+    let mut style_of_id: std::collections::HashMap<u32, &TextStyle> = std::collections::HashMap::new();
+    for (id, run) in ids.iter().zip(&text.runs) {
+        if style_of_id.insert(*id, &run.style).is_some_and(|earlier| *earlier != run.style) {
+            return None;
+        }
     }
     (table_runs(text, link).len() == text.runs.len()).then(|| ids.to_vec())
 }
@@ -4476,6 +4481,7 @@ fn encode_text_data(tp: &TextProps, include_runs: bool, include_lines: bool, lin
         let offs = utf16_to_byte_offsets(&tp.content);
         let mut char_ids = vec![0u32; offs.len().saturating_sub(1)];
         let mut table = Vec::new();
+        let mut written = std::collections::HashSet::new();
         for (i, r) in rows.iter().enumerate() {
             let sid = row_ids.and_then(|ids| ids.get(i).copied()).unwrap_or((i + 1) as u32);
             let s = offs.partition_point(|&o| o < r.start);
@@ -4483,6 +4489,10 @@ fn encode_text_data(tp: &TextProps, include_runs: bool, include_lines: bool, lin
             let cap = e.min(char_ids.len());
             for slot in char_ids.iter_mut().take(cap).skip(s) {
                 *slot = sid;
+            }
+            // runs that share an id (Figma gives one id to a style that sits on separate stretches) are one row
+            if !written.insert(sid) {
+                continue;
             }
             if let Some(over) = r.over {
                 table.push(override_row(sid, r.style, &tp.style, over));
