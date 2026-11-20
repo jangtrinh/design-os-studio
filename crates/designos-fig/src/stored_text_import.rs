@@ -6,7 +6,7 @@
 //! A text whose data the renderer must not draw keeps its wire bytes and its blobs all the same, with the reason, so a
 //! save writes what Figma stored whether or not Studio can draw it.
 
-use crate::derived_text_wire::{decode_wire, wire_from_json};
+use crate::derived_text_wire::{wire_from_json, Decoder};
 use crate::kiwi::KiwiValue as K;
 use crate::rest_import;
 use crate::stored_glyphs::MAX_DRAWN_GLYPHS;
@@ -64,11 +64,17 @@ pub(crate) fn attach(doc: &mut Document, blobs: &[&[u8]], run_sids: &HashMap<Nod
                 let shared = &shared;
                 scope.spawn(move || {
                     let mut local: HashMap<usize, Arc<SharedBlob>> = HashMap::new();
+                    let decoder = Decoder::new();
                     texts
                         .iter()
                         .map(|(id, wire)| {
                             let sids = run_sids.get(id).map_or(&[][..], Vec::as_slice);
-                            (*id, nodes.get(id).and_then(|node| geometry(node, Arc::clone(wire), blobs, &mut BlobCache { shared, local: &mut local }, sids)))
+                            (
+                                *id,
+                                nodes.get(id).zip(decoder.as_ref()).and_then(|(node, decoder)| {
+                                    geometry(node, Arc::clone(wire), blobs, &mut BlobCache { shared, local: &mut local }, decoder, sids)
+                                }),
+                            )
                         })
                         .collect::<Vec<_>>()
                 })
@@ -183,9 +189,9 @@ fn collect_blobs(glyphs: &[K], blobs: &[&[u8]], shared: &mut BlobCache) -> TextB
 /// and otherwise the reason ([`StoredFallback`]). `None` only when the bytes cannot be read, which cannot happen to bytes
 /// this program wrote. `shared` holds each file blob once for the whole import (Figma shares one blob between every
 /// occurrence of a glyph, and so do the geometries built from it).
-fn geometry(node: &Node, wire: Arc<[u8]>, blobs: &[&[u8]], shared: &mut BlobCache, run_sids: &[u32]) -> Option<FigTextGeometry> {
+fn geometry(node: &Node, wire: Arc<[u8]>, blobs: &[&[u8]], shared: &mut BlobCache, decoder: &Decoder, run_sids: &[u32]) -> Option<FigTextGeometry> {
     let NodeKind::Text(text) = &node.kind else { return None };
-    let derived = decode_wire(&wire)?;
+    let derived = decoder.decode(&wire)?;
     let glyphs = array(&derived, "glyphs");
     let used = collect_blobs(glyphs, blobs, shared);
     let refused = |why: StoredFallback| {
@@ -366,7 +372,14 @@ mod tests {
     fn build(node: &Node, derived: &Value) -> Option<FigTextGeometry> {
         let blob = triangle();
         let wire: Arc<[u8]> = wire_from_json(derived).expect("a derivedTextData").into();
-        geometry(node, wire, &[&blob[..], &blob[..]], &mut BlobCache { shared: &Mutex::new(HashMap::new()), local: &mut HashMap::new() }, &[])
+        geometry(
+            node,
+            wire,
+            &[&blob[..], &blob[..]],
+            &mut BlobCache { shared: &Mutex::new(HashMap::new()), local: &mut HashMap::new() },
+            &Decoder::new().unwrap(),
+            &[],
+        )
     }
 
     #[test]

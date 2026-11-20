@@ -463,6 +463,23 @@ impl Schema {
         self.decode_message_counting(root, data, values, zero_wire_budget(data.len()), skip_heavy, stored_glyph_allowance)
     }
 
+    /// A copy of this schema whose field names are allocations of its own. A decoded value holds a clone of the name of each field
+    /// it was read into, so threads that decode with one schema all count references on the same few names; each thread that
+    /// decodes with a copy counts on its own.
+    pub(crate) fn private_copy(&self) -> Schema {
+        let defs = self
+            .defs
+            .iter()
+            .map(|d| Def {
+                name: d.name.clone(),
+                kind: d.kind,
+                fields: d.fields.iter().map(|f| Field { name: Arc::from(&*f.name), ty: f.ty, is_array: f.is_array, value: f.value }).collect(),
+                field_by_value: d.field_by_value.clone(),
+            })
+            .collect();
+        Schema { defs }
+    }
+
     /// The table [`Self::decode_message_prepared`] reads, built once for a schema that decodes many small messages.
     pub(crate) fn zero_wire_table(&self) -> Vec<bool> {
         self.zero_wire_defs()

@@ -50,6 +50,25 @@ pub(crate) fn wire_from_json(derived: &serde_json::Value) -> Option<Vec<u8>> {
     t.schema.encode_message(t.derived, &value).ok()
 }
 
+/// Decodes many `derivedTextData` of one thread: it holds a copy of the schema of its own (see `Schema::private_copy`), so threads
+/// that each build the data of a share of the texts do not count references on the same field names.
+pub(crate) struct Decoder {
+    schema: Schema,
+    derived: usize,
+    zero_wire: Vec<bool>,
+}
+
+impl Decoder {
+    pub(crate) fn new() -> Option<Self> {
+        let t = target()?;
+        Some(Self { schema: t.schema.private_copy(), derived: t.derived, zero_wire: t.zero_wire.clone() })
+    }
+
+    pub(crate) fn decode(&self, wire: &[u8]) -> Option<KiwiValue> {
+        self.schema.decode_message_prepared(self.derived, wire, &self.zero_wire).ok()
+    }
+}
+
 /// The value of `wire`, as [`wire_from_kiwi`] or [`wire_from_json`] wrote it.
 pub(crate) fn decode_wire(wire: &[u8]) -> Option<KiwiValue> {
     let t = target()?;
@@ -104,6 +123,14 @@ mod tests {
         assert!(wire_from_json(&bad).is_none());
         let value = V::Message(vec![("derivedLines".into(), V::Array(vec![V::Message(vec![("directionality".into(), V::Enum("NOT_A_DIRECTION".into()))])]))]);
         assert!(wire_from_kiwi(&value).is_none(), "an enum name Studio's schema lacks");
+    }
+
+    #[test]
+    fn a_decoder_with_a_schema_of_its_own_reads_the_same_value() {
+        let wire = wire_from_json(&derived_json()).unwrap();
+        let decoder = Decoder::new().expect("a decoder");
+        assert_eq!(decoder.decode(&wire), decode_wire(&wire));
+        assert!(decoder.decode(&wire[..wire.len() / 2]).is_none());
     }
 
     #[test]
