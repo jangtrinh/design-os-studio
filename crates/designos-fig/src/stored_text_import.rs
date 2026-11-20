@@ -12,7 +12,7 @@ use crate::rest_import;
 use crate::stored_glyphs::MAX_DRAWN_GLYPHS;
 use designos_doc::{Document, FigTextGeometry, GlyphBlobExtent, Node, NodeId, NodeKind, StoredDecoration, StoredFallback, StoredGlyph};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// A glyph blob of the file, held once for every text that names it, with what the importer learned about it.
 pub(crate) struct SharedBlob {
@@ -30,7 +30,8 @@ pub(crate) struct SharedBlob {
 /// Runs on the importer's nodes before instances are expanded, so a copy of a component's text starts with the data of the
 /// component's own text: an instance that changes the characters or the style then no longer matches it.
 pub(crate) fn attach(doc: &mut Document, blobs: &[&[u8]], run_sids: &HashMap<NodeId, Vec<u32>>, mut wires: HashMap<NodeId, Arc<[u8]>>) {
-    let mut shared: HashMap<usize, SharedBlob> = HashMap::new();
+    // the texts to give a geometry, each with the bytes of its data
+    let mut work: Vec<(NodeId, Arc<[u8]>)> = Vec::new();
     for node in doc.nodes.values_mut() {
         if !matches!(node.kind, NodeKind::Text(_)) {
             continue;
@@ -48,8 +49,58 @@ pub(crate) fn attach(doc: &mut Document, blobs: &[&[u8]], run_sids: &HashMap<Nod
                 Arc::from(bytes)
             }
         };
-        let sids = run_sids.get(&node.id).map_or(&[][..], Vec::as_slice);
-        node.fig_text_geometry = geometry(node, wire, blobs, &mut shared, sids).map(Arc::new);
+        work.push((node.id, wire));
+    }
+    // Each text is built alone from its own bytes, so the texts are shared out between threads; only the blobs of the file are
+    // shared, through one map, and each thread asks it once for a blob it has not seen.
+    let shared: Mutex<HashMap<usize, Arc<SharedBlob>>> = Mutex::new(HashMap::new());
+    let threads = if work.len() < 512 { 1 } else { std::thread::available_parallelism().map_or(1, |n| n.get()).min(8) };
+    let chunk = work.len().div_ceil(threads).max(1);
+    let nodes = &doc.nodes;
+    let built: Vec<(NodeId, Option<FigTextGeometry>)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = work
+            .chunks(chunk)
+            .map(|texts| {
+                let shared = &shared;
+                scope.spawn(move || {
+                    let mut local: HashMap<usize, Arc<SharedBlob>> = HashMap::new();
+                    texts
+                        .iter()
+                        .map(|(id, wire)| {
+                            let sids = run_sids.get(id).map_or(&[][..], Vec::as_slice);
+                            (*id, nodes.get(id).and_then(|node| geometry(node, Arc::clone(wire), blobs, &mut BlobCache { shared, local: &mut local }, sids)))
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        handles.into_iter().flat_map(|h| h.join().expect("a text of the import is built without panicking")).collect()
+    });
+    for (id, geometry) in built {
+        if let Some(node) = doc.nodes.get_mut(&id) {
+            node.fig_text_geometry = geometry.map(Arc::new);
+        }
+    }
+}
+
+/// The blobs of the file one thread has met, in front of the map every thread shares.
+struct BlobCache<'a> {
+    shared: &'a Mutex<HashMap<usize, Arc<SharedBlob>>>,
+    local: &'a mut HashMap<usize, Arc<SharedBlob>>,
+}
+
+impl BlobCache<'_> {
+    /// The blob of file number `index`, built once for the whole import.
+    fn get(&mut self, index: usize, blob: &[u8]) -> Arc<SharedBlob> {
+        if let Some(hit) = self.local.get(&index) {
+            return Arc::clone(hit);
+        }
+        let made = {
+            let mut shared = self.shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            Arc::clone(shared.entry(index).or_insert_with(|| Arc::new(SharedBlob { bytes: Arc::from(blob), extent: designos_doc::glyph_blob_extent(blob) })))
+        };
+        self.local.insert(index, Arc::clone(&made));
+        made
     }
 }
 
@@ -92,7 +143,7 @@ struct TextBlobs {
     missing: bool,
 }
 
-fn collect_blobs(glyphs: &[K], blobs: &[&[u8]], shared: &mut HashMap<usize, SharedBlob>) -> TextBlobs {
+fn collect_blobs(glyphs: &[K], blobs: &[&[u8]], shared: &mut BlobCache) -> TextBlobs {
     let mut out = TextBlobs { unique: Vec::new(), files: Vec::new(), extents: Vec::new(), slots: Vec::with_capacity(glyphs.len()), bytes: 0, missing: false };
     let mut slot_of: HashMap<usize, u32> = HashMap::new();
     for glyph in glyphs {
@@ -106,7 +157,7 @@ fn collect_blobs(glyphs: &[K], blobs: &[&[u8]], shared: &mut HashMap<usize, Shar
             continue;
         };
         out.bytes = out.bytes.saturating_add(blob.len());
-        let entry = shared.entry(index).or_insert_with(|| SharedBlob { bytes: Arc::from(blob), extent: designos_doc::glyph_blob_extent(blob) });
+        let entry = shared.get(index, blob);
         let slot = match slot_of.get(&index) {
             Some(&slot) => Some(slot),
             None => match (u32::try_from(out.unique.len()), u32::try_from(index)) {
@@ -132,7 +183,7 @@ fn collect_blobs(glyphs: &[K], blobs: &[&[u8]], shared: &mut HashMap<usize, Shar
 /// and otherwise the reason ([`StoredFallback`]). `None` only when the bytes cannot be read, which cannot happen to bytes
 /// this program wrote. `shared` holds each file blob once for the whole import (Figma shares one blob between every
 /// occurrence of a glyph, and so do the geometries built from it).
-fn geometry(node: &Node, wire: Arc<[u8]>, blobs: &[&[u8]], shared: &mut HashMap<usize, SharedBlob>, run_sids: &[u32]) -> Option<FigTextGeometry> {
+fn geometry(node: &Node, wire: Arc<[u8]>, blobs: &[&[u8]], shared: &mut BlobCache, run_sids: &[u32]) -> Option<FigTextGeometry> {
     let NodeKind::Text(text) = &node.kind else { return None };
     let derived = decode_wire(&wire)?;
     let glyphs = array(&derived, "glyphs");
@@ -315,7 +366,7 @@ mod tests {
     fn build(node: &Node, derived: &Value) -> Option<FigTextGeometry> {
         let blob = triangle();
         let wire: Arc<[u8]> = wire_from_json(derived).expect("a derivedTextData").into();
-        geometry(node, wire, &[&blob[..], &blob[..]], &mut HashMap::new(), &[])
+        geometry(node, wire, &[&blob[..], &blob[..]], &mut BlobCache { shared: &Mutex::new(HashMap::new()), local: &mut HashMap::new() }, &[])
     }
 
     #[test]

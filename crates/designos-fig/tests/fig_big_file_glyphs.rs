@@ -169,6 +169,26 @@ fn big_file_shares_one_blob_between_texts_that_draw_the_same_glyph() {
     }
 }
 
+#[test]
+fn texts_built_on_several_threads_still_share_one_blob_and_keep_their_own_data() {
+    // more texts than the importer builds on one thread: every glyph names file blob 0, so every geometry must hold the same bytes
+    let texts: Vec<V> = (0..1_500u32)
+        .map(|i| glyph_text((3, i + 1), (0, 1), "a", &format!("Many {i}"), FAMILY, "\u{e900}\u{e900}", &[(0, 0.0), (0, 10.0 + (i % 7) as f32)], vec![]))
+        .collect();
+    let doc = import_fig(&small(texts)).unwrap();
+    let geometries: Vec<_> =
+        (0..1_500u32).map(|i| named(&doc, &format!("Many {i}")).fig_text_geometry.as_ref().expect("every text keeps its data").clone()).collect();
+    assert!(
+        geometries.iter().all(|g| Arc::ptr_eq(&g.blobs[0], &geometries[0].blobs[0])),
+        "one file blob is held once for every text, whichever thread built it"
+    );
+    for (i, g) in geometries.iter().enumerate() {
+        assert_eq!(g.glyphs.len(), 2);
+        assert_eq!(g.glyphs.as_slice()[1].x, 10.0 + (i % 7) as f32, "each text kept its own glyphs");
+        assert!(!g.wire.is_empty() && g.blob_files.as_ref() == [0u32]);
+    }
+}
+
 fn derived_text_in(saved: &[u8], name: &str) -> Option<serde_json::Value> {
     let changes = decode_fig_to_json(saved).unwrap();
     changes["message"]["nodeChanges"].as_array().unwrap().iter().find(|n| n["name"] == name).and_then(|n| n.get("derivedTextData")).cloned()
