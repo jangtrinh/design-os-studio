@@ -167,3 +167,140 @@ pub fn solid_rgb(p: &Paint) -> Option<u32> {
         _ => None,
     }
 }
+
+/// Duplicates `source_id` along `side` at [`theme::BOARD_QUICK_CREATE_GAP`], stacking along the
+/// perpendicular axis when the primary spot is already occupied, and attaches an elbowed arrow
+/// connector from `(source_id, side)` to `(copy_id, opposite)` in one undo step.
+pub fn quick_create(app: &mut App, source_id: NodeId, side: Magnet) -> Option<NodeId> {
+    if !super::connect::quick_create_allowed(app, source_id) {
+        return None;
+    }
+    crate::canvas::interact::finish_text(app, true);
+    let prev_selection = if app.selection.is_empty() { vec![source_id] } else { app.selection.clone() };
+    let (parent, t0, size0, orig_kind, orig_name) = {
+        let n = app.doc.get(source_id)?;
+        (n.parent?, n.transform, n.size, n.kind.clone(), n.name.clone())
+    };
+    let mut copies = crate::clipboard::capture(&app.doc, &[source_id])
+        .map(|c| crate::clipboard::instantiate_linking_mains(&mut app.doc, &c, |doc, id| doc.get(id).and_then(|n| n.parent)))
+        .unwrap_or_default();
+    let mut nodes = copies.pop()?;
+    crate::agent_busy_frames::strip_busy_metadata_from_copy(&mut app.doc, &mut app.agent_busy_frames.frame_owners, &mut nodes);
+
+    let start_side = match side {
+        Magnet::Top | Magnet::Right | Magnet::Bottom | Magnet::Left => side,
+        Magnet::Auto | Magnet::Center => Magnet::Right,
+    };
+    let end_side = match start_side {
+        Magnet::Right => Magnet::Left,
+        Magnet::Left => Magnet::Right,
+        Magnet::Bottom => Magnet::Top,
+        Magnet::Top => Magnet::Bottom,
+        Magnet::Auto | Magnet::Center => Magnet::Left,
+    };
+    let gap = theme::BOARD_QUICK_CREATE_GAP;
+    let (base_x, base_y, step_x, step_y) = match start_side {
+        Magnet::Right => (t0.tx + size0.x + gap, t0.ty, 0.0, size0.y + gap * 0.5),
+        Magnet::Left => (t0.tx - size0.x - gap, t0.ty, 0.0, size0.y + gap * 0.5),
+        Magnet::Bottom => (t0.tx, t0.ty + size0.y + gap, size0.x + gap * 0.5, 0.0),
+        Magnet::Top => (t0.tx, t0.ty - size0.y - gap, size0.x + gap * 0.5, 0.0),
+        Magnet::Auto | Magnet::Center => (t0.tx + size0.x + gap, t0.ty, 0.0, size0.y + gap * 0.5),
+    };
+    let sib_rects: Vec<Rect> = app
+        .doc
+        .get(parent)
+        .map(|p| {
+            p.children
+                .iter()
+                .rev()
+                .filter_map(|&cid| {
+                    let cn = app.doc.get(cid)?;
+                    if !cn.visible || matches!(cn.kind, NodeKind::Connector(_)) {
+                        return None;
+                    }
+                    Some(Rect::new(cn.transform.tx, cn.transform.ty, cn.size.x, cn.size.y))
+                })
+                .take(256)
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut chosen = (base_x, base_y);
+    for k in 0..64i32 {
+        let mult = if k == 0 {
+            0.0
+        } else if k % 2 == 1 {
+            ((k + 1) / 2) as f32
+        } else {
+            -((k / 2) as f32)
+        };
+        let cx = base_x + mult * step_x;
+        let cy = base_y + mult * step_y;
+        let cand = Rect::new(cx, cy, size0.x, size0.y);
+        if !sib_rects.iter().any(|sr| crate::agent_busy_frames::rects_overlap(cand, *sr)) {
+            chosen = (cx, cy);
+            break;
+        }
+    }
+
+    let is_wb = super::connect::is_whiteboard_item(&orig_kind);
+    let copy_id = {
+        let root = nodes.first_mut()?;
+        root.transform = Affine { tx: chosen.0, ty: chosen.1, ..t0 };
+        root.name = orig_name;
+        if is_wb {
+            if let Some(t) = root.kind.any_text_mut() {
+                t.content.clear();
+                t.runs.clear();
+            }
+            if let NodeKind::Sticky(s) = &mut root.kind {
+                s.author = Some(author_name());
+            }
+        }
+        root.id
+    };
+    if let Some(root) = nodes.first() {
+        if !app.slot_insert_allowed(parent, &[root]) {
+            return None;
+        }
+    }
+
+    let mut tx = Tx::new();
+    let copy_idx = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
+    if tx.cmd(&mut app.doc, Command::Insert { parent, index: copy_idx, nodes }).is_err() {
+        return None;
+    }
+    let home = super::connect::home_for(app, Some(source_id), Some(copy_id));
+    let conn_id = app.doc.alloc_id();
+    let props = ConnectorProps {
+        start: ConnectorEnd::attached(source_id, start_side),
+        end: ConnectorEnd::attached(copy_id, end_side),
+        line: ConnectorLine::Elbowed,
+        start_cap: ConnectorCap::None,
+        end_cap: ConnectorCap::Arrow,
+        label: None,
+    };
+    let mut conn = Node::connector(conn_id, props);
+    super::connect::keep_out_of_flow(app.wb_board_targeting(), &mut conn);
+    conn.stroke.paints = vec![Paint::solid(super::connect::default_connector_ink(app, home))];
+    conn.name = app.unique_name("Connector");
+    let conn_idx = app.doc.get(home).map(|p| p.children.len()).unwrap_or(0);
+    if tx.cmd(&mut app.doc, Command::Insert { parent: home, index: conn_idx, nodes: vec![conn] }).is_err() {
+        tx.cancel(&mut app.doc);
+        return None;
+    }
+    super::connect::place(app, &mut tx, conn_id);
+    App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
+    if app.doc.get(parent).is_some_and(|p| matches!(p.kind, NodeKind::Group) || p.kind.frame_props().is_some_and(|f| f.auto_layout.is_some())) {
+        crate::layout::relayout_up(&mut app.doc, &mut tx.ed, copy_id);
+    }
+    if !app.run_tx(tx) {
+        return None;
+    }
+    app.agent_busy_frames.last_copy_undo = Some((copy_id, prev_selection, app.hist.undo_depth()));
+    app.selection = vec![copy_id];
+    if is_wb && matches!(orig_kind, NodeKind::Sticky(_) | NodeKind::ShapeWithText(_) | NodeKind::Text(_)) {
+        crate::canvas::interact::begin_text_edit(app, copy_id);
+    }
+    app.changed();
+    Some(copy_id)
+}
