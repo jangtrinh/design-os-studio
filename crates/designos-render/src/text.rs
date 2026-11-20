@@ -100,9 +100,9 @@ pub enum StoredGlyphUse {
 ///
 /// The reasons a text with stored glyphs is shaped, in the order they are looked for: the node has no characters; what
 /// the table holds (count, numbers, blob bytes); what the importer saw (an emoji, a rotated glyph, a truncated text,
-/// blockquote or checklist markers, a first character outside the text, and the data it could not use at all); the node
-/// is a list (Figma may draw its markers outside the glyphs); a glyph or bar names a style the text does not have; a
-/// style is underlined or struck through and Figma stored no bar for it.
+/// blockquote or checklist markers, a glyph of no character of the text that is not a list's marker, and the data it
+/// could not use at all); a glyph or bar names a style the text does not have; a style is underlined or struck through
+/// and Figma stored no bar for it. A list draws like any other text: Figma stores its markers among the glyphs.
 pub fn stored_glyph_use(node: &d::Node) -> StoredGlyphUse {
     let d::NodeKind::Text(props) = &node.kind else { return StoredGlyphUse::NoStoredData };
     let Some(saved) = node.fig_text_geometry.as_deref() else { return StoredGlyphUse::NoStoredData };
@@ -117,9 +117,6 @@ pub fn stored_glyph_use(node: &d::Node) -> StoredGlyphUse {
     // what a document file or a clipboard payload may hold is not bounded by the importer: look before anything is built
     if let Some(reason) = saved.draw_refusal() {
         return StoredGlyphUse::Fallback(reason);
-    }
-    if !props.lists.is_empty() {
-        return StoredGlyphUse::Fallback("list");
     }
     let styles = 1 + props.runs.len();
     if saved.glyphs.iter().any(|g| usize::from(g.style) >= styles) || saved.decorations.iter().any(|b| usize::from(b.style) >= styles) {

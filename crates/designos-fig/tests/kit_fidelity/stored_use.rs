@@ -52,12 +52,12 @@ pub fn text_drop(node: &Node) -> Option<(&'static str, Option<&'static str>)> {
         designos_render::StoredGlyphUse::Fallback(reason) => Some((reason, None)),
         designos_render::StoredGlyphUse::NoStoredData => Some((
             "importer kept no glyphs",
-            Some(if !node.fig_metadata.contains_key("derivedTextData") {
-                "derivedTextData not kept on the layer"
-            } else if props.content.is_empty() {
+            Some(if props.content.is_empty() {
                 "no characters"
+            } else if node.fig_metadata.contains_key("derivedTextData") {
+                "derivedTextData left as JSON on the layer"
             } else {
-                "nothing stored to draw (no glyphs, glyphs that draw nothing, or data that cannot be read)"
+                "no data kept for the layer (not in the file, over the import allowance, or not writable in Studio's schema)"
             }),
         )),
     }

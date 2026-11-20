@@ -846,31 +846,22 @@ pub struct ImportReport {
     /// The bindings remain attached to the document, so importing the variables later (for example a Figma
     /// `variables/local` response) resolves them. Callers use this count to tell the user the variables are missing.
     pub missing_variable_bindings: usize,
-    /// How many texts that could have drawn the glyph outlines Figma stored with them lost them because they did not fit
-    /// the import's allowance for such data (4 MiB of the file's own bytes). Such a text still draws with a substitute
-    /// font when its own font is missing. A heavy import (a message payload over 2 MB, or more than 5,000 entries)
-    /// keeps stored glyphs only for the texts the drawing code can draw (see `stored_glyphs` for the conditions); a
-    /// small file keeps them all, and neither case counts. A text over the allowance is counted without reading its font
-    /// list, so one that could never draw counts too.
+    /// How many texts lost the data Figma stored with them (`derivedTextData`: glyph outlines, decoration bars, lines)
+    /// because it did not fit the import's allowance for such data, or could not be written in Studio's schema. A `.fig`
+    /// import keeps 64 MiB of the file's own bytes, a paste from Figma 4 MiB; a text over it is counted, and shapes with
+    /// its own font like any text that has no stored data. A payload under 2 MB is bounded by its own size and counts
+    /// nothing for the allowance.
     ///
-    /// Kept glyphs count toward the decode value cap; the allowance bounds what is retained. It does not bound memory by
-    /// itself: kept data costs 60 to 100 bytes of peak memory per wire byte on a Latin kit (value tree, JSON string, glyph
-    /// paths and shared blobs), so 4 MiB adds about 300 to 500 MB and under a second to an import. That cost is not
-    /// measured for CJK or other scripts, whose glyph outlines are larger.
+    /// Kept data counts toward the decode value cap; the allowance bounds what is retained, at about two bytes per wire
+    /// byte (the bytes, the glyph table and the snapshot of the text). Nothing is built into outlines when a file opens.
     pub dropped_stored_glyphs: usize,
 }
-
-/// Root key of the REST value that tells the importer the kiwi decoder ran heavy (a payload over 2 MB), whatever the
-/// number of entries: the stored glyphs it kept were bounded by an allowance, and instance copies must not multiply them.
-pub(crate) const HEAVY_DECODE_KEY: &str = "_heavyDecode";
 
 struct Ctx<'a> {
     doc: Document,
     blobs: &'a [&'a [u8]],
     fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
     large_file: bool,
-    /// The decoder ran heavy ([`HEAVY_DECODE_KEY`]); a copy of a text then carries no JSON of its own.
-    heavy_decode: bool,
     ids: BTreeMap<String, NodeId>,
     /// (instance, REST componentId)
     instances: Vec<(NodeId, String)>,
@@ -894,8 +885,11 @@ struct Ctx<'a> {
     grid_row_track_ids: HashMap<NodeId, Vec<String>>,
     no_auto_layout: HashSet<NodeId>,
     /// The style id Figma gave each style run of a text layer, in run order (see `FigTextGeometry::run_sids`). Only a text
-    /// with runs has an entry; `attach_embedded_glyphs` takes them.
+    /// with runs has an entry; `stored_text_import::attach` takes them.
     text_run_sids: HashMap<NodeId, Vec<u32>>,
+    /// The wire bytes of the `derivedTextData` of each text node change of a binary import, by the node's guid (`"s:l"`),
+    /// until `stored_text_import::attach` gives them to the nodes.
+    text_wires: HashMap<String, std::sync::Arc<[u8]>>,
     /// `.fig` `uniformScaleFactor` of instances made with the scale tool.
     scales: BTreeMap<NodeId, f32>,
     /// Library components and sets of `.fig` internal canvases: node ->
@@ -1068,11 +1062,12 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
     expand_instances: bool,
     blobs: &'a [&'a [u8]],
     fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
+    text_wires: HashMap<String, std::sync::Arc<[u8]>>,
     clone_budget_total: usize,
     keep_unknown_keys: bool,
 ) -> Result<(Document, ImportReport), FigError> {
     if crate::board::is_figjam(&v) {
-        return import_rest_value_with_blobs_and_budget(&v, expand_instances, blobs, fast_derived_map, clone_budget_total, keep_unknown_keys);
+        return import_rest_value_with_text_wires(&v, expand_instances, blobs, fast_derived_map, text_wires, clone_budget_total, keep_unknown_keys);
     }
     let has_doc = v.get("document").is_some();
     if !has_doc && fstr(&v, "type").is_none() {
@@ -1085,7 +1080,6 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         blobs,
         fast_derived_map,
         large_file,
-        heavy_decode: v.get(HEAVY_DECODE_KEY).and_then(Value::as_bool) == Some(true),
         ids: BTreeMap::new(),
         instances: Vec::new(),
         unresolved: Vec::new(),
@@ -1103,6 +1097,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         grid_row_track_ids: HashMap::new(),
         no_auto_layout: HashSet::new(),
         text_run_sids: HashMap::new(),
+        text_wires,
         scales: BTreeMap::new(),
         library_keys: BTreeMap::new(),
         pending_swaps: Vec::new(),
@@ -1220,6 +1215,7 @@ fn restore_lint_ignores(doc: &mut Document, ids: &BTreeMap<String, NodeId>, raw_
     }
 }
 
+#[cfg(test)]
 pub(crate) fn import_rest_value_with_blobs<'a>(
     v: &'a Value,
     expand_instances: bool,
@@ -1238,6 +1234,20 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
     clone_budget_total: usize,
     keep_unknown_keys: bool,
 ) -> Result<(Document, ImportReport), FigError> {
+    import_rest_value_with_text_wires(v, expand_instances, blobs, fast_derived_map, HashMap::new(), clone_budget_total, keep_unknown_keys)
+}
+
+/// [`import_rest_value_with_blobs_and_budget`] for a binary import that took the stored data of its texts out of the node
+/// changes: `text_wires` holds their wire bytes by node guid.
+pub(crate) fn import_rest_value_with_text_wires<'a>(
+    v: &'a Value,
+    expand_instances: bool,
+    blobs: &'a [&'a [u8]],
+    fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
+    text_wires: HashMap<String, std::sync::Arc<[u8]>>,
+    clone_budget_total: usize,
+    keep_unknown_keys: bool,
+) -> Result<(Document, ImportReport), FigError> {
     let root = match v.get("document") {
         Some(d) => d,
         None if fstr(v, "type").is_some() => v,
@@ -1251,7 +1261,6 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
         blobs,
         fast_derived_map,
         large_file,
-        heavy_decode: v.get(HEAVY_DECODE_KEY).and_then(Value::as_bool) == Some(true),
         ids: BTreeMap::new(),
         instances: Vec::new(),
         unresolved: Vec::new(),
@@ -1269,6 +1278,7 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
         grid_row_track_ids: HashMap::new(),
         no_auto_layout: HashSet::new(),
         text_run_sids: HashMap::new(),
+        text_wires,
         scales: BTreeMap::new(),
         library_keys: BTreeMap::new(),
         pending_swaps: Vec::new(),
@@ -2126,9 +2136,9 @@ impl<'a> Ctx<'a> {
     }
 
     fn finish(&mut self, expand_instances: bool) -> Result<(), FigError> {
-        if !self.blobs.is_empty() {
-            crate::fig::attach_embedded_glyphs(&mut self.doc, self.blobs, &self.text_run_sids);
-        }
+        let wires: HashMap<NodeId, std::sync::Arc<[u8]>> =
+            std::mem::take(&mut self.text_wires).into_iter().filter_map(|(guid, wire)| Some((*self.ids.get(&guid)?, wire))).collect();
+        crate::stored_text_import::attach(&mut self.doc, self.blobs, &self.text_run_sids, wires);
         let links = std::mem::take(&mut self.instances);
         let mut targets: BTreeMap<NodeId, NodeId> = BTreeMap::new();
         for (inst, cid) in links {
@@ -3361,15 +3371,7 @@ impl<'a> Ctx<'a> {
                 break;
             }
             budget -= 1;
-            // A copy of a text draws the geometry it shares with its source. Its own copy of the stored JSON would be one
-            // more string per instance that the import's allowance never counted, so the JSON stays out of the clone.
-            // Through `nodes` directly, as the rest of this function does: `Document::get_mut` marks the node dirty.
-            let held =
-                if self.large_file || self.heavy_decode { self.doc.nodes.get_mut(&src).and_then(|s| s.fig_metadata.remove("derivedTextData")) } else { None };
             let copy = self.doc.get(src).cloned();
-            if let (Some(json), Some(source)) = (held, self.doc.nodes.get_mut(&src)) {
-                source.fig_metadata.insert("derivedTextData".into(), json);
-            }
             let Some(mut n) = copy else { continue };
             let orig_children = std::mem::take(&mut n.children);
             let id = match self.fresh_id() {
@@ -4449,6 +4451,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             grid_row_track_ids: std::mem::take(&mut self.grid_row_track_ids),
             no_auto_layout: std::mem::take(&mut self.no_auto_layout),
             text_run_sids: HashMap::new(),
+            text_wires: HashMap::new(),
             scales: std::mem::take(&mut self.scales),
             pending_swaps: Vec::new(),
             component_keys: BTreeMap::new(),
@@ -4461,7 +4464,6 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             blobs: &[],
             fast_derived_map: None,
             large_file: true,
-            heavy_decode: false,
             expanded_comps: std::mem::take(&mut self.expanded_comps),
             next_clone,
             clone_budget_total: self.clone_budget_total,
@@ -4769,6 +4771,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             grid_row_track_ids: scratch_row_tracks,
             no_auto_layout: scratch_no_auto_layout,
             text_run_sids: HashMap::new(),
+            text_wires: HashMap::new(),
             scales: scratch_scales,
             pending_swaps: Vec::new(),
             component_keys: BTreeMap::new(),
@@ -4781,7 +4784,6 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             blobs: &[],
             fast_derived_map: None,
             large_file: true,
-            heavy_decode: false,
             expanded_comps: self.expanded_comps.clone(),
             next_clone,
             clone_budget_total: self.clone_budget_total,
@@ -6434,7 +6436,6 @@ mod expand_depth_tests {
             blobs: &[],
             fast_derived_map: None,
             large_file: false,
-            heavy_decode: false,
             ids: BTreeMap::new(),
             instances: Vec::new(),
             unresolved: Vec::new(),
@@ -6452,6 +6453,7 @@ mod expand_depth_tests {
             grid_row_track_ids: HashMap::new(),
             no_auto_layout: HashSet::new(),
             text_run_sids: HashMap::new(),
+            text_wires: HashMap::new(),
             scales: BTreeMap::new(),
             library_keys: BTreeMap::new(),
             pending_swaps: Vec::new(),
@@ -6482,7 +6484,6 @@ mod expand_depth_tests {
             blobs: &[],
             fast_derived_map: None,
             large_file: false,
-            heavy_decode: false,
             ids: BTreeMap::new(),
             instances: Vec::new(),
             unresolved: Vec::new(),
@@ -6500,6 +6501,7 @@ mod expand_depth_tests {
             grid_row_track_ids: HashMap::new(),
             no_auto_layout: HashSet::new(),
             text_run_sids: HashMap::new(),
+            text_wires: HashMap::new(),
             scales: BTreeMap::new(),
             library_keys: BTreeMap::new(),
             pending_swaps: Vec::new(),
@@ -6705,7 +6707,8 @@ mod keep_unknown_keys_tests {
 
     #[test]
     fn an_import_from_binary_records_keeps_no_unknown_keys() {
-        let (doc, _) = import_rest_value_owned_with_budget(payload(), true, &[], None, CLONE_BUDGET_TOTAL, KEEP_UNKNOWN_KEYS_FROM_BINARY).unwrap();
+        let (doc, _) =
+            import_rest_value_owned_with_budget(payload(), true, &[], None, HashMap::new(), CLONE_BUDGET_TOTAL, KEEP_UNKNOWN_KEYS_FROM_BINARY).unwrap();
         assert_eq!(kept(&doc), 0, "the .fig, node-change and clipboard imports pass this value");
     }
 }

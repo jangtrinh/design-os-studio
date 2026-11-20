@@ -1,5 +1,5 @@
-//! A big `.fig` file (more than 5,000 entries, or a message payload over 2 MB) keeps the glyph outlines Figma stored for a text whose font is not installed, the way a small
-//! file does, and keeps nothing for a text in a bundled family (it always shapes with the bundled face).
+//! A big `.fig` file (more than 5,000 entries, or a message payload over 2 MB) keeps the data Figma stored for every text,
+//! the way a small file does: an unedited text draws it whatever its family, and a save writes it back.
 #[path = "common/missing_font_fig.rs"]
 mod missing_font_fig;
 
@@ -83,8 +83,18 @@ fn named<'a>(doc: &'a Document, name: &str) -> &'a Node {
     doc.nodes.values().find(|n| n.name == name).unwrap_or_else(|| panic!("no node named {name}"))
 }
 
+/// Whether `node` keeps what Figma stored for it: the wire bytes of its `derivedTextData`, which a save writes back. No node
+/// keeps it as JSON in its metadata.
 fn holds_derived_text(node: &Node) -> bool {
-    node.fig_metadata.contains_key("derivedTextData")
+    assert!(!node.fig_metadata.contains_key("derivedTextData"), "{}: the stored data is wire bytes, not JSON in the metadata", node.name);
+    node.fig_text_geometry.as_ref().is_some_and(|g| !g.wire.is_empty())
+}
+
+/// Equal in everything a save and a reopen keep: the file's own blob numbers differ between two files, so the wire bytes
+/// and the blob numbers are not compared.
+fn same_stored_glyphs(a: &Node, b: &Node) {
+    let (a, b) = (a.fig_text_geometry.as_ref().expect("first has stored data"), b.fig_text_geometry.as_ref().expect("second has stored data"));
+    assert_eq!((&a.glyphs, &a.blobs, &a.decorations, &a.run_sids, a.fallback), (&b.glyphs, &b.blobs, &b.decorations, &b.run_sids, b.fallback));
 }
 
 /// Whether any outline drawn for `node` has the bounds of the fixture's saved triangle (x 0..20, y 4..20).
@@ -124,15 +134,14 @@ fn big_file_by_payload_draws_stored_glyphs_of_a_missing_font() {
 }
 
 #[test]
-fn big_file_keeps_nothing_for_a_text_in_a_bundled_family() {
+fn big_file_keeps_and_draws_the_stored_data_of_a_text_in_a_bundled_family() {
     for (what, bytes) in
         [("entry count", big_by_entry_count(vec![missing_text(), bundled_text()])), ("payload", big_by_payload(vec![missing_text(), bundled_text()]))]
     {
         let doc = import_fig(&bytes).unwrap();
-        let inter = named(&doc, "Bundled font text");
-        assert!(inter.fig_text_geometry.is_none(), "large by {what}: a bundled family keeps no geometry");
-        assert!(!holds_derived_text(inter), "large by {what}: a bundled family keeps no stored derived data");
-        assert!(holds_derived_text(named(&doc, "Missing font text")), "large by {what}: the missing font keeps it");
+        assert!(holds_derived_text(named(&doc, "Bundled font text")), "large by {what}: a bundled family keeps its stored data");
+        assert!(holds_derived_text(named(&doc, "Missing font text")), "large by {what}: so does the missing font");
+        assert_draws_stored_glyph(&doc, "Bundled font text");
     }
 }
 
@@ -145,6 +154,7 @@ fn small_file_keeps_stored_glyphs_for_every_text() {
         assert!(holds_derived_text(text), "{name}: a small file keeps the derived data");
     }
     assert_draws_stored_glyph(&doc, "Missing font text");
+    assert_draws_stored_glyph(&doc, "Bundled font text");
 }
 
 #[test]
@@ -159,6 +169,26 @@ fn big_file_shares_one_blob_between_texts_that_draw_the_same_glyph() {
     }
 }
 
+#[test]
+fn texts_built_on_several_threads_still_share_one_blob_and_keep_their_own_data() {
+    // more texts than the importer builds on one thread: every glyph names file blob 0, so every geometry must hold the same bytes
+    let texts: Vec<V> = (0..1_500u32)
+        .map(|i| glyph_text((3, i + 1), (0, 1), "a", &format!("Many {i}"), FAMILY, "\u{e900}\u{e900}", &[(0, 0.0), (0, 10.0 + (i % 7) as f32)], vec![]))
+        .collect();
+    let doc = import_fig(&small(texts)).unwrap();
+    let geometries: Vec<_> =
+        (0..1_500u32).map(|i| named(&doc, &format!("Many {i}")).fig_text_geometry.as_ref().expect("every text keeps its data").clone()).collect();
+    assert!(
+        geometries.iter().all(|g| Arc::ptr_eq(&g.blobs[0], &geometries[0].blobs[0])),
+        "one file blob is held once for every text, whichever thread built it"
+    );
+    for (i, g) in geometries.iter().enumerate() {
+        assert_eq!(g.glyphs.len(), 2);
+        assert_eq!(g.glyphs.as_slice()[1].x, 10.0 + (i % 7) as f32, "each text kept its own glyphs");
+        assert!(!g.wire.is_empty() && g.blob_files.as_ref() == [0u32]);
+    }
+}
+
 fn derived_text_in(saved: &[u8], name: &str) -> Option<serde_json::Value> {
     let changes = decode_fig_to_json(saved).unwrap();
     changes["message"]["nodeChanges"].as_array().unwrap().iter().find(|n| n["name"] == name).and_then(|n| n.get("derivedTextData")).cloned()
@@ -168,13 +198,16 @@ fn derived_text_in(saved: &[u8], name: &str) -> Option<serde_json::Value> {
 fn big_file_saves_back_the_stored_glyphs_it_kept() {
     let doc = import_fig(&big_by_entry_count(vec![missing_text(), bundled_text()])).unwrap();
     let saved = export_fig(&doc).unwrap();
-    let derived = derived_text_in(&saved, "Missing font text").expect("a kept text writes its derived data back");
-    assert_eq!(derived["glyphs"].as_array().map(Vec::len), Some(1));
-    assert!(derived_text_in(&saved, "Bundled font text").is_none(), "a bundled-family text writes none, as before");
+    for name in ["Missing font text", "Bundled font text"] {
+        let derived = derived_text_in(&saved, name).unwrap_or_else(|| panic!("{name}: a kept text writes its derived data back"));
+        assert_eq!(derived["glyphs"].as_array().map(Vec::len), Some(1));
+    }
 
     let reopened = import_fig(&saved).unwrap();
-    assert_eq!(named(&reopened, "Missing font text").fig_text_geometry, named(&doc, "Missing font text").fig_text_geometry);
-    assert_draws_stored_glyph(&reopened, "Missing font text");
+    for name in ["Missing font text", "Bundled font text"] {
+        same_stored_glyphs(named(&reopened, name), named(&doc, name));
+        assert_draws_stored_glyph(&reopened, name);
+    }
 }
 
 #[test]
@@ -196,6 +229,7 @@ fn derived_text_data_on_a_node_that_is_not_text_is_dropped_in_a_big_file() {
     let frame = named(&doc, "Frame with derived text");
     assert!(matches!(frame.kind, NodeKind::Frame(_)));
     assert!(!holds_derived_text(frame));
+    assert!(frame.fig_text_geometry.is_none());
 }
 
 /// The index each saved `commandsBlob` of the node named `name` has in `saved`'s blob table.
@@ -242,12 +276,15 @@ fn big_shapes(texts: &dyn Fn() -> Vec<V>) -> Vec<(&'static str, Vec<u8>)> {
 }
 
 #[test]
-fn big_file_keeps_only_texts_that_can_draw_their_stored_glyphs() {
+fn big_file_keeps_the_data_of_every_text_and_draws_what_the_data_allows() {
     for (shape, bytes) in big_shapes(&|| vec![missing_text(), styled_text(), two_font_text()]) {
         let doc = import_fig(&bytes).unwrap();
-        assert!(holds_derived_text(named(&doc, "Missing font text")), "big by {shape}: the control text keeps its data");
-        assert!(!holds_derived_text(named(&doc, "Styled text")), "big by {shape}: a text with a style run is never drawn from stored glyphs");
-        assert!(!holds_derived_text(named(&doc, "Two font text")), "big by {shape}: nor is a text whose derived data names two fonts");
+        for name in ["Missing font text", "Styled text", "Two font text"] {
+            assert!(holds_derived_text(named(&doc, name)), "big by {shape}: {name} keeps its data");
+        }
+        assert_eq!(designos_render::stored_glyph_use(named(&doc, "Missing font text")), designos_render::StoredGlyphUse::Drawn, "big by {shape}");
+        // a text with a style run and one whose derived data names two fonts, one of them its own, draw like any other
+        assert_eq!(designos_render::stored_glyph_use(named(&doc, "Two font text")), designos_render::StoredGlyphUse::Drawn, "big by {shape}");
     }
 }
 
@@ -271,7 +308,7 @@ fn undrawable_texts() -> Vec<V> {
 }
 
 #[test]
-fn big_file_keeps_nothing_for_a_text_the_drawing_code_would_refuse() {
+fn big_file_keeps_the_data_of_a_text_the_drawing_code_would_refuse_and_names_the_reason() {
     for (shape, bytes) in big_shapes(&|| {
         let mut texts = vec![missing_text()];
         texts.extend(undrawable_texts());
@@ -279,8 +316,15 @@ fn big_file_keeps_nothing_for_a_text_the_drawing_code_would_refuse() {
     }) {
         let doc = import_fig(&bytes).unwrap();
         assert!(holds_derived_text(named(&doc, "Missing font text")), "big by {shape}: the control text keeps its data");
-        for name in ["Too many glyphs", "Other family", "Underlined", "Wrong size"] {
-            assert!(!holds_derived_text(named(&doc, name)), "big by {shape}: {name} would never draw from stored glyphs");
+        for (name, reason) in [
+            ("Too many glyphs", "too many stored glyphs"),
+            ("Other family", "stored fonts do not meet the text's fonts"),
+            ("Underlined", "decoration missing from stored data"),
+            ("Wrong size", "layout size missing or not the layer's"),
+        ] {
+            let text = named(&doc, name);
+            assert!(holds_derived_text(text), "big by {shape}: {name} keeps its data for a save");
+            assert_eq!(designos_render::stored_glyph_use(text), designos_render::StoredGlyphUse::Fallback(reason), "big by {shape}: {name}");
         }
     }
 }
@@ -293,7 +337,7 @@ fn a_small_file_still_keeps_the_data_of_a_styled_text() {
 
 #[test]
 fn the_import_report_counts_texts_the_allowance_leaves_out() {
-    // a text that is bundled or styled is never counted: it would not have been kept
+    // every text is kept, whatever its family or style, so each one the allowance cannot hold is counted
     let texts = || vec![missing_text(), bundled_text(), styled_text()];
     for (shape, bytes) in [("payload", big_by_payload(texts())), ("both", big_by_both(texts()))] {
         let (doc, report) = import_fig_with_report(&bytes).unwrap();
@@ -301,7 +345,7 @@ fn the_import_report_counts_texts_the_allowance_leaves_out() {
         assert!(named(&doc, "Missing font text").fig_text_geometry.is_some());
 
         let (doc, report) = import_fig_with_stored_glyph_allowance(&bytes, 0).unwrap();
-        assert_eq!(report.dropped_stored_glyphs, 1, "big by {shape}: with no allowance the one drawable text is counted");
+        assert_eq!(report.dropped_stored_glyphs, 3, "big by {shape}: with no allowance every text is counted");
         assert!(named(&doc, "Missing font text").fig_text_geometry.is_none() && !holds_derived_text(named(&doc, "Missing font text")));
     }
     // a payload under 2 MB is bounded by its own size: the decoder skips nothing, so there is nothing to count
@@ -351,7 +395,7 @@ fn component_with_copies(copies: u32, fillers: bool) -> Vec<u8> {
 fn assert_copies_carry_no_json(doc: &Document, what: &str) {
     let texts: Vec<&Node> = doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Text(_))).collect();
     assert_eq!(texts.len(), 7, "{what}: the source and six copies");
-    assert_eq!(texts.iter().filter(|n| holds_derived_text(n)).count(), 1, "{what}: only the source holds the stored JSON");
+    assert!(texts.iter().all(|n| !n.fig_metadata.contains_key("derivedTextData")), "{what}: no text holds its stored data as JSON");
     let geometries: Vec<_> = texts.iter().map(|n| n.fig_text_geometry.as_ref().expect("every copy draws the stored glyphs")).collect();
     assert!(geometries.iter().all(|g| Arc::ptr_eq(g, geometries[0])), "{what}: the copies share the source's geometry");
 }
@@ -383,12 +427,11 @@ fn a_heavy_paste_still_keeps_the_stored_glyphs_of_a_text_that_can_draw_them() {
     let clip = designos_fig::FigClipboard { meta: None, buffer: big_by_payload(vec![missing_text(), bundled_text()]) };
     let doc = designos_fig::import_figma_clipboard(&clip).unwrap();
     assert_draws_stored_glyph(&doc, "Missing font text");
-    assert!(!holds_derived_text(named(&doc, "Bundled font text")), "a bundled family keeps nothing in a paste either");
+    assert!(holds_derived_text(named(&doc, "Bundled font text")), "a bundled family keeps its data in a paste too");
 }
 
 #[test]
-fn a_small_file_keeps_the_json_of_instance_copies() {
-    // small files are unchanged: a copy keeps the metadata of its source, as before
+fn a_small_file_gives_instance_copies_the_stored_data_of_their_source() {
     let mut nodes = document_and_page();
     nodes.push(node((1, 10), (0, 1), "a", "SYMBOL", "Icon main", vec![("size", vec2(20.0, 20.0))]));
     nodes.push(glyph_text((1, 11), (1, 10), "a", "Source text", FAMILY, "\u{e900}", &[(0, 0.0)], vec![]));
@@ -402,7 +445,8 @@ fn a_small_file_keeps_the_json_of_instance_copies() {
     ));
     let doc = import_fig(&fig_file(nodes, vec![icon_blob()])).unwrap();
     let held = doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Text(_)) && holds_derived_text(n)).count();
-    assert_eq!(held, 2, "the source and its copy");
+    assert_eq!(held, 2, "the source and its copy share the stored data");
+    assert!(doc.nodes.values().all(|n| !n.fig_metadata.contains_key("derivedTextData")), "and none holds it as JSON");
 }
 
 #[test]
@@ -414,6 +458,6 @@ fn big_file_saves_back_stored_glyphs_it_read_from_a_payload_over_2_mb() {
     let saved = export_fig(&doc).unwrap();
     let reopened = import_fig(&saved).unwrap();
     assert!(named(&reopened, "Missing font text").fig_text_geometry.is_some(), "the glyphs survive a save read back as a heavy file");
-    assert_eq!(named(&reopened, "Missing font text").fig_text_geometry, named(&doc, "Missing font text").fig_text_geometry);
+    same_stored_glyphs(named(&reopened, "Missing font text"), named(&doc, "Missing font text"));
     assert_draws_stored_glyph(&reopened, "Missing font text");
 }

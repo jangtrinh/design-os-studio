@@ -126,7 +126,13 @@ fn glyph_blobs_are_deduplicated_and_reindexed_on_export() {
     let saved_bytes = export_fig(&doc).unwrap();
     let reopened = import_fig(&saved_bytes).unwrap();
     let again = reopened.nodes.values().find(|n| n.name == "Two glyphs").unwrap();
-    assert_eq!(again.fig_text_geometry, text.fig_text_geometry, "the glyphs survive a save with the vector's blob ahead of them");
+    // the wire bytes and the blob numbers are the file's own and differ between two files; everything else is the same
+    let (a, b) = (again.fig_text_geometry.as_ref().unwrap(), text.fig_text_geometry.as_ref().unwrap());
+    assert_eq!(
+        (&a.glyphs, &a.blobs, &a.decorations, a.fallback),
+        (&b.glyphs, &b.blobs, &b.decorations, b.fallback),
+        "the glyphs survive a save with the vector's blob ahead of them"
+    );
 
     // The same file without the glyph cache shows how many blobs the rest of the document needs.
     let mut bare = doc.clone();

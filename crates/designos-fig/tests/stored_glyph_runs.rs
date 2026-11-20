@@ -95,15 +95,103 @@ fn saved_derived(bytes: &[u8], name: &str) -> Option<serde_json::Value> {
         .cloned()
 }
 
+/// The ids of the rows of the saved `styleOverrideTable` of the node named `name`.
+fn saved_style_rows(bytes: &[u8], name: &str) -> Vec<u64> {
+    let node = decode_fig_to_json(bytes).unwrap()["message"]["nodeChanges"].as_array().unwrap().iter().find(|n| n["name"] == name).cloned().unwrap();
+    node["textData"]["styleOverrideTable"].as_array().map_or_else(Vec::new, |rows| rows.iter().map(|r| r["styleID"].as_u64().unwrap()).collect())
+}
+
+/// Every style id the saved derived data names.
+fn derived_style_ids(derived: &serde_json::Value) -> Vec<u64> {
+    ["glyphs", "decorations"].iter().flat_map(|k| derived[*k].as_array().into_iter().flatten()).filter_map(|e| e["styleID"].as_u64()).collect()
+}
+
 #[test]
-fn a_save_writes_no_derived_data_for_a_text_whose_style_ids_it_would_not_map() {
+fn a_save_keeps_the_style_ids_figma_gave_the_runs_when_every_run_has_one_of_its_own() {
     let doc = import_fig(&two_run_fixture()).unwrap();
     let text = named(&doc, "Two runs");
     assert!(text.fig_text_geometry.as_ref().is_some_and(|g| g.matches(text)), "the glyphs are drawn");
     let saved = export_fig(&doc).unwrap();
-    assert!(saved_derived(&saved, "Two runs").is_none(), "Studio numbers its runs from 1: Figma's style ids would name other runs, or none");
+    let derived = saved_derived(&saved, "Two runs").expect("an unedited text with runs is written back");
+    let rows = saved_style_rows(&saved, "Two runs");
+    assert_eq!(rows, vec![7], "the one row is Figma's id for the run");
+    let ids = derived_style_ids(&derived);
+    assert_eq!(ids, vec![7], "and the one bar names it, as Figma stored it: {derived}");
+    assert!(ids.iter().all(|id| rows.contains(id)), "every style id written is a row written");
+    let node = decode_fig_to_json(&saved).unwrap()["message"]["nodeChanges"].as_array().unwrap().iter().find(|n| n["name"] == "Two runs").cloned().unwrap();
+    assert_eq!(node["textData"]["styleOverrideTable"][0]["textDecoration"], "UNDERLINE", "the row the bar names is the underlined run");
+    assert_eq!(node["textData"]["characterStyleIDs"], serde_json::json!([0, 0, 7, 7]));
+    assert_eq!(derived["decorations"][0]["rects"][0]["x"], 20.0, "the bar is the one Figma stored");
+    assert!(derived["glyphs"][0].get("styleID").is_none(), "a glyph Figma wrote without a style id is written without one");
 
-    // two stored fonts and no run: an earlier version kept no glyphs for it, and wrote none
+    // and it opens again with the same glyphs and the bar on the same run
+    let reopened = import_fig(&saved).unwrap();
+    let again = named(&reopened, "Two runs");
+    assert_eq!(&*again.fig_text_geometry.as_ref().unwrap().run_sids, &[7]);
+    assert_eq!(again.fig_text_geometry.as_ref().unwrap().decorations[0].style, 1);
+    assert_eq!(designos_render::stored_glyph_use(again), designos_render::StoredGlyphUse::Drawn);
+}
+
+#[test]
+fn runs_that_share_a_figma_id_and_a_style_are_written_as_the_one_row_figma_wrote() {
+    // Figma's id 3 sits on two stretches: Studio has two runs of one style, and writes one row under 3, as Figma did
+    let doc = import_fig(&repeated_id_fixture()).unwrap();
+    let saved = export_fig(&doc).unwrap();
+    assert_eq!(saved_style_rows(&saved, "Repeated id"), vec![3]);
+    let derived = saved_derived(&saved, "Repeated id").expect("written back");
+    assert_eq!(derived_style_ids(&derived), vec![3], "{derived}");
+    assert_eq!(derived["decorations"][0]["rects"].as_array().map(Vec::len), Some(2), "both bars are kept");
+    let node = decode_fig_to_json(&saved).unwrap()["message"]["nodeChanges"].as_array().unwrap().iter().find(|n| n["name"] == "Repeated id").cloned().unwrap();
+    assert_eq!(node["textData"]["characterStyleIDs"], serde_json::json!([0, 0, 3, 3, 0, 0, 3, 3]));
+}
+
+#[test]
+fn a_save_leaves_out_the_stored_data_when_two_runs_that_share_an_id_no_longer_share_a_style() {
+    // a fill edit keeps the glyphs but the two runs of Figma's id 3 now differ: two rows, numbered 1 and 2, and a stored id
+    // cannot say which of them its glyph or bar belongs to
+    let mut doc = import_fig(&repeated_id_fixture()).unwrap();
+    let id = named(&doc, "Repeated id").id;
+    let NodeKind::Text(props) = &mut doc.get_mut(id).unwrap().kind else { unreachable!() };
+    props.runs[1].style.fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(0, 0, 255))];
+    assert!(named(&doc, "Repeated id").fig_text_geometry.as_ref().unwrap().matches(named(&doc, "Repeated id")), "a fill keeps the glyphs");
+    let saved = export_fig(&doc).unwrap();
+    let rows = saved_style_rows(&saved, "Repeated id");
+    assert_eq!(rows, vec![1, 2]);
+    assert!(saved_derived(&saved, "Repeated id").is_none(), "no glyph of the second run names the first run's row");
+}
+
+#[test]
+fn a_stored_id_no_run_has_is_written_as_the_text_s_own_style_unless_the_text_has_rows_of_its_own() {
+    let mut nodes = document_and_page();
+    nodes.push(styled_glyph_text(
+        (1, 2),
+        (0, 1),
+        "a",
+        "Whole text",
+        FAMILY,
+        "ab",
+        &[],
+        vec![],
+        vec![stored_glyph(Some(0), 0.0, 0, vec![]), stored_glyph(Some(0), 10.0, 1, vec![])],
+        &[FAMILY],
+        vec![("decorations", V::Array(vec![stored_decoration(1, &[(0.0, 22.0, 20.0, 2.0)])]))],
+        vec![("textDecoration", en("UNDERLINE"))],
+    ));
+    let doc = import_fig(&fig_file(nodes, vec![icon_blob()])).unwrap();
+    let derived = saved_derived(&export_fig(&doc).unwrap(), "Whole text").expect("written back");
+    assert_eq!(derived_style_ids(&derived), vec![0], "an id no run has belongs to the text's own style");
+
+    // a layer linked to a text style that stores an override gets a row for its own characters: no single id names them
+    let mut linked = doc.clone();
+    let id = named(&linked, "Whole text").id;
+    let node = linked.get_mut(id).unwrap();
+    node.style_refs.insert("text".into(), "S:1".into());
+    node.text_style_overrides.insert(designos_doc::OwnedField::Decoration);
+    assert!(saved_derived(&export_fig(&linked).unwrap(), "Whole text").is_none(), "a text whose style ids cannot be mapped is left without derived data");
+}
+
+#[test]
+fn a_text_with_two_stored_fonts_and_no_run_is_written_back() {
     let mut nodes = document_and_page();
     nodes.push(styled_glyph_text(
         (1, 2),
@@ -120,9 +208,10 @@ fn a_save_writes_no_derived_data_for_a_text_whose_style_ids_it_would_not_map() {
         vec![],
     ));
     let doc = import_fig(&fig_file(nodes, vec![icon_blob()])).unwrap();
-    assert!(saved_derived(&export_fig(&doc).unwrap(), "Two fonts").is_none());
+    let derived = saved_derived(&export_fig(&doc).unwrap(), "Two fonts").expect("what Figma stored is written back, drawn or not");
+    assert_eq!(derived["fontMetaData"].as_array().map(Vec::len), Some(2));
 
-    // and a plain single-font text is written back as before
+    // and a plain single-font text as before
     let doc = import_fig(&icon_fixture(FAMILY)).unwrap();
     assert!(saved_derived(&export_fig(&doc).unwrap(), "Icon text").is_some());
 }
@@ -138,8 +227,8 @@ fn a_text_with_runs_draws_the_same_after_a_round_trip_through_the_document_file(
 }
 
 #[test]
-fn a_save_writes_no_derived_data_for_a_text_without_an_outline() {
-    // glyphs that all lack a blob (an emoji, spaces): the importer keeps them, and main kept nothing
+fn a_text_without_an_outline_is_written_back_as_figma_stored_it() {
+    // glyphs that all lack a blob (an emoji, spaces): the renderer shapes the text, and a save still writes what Figma stored
     let mut nodes = document_and_page();
     nodes.push(styled_glyph_text(
         (1, 2),
@@ -156,6 +245,47 @@ fn a_save_writes_no_derived_data_for_a_text_without_an_outline() {
         vec![],
     ));
     let doc = import_fig(&fig_file(nodes, vec![icon_blob()])).unwrap();
-    assert!(named(&doc, "Emoji only").fig_text_geometry.is_some(), "the importer keeps it");
-    assert!(saved_derived(&export_fig(&doc).unwrap(), "Emoji only").is_none(), "and the save writes what main wrote: nothing");
+    let text = named(&doc, "Emoji only");
+    assert!(text.fig_text_geometry.is_some(), "the importer keeps it");
+    assert_eq!(designos_render::stored_glyph_use(text), designos_render::StoredGlyphUse::Fallback("emoji glyph"));
+    let derived = saved_derived(&export_fig(&doc).unwrap(), "Emoji only").expect("the save writes what Figma stored");
+    assert_eq!(derived["glyphs"][0]["emojiCodePoints"], serde_json::json!([128512]));
+}
+
+#[test]
+fn a_component_text_and_the_copies_of_it_share_one_glyph_blob_in_a_save() {
+    let mut nodes = document_and_page();
+    nodes.push(designos_fig::testkit::node((1, 10), (0, 1), "a", "SYMBOL", "Icon main", vec![("size", designos_fig::testkit::vec2(20.0, 20.0))]));
+    nodes.push(glyph_text((1, 11), (1, 10), "a", "Source text", FAMILY, "\u{e900}", &[(0, 0.0)], vec![]));
+    for i in 0..3u32 {
+        nodes.push(designos_fig::testkit::node(
+            (1, 20 + i),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            &format!("Copy {i}"),
+            vec![
+                ("size", designos_fig::testkit::vec2(20.0, 20.0)),
+                ("symbolData", designos_fig::testkit::msg(vec![("symbolID", designos_fig::testkit::guid(1, 10))])),
+            ],
+        ));
+    }
+    let doc = import_fig(&fig_file(nodes, vec![icon_blob()])).unwrap();
+    let texts: Vec<&Node> = doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Text(_))).collect();
+    assert_eq!(texts.len(), 4, "the source and three copies hold the data");
+    let (_, first) = (0, texts[0].fig_text_geometry.as_ref().unwrap());
+    assert!(texts.iter().all(|t| std::sync::Arc::ptr_eq(t.fig_text_geometry.as_ref().unwrap(), first)), "one geometry, one set of wire bytes");
+    // Studio writes the copies as records of their own, so each carries the data its geometry still matches; the glyph blob is one
+    let saved = export_fig(&doc).unwrap();
+    let all = decode_fig_to_json(&saved).unwrap();
+    let blobs: Vec<u64> = all["message"]["nodeChanges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|n| n["type"] == "TEXT")
+        .filter_map(|n| n["derivedTextData"]["glyphs"][0]["commandsBlob"].as_u64())
+        .collect();
+    assert_eq!(blobs.len(), 4);
+    assert!(blobs.iter().all(|&b| b == blobs[0]), "every record names the one blob");
+    assert_eq!(all["message"]["blobs"].as_array().map(Vec::len), Some(1), "which is in the table once");
 }

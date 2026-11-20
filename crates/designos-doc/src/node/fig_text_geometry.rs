@@ -45,6 +45,16 @@ pub struct FigTextGeometry {
     /// Why the importer decided this text is shaped although it holds data; `None` when the data alone does not say so.
     #[serde(default)]
     pub fallback: Option<StoredFallback>,
+    /// What Figma stored for the text, `derivedTextData`, as the wire bytes of the export schema: what a save writes back,
+    /// whether or not the text is drawn from it. Each glyph's `commandsBlob` is the file's own blob number
+    /// ([`blob_files`](Self::blob_files) maps it to a slot of [`blobs`](Self::blobs)) and each `styleID` is Figma's own
+    /// ([`run_sids`](Self::run_sids) maps it to a run). Empty for a geometry from before this was kept, which a save
+    /// reads from the node's `fig_metadata["derivedTextData"]` as it always did.
+    #[serde(default, with = "hex_chunks")]
+    pub wire: Arc<[u8]>,
+    /// For each slot of [`blobs`](Self::blobs), the number of that blob in the file the text was imported from.
+    #[serde(default)]
+    pub blob_files: Arc<[u32]>,
 }
 
 /// A geometry in table form is written without `path` and `glyph_blobs`; one from before the table is written with them,
@@ -59,7 +69,7 @@ impl Serialize for FigTextGeometry {
             }
         }
         let table = self.is_table_form();
-        let mut out = s.serialize_struct("FigTextGeometry", if table { 7 } else { 5 })?;
+        let mut out = s.serialize_struct("FigTextGeometry", if table { 10 } else { 5 })?;
         out.serialize_field("text", &self.text)?;
         out.serialize_field("size", &self.size)?;
         if !table {
@@ -77,6 +87,16 @@ impl Serialize for FigTextGeometry {
             if let Some(fallback) = &self.fallback {
                 out.serialize_field("fallback", fallback)?;
             }
+            if !self.wire.is_empty() {
+                struct Wire<'a>(&'a [u8]);
+                impl Serialize for Wire<'_> {
+                    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                        hex_chunks::serialize(self.0, s)
+                    }
+                }
+                out.serialize_field("wire", &Wire(&self.wire))?;
+                out.serialize_field("blob_files", &self.blob_files)?;
+            }
         } else {
             out.serialize_field("glyph_blobs", &self.glyph_blobs)?;
         }
@@ -89,7 +109,7 @@ impl FigTextGeometry {
     /// existed. A geometry with no glyphs that says why it is not drawn is in table form too: the older form would read
     /// back as an empty outline, which 0.7.17 exports as blank text.
     pub fn is_table_form(&self) -> bool {
-        !self.glyphs.is_empty() || self.fallback.is_some()
+        !self.glyphs.is_empty() || self.fallback.is_some() || !self.wire.is_empty()
     }
 
     /// Whether the saved outlines still describe `node`: same box, and the same text with the same
@@ -115,7 +135,7 @@ impl FigTextGeometry {
         table.chain(legacy)
     }
 
-    /// The bytes this geometry keeps alive beside the node's own text properties: 24 bytes per glyph, the command blobs
+    /// The bytes this geometry keeps alive beside the node's own text properties: the stored wire bytes, 24 bytes per glyph, the command blobs
     /// (shared between the texts of a file, counted in full here, so a sum over texts is an upper bound), and a legacy
     /// path when the document has one. The outlines are never in it: they are built when the text is drawn.
     ///
@@ -127,6 +147,8 @@ impl FigTextGeometry {
             + self.glyph_blobs.len() * std::mem::size_of::<Option<u32>>()
             + self.decorations.len() * std::mem::size_of::<StoredDecoration>()
             + self.run_sids.len() * std::mem::size_of::<u32>()
+            + self.blob_files.len() * std::mem::size_of::<u32>()
+            + self.wire.len()
             + self.blobs.iter().map(|blob| blob.len()).sum::<usize>()
             + self.path.cmds.len() * std::mem::size_of::<crate::PathCmd>()
     }
@@ -310,5 +332,59 @@ mod hex_blobs {
             _ => Err("invalid hex digit in a glyph blob"),
         };
         hex.chunks_exact(2).map(|p| Ok((digit(p[0])? << 4) | digit(p[1])?)).collect()
+    }
+}
+
+/// The stored wire bytes in the document file: `hex:` strings of at most 2 KB of bytes each, written from a stack buffer
+/// so the document hash, which streams a node through its serializer, does not allocate. A document read back is
+/// the concatenation of its chunks.
+mod hex_chunks {
+    use serde::de::Error;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::sync::Arc;
+
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    /// Bytes per chunk. `hex:` and two digits a byte fit the 4096-byte stack buffer.
+    const CHUNK_BYTES: usize = 2000;
+
+    struct Chunk<'a>(&'a [u8]);
+
+    impl Serialize for Chunk<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let mut text = [0u8; 4 + 2 * CHUNK_BYTES];
+            text[..4].copy_from_slice(b"hex:");
+            let mut at = 4;
+            for &b in self.0 {
+                text[at] = DIGITS[usize::from(b >> 4)];
+                text[at + 1] = DIGITS[usize::from(b & 0x0f)];
+                at += 2;
+            }
+            s.serialize_str(std::str::from_utf8(&text[..at]).map_err(serde::ser::Error::custom)?)
+        }
+    }
+
+    pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
+        s.collect_seq(bytes.chunks(CHUNK_BYTES).map(Chunk))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Arc<[u8]>, D::Error> {
+        let chunks = Vec::<String>::deserialize(d)?;
+        let mut out = Vec::with_capacity(chunks.iter().map(|c| c.len() / 2).sum());
+        for chunk in &chunks {
+            let hex = chunk.strip_prefix("hex:").ok_or_else(|| D::Error::custom("a stored wire chunk is a hex: string"))?.as_bytes();
+            if hex.len() % 2 != 0 {
+                return Err(D::Error::custom("odd-length hex in a stored wire chunk"));
+            }
+            let digit = |c: u8| match c {
+                b'0'..=b'9' => Ok(c - b'0'),
+                b'a'..=b'f' => Ok(c - b'a' + 10),
+                b'A'..=b'F' => Ok(c - b'A' + 10),
+                _ => Err(D::Error::custom("invalid hex digit in a stored wire chunk")),
+            };
+            for pair in hex.chunks_exact(2) {
+                out.push((digit(pair[0])? << 4) | digit(pair[1])?);
+            }
+        }
+        Ok(out.into())
     }
 }

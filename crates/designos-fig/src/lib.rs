@@ -14,6 +14,7 @@ mod board;
 mod clipboard;
 mod component_fingerprint;
 pub mod container;
+mod derived_text_wire;
 mod design_system_scan;
 mod design_system_scan_sensing;
 mod dev;
@@ -31,6 +32,7 @@ mod proto;
 pub mod rest;
 mod rest_import;
 mod stored_glyphs;
+mod stored_text_import;
 pub mod svgpath;
 #[doc(hidden)]
 pub mod testkit;

@@ -41,6 +41,9 @@ pub enum StoredFallback {
     /// The style runs the importer found are not the ones the stored style ids were counted against. Defensive: the
     /// importer takes both from the same node, so only a future change of the import can reach it.
     RunIds,
+    /// Nothing the text stored draws: no characters, no glyphs, or glyphs with no outline, no emoji and no bar. The data
+    /// is kept for a save all the same.
+    NothingDrawn,
     /// A name this build does not know, from a file written by a later one.
     #[serde(other)]
     Unrecognised,
@@ -60,6 +63,7 @@ impl StoredFallback {
             Self::Truncated => "truncated text",
             Self::Markers => "blockquote or checklist markers",
             Self::RunIds => "stored style ids not counted against these runs",
+            Self::NothingDrawn => "nothing stored draws",
             Self::Unrecognised => "stored fallback this build does not know",
         }
     }

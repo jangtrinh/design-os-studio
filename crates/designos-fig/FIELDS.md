@@ -49,7 +49,7 @@ and render its frames with `--example fig_render`.
 | Effects | `effects [{type, color, offset, radius, spread, showShadowBehindNode, blendMode, visible, colorVar}]`: DROP_SHADOW, INNER_SHADOW | confirmed. LAYER_BLUR / BACKGROUND_BLUR (`FOREGROUND_BLUR`) and NOISE / TEXTURE / GLASS names and their parameters are **unconfirmed** |
 | Geometry | `fillGeometry` / `strokeGeometry [{commandsBlob, styleID, windingRule}]`, blobs index `message.blobs` | confirmed (`NONZERO` only) |
 | Vectors | `vectorData {vectorNetworkBlob, normalizedSize, styleOverrideTable [{styleID, ...}]}` | confirmed |
-| Text outlines | `derivedTextData {baselines, glyphs [{commandsBlob, position, fontSize}], fontMetaData, layoutSize, ...}` (unused: the renderer lays text out itself) | confirmed |
+| Text outlines | `derivedTextData {baselines, glyphs [{commandsBlob, position, fontSize}], fontMetaData, layoutSize, ...}` (kept as wire bytes in Studio's schema; an unedited text draws its glyphs and a save writes them back as Figma stored them) | confirmed |
 
 ## Text
 

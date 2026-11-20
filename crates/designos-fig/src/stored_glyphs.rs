@@ -1,313 +1,62 @@
-//! Which texts of a heavy `.fig` import keep the glyph outlines Figma stored with them.
+//! Which texts of an import keep the data Figma stored with them, and how much of it.
 //!
-//! `derivedTextData` is where Figma keeps the outlines it drew. A small file keeps it for every text. A heavy import
-//! (a message payload over 2 MB, or more than 5,000 entries) cannot afford that. The importer cannot ask the font
-//! database which families a machine has, and a document must not change with the machine that opened it, so it
-//! decides from what is the same everywhere: the bundled families. A heavy file does not keep the outlines of a text
-//! set in a bundled family (they would use the allowance, and widening this is a change of its own), although the
-//! renderer draws them when a text has them.
+//! `derivedTextData` is where Figma keeps what it laid out for a text: the glyphs with their outlines, the decoration
+//! bars, the lines. Every unedited imported text draws from it, whatever its font, and a save writes it back as Figma
+//! stored it. A text in any family therefore keeps it; what a heavy import cannot afford is the sum, so the decoder
+//! charges one allowance for it.
 //!
-//! Of the others it keeps only texts that carry what the importer keeps stored glyphs for today: no style runs, no
-//! text decoration, one font that is the layer's, at most [`MAX_DRAWN_GLYPHS`] glyphs and a layout size equal to the
-//! layer's. The importer's `fig_text_geometry` and the renderer's `stored_glyph_use` accept far more than that (runs,
-//! several fonts, underlines, installed and bundled fonts alike); this predicate is what still holds the allowance to
-//! the texts a heavy file used to keep. A character style id other than 0 counts as a run here even when no style table
-//! entry makes it one, so such a text is left out although it could draw.
+//! The decoder keeps the `derivedTextData` of a node that is a text, and of no other node. Figma writes a node's fields
+//! by ascending number, so `type` precedes `derivedTextData`; a message that does not show its `type` by then is judged
+//! on less and keeps nothing, which is the safe direction. What it keeps it keeps as the wire bytes of Studio's own
+//! schema (see `derived_text_wire`), so the value tree it decoded is gone before the next text is read. Nothing is
+//! rejected after the decode: a kept text is a decoded text, and the allowance bounds both.
 //!
-//! The decoder can only judge what it has already read. Figma writes a node's fields by ascending number, so `type`,
-//! `size`, `textDecoration`, `fontName` and `textData` all precede `derivedTextData`; a file written in another order
-//! is judged on less, and what the decoder could not check is checked again after the decode or by the importer.
-//!
-//! One allowance bounds what is retained, charged in the kiwi decoder on wire bytes ([`ALLOWANCE_WIRE_BYTES`]). It
-//! covers every route that keeps this data: a heavy file, a payload over 2 MB, and a paste. Kept glyphs count toward
-//! the decode value cap like every other field.
+//! The allowance is charged in the kiwi decoder on wire bytes. Kept glyphs count toward the decode value cap and the
+//! zero-size cap like every other field, and nothing is given back.
 
 use crate::kiwi::KiwiValue;
 use std::sync::Arc;
 
-/// The most glyphs of one text the importer builds stored outlines for (`fig_text_geometry`). A text with more is kept
-/// by nobody: it would use the allowance and never draw. The renderer checks the same limit before it draws.
+/// The most glyphs of one text the importer builds stored outlines for. A text with more keeps its data for a save and
+/// is shaped. The renderer checks the same limit before it draws.
 pub(crate) use designos_doc::MAX_DRAWN_GLYPHS;
 
-/// How many wire bytes of `derivedTextData` one import keeps (4 MiB). The allowance bounds what is retained, in bytes of
-/// the file; kept glyphs count toward the decode value cap, so what is decoded is bounded by that cap.
-///
-/// Measured on a Latin design kit whose every text was set in a font that is not bundled, what is kept costs 60 to 100
-/// bytes of peak memory per wire byte: the decoded value tree, then a JSON string, then the glyph paths (28 bytes a
-/// path command, by far the largest part) and the shared blobs. There 4 MiB took the import's peak from about 9.65 GB
-/// to between 9.9 and 10.2 GB (the peak itself varies by about 0.25 GB from run to run) and made it about 0.6 seconds
-/// longer; all of that kit (about 11 MB, so 16 MiB) took the peak to 10.3 GB and about 1.5 seconds longer. A real kit
-/// that uses a few non-bundled fonts needs a few kilobytes. The cost per wire byte is NOT measured for CJK or other
-/// scripts, whose outlines are larger and so cost more memory per wire byte. A text that does not fit is left out and
-/// counted in [`crate::rest_import::ImportReport::dropped_stored_glyphs`]; texts are taken in file order.
-pub(crate) const ALLOWANCE_WIRE_BYTES: usize = 4 * 1024 * 1024;
+/// How many wire bytes of `derivedTextData` a `.fig` file import keeps (64 MiB). The design kit the allowance was sized
+/// on has 11.24 MB of it, so this is 5.7 times that. What is kept is retained at about two bytes per wire byte (the
+/// bytes themselves, the glyph table and the snapshot of the text), and nothing is turned into a path when a file
+/// opens. A text that does not fit is left out and counted in
+/// [`crate::rest_import::ImportReport::dropped_stored_glyphs`]; texts are taken in file order.
+pub(crate) const ALLOWANCE_FILE_WIRE_BYTES: usize = 64 * 1024 * 1024;
 
-/// Whether `family` is one of the families the app embeds. Exact name, ignoring case: a family that only has a
-/// substitute (Helvetica to Arimo) is not bundled, which is how the render path treats it too.
-pub(crate) fn is_bundled_family(family: &str) -> bool {
-    designos_fonts::bundled().iter().any(|asset| asset.family.eq_ignore_ascii_case(family))
-}
+/// How many wire bytes a paste from Figma keeps (4 MiB). A paste is decoded on the UI thread and any page can plant
+/// one, so it keeps far less than a file: a full keep would add about 14% decoded values to a large paste.
+pub(crate) const ALLOWANCE_PASTE_WIRE_BYTES: usize = 4 * 1024 * 1024;
 
-fn field<'a>(fields: &'a [(Arc<str>, KiwiValue)], name: &str) -> Option<&'a KiwiValue> {
-    fields.iter().find(|(k, _)| &**k == name).map(|(_, v)| v)
-}
-
-fn float(v: &KiwiValue, name: &str) -> Option<f32> {
-    match v.get(name)? {
-        KiwiValue::Float(f) => Some(*f),
-        _ => None,
-    }
-}
-
-/// Whether a node change with these decoded `fields` is a text whose stored glyphs could be drawn: a text in a family
-/// that is not bundled, with content, no style runs and no text decoration. `false` for any other node, and for a text
-/// whose `type` or `fontName` is not among `fields` yet (the kiwi decoder asks while it is still reading the message).
-/// A field that has not been read yet is given the benefit of the doubt, and [`derived_can_draw`] and the importer
-/// decide the rest.
-pub(crate) fn may_draw_stored_glyphs(fields: &[(Arc<str>, KiwiValue)]) -> bool {
-    if !matches!(field(fields, "type"), Some(KiwiValue::Enum(t)) if &**t == "TEXT") {
-        return false;
-    }
-    let Some(KiwiValue::String(family)) = field(fields, "fontName").and_then(|f| f.get("family")) else { return false };
-    if is_bundled_family(family) {
-        return false;
-    }
-    let text_data = field(fields, "textData");
-    // a text has style runs when any character carries a style id other than 0
-    let styled = match text_data.and_then(|t| t.get("characterStyleIDs")) {
-        Some(KiwiValue::Array(ids)) => ids.iter().any(|id| !matches!(id, KiwiValue::Uint(0) | KiwiValue::Int(0))),
-        _ => false,
-    };
-    let empty = matches!(text_data.and_then(|t| t.get("characters")), Some(KiwiValue::String(chars)) if chars.is_empty());
-    let decorated = matches!(field(fields, "textDecoration"), Some(KiwiValue::Enum(d)) if &**d != "NONE");
-    !styled && !empty && !decorated
-}
-
-/// Whether `derived` (a decoded `derivedTextData`) of the node change with these `fields` is what `fig_text_geometry`
-/// builds stored glyphs from: exactly one font, that font's family the layer's, between 1 and [`MAX_DRAWN_GLYPHS`]
-/// glyphs, and a layout size equal to the layer's (when the layer's size has been read).
-pub(crate) fn derived_can_draw(derived: &KiwiValue, fields: &[(Arc<str>, KiwiValue)]) -> bool {
-    let Some(KiwiValue::Array(fonts)) = derived.get("fontMetaData") else { return false };
-    let [font] = fonts.as_slice() else { return false };
-    let own_family = field(fields, "fontName").and_then(|f| f.get("family"));
-    match (font.get("key").and_then(|k| k.get("family")), own_family) {
-        (Some(KiwiValue::String(stored)), Some(KiwiValue::String(own))) if stored.eq_ignore_ascii_case(own) => {}
-        _ => return false,
-    }
-    let glyphs = match derived.get("glyphs") {
-        Some(KiwiValue::Array(glyphs)) => glyphs.len(),
-        _ => 0,
-    };
-    if glyphs == 0 || glyphs > MAX_DRAWN_GLYPHS {
-        return false;
-    }
-    // `fig_text_geometry` needs a layout size; the layer's size may simply not have been read yet
-    match (derived.get("layoutSize"), field(fields, "size")) {
-        (None, _) => false,
-        (Some(_), None) => true,
-        (Some(layout), Some(size)) => match (float(layout, "x"), float(layout, "y"), float(size, "x"), float(size, "y")) {
-            (Some(lx), Some(ly), Some(sx), Some(sy)) => (lx - sx).abs() <= 0.1 && (ly - sy).abs() <= 0.1,
-            _ => false,
-        },
-    }
-}
-
-/// The same decision as [`may_draw_stored_glyphs`] and [`derived_can_draw`] for a text that is already JSON (an entry
-/// whose `derivedTextData` has been converted). Used where the kiwi decoder did not decide: a payload under 2 MB
-/// with more than 5,000 entries, and JSON fixtures.
-pub(crate) fn json_may_draw_stored_glyphs(node: &serde_json::Value, derived: &serde_json::Value) -> bool {
-    use serde_json::Value;
-    if node.get("type").and_then(Value::as_str) != Some("TEXT") {
-        return false;
-    }
-    let Some(family) = node.get("fontName").and_then(|f| f.get("family")).and_then(Value::as_str) else { return false };
-    if is_bundled_family(family) {
-        return false;
-    }
-    let text_data = node.get("textData");
-    let styled = text_data.and_then(|t| t.get("characterStyleIDs")).and_then(Value::as_array).is_some_and(|ids| ids.iter().any(|id| id.as_u64() != Some(0)));
-    let empty = text_data.and_then(|t| t.get("characters")).and_then(Value::as_str).is_some_and(str::is_empty);
-    let decorated = node.get("textDecoration").and_then(Value::as_str).is_some_and(|d| d != "NONE");
-    if styled || empty || decorated {
-        return false;
-    }
-    let Some([font]) = derived.get("fontMetaData").and_then(Value::as_array).map(Vec::as_slice) else { return false };
-    if !font.get("key").and_then(|k| k.get("family")).and_then(Value::as_str).is_some_and(|stored| stored.eq_ignore_ascii_case(family)) {
-        return false;
-    }
-    let glyphs = derived.get("glyphs").and_then(Value::as_array).map_or(0, Vec::len);
-    if glyphs == 0 || glyphs > MAX_DRAWN_GLYPHS {
-        return false;
-    }
-    let axis = |v: &Value, key: &str| v.get(key).and_then(Value::as_f64);
-    match (derived.get("layoutSize"), node.get("size")) {
-        (None, _) => false,
-        (Some(_), None) => true,
-        (Some(layout), Some(size)) => match (axis(layout, "x"), axis(layout, "y"), axis(size, "x"), axis(size, "y")) {
-            (Some(lx), Some(ly), Some(sx), Some(sy)) => (lx - sx).abs() <= 0.1 && (ly - sy).abs() <= 0.1,
-            _ => false,
-        },
-    }
+/// Whether the node change with these decoded `fields` is a text, which is the only node whose `derivedTextData` is
+/// kept. `false` for a message whose `type` has not been read yet.
+pub(crate) fn is_text_node(fields: &[(Arc<str>, KiwiValue)]) -> bool {
+    matches!(fields.iter().find(|(k, _)| &**k == "type"), Some((_, KiwiValue::Enum(t))) if &**t == "TEXT")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fig::take_big_file_glyphs;
-    use crate::kiwi::KiwiValue as V;
 
-    fn font_key(family: &str) -> V {
-        V::Struct(vec![("family".into(), V::String(family.into()))])
-    }
-
-    fn vec2(x: f32, y: f32) -> V {
-        V::Struct(vec![("x".into(), V::Float(x)), ("y".into(), V::Float(y))])
-    }
-
-    fn derived(family: &str, glyphs: usize) -> V {
-        V::Message(vec![
-            ("layoutSize".into(), vec2(20.0, 20.0)),
-            ("fontMetaData".into(), V::Array(vec![V::Message(vec![("key".into(), font_key(family))])])),
-            ("glyphs".into(), V::Array(vec![V::Message(vec![]); glyphs])),
-        ])
-    }
-
-    fn text_node(family: &str, style_ids: &[u32]) -> V {
-        let ids = V::Array(style_ids.iter().map(|&i| V::Uint(i)).collect());
-        let text_data = V::Message(vec![("characters".into(), V::String("a".into())), ("characterStyleIDs".into(), ids)]);
-        V::Message(vec![
-            ("type".into(), V::Enum("TEXT".into())),
-            ("fontName".into(), font_key(family)),
-            ("size".into(), vec2(20.0, 20.0)),
-            ("textData".into(), text_data),
-            ("derivedTextData".into(), derived(family, 1)),
-        ])
-    }
-
-    fn fields(v: &V) -> Vec<(Arc<str>, V)> {
-        match v {
-            V::Message(f) => f.clone(),
-            _ => unreachable!(),
-        }
-    }
-
-    fn set(node: &mut V, name: &str, value: V) {
-        let V::Message(fields) = node else { unreachable!() };
-        match fields.iter_mut().find(|(k, _)| &**k == name) {
-            Some(slot) => slot.1 = value,
-            None => fields.push((name.into(), value)),
-        }
+    fn fields(ty: &str) -> Vec<(Arc<str>, KiwiValue)> {
+        vec![("type".into(), KiwiValue::Enum(ty.into()))]
     }
 
     #[test]
-    fn only_a_non_bundled_family_can_draw_stored_glyphs() {
-        assert!(!may_draw_stored_glyphs(&fields(&text_node("Inter", &[]))), "a bundled family is installed everywhere");
-        assert!(!may_draw_stored_glyphs(&fields(&text_node("inter", &[]))), "the family name is matched ignoring case");
-        assert!(!may_draw_stored_glyphs(&fields(&text_node("Roboto Mono", &[]))));
-        assert!(may_draw_stored_glyphs(&fields(&text_node("Helvetica", &[]))), "a family that only has a substitute is not installed");
-        assert!(may_draw_stored_glyphs(&fields(&text_node("Some Icon Font", &[]))));
-        let mut frame = fields(&text_node("Some Icon Font", &[]));
-        frame[0].1 = V::Enum("FRAME".into());
-        assert!(!may_draw_stored_glyphs(&frame), "only a text node has glyphs worth keeping");
-        assert!(!may_draw_stored_glyphs(&frame[..1]), "a message that has not shown its font yet keeps nothing");
+    fn only_a_text_node_keeps_its_derived_data() {
+        assert!(is_text_node(&fields("TEXT")), "whatever its family, style or decoration");
+        assert!(!is_text_node(&fields("FRAME")));
+        assert!(!is_text_node(&[]), "a message that has not shown its type yet keeps nothing");
+        assert!(!is_text_node(&[("fontName".into(), KiwiValue::String("Inter".into()))]));
     }
 
     #[test]
-    fn a_text_with_style_runs_is_not_worth_keeping() {
-        assert!(may_draw_stored_glyphs(&fields(&text_node("Some Icon Font", &[0, 0, 0]))), "style id 0 is the base style, not a run");
-        assert!(!may_draw_stored_glyphs(&fields(&text_node("Some Icon Font", &[0, 3, 0]))), "a styled character makes a run");
-    }
-
-    #[test]
-    fn a_text_the_drawing_code_would_refuse_is_not_kept() {
-        let node = text_node("Some Icon Font", &[]);
-        let ok = |n: &V| {
-            let f = fields(n);
-            may_draw_stored_glyphs(&f) && derived_can_draw(f.iter().find(|(k, _)| &**k == "derivedTextData").map(|(_, v)| v).unwrap(), &f)
-        };
-        assert!(ok(&node));
-
-        let mut underlined = node.clone();
-        set(&mut underlined, "textDecoration", V::Enum("UNDERLINE".into()));
-        assert!(!ok(&underlined), "embedded_glyphs does not draw a decorated text");
-        let mut plain = node.clone();
-        set(&mut plain, "textDecoration", V::Enum("NONE".into()));
-        assert!(ok(&plain));
-
-        let mut empty = node.clone();
-        set(&mut empty, "textData", V::Message(vec![("characters".into(), V::String(String::new()))]));
-        assert!(!ok(&empty), "an empty text has no glyphs to draw");
-
-        let mut other_size = node.clone();
-        set(&mut other_size, "size", vec2(25.0, 20.0));
-        assert!(!ok(&other_size), "a layout size that is not the layer's never matches");
-        let mut near_size = node.clone();
-        set(&mut near_size, "size", vec2(20.05, 20.0));
-        assert!(ok(&near_size), "the importer allows a tenth of a unit");
-
-        for (what, derived) in [
-            ("another family than the layer's", derived("Another Face", 1)),
-            ("no glyphs", derived("Some Icon Font", 0)),
-            ("more glyphs than are built", derived("Some Icon Font", MAX_DRAWN_GLYPHS + 1)),
-        ] {
-            let mut n = node.clone();
-            set(&mut n, "derivedTextData", derived);
-            assert!(!ok(&n), "{what}");
-        }
-        let mut no_layout = node.clone();
-        let mut bare = derived("Some Icon Font", 1);
-        let V::Message(bare_fields) = &mut bare else { unreachable!() };
-        bare_fields.retain(|(k, _)| &**k != "layoutSize");
-        set(&mut no_layout, "derivedTextData", bare);
-        assert!(!ok(&no_layout), "fig_text_geometry needs a layout size, so a text without one never draws");
-        let mut at_limit = node.clone();
-        set(&mut at_limit, "derivedTextData", derived("some icon font", MAX_DRAWN_GLYPHS));
-        assert!(ok(&at_limit), "the limit itself is built, and the family is matched ignoring case");
-
-        let mut two_fonts = node;
-        let V::Message(f) = &mut two_fonts else { unreachable!() };
-        let mut d = derived("Some Icon Font", 1);
-        set(&mut d, "fontMetaData", V::Array(vec![V::Message(vec![("key".into(), font_key("Some Icon Font"))]); 2]));
-        f.iter_mut().find(|(k, _)| &**k == "derivedTextData").unwrap().1 = d;
-        assert!(!ok(&two_fonts), "two fonts");
-    }
-
-    #[test]
-    fn the_json_twin_agrees_with_the_decoded_form() {
-        let node = |ty: &str, family: &str, ids: &[u32]| serde_json::json!({"type": ty, "fontName": {"family": family}, "size": {"x": 20.0, "y": 20.0}, "textData": {"characters": "a", "characterStyleIDs": ids}});
-        let derived = |family: &str, glyphs: usize| serde_json::json!({"layoutSize": {"x": 20.0, "y": 20.0}, "fontMetaData": [{"key": {"family": family}}], "glyphs": vec![serde_json::json!({}); glyphs]});
-        let two = serde_json::json!({"layoutSize": {"x": 20.0, "y": 20.0}, "fontMetaData": [{}, {}], "glyphs": [{}]});
-        let face = "Some Icon Font";
-        assert!(json_may_draw_stored_glyphs(&node("TEXT", face, &[0]), &derived(face, 1)));
-        assert!(!json_may_draw_stored_glyphs(&node("TEXT", "Inter", &[0]), &derived("Inter", 1)));
-        assert!(!json_may_draw_stored_glyphs(&node("FRAME", face, &[0]), &derived(face, 1)), "a node that is not text keeps nothing");
-        assert!(!json_may_draw_stored_glyphs(&node("TEXT", face, &[0, 2]), &derived(face, 1)));
-        assert!(!json_may_draw_stored_glyphs(&node("TEXT", face, &[0]), &two));
-        assert!(!json_may_draw_stored_glyphs(&node("TEXT", face, &[0]), &derived("Another Face", 1)));
-        assert!(!json_may_draw_stored_glyphs(&node("TEXT", face, &[0]), &derived(face, MAX_DRAWN_GLYPHS + 1)));
-        assert!(!json_may_draw_stored_glyphs(&node("TEXT", face, &[0]), &derived(face, 0)));
-        let mut no_layout = derived(face, 1);
-        no_layout.as_object_mut().unwrap().remove("layoutSize");
-        assert!(!json_may_draw_stored_glyphs(&node("TEXT", face, &[0]), &no_layout), "no layout size, never drawn");
-        let mut underlined = node("TEXT", face, &[0]);
-        underlined["textDecoration"] = "UNDERLINE".into();
-        assert!(!json_may_draw_stored_glyphs(&underlined, &derived(face, 1)));
-        let mut resized = node("TEXT", face, &[0]);
-        resized["size"] = serde_json::json!({"x": 30.0, "y": 20.0});
-        assert!(!json_may_draw_stored_glyphs(&resized, &derived(face, 1)));
-    }
-
-    #[test]
-    fn taking_a_text_moves_its_derived_data_out_and_keeps_only_what_can_draw() {
-        let mut kept = text_node("Some Icon Font", &[]);
-        assert!(take_big_file_glyphs(&mut kept).is_some_and(|json| json.get("fontMetaData").is_some()));
-        assert!(kept.get("derivedTextData").is_none(), "the node no longer holds it");
-
-        let mut bundled = text_node("Inter", &[]);
-        assert!(take_big_file_glyphs(&mut bundled).is_none());
-        assert!(bundled.get("derivedTextData").is_none(), "a bundled family's is dropped");
-
-        let mut styled = text_node("Some Icon Font", &[1]);
-        assert!(take_big_file_glyphs(&mut styled).is_none());
+    fn a_file_keeps_sixteen_times_what_a_paste_does() {
+        assert_eq!(ALLOWANCE_FILE_WIRE_BYTES / ALLOWANCE_PASTE_WIRE_BYTES, 16);
+        assert_eq!(ALLOWANCE_PASTE_WIRE_BYTES, 4 << 20, "the paste allowance is the one of before");
     }
 }

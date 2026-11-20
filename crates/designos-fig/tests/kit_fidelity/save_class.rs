@@ -97,6 +97,7 @@ pub fn part(original: &Raw, saved: &Raw, hidden: &HashSet<String>) -> Part {
     p.note("class 2 counts what only the save holds (a record with no original record, a key or subfield it adds) and scores none of it");
     p.print_detail(FAILING_KEYS);
     p.print_detail(OUTCOMES);
+    p.print_detail("class 1 derivedTextData outcome");
     let saved_by = by_guid(saved);
     let kept_order = order_kept(original, saved);
     let broken = broken_comparator();
@@ -135,6 +136,12 @@ pub fn part(original: &Raw, saved: &Raw, hidden: &HashSet<String>) -> Part {
             all_ok &= ok;
             p.tally(CLASS_1, hid, ok);
             p.tally(&format!("class 1 feature: {}", feature_of(k)), hid, ok);
+            if &**k == "derivedTextData" {
+                p.tally("class 1 derivedTextData", hid, ok);
+                if !hid {
+                    p.detail("class 1 derivedTextData outcome", if ok { "equal or normalised" } else { what });
+                }
+            }
             if !hid {
                 p.detail(OUTCOMES, if ok { "equal or normalised" } else { what });
                 if !ok {
