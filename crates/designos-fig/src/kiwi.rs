@@ -1843,7 +1843,9 @@ mod tests {
     /// A heavy payload over Studio's own schema (so the kept span is copied as it is) and the same payload over a schema whose
     /// `DerivedTextData` has one more field (so the span is decoded, written in Studio's schema and encoded again): the same
     /// message, with `texts` text nodes of `glyphs` glyphs each.
-    fn studio_schema_payloads(texts: usize, glyphs: usize) -> ((Schema, usize, Vec<u8>), (Schema, usize, Vec<u8>)) {
+    type Payload = (Schema, usize, Vec<u8>);
+
+    fn studio_schema_payloads(texts: usize, glyphs: usize) -> (Payload, Payload) {
         use crate::testkit::{figma_like_schema, fl, msg, node, st, vec2};
         let message = |schema: &Schema| {
             let glyph = |i: usize| {
