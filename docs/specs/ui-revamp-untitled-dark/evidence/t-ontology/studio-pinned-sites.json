@@ -1,0 +1,561 @@
+{
+ "schema": "each set is a list of {file, fn, item, lines, count, note}; P7 compares the multiset of (file, fn, item) with count",
+ "revision": "8dfaee93",
+ "acronym_allowlist": [
+  "AA",
+  "AAA",
+  "AI",
+  "API",
+  "CLI",
+  "CSS",
+  "ID",
+  "JPG",
+  "MCP",
+  "PDF",
+  "PNG",
+  "PRD",
+  "SVG",
+  "UI",
+  "URL"
+ ],
+ "scanners": {
+  "ns1": "literal \"[A-Z][A-Z ]*[A-Z]\" not in the allowlist, on a line with .text( / label( / RichText::new( / badge / tag( / chip",
+  "ns2": "if <\u2026active|selected|current> { BG_BRAND, outside canvas/ and board/",
+  "ns4": "Mesh::default|with_texture|new, outside canvas/ and board/ (document rendering)",
+  "ns5": "font_mono( or FontFamily::Monospace"
+ },
+ "ns1": [
+  {
+   "file": "cmdk.rs",
+   "fn": "synthesize_audit_table",
+   "item": "PASS",
+   "lines": [
+    804,
+    823
+   ],
+   "count": 2,
+   "note": "document content written by the audit action"
+  },
+  {
+   "file": "showcase/kit.rs",
+   "fn": "avatar",
+   "item": "AM",
+   "lines": [
+    116
+   ],
+   "count": 1,
+   "note": "showcase content (avatar initials)"
+  },
+  {
+   "file": "showcase/mobile.rs",
+   "fn": "welcome",
+   "item": "ALEX MORGAN",
+   "lines": [
+    180
+   ],
+   "count": 1,
+   "note": "showcase content"
+  },
+  {
+   "file": "skills/mod.rs",
+   "fn": "show_picker_popover",
+   "item": "READY",
+   "lines": [
+    1023
+   ],
+   "count": 1,
+   "note": "debt"
+  },
+  {
+   "file": "specs.rs",
+   "fn": "show_right",
+   "item": "ON THIS PAGE",
+   "lines": [
+    2957
+   ],
+   "count": 1,
+   "note": "debt (hidden reader)"
+  }
+ ],
+ "ns2": [
+  {
+   "file": "panels/check_designs.rs",
+   "fn": "rules_popover",
+   "item": "BG_BRAND",
+   "lines": [
+    366
+   ],
+   "count": 1,
+   "note": "debt (AA/AAA active segment)"
+  }
+ ],
+ "ns4": [
+  {
+   "file": "home/main_view.rs",
+   "fn": "thumb_area",
+   "item": "Mesh::default()",
+   "lines": [
+    392
+   ],
+   "count": 1,
+   "note": "orphan file, not in the module tree (home/mod.rs declares main_view inline)"
+  },
+  {
+   "file": "home/mod.rs",
+   "fn": "thumb_area",
+   "item": "Mesh::default()",
+   "lines": [
+    2466
+   ],
+   "count": 1,
+   "note": "content preview (board thumbnail dots)"
+  },
+  {
+   "file": "widgets/mod.rs",
+   "fn": "swatch_circle",
+   "item": "Mesh::default()",
+   "lines": [
+    222
+   ],
+   "count": 1,
+   "note": "content preview (gradient swatch of a paint)"
+  },
+  {
+   "file": "widgets/picker.rs",
+   "fn": "round_corners",
+   "item": "Mesh::default()",
+   "lines": [
+    591
+   ],
+   "count": 1,
+   "note": "colour picker content (gradients of the edited paint)"
+  },
+  {
+   "file": "widgets/picker.rs",
+   "fn": "quad_mesh",
+   "item": "Mesh::default()",
+   "lines": [
+    626
+   ],
+   "count": 1,
+   "note": "colour picker content (gradients of the edited paint)"
+  },
+  {
+   "file": "widgets/picker.rs",
+   "fn": "sv_area",
+   "item": "Mesh::default()",
+   "lines": [
+    639
+   ],
+   "count": 1,
+   "note": "colour picker content (gradients of the edited paint)"
+  },
+  {
+   "file": "widgets/picker.rs",
+   "fn": "hue_bar",
+   "item": "Mesh::default()",
+   "lines": [
+    659
+   ],
+   "count": 1,
+   "note": "colour picker content (gradients of the edited paint)"
+  },
+  {
+   "file": "widgets/picker.rs",
+   "fn": "paint_swatch",
+   "item": "Mesh::default()",
+   "lines": [
+    703
+   ],
+   "count": 1,
+   "note": "colour picker content (gradients of the edited paint)"
+  },
+  {
+   "file": "widgets/picker.rs",
+   "fn": "gradient_bar",
+   "item": "Mesh::default()",
+   "lines": [
+    1451
+   ],
+   "count": 1,
+   "note": "colour picker content (gradients of the edited paint)"
+  }
+ ],
+ "ns5": [
+  {
+   "file": "agent_approval_card.rs",
+   "fn": "paint_approval_card_for_tab",
+   "item": "font_mono",
+   "lines": [
+    122
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "agent_picker.rs",
+   "fn": "show_picker_panel_with_rows",
+   "item": "font_mono",
+   "lines": [
+    371,
+    372,
+    373
+   ],
+   "count": 3,
+   "note": ""
+  },
+  {
+   "file": "agent_picker.rs",
+   "fn": "render_runtime_dropdown_menu",
+   "item": "font_mono",
+   "lines": [
+    577,
+    578
+   ],
+   "count": 2,
+   "note": ""
+  },
+  {
+   "file": "agent_picker.rs",
+   "fn": "render_other_cli_inline_form",
+   "item": "font_mono",
+   "lines": [
+    670,
+    672
+   ],
+   "count": 2,
+   "note": ""
+  },
+  {
+   "file": "agent_session_failure.rs",
+   "fn": "paint_banner",
+   "item": "font_mono",
+   "lines": [
+    963,
+    964,
+    974,
+    975
+   ],
+   "count": 4,
+   "note": ""
+  },
+  {
+   "file": "agent_start_failure.rs",
+   "fn": "paint",
+   "item": "font_mono",
+   "lines": [
+    252
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "agent_turn_card.rs",
+   "fn": "draw_reverted_caption",
+   "item": "font_mono",
+   "lines": [
+    268
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "agent_turn_card.rs",
+   "fn": "draw_active_turn_card",
+   "item": "font_mono",
+   "lines": [
+    302,
+    314
+   ],
+   "count": 2,
+   "note": ""
+  },
+  {
+   "file": "board/toolbar.rs",
+   "fn": "show_timer",
+   "item": "font_mono",
+   "lines": [
+    189
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "canvas/agent_changes_chip.rs",
+   "fn": "paint",
+   "item": "font_mono",
+   "lines": [
+    409
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "dev/code_view.rs",
+   "fn": "mono_char_w",
+   "item": "font_mono",
+   "lines": [
+    25
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "dev/code_view.rs",
+   "fn": "code_block",
+   "item": "font_mono",
+   "lines": [
+    125
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "dev/code_view.rs",
+   "fn": "prompt_box",
+   "item": "font_mono",
+   "lines": [
+    177
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "dev/list.rs",
+   "fn": "tabs",
+   "item": "font_mono",
+   "lines": [
+    42
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "home/dialog.rs",
+   "fn": "show",
+   "item": "font_mono",
+   "lines": [
+    282
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "home/mod.rs",
+   "fn": "show",
+   "item": "font_mono",
+   "lines": [
+    900,
+    1116
+   ],
+   "count": 2,
+   "note": ""
+  },
+  {
+   "file": "image_jobs.rs",
+   "fn": "show_expand_popover",
+   "item": "font_mono",
+   "lines": [
+    1370
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "image_jobs.rs",
+   "fn": "show_erase_popover",
+   "item": "font_mono",
+   "lines": [
+    1518
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "panels/check_designs.rs",
+   "fn": "progress_row",
+   "item": "FontFamily::Monospace",
+   "lines": [
+    531
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "panels/inspect.rs",
+   "fn": "kv",
+   "item": "font_mono",
+   "lines": [
+    255
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "shell.rs",
+   "fn": "show_web_capture_report",
+   "item": "font_mono",
+   "lines": [
+    1232
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "specs.rs",
+   "fn": "show_left",
+   "item": "font_mono",
+   "lines": [
+    2506,
+    2507
+   ],
+   "count": 2,
+   "note": ""
+  },
+  {
+   "file": "specs.rs",
+   "fn": "render_po_view_tab",
+   "item": "font_mono",
+   "lines": [
+    3250,
+    3251,
+    3302,
+    3344,
+    3345,
+    3360,
+    3361,
+    3362,
+    3378
+   ],
+   "count": 9,
+   "note": ""
+  },
+  {
+   "file": "specs.rs",
+   "fn": "render_dev_view_tab",
+   "item": "font_mono",
+   "lines": [
+    3443,
+    3444,
+    3483,
+    3496,
+    3513,
+    3514
+   ],
+   "count": 6,
+   "note": ""
+  },
+  {
+   "file": "specs.rs",
+   "fn": "render_qa_coverage_tab",
+   "item": "font_mono",
+   "lines": [
+    3553,
+    3567,
+    3568,
+    3584,
+    3585
+   ],
+   "count": 5,
+   "note": ""
+  },
+  {
+   "file": "specs.rs",
+   "fn": "render_wireframes_and_contract_tab",
+   "item": "font_mono",
+   "lines": [
+    3623,
+    3657,
+    3658,
+    3673,
+    3674,
+    3676,
+    3677
+   ],
+   "count": 7,
+   "note": ""
+  },
+  {
+   "file": "specs.rs",
+   "fn": "render_gates_and_canvas_tab",
+   "item": "font_mono",
+   "lines": [
+    3721,
+    3746,
+    3758
+   ],
+   "count": 3,
+   "note": ""
+  },
+  {
+   "file": "terminal.rs",
+   "fn": "show_left_with_doc",
+   "item": "font_mono",
+   "lines": [
+    5971
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "terminal.rs",
+   "fn": "paint_turn_receipt_row",
+   "item": "font_mono",
+   "lines": [
+    6256
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "terminal.rs",
+   "fn": "render_vt100_viewport",
+   "item": "FontFamily::Monospace",
+   "lines": [
+    6685
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "theme.rs",
+   "fn": "font_mono",
+   "item": "font_mono",
+   "lines": [
+    182
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "theme.rs",
+   "fn": "font_mono",
+   "item": "FontFamily::Monospace",
+   "lines": [
+    183
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "theme.rs",
+   "fn": "apply",
+   "item": "font_mono",
+   "lines": [
+    662
+   ],
+   "count": 1,
+   "note": ""
+  },
+  {
+   "file": "theme.rs",
+   "fn": "install_fonts",
+   "item": "FontFamily::Monospace",
+   "lines": [
+    688
+   ],
+   "count": 1,
+   "note": ""
+  }
+ ]
+}

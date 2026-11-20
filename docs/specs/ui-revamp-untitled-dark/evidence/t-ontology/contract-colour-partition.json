@@ -1,0 +1,1327 @@
+{
+ "source": "specs/token-contract.md (a) and (b) at fix round 2; classes from contract-colour-classes.json (R26) plus N74-N77; mapped = G01 map after A; shared-key = an existing store key with the same value and role; pending = no such key (G1 adds one); values are the full contract value (#RRGGBB, #RRGGBBAA for rgba; aliases resolved); keyed by the shipped (V2) name",
+ "counts": {
+  "mapped": 32,
+  "exempt": 67,
+  "shared-key": 21,
+  "pending": 68
+ },
+ "names": {
+  "AGENT_1": {
+   "value": "#FFA629",
+   "role": "Studio-only",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.agent-1"
+  },
+  "AGENT_2": {
+   "value": "#14AE5C",
+   "role": "Studio-only",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.agent-2"
+  },
+  "AGENT_3": {
+   "value": "#EE46BC",
+   "role": "Studio-only",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.agent-3"
+  },
+  "AGENT_4": {
+   "value": "#38BDF8",
+   "role": "Studio-only",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.agent-4"
+  },
+  "AGENT_COLORS": {
+   "value": "[AGENT_1, AGENT_2, AGENT_3, AGENT_4]",
+   "role": "array",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "AGENT_LABEL_TEXT": {
+   "value": "#0A0A0A",
+   "role": "Neutral-950",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.primary-foreground"
+  },
+  "ANNOTATION_BG": {
+   "value": "#FFE08A",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "ANNOTATION_LINE": {
+   "value": "#FFB800",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "ANNOTATION_TEXT": {
+   "value": "#1E1E1E",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "AVATAR_COLORS": {
+   "value": "[rgb(0xF24822), rgb(0xFFA629), rgb(0x14AE5C), rgb(0x0C8CE9), rgb(0x06B6D4), rgb(0xEE46BC)]",
+   "role": "content",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "BG": {
+   "value": "#0A0A0A",
+   "role": "bg-primary",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.canvas"
+  },
+  "BG_BRAND": {
+   "value": "#E36323",
+   "role": "bg-brand-solid",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.primary"
+  },
+  "BG_BRAND_HOVER": {
+   "value": "#F97316",
+   "role": "bg-brand-solid_hover",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.primary-hover"
+  },
+  "BG_BRAND_PRESSED": {
+   "value": "#EA580C",
+   "role": "Orange-600",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.primary-active"
+  },
+  "BG_ERROR_PRIMARY": {
+   "value": "#450A0A",
+   "role": "bg-error-primary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.bg-error-primary"
+  },
+  "BG_ERROR_SOLID": {
+   "value": "#DC2626",
+   "role": "bg-error-solid",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.destructive"
+  },
+  "BG_ERROR_SOLID_HOVER": {
+   "value": "#B91C1C",
+   "role": "bg-error-solid_hover",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.bg-error-solid-hover"
+  },
+  "BG_ERROR_SOLID_PRESSED": {
+   "value": "#991B1B",
+   "role": "Red-800",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.bg-error-solid-pressed"
+  },
+  "BG_HOVER": {
+   "value": "#171717",
+   "role": "bg-primary_hover",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.bg-hover"
+  },
+  "BG_MENU": {
+   "value": "#0A0A0A",
+   "role": "bg-primary",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.popover"
+  },
+  "BG_MENU_HOVER": {
+   "value": "#171717",
+   "role": "bg-primary_hover",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.bg-hover"
+  },
+  "BG_MENU_SELECTED": {
+   "value": "#262626",
+   "role": "bg-secondary_hover",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.bg-active"
+  },
+  "BG_OVERLAY": {
+   "value": "#262626B3",
+   "role": "bg-overlay",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.bg-overlay"
+  },
+  "BG_PRESSED": {
+   "value": "#404040",
+   "role": "bg-quaternary",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.secondary-active"
+  },
+  "BG_PRIMARY": {
+   "value": "#0A0A0A",
+   "role": "bg-primary",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.bg"
+  },
+  "BG_PRIMARY_ALT": {
+   "value": "#171717",
+   "role": "bg-primary_alt",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.bg-primary-alt"
+  },
+  "BG_PRIMARY_SOLID": {
+   "value": "#262626",
+   "role": "bg-primary-solid",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.bg-primary-solid"
+  },
+  "BG_SECONDARY": {
+   "value": "#171717",
+   "role": "bg-secondary",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.surface"
+  },
+  "BG_SECONDARY_HOVER": {
+   "value": "#262626",
+   "role": "bg-secondary_hover",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.surface-hover"
+  },
+  "BG_SELECTED": {
+   "value": "#262626",
+   "role": "bg-secondary_hover",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.bg-active"
+  },
+  "BG_SELECTED_AREA": {
+   "value": "#3582FF33",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "BG_SELECTED_HOVER": {
+   "value": "#262626",
+   "role": "bg-secondary_hover",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.bg-active"
+  },
+  "BG_SELECTED_SECONDARY": {
+   "value": "#171717",
+   "role": "bg-secondary",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.surface"
+  },
+  "BG_SUCCESS_PRIMARY": {
+   "value": "#052E16",
+   "role": "bg-success-primary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.bg-success-primary"
+  },
+  "BG_TERTIARY": {
+   "value": "#262626",
+   "role": "bg-tertiary",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.secondary"
+  },
+  "BG_TEXT_SELECTION": {
+   "value": "#431407",
+   "role": "utility-orange-50",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.accent"
+  },
+  "BG_TOOLBAR": {
+   "value": "#0A0A0A",
+   "role": "bg-primary",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.bg"
+  },
+  "BG_TOOLBAR_HOVER": {
+   "value": "#171717",
+   "role": "bg-primary_hover",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.bg-hover"
+  },
+  "BG_TOOLBAR_MODE_SWITCHER": {
+   "value": "#171717",
+   "role": "bg-secondary",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.surface"
+  },
+  "BG_TOOLBAR_SELECTED": {
+   "value": "#262626",
+   "role": "bg-secondary_hover",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.bg-active"
+  },
+  "BG_TRANSPARENT_HOVER": {
+   "value": "#FFFFFF1A",
+   "role": "alpha-black-10",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.bg-transparent-hover"
+  },
+  "BG_WARNING_PRIMARY": {
+   "value": "#422006",
+   "role": "bg-warning-primary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.bg-warning-primary"
+  },
+  "BOARD_DOT": {
+   "value": "#0000002E",
+   "role": "board",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "BORDER": {
+   "value": "#262626",
+   "role": "border-secondary",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.border"
+  },
+  "BORDER_ERROR": {
+   "value": "#F87171",
+   "role": "border-error",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.border-error"
+  },
+  "BORDER_ERROR_SUBTLE": {
+   "value": "#EF4444",
+   "role": "border-error_subtle",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.border-error-subtle"
+  },
+  "BORDER_MENU": {
+   "value": "#262626",
+   "role": "border-secondary_alt",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.border-menu"
+  },
+  "BORDER_SELECTED": {
+   "value": "#FB923C",
+   "role": "border-brand",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.border-focus"
+  },
+  "BORDER_STRONG": {
+   "value": "#404040",
+   "role": "border-primary",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.border-strong"
+  },
+  "BORDER_SUBTLE": {
+   "value": "#262626",
+   "role": "border-tertiary",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.border-subtle"
+  },
+  "BORDER_TRANSLUCENT": {
+   "value": "#FFFFFF1A",
+   "role": "alpha-black-10",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.border-translucent"
+  },
+  "BOX_CONTENT": {
+   "value": "#9FC5E8",
+   "role": "Dev",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "BOX_MARGIN": {
+   "value": "#F9CB9C",
+   "role": "Dev",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "BOX_PADDING": {
+   "value": "#B6D7A8",
+   "role": "Dev",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "BOX_TEXT": {
+   "value": "#1E1E1E",
+   "role": "Dev",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "CANVAS_COMPONENT": {
+   "value": "#06B6D4",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.component"
+  },
+  "CANVAS_HANDLE_FILL": {
+   "value": "#FFFFFF",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "CANVAS_LABEL": {
+   "value": "#00000080",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "CANVAS_LABEL_DARK": {
+   "value": "#FFFFFF99",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "CANVAS_MARQUEE_FILL": {
+   "value": "#3582FF33",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "CANVAS_SELECTION": {
+   "value": "#3582FF",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "CANVAS_SIZE_BADGE_TEXT": {
+   "value": "#FFFFFF",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "CHECKER_A": {
+   "value": "#FFFFFF",
+   "role": "content",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "CHECKER_B": {
+   "value": "#CCCCCC",
+   "role": "content",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "COMMENT_PIN_RESOLVED": {
+   "value": "#757575",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "COMPONENT": {
+   "value": "#06B6D4",
+   "role": "Studio-only",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.component"
+  },
+  "CONTENT_HANDLE_AXIS": {
+   "value": "#FFFFFFB2",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "CONTENT_HANDLE_CASING": {
+   "value": "#00000066",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "CONTENT_HANDLE_FILL": {
+   "value": "#FFFFFF",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "CONTENT_HANDLE_RING": {
+   "value": "#0000004D",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "CONTENT_HANDLE_STOP_IDLE": {
+   "value": "#FFFFFFCC",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "CONTENT_MARK_LIGHT": {
+   "value": "#FFFFFFDC",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "CONTENT_MARK_SHADOW": {
+   "value": "#0000006E",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "DANGER": {
+   "value": "#EF4444",
+   "role": "fg-error-primary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.danger"
+  },
+  "DEV_CHANGED": {
+   "value": "#FFA629",
+   "role": "Dev",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "DEV_COMPLETED": {
+   "value": "#06B6D4",
+   "role": "Dev",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.component"
+  },
+  "DEV_READY": {
+   "value": "#14AE5C",
+   "role": "Dev",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "DEV_READY_HOVER": {
+   "value": "#30B870",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "DROP_INDICATOR": {
+   "value": "#E36323",
+   "role": "bg-brand-solid",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.primary"
+  },
+  "ELEVATION_400_RING": {
+   "value": "#262626",
+   "role": "border-secondary_alt",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.elevation-400-ring"
+  },
+  "ELEVATION_400_SHADOW": {
+   "value": "#00000000",
+   "role": "shadow-",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.elevation-400-shadow"
+  },
+  "ELEVATION_400_TOP": {
+   "value": "#FFFFFF00",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "FIND_CANVAS_MATCH": {
+   "value": "Color32::from_rgba_premultiplied(4, 49, 81, 89)",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "FIND_CANVAS_MATCH_CURRENT": {
+   "value": "#E36323",
+   "role": "bg-brand-solid",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "alias of another constant"
+  },
+  "FIND_HIGHLIGHT": {
+   "value": "#0D99FF59",
+   "role": "Studio-only",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.find-highlight"
+  },
+  "FIND_HIGHLIGHT_SELECTED": {
+   "value": "#7CC4F866",
+   "role": "Studio-only",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.find-highlight-selected"
+  },
+  "FOCUS_RING": {
+   "value": "#F97316",
+   "role": "focus-ring",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.ring"
+  },
+  "FOCUS_RING_ERROR": {
+   "value": "#EF4444",
+   "role": "focus-ring-error",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.focus-ring-error"
+  },
+  "GUIDE_COLOR": {
+   "value": "#FE5938",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "GUIDE_TEXT": {
+   "value": "#FFFFFF",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "HOME_THUMB_BG": {
+   "value": "#262626",
+   "role": "bg-tertiary",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.secondary"
+  },
+  "HUD_POINTER_FILL": {
+   "value": "#111216",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "ICON": {
+   "value": "#FFFFFF",
+   "role": "fg-primary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.icon"
+  },
+  "ICON_BRAND_PRIMARY": {
+   "value": "#F97316",
+   "role": "fg-brand-primary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.icon-brand-primary"
+  },
+  "ICON_QUATERNARY": {
+   "value": "#737373",
+   "role": "fg-quaternary",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.neutral"
+  },
+  "ICON_QUATERNARY_HOVER": {
+   "value": "#A3A3A3",
+   "role": "fg-quaternary_hover",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.icon-quaternary-hover"
+  },
+  "ICON_SECONDARY": {
+   "value": "#D4D4D4",
+   "role": "fg-secondary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.icon-secondary"
+  },
+  "ICON_SECONDARY_HOVER": {
+   "value": "#E5E5E5",
+   "role": "fg-secondary_hover",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.icon-secondary-hover"
+  },
+  "ICON_SELECTED": {
+   "value": "#FFFFFF",
+   "role": "fg-primary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.icon-selected"
+  },
+  "ICON_TERTIARY": {
+   "value": "#A3A3A3",
+   "role": "fg-tertiary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.icon-tertiary"
+  },
+  "ICON_WHITE": {
+   "value": "#FFFFFF",
+   "role": "fg-white",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.icon-white"
+  },
+  "INFO": {
+   "value": "#0D99FF",
+   "role": "Studio-only",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.info"
+  },
+  "INNER_HIGHLIGHT": {
+   "value": "#262626",
+   "role": "border-secondary_alt",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.inner-highlight"
+  },
+  "MEASURE": {
+   "value": "#F24822",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "MENU_SHORTCUT_HIGHLIGHT": {
+   "value": "#E5E5E5",
+   "role": "text-secondary_hover",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.menu-shortcut-highlight"
+  },
+  "PEN_POINT": {
+   "value": "#FFFFFF",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "PIXEL_GRID_DARK_LINES": {
+   "value": "#0000001A",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "PIXEL_GRID_LIGHT_LINES": {
+   "value": "#FFFFFF1A",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "PLAYGROUND_GRID_DOT": {
+   "value": "#FAFAFA12",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "PRESENT_BG": {
+   "value": "#0A0A0A",
+   "role": "bg-primary",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.bg"
+  },
+  "PROTO_BLUE": {
+   "value": "#E36323",
+   "role": "bg-brand-solid",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "alias of another constant"
+  },
+  "PROVIDER_CLAUDE": {
+   "value": "#D97757",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "PROVIDER_CODEX": {
+   "value": "#FAFAFA",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "PROVIDER_GEMINI": {
+   "value": "#60A5FA",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "PROVIDER_GROK": {
+   "value": "#E5E5E5",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "READER_LIGHT_BG_PAGE": {
+   "value": "#FAFAFA",
+   "role": "kit",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: spec-reader light content (G rule 4)"
+  },
+  "READER_LIGHT_BORDER": {
+   "value": "#E5E5E5",
+   "role": "kit",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: spec-reader light content (G rule 4)"
+  },
+  "READER_LIGHT_CODE_BG": {
+   "value": "#FAFAFA",
+   "role": "kit",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: spec-reader light content (G rule 4)"
+  },
+  "READER_LIGHT_DOC_SHEET": {
+   "value": "#FFFFFF",
+   "role": "kit",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: spec-reader light content (G rule 4)"
+  },
+  "READER_LIGHT_DOT_NEUTRAL": {
+   "value": "#A3A3A3",
+   "role": "kit",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: spec-reader light content (G rule 4)"
+  },
+  "READER_LIGHT_DOT_OK": {
+   "value": "#16A34A",
+   "role": "kit",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: spec-reader light content (G rule 4)"
+  },
+  "READER_LIGHT_DOT_WARN": {
+   "value": "#CA8A04",
+   "role": "kit",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: spec-reader light content (G rule 4)"
+  },
+  "READER_LIGHT_HAIRLINE": {
+   "value": "#F5F5F5",
+   "role": "kit",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: spec-reader light content (G rule 4)"
+  },
+  "READER_LIGHT_HIGHLIGHT": {
+   "value": "#FEFCE8",
+   "role": "kit",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: spec-reader light content (G rule 4)"
+  },
+  "READER_LIGHT_SURFACE": {
+   "value": "#FFFFFF",
+   "role": "kit",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: spec-reader light content (G rule 4)"
+  },
+  "READER_LIGHT_SURFACE_2": {
+   "value": "#F5F5F5",
+   "role": "kit",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: spec-reader light content (G rule 4)"
+  },
+  "READER_LIGHT_SURFACE_3": {
+   "value": "#FAFAFA",
+   "role": "kit",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: spec-reader light content (G rule 4)"
+  },
+  "READER_LIGHT_TEXT": {
+   "value": "#171717",
+   "role": "kit",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: spec-reader light content (G rule 4)"
+  },
+  "READER_LIGHT_TEXT_MUTED": {
+   "value": "#404040",
+   "role": "kit",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: spec-reader light content (G rule 4)"
+  },
+  "READER_LIGHT_TEXT_SUBTLE": {
+   "value": "#525252",
+   "role": "kit",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: spec-reader light content (G rule 4)"
+  },
+  "RULER_GUIDE": {
+   "value": "#F24822",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "RULER_SELECTION_FILL": {
+   "value": "#0D99FF4D",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "RULER_TEXT": {
+   "value": "#FFFFFFB2",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "RULER_TICK": {
+   "value": "#FFFFFF66",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "SHADOW_COLOR": {
+   "value": "#00000000",
+   "role": "shadow-",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.shadow-color"
+  },
+  "SHADOW_COLOR_STRONG": {
+   "value": "#00000000",
+   "role": "shadow-",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.shadow-color-strong"
+  },
+  "STATUS_INFO_BG": {
+   "value": "#0D99FF24",
+   "role": "Studio-only",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.status-info-bg"
+  },
+  "STATUS_INFO_BORDER": {
+   "value": "#0D99FF59",
+   "role": "Studio-only",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.status-info-border"
+  },
+  "STATUS_INFO_TEXT": {
+   "value": "#0D99FF",
+   "role": "Studio-only",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.info"
+  },
+  "SUCCESS": {
+   "value": "#22C55E",
+   "role": "fg-success-primary",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.success"
+  },
+  "SWATCH_PLACEHOLDER": {
+   "value": "#404040",
+   "role": "bg-quaternary",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.secondary-active"
+  },
+  "SYNTAX_COMMENT": {
+   "value": "#A3A3A3",
+   "role": "text-quaternary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.syntax-comment"
+  },
+  "SYNTAX_FUNCTION": {
+   "value": "#60A5FA",
+   "role": "utility-blue-600",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.syntax-function"
+  },
+  "SYNTAX_KEYWORD": {
+   "value": "#F472B6",
+   "role": "utility-pink-600",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.syntax-keyword"
+  },
+  "SYNTAX_NUMBER": {
+   "value": "#FB923C",
+   "role": "utility-orange-600",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.syntax-number"
+  },
+  "SYNTAX_PLAIN": {
+   "value": "#FAFAFA",
+   "role": "text-primary",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.bg-foreground"
+  },
+  "SYNTAX_PROPERTY": {
+   "value": "#7DD3FC",
+   "role": "utility-sky-700",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.syntax-property"
+  },
+  "SYNTAX_PUNCT": {
+   "value": "#D4D4D4",
+   "role": "text-secondary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.syntax-punct"
+  },
+  "SYNTAX_STRING": {
+   "value": "#4ADE80",
+   "role": "utility-green-600",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.syntax-string"
+  },
+  "SYNTAX_TYPE": {
+   "value": "#FACC15",
+   "role": "utility-yellow-600",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.syntax-type"
+  },
+  "TEXT": {
+   "value": "#FAFAFA",
+   "role": "text-primary",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.bg-foreground"
+  },
+  "TEXT_BRAND": {
+   "value": "#F97316",
+   "role": "fg-brand-secondary",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.accent-foreground"
+  },
+  "TEXT_COMPONENT": {
+   "value": "#22D3EE",
+   "role": "Studio-only",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.text-component"
+  },
+  "TEXT_DISABLED": {
+   "value": "#D4D4D480",
+   "role": "text-secondary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.text-disabled"
+  },
+  "TEXT_ERROR": {
+   "value": "#F87171",
+   "role": "text-error-primary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.text-error"
+  },
+  "TEXT_ERROR_HOVER": {
+   "value": "#FCA5A5",
+   "role": "text-error-primary_hover",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.text-error-hover"
+  },
+  "TEXT_ON_BRAND": {
+   "value": "#0A0A0A",
+   "role": "Neutral-950",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.primary-foreground"
+  },
+  "TEXT_ON_LIGHT_CANVAS": {
+   "value": "#0A0A0A",
+   "role": "Neutral-950",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.primary-foreground"
+  },
+  "TEXT_PLACEHOLDER": {
+   "value": "#737373",
+   "role": "text-placeholder",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.text-placeholder"
+  },
+  "TEXT_QUATERNARY": {
+   "value": "#A3A3A3",
+   "role": "text-quaternary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.text-quaternary"
+  },
+  "TEXT_SECONDARY": {
+   "value": "#D4D4D4",
+   "role": "text-secondary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.text-secondary"
+  },
+  "TEXT_SECONDARY_HOVER": {
+   "value": "#E5E5E5",
+   "role": "text-secondary_hover",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.text-secondary-hover"
+  },
+  "TEXT_SELECTION": {
+   "value": "Color32::from_rgba_premultiplied(4, 49, 81, 89)",
+   "role": "canvas",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "TEXT_SUCCESS": {
+   "value": "#4ADE80",
+   "role": "text-success-primary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.text-success"
+  },
+  "TEXT_TERTIARY": {
+   "value": "#A3A3A3",
+   "role": "text-tertiary",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.muted-foreground"
+  },
+  "TEXT_TERTIARY_HOVER": {
+   "value": "#D4D4D4",
+   "role": "text-tertiary_hover",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.text-tertiary-hover"
+  },
+  "TEXT_WARNING": {
+   "value": "#FACC15",
+   "role": "text-warning-primary",
+   "contract_name": null,
+   "class": "pending",
+   "path": "colors.text-warning"
+  },
+  "TEXT_WHITE": {
+   "value": "#FFFFFF",
+   "role": "text-white",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.destructive-foreground"
+  },
+  "TYPE_PREVIEW_BASELINE": {
+   "value": "#0D99FF6E",
+   "role": "none",
+   "contract_name": null,
+   "class": "exempt",
+   "reason": "exempt: canvas, Dev overlay, content, identity, board"
+  },
+  "TILE_BOARD_BG": {
+   "value": "#451A03",
+   "role": "utility-amber-50",
+   "contract_name": "UTILITY_AMBER_50",
+   "class": "pending",
+   "path": "colors.tile-board-bg"
+  },
+  "TILE_BOARD_GLYPH": {
+   "value": "#FBBF24",
+   "role": "utility-amber-600",
+   "contract_name": "UTILITY_AMBER_600",
+   "class": "pending",
+   "path": "colors.tile-board-glyph"
+  },
+  "TILE_DESIGN_BG": {
+   "value": "#172554",
+   "role": "utility-blue-50",
+   "contract_name": "UTILITY_BLUE_50",
+   "class": "pending",
+   "path": "colors.tile-design-bg"
+  },
+  "TILE_DESIGN_GLYPH": {
+   "value": "#60A5FA",
+   "role": "utility-blue-600",
+   "contract_name": "UTILITY_BLUE_600",
+   "class": "pending",
+   "path": "colors.tile-design-glyph"
+  },
+  "BADGE_SUCCESS_BORDER": {
+   "value": "#166534",
+   "role": "utility-green-200",
+   "contract_name": "UTILITY_GREEN_200",
+   "class": "pending",
+   "path": "colors.badge-success-border"
+  },
+  "TILE_DECK_BG": {
+   "value": "#052E16",
+   "role": "utility-green-50",
+   "contract_name": "UTILITY_GREEN_50",
+   "class": "pending",
+   "path": "colors.tile-deck-bg"
+  },
+  "TILE_DECK_GLYPH": {
+   "value": "#4ADE80",
+   "role": "utility-green-600",
+   "contract_name": "UTILITY_GREEN_600",
+   "class": "pending",
+   "path": "colors.tile-deck-glyph"
+  },
+  "BADGE_SUCCESS_TEXT": {
+   "value": "#86EFAC",
+   "role": "utility-green-700",
+   "contract_name": "UTILITY_GREEN_700",
+   "class": "pending",
+   "path": "colors.badge-success-text"
+  },
+  "BADGE_NEUTRAL_BORDER": {
+   "value": "#404040",
+   "role": "utility-neutral-200",
+   "contract_name": "UTILITY_NEUTRAL_200",
+   "class": "pending",
+   "path": "colors.badge-neutral-border"
+  },
+  "BADGE_NEUTRAL_BG": {
+   "value": "#171717",
+   "role": "utility-neutral-50",
+   "contract_name": "UTILITY_NEUTRAL_50",
+   "class": "pending",
+   "path": "colors.badge-neutral-bg"
+  },
+  "BADGE_NEUTRAL_TEXT": {
+   "value": "#D4D4D4",
+   "role": "utility-neutral-700",
+   "contract_name": "UTILITY_NEUTRAL_700",
+   "class": "pending",
+   "path": "colors.badge-neutral-text"
+  },
+  "TILE_SPEC_BG": {
+   "value": "#431407",
+   "role": "utility-orange-50",
+   "contract_name": "UTILITY_ORANGE_50",
+   "class": "shared-key",
+   "key": "colors.accent"
+  },
+  "TILE_SPEC_GLYPH": {
+   "value": "#FB923C",
+   "role": "utility-orange-600",
+   "contract_name": "UTILITY_ORANGE_600",
+   "class": "pending",
+   "path": "colors.tile-spec-glyph"
+  },
+  "BADGE_ERROR_BORDER": {
+   "value": "#991B1B",
+   "role": "utility-red-200",
+   "contract_name": "UTILITY_RED_200",
+   "class": "pending",
+   "path": "colors.badge-error-border"
+  },
+  "BADGE_ERROR_TEXT": {
+   "value": "#FCA5A5",
+   "role": "utility-red-700",
+   "contract_name": "UTILITY_RED_700",
+   "class": "pending",
+   "path": "colors.badge-error-text"
+  },
+  "BADGE_WARNING_BORDER": {
+   "value": "#854D0E",
+   "role": "utility-yellow-200",
+   "contract_name": "UTILITY_YELLOW_200",
+   "class": "pending",
+   "path": "colors.badge-warning-border"
+  },
+  "BADGE_WARNING_TEXT": {
+   "value": "#FDE047",
+   "role": "utility-yellow-700",
+   "contract_name": "UTILITY_YELLOW_700",
+   "class": "pending",
+   "path": "colors.badge-warning-text"
+  },
+  "VAR_SCROLL_THUMB": {
+   "value": "#737373",
+   "role": "fg-quaternary",
+   "contract_name": null,
+   "class": "shared-key",
+   "key": "colors.neutral"
+  },
+  "WARNING": {
+   "value": "#EAB308",
+   "role": "fg-warning-primary",
+   "contract_name": null,
+   "class": "mapped",
+   "key": "colors.warning"
+  }
+ }
+}

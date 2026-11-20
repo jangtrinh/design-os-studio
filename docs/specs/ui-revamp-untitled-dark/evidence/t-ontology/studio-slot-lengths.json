@@ -1,0 +1,64 @@
+{
+ "Menu/Item label (leaf/submenu)": {
+  "n": 104,
+  "words_med": 2.0,
+  "words_p90": 3,
+  "chars_med": 13.0,
+  "chars_p90": 20,
+  "chars_max": 28,
+  "allcaps": 0,
+  "allcaps_ex": []
+ },
+ "Tooltip/Default text (on_hover_text/.tooltip)": {
+  "n": 38,
+  "words_med": 4.0,
+  "words_p90": 9,
+  "chars_med": 23.0,
+  "chars_p90": 50,
+  "chars_max": 92,
+  "allcaps": 0,
+  "allcaps_ex": []
+ },
+ "Toast/Default message (show_toast literal)": {
+  "n": 104,
+  "words_med": 6.0,
+  "words_p90": 9,
+  "chars_med": 35.0,
+  "chars_p90": 56,
+  "chars_max": 90,
+  "allcaps": 0,
+  "allcaps_ex": []
+ },
+ "Dialog/CommandPalette item title": {
+  "n": 12,
+  "words_med": 3.0,
+  "words_p90": 5,
+  "chars_med": 21.0,
+  "chars_p90": 38,
+  "chars_max": 42,
+  "allcaps": 0,
+  "allcaps_ex": []
+ },
+ "Dialog/CommandPalette item subtitle": {
+  "n": 12,
+  "words_med": 11.5,
+  "words_p90": 14,
+  "chars_med": 81.5,
+  "chars_p90": 96,
+  "chars_max": 131,
+  "allcaps": 0,
+  "allcaps_ex": []
+ },
+ "Dialog/CommandPalette badge": {
+  "n": 12,
+  "words_med": 1.0,
+  "words_p90": 1,
+  "chars_med": 3.5,
+  "chars_p90": 11,
+  "chars_max": 11,
+  "allcaps": 6,
+  "allcaps_ex": [
+   "AI"
+  ]
+ }
+}
