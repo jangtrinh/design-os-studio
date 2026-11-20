@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Issue | #899 (enhancement). Owner ruling 2026-10-22: "Cái gì hữu ích thì plan đi spec driven rồi tạo task". Controller ruling: lint rules through `designos_lint` and a new group in Check designs. |
+| Issue | #899 (enhancement). Owner ruling 2026-10-22: "Whatever is useful: plan it spec-driven, then create tasks". Controller ruling: lint rules through `designos_lint` and a new group in Check designs. |
 | Size | M (upper end, about three days: one shared index, five rules, lint plumbing, one panel group, fixtures, generated docs) |
 | Depends on | Nothing open. The incremental Check designs scan (`ScanCursor` / `audit_step`) and the ignore list (`CheckDesignsSettings.ignored`) are already on `main`. |
 | Unblocks | The follow-ups in section 9 (cross-file usage count, unnamed variant axes). |
@@ -165,7 +165,7 @@ No dependency. Order: (1) the library module and its tests; (2) registry, preset
 
 ## 13. Owner rulings that apply
 
-- 2026-10-22: "Cái gì hữu ích thì plan đi spec driven rồi tạo task" (whatever is useful: plan it spec-driven, then create tasks); lint rules through `designos_lint` and a new group in Check designs (controller ruling the same day).
+- 2026-10-22: "Whatever is useful: plan it spec-driven, then create tasks"; lint rules through `designos_lint` and a new group in Check designs (controller ruling the same day).
 - 2026-10-21: "DESIGN:OS Studio adopts VSF PCP's UX writing standard as-is, enforced by a gate + review." Messages, group title and note follow `design/ux-writing.md`; a reviewer PASS is saved under `plans/reports/`.
 - Owner default: responsive checks only on request. 2026-10-13: update Figma from the first verified capture, gates after.
 - Releases are verified on macOS. The performance invariants of CLAUDE.md section 4 are non-negotiable. `main` is protected: PR and squash.

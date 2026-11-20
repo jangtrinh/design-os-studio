@@ -141,7 +141,7 @@ Independent of #896 and #897. Order: `copy_properties.rs` with its tests; `fit_t
 - 2026-10-22 (pack): "Small items (#896, #897, #898) are next-patch work."
 - Issue #898, acceptance criterion 1: the traits copied match the editor's Paste properties for the same pair (shared code, one test for both).
 - Standing: new MCP params go through the generated docs and the drift test; Studio is "source-available", not "open source".
-- 2026-09-22: "Làm cái gì trên toàn bộ project cũng phải chụp hình chứng minh" (visual evidence in every PR).
+- 2026-09-22: "Whatever you do anywhere in the project, take a screenshot as proof" (visual evidence in every PR).
 
 ## Decisions on the open questions (controller, 2026-10-22)
 
