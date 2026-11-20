@@ -2040,7 +2040,8 @@ mod import_notice_tests {
         use designos_doc::{Document, FigTextGeometry, Node, Rect, StoredDecoration, StoredFallback, StoredGlyph};
         use std::sync::Arc;
 
-        // the bars, the style ids of the runs and the verdict are hashed along with the table, and allocate nothing either
+        // the bars, the style ids of the runs, the verdict and the stored wire bytes are hashed along with the table, and allocate
+        // nothing either
         let geometry = |first_x: f32| {
             let glyphs: Vec<StoredGlyph> = (0..1_000)
                 .map(|i| StoredGlyph { x: if i == 0 { first_x } else { i as f32 }, y: 18.0, font_size: 14.0, blob: 0, first_char: i, style: 0, flags: 0 })
@@ -2055,6 +2056,9 @@ mod import_notice_tests {
                 decorations: vec![StoredDecoration { style: 1, x: first_x, y: 22.0, w: 30.0, h: 2.0 }; 3].into(),
                 run_sids: vec![4, 9].into(),
                 fallback: Some(StoredFallback::Truncated),
+                // the stored bytes of the text, several chunks of the document file's writer, and the file's blob numbers
+                wire: (0..5_000u32).map(|i| (i % 251) as u8 ^ first_x.to_bits() as u8).collect::<Vec<u8>>().into(),
+                blob_files: vec![12].into(),
             })
         };
         let mut d = Document::new("glyph-table-hash");
@@ -2068,6 +2072,13 @@ mod import_notice_tests {
 
         assert_ne!(doc_hash(&d), doc_hash(&bare), "a stored text is part of the document");
         assert_ne!(doc_hash(&other), doc_hash(&d), "and so is one glyph of its table");
+        let mut one_byte = d.clone();
+        let mut changed = (**one_byte.get(id).unwrap().fig_text_geometry.as_ref().unwrap()).clone();
+        let mut wire = changed.wire.to_vec();
+        wire[4_999] ^= 1;
+        changed.wire = wire.into();
+        one_byte.get_mut(id).unwrap().fig_text_geometry = Some(Arc::new(changed));
+        assert_ne!(doc_hash(&one_byte), doc_hash(&d), "and so is the last byte of the stored wire");
         let ((), doc_allocs) = allocations_in(|| {
             std::hint::black_box(doc_hash(&d));
         });

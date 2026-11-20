@@ -119,7 +119,7 @@ pub fn path_to_commands_blob(path: &Path) -> Vec<u8> {
     out
 }
 
-fn export_schema() -> &'static crate::kiwi::Schema {
+pub(crate) fn export_schema() -> &'static crate::kiwi::Schema {
     static SCHEMA: std::sync::OnceLock<crate::kiwi::Schema> = std::sync::OnceLock::new();
     SCHEMA.get_or_init(figma_like_schema)
 }
@@ -1433,11 +1433,90 @@ fn def_slot_content_id<'a>(link: &'a ComponentLink, prop_name: &str) -> Option<&
     link.slot_content_ids.get(prop_name).map(String::as_str)
 }
 
-/// `derivedTextData` of `node` with every glyph's `commandsBlob` pointing into this export's blob table, when
-/// the saved glyphs still describe the text. Each distinct glyph blob is written once however many glyphs, texts
-/// and instances use it.
+/// `derivedTextData` of `node` as Figma stored it, when the stored data still describes the text: whether or not the text
+/// is drawn from it. Every glyph's `commandsBlob` points into this export's blob table (each distinct glyph blob is
+/// written once however many glyphs, texts and instances use it), and every `styleID` is the id this export gives the
+/// run that Figma's id belonged to.
+///
+/// Studio numbers the rows of a text's `styleOverrideTable` from 1 in the order of its runs, and Figma numbers them its
+/// own way, so a stored style id is looked up in the geometry's `run_sids`: Figma's id of run `i` becomes `i + 1`, and an
+/// id no run has belongs to the text's own style, 0. A text whose own characters this export gives an override row of
+/// their own (a layer linked to a text style that stores weight, italic or decoration overrides) has no single id for
+/// them, so a stored id that would belong to the text's own style leaves the text unwritten.
+///
+/// Nothing is written to the blob table unless the whole value can be written: a blob the geometry does not hold, or an id
+/// that cannot be mapped, leaves the text without `derivedTextData` and no orphan blob behind.
 fn reindexed_derived_text(cx: &mut ExportCtx, node: &Node) -> Option<(Arc<str>, V)> {
     let saved = node.fig_text_geometry.as_deref().filter(|saved| saved.matches(node))?;
+    if saved.wire.is_empty() {
+        return reindexed_legacy_derived_text(cx, node, saved);
+    }
+    let NodeKind::Text(text) = &node.kind else { return None };
+    let mut derived = crate::derived_text_wire::decode_wire(&saved.wire)?;
+    let own_style_has_rows = {
+        let link = node.style_refs.contains_key("text").then_some(node.text_style_overrides);
+        table_runs(text, link).len() > text.runs.len()
+    };
+    let style_id = |figma: u32| -> Option<u32> {
+        match saved.run_sids.iter().position(|&sid| sid == figma) {
+            Some(run) => u32::try_from(run + 1).ok(),
+            None if own_style_has_rows => None,
+            None => Some(0),
+        }
+    };
+    let slot_of_file: std::collections::HashMap<u32, usize> = saved.blob_files.iter().enumerate().map(|(slot, &file)| (file, slot)).collect();
+    let slot_of = |file: u32| slot_of_file.get(&file).copied().filter(|&slot| slot < saved.blobs.len());
+    // look at everything before anything is written
+    let mut valid = true;
+    walk_derived_ids(&mut derived, &mut |field, id| match field {
+        DerivedId::Blob => valid &= slot_of(*id).is_some(),
+        DerivedId::Style => valid &= style_id(*id).is_some(),
+    });
+    if !valid {
+        return None;
+    }
+    let table: Vec<u32> = saved.blobs.iter().map(|blob| cx.add_glyph_blob(blob)).collect();
+    walk_derived_ids(&mut derived, &mut |field, id| match field {
+        DerivedId::Blob => *id = slot_of(*id).map_or(*id, |slot| table[slot]),
+        DerivedId::Style => *id = style_id(*id).unwrap_or(0),
+    });
+    Some(("derivedTextData".into(), derived))
+}
+
+/// Which kind of number [`walk_derived_ids`] hands out.
+enum DerivedId {
+    /// A glyph's `commandsBlob`.
+    Blob,
+    /// A `styleID` of a glyph, a decoration, a blockquote or a checklist marker.
+    Style,
+}
+
+/// Calls `visit` with each blob number and style id of a decoded `derivedTextData`, by reference so it can rewrite them.
+fn walk_derived_ids(derived: &mut V, visit: &mut dyn FnMut(DerivedId, &mut u32)) {
+    let (V::Message(fields) | V::Struct(fields)) = derived else { return };
+    for (name, value) in fields.iter_mut() {
+        let is_glyphs = match &**name {
+            "glyphs" => true,
+            "decorations" | "blockquotes" | "checklistMarkers" => false,
+            _ => continue,
+        };
+        let V::Array(items) = value else { continue };
+        for item in items {
+            let (V::Message(entry) | V::Struct(entry)) = item else { continue };
+            for (field, v) in entry.iter_mut() {
+                match (&**field, &mut *v) {
+                    ("commandsBlob", V::Uint(n)) if is_glyphs => visit(DerivedId::Blob, n),
+                    ("styleID", V::Uint(n)) => visit(DerivedId::Style, n),
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+/// [`reindexed_derived_text`] for a geometry that holds no wire bytes: a document file written before they were kept, whose
+/// `derivedTextData` is the JSON the node's `fig_metadata` carries. It writes what an earlier version wrote.
+fn reindexed_legacy_derived_text(cx: &mut ExportCtx, node: &Node, saved: &designos_doc::FigTextGeometry) -> Option<(Arc<str>, V)> {
     let NodeKind::Text(text) = &node.kind else { return None };
     let mut derived: serde_json::Value = serde_json::from_str(node.fig_metadata.get("derivedTextData")?).ok()?;
     // Until the save maps Figma's style ids onto the ones this export writes and keeps every stored font, write only what
@@ -2428,14 +2507,15 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     // The original `commandsBlob` numbers refer to the imported file's blob table. Re-index them into this
     // export's table before writing derived text. An edited text layer must not export its stale glyph cache.
     // Only a layer that carries derived text pays for a copy of its metadata.
-    let derived_text_meta = (matches!(&node.kind, NodeKind::Text(_)) && node.fig_metadata.contains_key("derivedTextData")).then(|| {
-        if let Some(pair) = reindexed_derived_text(cx, &node) {
-            msg_fields.push(pair);
-        }
-        let mut meta = node.fig_metadata.clone();
-        meta.remove("derivedTextData");
-        meta
-    });
+    let derived_text_meta =
+        (matches!(&node.kind, NodeKind::Text(_)) && (node.fig_text_geometry.is_some() || node.fig_metadata.contains_key("derivedTextData"))).then(|| {
+            if let Some(pair) = reindexed_derived_text(cx, &node) {
+                msg_fields.push(pair);
+            }
+            let mut meta = node.fig_metadata.clone();
+            meta.remove("derivedTextData");
+            meta
+        });
     append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, derived_text_meta.as_ref().unwrap_or(&node.fig_metadata));
     cx.changes.push(V::Message(msg_fields));
 

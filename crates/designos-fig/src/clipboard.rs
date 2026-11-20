@@ -123,20 +123,31 @@ fn import_with_limits(clip: &FigClipboard, inflate_budget: u64, decoded_values: 
     let root = schema.root_message().ok_or_else(|| FigError::Format("schema has no message definition".into()))?;
     let mut message =
         schema.decode_message_for_import_with_values(root, &msg_bin, decoded_values).map_err(|e| FigError::Format(format!("kiwi message: {e}")))?;
-    let heavy_decode = msg_bin.len() > crate::kiwi::HEAVY_PAYLOAD_BYTES;
     drop(msg_bin);
 
     adopt_orphan_roots(&mut message);
+    // a text's stored data becomes wire bytes before the node changes become JSON, as in a `.fig` import
+    let mut text_wires = std::collections::HashMap::new();
+    if let Some(KiwiValue::Array(changes)) = message.get_mut("nodeChanges") {
+        for change in changes {
+            crate::fig::take_text_derived(change, &mut text_wires);
+        }
+    }
     let blobs: Vec<&[u8]> = message
         .get("blobs")
         .and_then(KiwiValue::as_array)
         .map(|a| a.iter().map(|b| b.get("bytes").and_then(KiwiValue::as_bytes).unwrap_or(&[])).collect())
         .unwrap_or_default();
-    let mut rest = message_to_rest(&message, "Figma clipboard");
-    if heavy_decode {
-        rest[rest_import::HEAVY_DECODE_KEY] = serde_json::Value::Bool(true);
-    }
-    let mut doc = rest_import::import_rest_value_with_blobs(&rest, true, &blobs, None, rest_import::KEEP_UNKNOWN_KEYS_FROM_BINARY)?;
+    let rest = message_to_rest(&message, "Figma clipboard");
+    let (mut doc, _) = rest_import::import_rest_value_with_text_wires(
+        &rest,
+        true,
+        &blobs,
+        None,
+        text_wires,
+        rest_import::CLONE_BUDGET_TOTAL,
+        rest_import::KEEP_UNKNOWN_KEYS_FROM_BINARY,
+    )?;
     doc.images = archive.images;
     Ok(doc)
 }
