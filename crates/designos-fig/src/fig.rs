@@ -888,7 +888,7 @@ pub fn import_fig_node_changes_with_report(changes: &Value, name: &str) -> Resul
     let (doc, mut report) = rest_import::import_rest_value_with_blobs_and_budget(
         &rest,
         true,
-        &[],
+        &blob_refs,
         None,
         rest_import::CLONE_BUDGET_TOTAL,
         rest_import::KEEP_UNKNOWN_KEYS_FROM_BINARY,
