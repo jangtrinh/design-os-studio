@@ -1438,9 +1438,9 @@ fn def_slot_content_id<'a>(link: &'a ComponentLink, prop_name: &str) -> Option<&
 /// written once however many glyphs, texts and instances use it), and every `styleID` is the id this export gives the
 /// run that Figma's id belonged to.
 ///
-/// Studio numbers the rows of a text's `styleOverrideTable` from 1 in the order of its runs, and Figma numbers them its
-/// own way, so a stored style id is looked up in the geometry's `run_sids`: Figma's id of run `i` becomes `i + 1`, and an
-/// id no run has belongs to the text's own style, 0. A text whose own characters this export gives an override row of
+/// Studio numbers the rows of a text's `styleOverrideTable` from 1 in the order of its runs unless it can keep the ids
+/// Figma gave them (see [`run_row_ids`]), so a stored style id is looked up in the geometry's `run_sids`: Figma's id of run
+/// `i` becomes the id of the row written for run `i`, and an id no run has belongs to the text's own style, 0. A text whose own characters this export gives an override row of
 /// their own (a layer linked to a text style that stores weight, italic or decoration overrides) has no single id for
 /// them, so a stored id that would belong to the text's own style leaves the text unwritten.
 ///
@@ -1453,13 +1453,12 @@ fn reindexed_derived_text(cx: &mut ExportCtx, node: &Node) -> Option<(Arc<str>, 
     }
     let NodeKind::Text(text) = &node.kind else { return None };
     let mut derived = crate::derived_text_wire::decode_wire(&saved.wire)?;
-    let own_style_has_rows = {
-        let link = node.style_refs.contains_key("text").then_some(node.text_style_overrides);
-        table_runs(text, link).len() > text.runs.len()
-    };
+    let link = node.style_refs.contains_key("text").then_some(node.text_style_overrides);
+    let own_style_has_rows = table_runs(text, link).len() > text.runs.len();
+    let row_ids = run_row_ids(node, text, link);
     let style_id = |figma: u32| -> Option<u32> {
         match saved.run_sids.iter().position(|&sid| sid == figma) {
-            Some(run) => u32::try_from(run + 1).ok(),
+            Some(run) => row_ids.as_ref().and_then(|ids| ids.get(run).copied()).or_else(|| u32::try_from(run + 1).ok()),
             None if own_style_has_rows => None,
             None => Some(0),
         }
@@ -2283,10 +2282,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         }
         NodeKind::Text(tp) => {
             let link = node.style_refs.contains_key("text").then_some(node.text_style_overrides);
-            encode_text_node(&mut fields, tp, link);
+            let row_ids = run_row_ids(&node, tp, link);
+            encode_text_node(&mut fields, tp, link, row_ids.as_deref());
         }
         NodeKind::Sticky(sp) => {
-            encode_text_node(&mut fields, &sp.text, None);
+            encode_text_node(&mut fields, &sp.text, None, None);
         }
         NodeKind::ShapeWithText(sp) => {
             let st_name = node.fig_metadata.get("shapeWithTextType").map(String::as_str).filter(|s| !s.is_empty()).unwrap_or(match sp.shape {
@@ -2303,7 +2303,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             });
             let st_name = if cx.schema.has_enum_variant("ShapeWithTextType", st_name) { st_name } else { "SQUARE" };
             fields.push(("shapeWithTextType", en(st_name)));
-            encode_text_node(&mut fields, &sp.text, None);
+            encode_text_node(&mut fields, &sp.text, None, None);
         }
         NodeKind::Connector(cp) => {
             if let Some((lc, carrier_val)) = &lowered_conn {
@@ -2370,7 +2370,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 fields.push(("connectorStart", end_msg(&cp.start, "connectorStartMagnet", "connectorStartRelativePosition")));
                 fields.push(("connectorEnd", end_msg(&cp.end, "connectorEndMagnet", "connectorEndRelativePosition")));
                 if let Some(lbl) = &cp.label {
-                    encode_text_node(&mut fields, lbl, None);
+                    encode_text_node(&mut fields, lbl, None, None);
                 }
             }
         }
@@ -2608,7 +2608,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 ("strokeWeight", fl(0.0)),
                 ("strokeAlign", en("INSIDE")),
             ];
-            encode_text_node(&mut t_fields, &lbl, None);
+            encode_text_node(&mut t_fields, &lbl, None, None);
             cx.changes.push(msg(t_fields));
         }
     }
@@ -3390,7 +3390,7 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                 // Only a node that overrides its characters records them: a record that names the characters pins the
                 // text, and a node with a style-only override must keep following its main component's text.
                 if ovs.contains(&OverrideField::Characters) {
-                    ov.push(("textData", encode_text_data(tp, runs_differ, lists_differ, None)));
+                    ov.push(("textData", encode_text_data(tp, runs_differ, lists_differ, None, None)));
                 }
                 if ovs.contains(&OverrideField::TextStyle) {
                     // Figma applies an instance text-style relink/detach from the
@@ -4372,6 +4372,20 @@ fn append_paragraph_fields(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) 
     }
 }
 
+/// The style ids of the rows of the character style table written for the runs of `node`, when they can be the ids Figma gave
+/// its runs: the text is unedited, every run has an id of its own, none is 0 (the text's own style), and no row besides the
+/// runs' is written (rows for the text's own characters would need ids of their own). Then a save writes the ids Figma
+/// wrote, in the style table and in the stored data alike. `None` numbers the rows from 1.
+fn run_row_ids(node: &Node, text: &TextProps, link: Option<OwnedFieldSet>) -> Option<Vec<u32>> {
+    let saved = node.fig_text_geometry.as_deref().filter(|saved| !saved.wire.is_empty() && saved.matches(node))?;
+    let ids = &*saved.run_sids;
+    let distinct: std::collections::HashSet<u32> = ids.iter().copied().collect();
+    if ids.is_empty() || ids.len() != text.runs.len() || distinct.len() != ids.len() || distinct.contains(&0) {
+        return None;
+    }
+    (table_runs(text, link).len() == text.runs.len()).then(|| ids.to_vec())
+}
+
 /// One row of the character style table of a text node.
 struct TableRun<'a> {
     start: usize,
@@ -4455,7 +4469,7 @@ fn override_row(sid: u32, style: &TextStyle, base: &TextStyle, over: OwnedFieldS
     msg(f)
 }
 
-fn encode_text_data(tp: &TextProps, include_runs: bool, include_lines: bool, link: Option<OwnedFieldSet>) -> V {
+fn encode_text_data(tp: &TextProps, include_runs: bool, include_lines: bool, link: Option<OwnedFieldSet>, row_ids: Option<&[u32]>) -> V {
     let mut td = vec![("characters", V::String(tp.content.clone()))];
     let rows = table_runs(tp, link);
     if include_runs && !rows.is_empty() {
@@ -4463,7 +4477,7 @@ fn encode_text_data(tp: &TextProps, include_runs: bool, include_lines: bool, lin
         let mut char_ids = vec![0u32; offs.len().saturating_sub(1)];
         let mut table = Vec::new();
         for (i, r) in rows.iter().enumerate() {
-            let sid = (i + 1) as u32;
+            let sid = row_ids.and_then(|ids| ids.get(i).copied()).unwrap_or((i + 1) as u32);
             let s = offs.partition_point(|&o| o < r.start);
             let e = offs.partition_point(|&o| o < r.end);
             let cap = e.min(char_ids.len());
@@ -4540,8 +4554,9 @@ fn encode_text_data(tp: &TextProps, include_runs: bool, include_lines: bool, lin
     msg(td)
 }
 
-/// `link` holds the stored overrides of a layer linked to a text style (`None` for any other text).
-fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps, link: Option<OwnedFieldSet>) {
+/// `link` holds the stored overrides of a layer linked to a text style (`None` for any other text). `row_ids` are the style ids
+/// of the rows of the first runs (see [`run_row_ids`]); a row without one is numbered from its position.
+fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps, link: Option<OwnedFieldSet>, row_ids: Option<&[u32]>) {
     append_text_style_fields(fields, &tp.style);
     fields.push(("autoRename", V::Bool(tp.auto_rename)));
     fields.push(("textDecorationSkipInk", V::Bool(tp.decoration_skip_ink)));
@@ -4567,7 +4582,7 @@ fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps, link: O
         fields.push(("maxLines", V::Int(i32::try_from(m).unwrap_or(i32::MAX))));
     }
     append_paragraph_fields(fields, tp);
-    fields.push(("textData", encode_text_data(tp, true, true, link)));
+    fields.push(("textData", encode_text_data(tp, true, true, link, row_ids)));
 }
 
 fn blend_name(b: BlendMode) -> &'static str {

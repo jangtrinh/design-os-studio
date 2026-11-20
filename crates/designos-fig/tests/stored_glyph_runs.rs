@@ -107,30 +107,44 @@ fn derived_style_ids(derived: &serde_json::Value) -> Vec<u64> {
 }
 
 #[test]
-fn a_save_writes_the_style_ids_of_the_rows_it_writes() {
-    // Figma's id for the run is 7; Studio numbers its rows from 1, so the bar must be written under 1 and the row 1 must be the
-    // underlined run
+fn a_save_keeps_the_style_ids_figma_gave_the_runs_when_every_run_has_one_of_its_own() {
     let doc = import_fig(&two_run_fixture()).unwrap();
     let text = named(&doc, "Two runs");
     assert!(text.fig_text_geometry.as_ref().is_some_and(|g| g.matches(text)), "the glyphs are drawn");
     let saved = export_fig(&doc).unwrap();
     let derived = saved_derived(&saved, "Two runs").expect("an unedited text with runs is written back");
     let rows = saved_style_rows(&saved, "Two runs");
-    assert_eq!(rows, vec![1], "Studio writes one row for the one run");
+    assert_eq!(rows, vec![7], "the one row is Figma's id for the run");
     let ids = derived_style_ids(&derived);
-    assert_eq!(ids, vec![1], "the one bar: {derived}");
+    assert_eq!(ids, vec![7], "and the one bar names it, as Figma stored it: {derived}");
     assert!(ids.iter().all(|id| rows.contains(id)), "every style id written is a row written");
     let node = decode_fig_to_json(&saved).unwrap()["message"]["nodeChanges"].as_array().unwrap().iter().find(|n| n["name"] == "Two runs").cloned().unwrap();
     assert_eq!(node["textData"]["styleOverrideTable"][0]["textDecoration"], "UNDERLINE", "the row the bar names is the underlined run");
+    assert_eq!(node["textData"]["characterStyleIDs"], serde_json::json!([0, 0, 7, 7]));
     assert_eq!(derived["decorations"][0]["rects"][0]["x"], 20.0, "the bar is the one Figma stored");
     assert!(derived["glyphs"][0].get("styleID").is_none(), "a glyph Figma wrote without a style id is written without one");
 
     // and it opens again with the same glyphs and the bar on the same run
     let reopened = import_fig(&saved).unwrap();
     let again = named(&reopened, "Two runs");
-    assert_eq!(again.fig_text_geometry.as_ref().unwrap().run_sids.len(), 1);
+    assert_eq!(&*again.fig_text_geometry.as_ref().unwrap().run_sids, &[7]);
     assert_eq!(again.fig_text_geometry.as_ref().unwrap().decorations[0].style, 1);
     assert_eq!(designos_render::stored_glyph_use(again), designos_render::StoredGlyphUse::Drawn);
+}
+
+#[test]
+fn a_save_numbers_the_rows_and_maps_the_stored_ids_when_figma_gave_two_runs_one_id() {
+    // Figma's id 3 sits on two stretches, so Studio has two runs and cannot write two rows under one id: it numbers them 1 and 2,
+    // and the one stored bar, which names Figma's id, must name a row that is written
+    let doc = import_fig(&repeated_id_fixture()).unwrap();
+    let saved = export_fig(&doc).unwrap();
+    let rows = saved_style_rows(&saved, "Repeated id");
+    assert_eq!(rows, vec![1, 2]);
+    let derived = saved_derived(&saved, "Repeated id").expect("written back");
+    let ids = derived_style_ids(&derived);
+    assert_eq!(ids, vec![1], "Figma's id 3 became the row of the first run that had it: {derived}");
+    assert!(ids.iter().all(|id| rows.contains(id)), "every style id written is a row written");
+    assert_eq!(derived["decorations"][0]["rects"].as_array().map(Vec::len), Some(2), "both bars are kept");
 }
 
 #[test]
