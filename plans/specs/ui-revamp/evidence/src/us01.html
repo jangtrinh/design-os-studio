@@ -1,0 +1,16 @@
+<link rel=stylesheet href=base.css><h1>US-01 · Layout-unchanged gate (#1126) — tham chiếu</h1><div class=sub>Mockup PM, không phải ảnh chụp app. Chỉ minh hoạ hình học được so: vùng, độ rộng panel, thứ tự control. Màu đổi không ảnh hưởng gate.</div>
+<div class=row>
+<div class=card><b>Baseline (committed JSON)</b><div class=k>d-editor-default · 1600×1088</div>
+<svg width=330 height=230 style="margin-top:10px"><rect x=0 y=0 width=330 height=14 fill=#262626 /><rect x=0 y=14 width=14 height=216 fill=#333 /><rect x=14 y=14 width=60 height=216 fill=#1f1f1f stroke=#525252 /><rect x=74 y=14 width=196 height=216 fill=#111 /><rect x=270 y=14 width=60 height=216 fill=#1f1f1f stroke=#525252 />
+<text x=20 y=40 fill=#A3A3A3 font-size=10>left 240</text><text x=276 y=40 fill=#A3A3A3 font-size=10>right 240</text><text x=140 y=120 fill=#525252 font-size=10>canvas</text>
+<g fill=#404040><rect x=276 y=60 width=48 height=8 /><rect x=276 y=74 width=48 height=8 /><rect x=276 y=88 width=48 height=8 /></g></svg></div>
+<div class=card><b>PR chỉ đổi style + R5</b> <span class="tag ok">PASS</span><div class=k>row 24→32 có allow <span class=mono>max_dh 8</span>, shift dồn được tính</div>
+<svg width=330 height=230 style="margin-top:10px"><rect x=0 y=0 width=330 height=14 fill=#1a1a1a /><rect x=0 y=14 width=14 height=216 fill=#262626 /><rect x=14 y=14 width=60 height=216 fill=#171717 stroke=#E36323 /><rect x=74 y=14 width=196 height=216 fill=#0A0A0A /><rect x=270 y=14 width=60 height=216 fill=#171717 stroke=#E36323 />
+<text x=20 y=40 fill=#22C55E font-size=10>left 240 ✓</text><text x=276 y=40 fill=#22C55E font-size=10>right 240 ✓</text>
+<g fill=#525252><rect x=276 y=60 width=48 height=11 /><rect x=276 y=77 width=48 height=11 /><rect x=276 y=94 width=48 height=11 /></g></svg></div>
+<div class=card><b>PR nới panel trái +8</b> <span class="tag bad">FAIL</span><div class=k>G1 · nêu tên <span class=mono>left_panel.w</span></div>
+<svg width=330 height=230 style="margin-top:10px"><rect x=0 y=0 width=330 height=14 fill=#1a1a1a /><rect x=0 y=14 width=14 height=216 fill=#262626 /><rect x=14 y=14 width=68 height=216 fill=#171717 stroke=#F04438 stroke-width=2 /><rect x=82 y=14 width=188 height=216 fill=#0A0A0A /><rect x=270 y=14 width=60 height=216 fill=#171717 />
+<text x=20 y=40 fill=#F04438 font-size=10>left 248 ✗</text></svg></div></div>
+<div class=card style="margin-top:20px"><b>Output kỳ vọng của test (mẫu)</b><pre class=mono style="color:#D4D4D4;margin:8px 0 0">AGENT_FAIL {"case":"d-editor-default","gate":"G1","item":"left_panel.w","baseline":240,"actual":248,"hint":"no allow entry; only R5 may change sizes"}
+AGENT_FAIL {"case":"f-design-tab","gate":"G3","item":"order","swap":["align-left","align-center"]}
+FAIL missing baseline tests/layout/baselines/h-home.json → run bless procedure (rule 11)</pre></div>
