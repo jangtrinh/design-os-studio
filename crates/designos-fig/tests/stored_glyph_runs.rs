@@ -146,9 +146,9 @@ fn runs_that_share_a_figma_id_and_a_style_are_written_as_the_one_row_figma_wrote
 }
 
 #[test]
-fn a_save_numbers_the_rows_and_maps_the_stored_ids_when_two_runs_that_share_an_id_no_longer_share_a_style() {
-    // a fill edit keeps the glyphs but the two runs of Figma's id 3 now differ: two rows, so the ids are numbered 1 and 2 and the one
-    // stored bar, which names Figma's id, must name a row that is written
+fn a_save_leaves_out_the_stored_data_when_two_runs_that_share_an_id_no_longer_share_a_style() {
+    // a fill edit keeps the glyphs but the two runs of Figma's id 3 now differ: two rows, numbered 1 and 2, and a stored id
+    // cannot say which of them its glyph or bar belongs to
     let mut doc = import_fig(&repeated_id_fixture()).unwrap();
     let id = named(&doc, "Repeated id").id;
     let NodeKind::Text(props) = &mut doc.get_mut(id).unwrap().kind else { unreachable!() };
@@ -157,10 +157,7 @@ fn a_save_numbers_the_rows_and_maps_the_stored_ids_when_two_runs_that_share_an_i
     let saved = export_fig(&doc).unwrap();
     let rows = saved_style_rows(&saved, "Repeated id");
     assert_eq!(rows, vec![1, 2]);
-    let derived = saved_derived(&saved, "Repeated id").expect("written back");
-    let ids = derived_style_ids(&derived);
-    assert_eq!(ids, vec![1], "Figma's id 3 became the row of the first run that had it: {derived}");
-    assert!(ids.iter().all(|id| rows.contains(id)), "every style id written is a row written");
+    assert!(saved_derived(&saved, "Repeated id").is_none(), "no glyph of the second run names the first run's row");
 }
 
 #[test]

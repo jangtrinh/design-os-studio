@@ -1456,6 +1456,14 @@ fn reindexed_derived_text(cx: &mut ExportCtx, node: &Node) -> Option<(Arc<str>, 
     let link = node.style_refs.contains_key("text").then_some(node.text_style_overrides);
     let own_style_has_rows = table_runs(text, link).len() > text.runs.len();
     let row_ids = run_row_ids(node, text, link);
+    if saved.run_sids.len() != text.runs.len() {
+        return None;
+    }
+    // runs that share Figma's id but no longer share a style get rows of their own, and a stored id cannot say which of
+    // them its glyph or bar belongs to: the text is written without derived data and Figma lays it out again
+    if row_ids.is_none() && saved.run_sids.iter().enumerate().any(|(i, sid)| saved.run_sids[..i].contains(sid)) {
+        return None;
+    }
     let style_id = |figma: u32| -> Option<u32> {
         match saved.run_sids.iter().position(|&sid| sid == figma) {
             Some(run) => row_ids.as_ref().and_then(|ids| ids.get(run).copied()).or_else(|| u32::try_from(run + 1).ok()),
