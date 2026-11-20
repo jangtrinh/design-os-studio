@@ -6,7 +6,7 @@ Source: `plans/261017-figma-gap-analysis/gap-list.md` (58 gaps, 10 epics) and th
 - Figma clipboard paste interop is P0;
 - REA runs on the local Figma.app 126.9.13.
 
-**Run mode.** The owner is asleep and pre-authorized all phases ("es dev full phase và dispatch worker ra làm"). The gates below are passed on that authorization. Every owner-visible choice is listed under **Assumptions for morning review**.
+**Run mode.** The owner is asleep and pre-authorized all phases ("es dev full phase and dispatch workers to do it"). The gates below are passed on that authorization. Every owner-visible choice is listed under **Assumptions for morning review**.
 
 ## Press release (Wave A)
 > **Paste from Figma, style everything, ship a PDF.** Designers moving from Figma can copy any selection in Figma desktop and paste it straight into design:os studio with frames, auto layout, components, styles and images intact. Effects and layout grids become reusable styles next to color and text styles. Any frame or page exports to PDF from the Export panel, exactly as in Figma.
