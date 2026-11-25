@@ -30,6 +30,8 @@ use std::sync::Arc;
 ///   badge and Studio's own carrier entries), the effect style link of an instance (written from the main's link and the style's
 ///   content), and the child layout keys that read the parent (the parent's direction, the ids of its grid tracks). A layer
 ///   whose own value is unchanged can still be written differently after its parent or its style was edited.
+/// - The grid track definitions (`gridColumns`, `gridRows` and their sizings): Studio gives every track a fresh id on every save
+///   and writes the anchors of the children with them, so the definitions and the anchors have to come from the same writer.
 /// - Every field whose name starts with `derived`: a cache of the layer's content, its children or its main.
 pub(crate) const NOT_WRITTEN_FROM_THE_STORE: &[&str] = &[
     "componentPropDefs",
@@ -53,6 +55,10 @@ pub(crate) const NOT_WRITTEN_FROM_THE_STORE: &[&str] = &[
     "gridChildVerticalAlign",
     "gridColumnAnchor",
     "gridRowAnchor",
+    "gridColumns",
+    "gridRows",
+    "gridColumnsSizing",
+    "gridRowsSizing",
 ];
 
 /// Whether a field named `name` is written from the store.
@@ -63,14 +69,19 @@ fn is_written_from_the_store(name: &str) -> bool {
 /// A field that holds a number of the file's blob table.
 const BLOB_FIELDS: &[&str] = &["commandsBlob", "vectorNetworkBlob", "dataBlob"];
 
+/// Fields that hold an id as a string: a node id (`"session:local"`) or the hash of media.
+const STRING_ID_FIELDS: &[&str] = &["nodeId", "mediaHash"];
+
 /// The edited layers a report names.
 const MAX_EDITED_SAMPLES: usize = 20;
 
 /// What one save wrote from the store, counted.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct KeptWriteReport {
-    /// Layers whose kept fields were written.
+    /// Layers with at least one kept field written.
     pub nodes_written: usize,
+    /// Layers written from the store that also had a kept field left out, so their record mixes the store's fields and Studio's.
+    pub nodes_partial: usize,
     /// Layers the store has a record for whose value is no longer the one the file had: Studio's own record is written.
     pub nodes_edited: usize,
     /// Layers the store has a record for that this save writes under another guid: Studio's own record is written.
@@ -79,7 +90,7 @@ pub struct KeptWriteReport {
     pub fields_written: usize,
     /// Kept fields left out, by why. Studio's own field (if it writes one) is written instead.
     pub fields_dropped_by_reason: BTreeMap<&'static str, usize>,
-    /// Records written whole from the store.
+    /// Layers written from the store with no kept field left out.
     pub records_written: usize,
     /// The first edited layers, to tell a layer a person edited from one the open itself changed.
     pub edited_sample: Vec<NodeId>,
@@ -156,6 +167,7 @@ fn id_bearing_defs(schema: &Schema) -> Vec<bool> {
             let hit = matches!(d.name.as_str(), "GUID" | "Image" | "Video")
                 || d.fields.iter().any(|f| match f.ty {
                     FieldType::Native(Native::Uint) => BLOB_FIELDS.contains(&&*f.name),
+                    FieldType::Native(Native::String) => STRING_ID_FIELDS.contains(&&*f.name),
                     FieldType::Def(c) => reach.get(c).copied().unwrap_or(false),
                     FieldType::Native(_) => false,
                 });
@@ -186,6 +198,7 @@ impl KeptState {
                         let decode = match f.ty {
                             FieldType::Def(c) => reach.get(c).copied().unwrap_or(false),
                             FieldType::Native(Native::Uint) => BLOB_FIELDS.contains(&&*f.name),
+                            FieldType::Native(Native::String) => STRING_ID_FIELDS.contains(&&*f.name),
                             FieldType::Native(_) => false,
                         };
                         (f.value, FieldPlan { name: f.name.clone(), written: is_written_from_the_store(&f.name), decode })
@@ -236,9 +249,11 @@ pub(crate) struct Applied {
 pub(crate) fn apply(cx: &mut ExportCtx<'_>, rec: KeptRecordRef<'_>, fields: &mut Vec<(Arc<str>, V)>) -> Applied {
     let Some(plan) = cx.kept.plan.clone() else { return Applied { text_data: false } };
     let mut applied = Applied { text_data: false };
+    let (mut written_here, mut dropped_here) = (0usize, 0usize);
     for (no, bytes) in rec.fields() {
         let Some(fp) = plan.fields.get(&no) else {
             cx.kept.report.drop_field("field_unknown_to_the_schema");
+            dropped_here += 1;
             continue;
         };
         if !fp.written {
@@ -249,6 +264,7 @@ pub(crate) fn apply(cx: &mut ExportCtx<'_>, rec: KeptRecordRef<'_>, fields: &mut
                 Ok(v) => v,
                 Err(reason) => {
                     cx.kept.report.drop_field(reason);
+                    dropped_here += 1;
                     continue;
                 }
             }
@@ -263,9 +279,16 @@ pub(crate) fn apply(cx: &mut ExportCtx<'_>, rec: KeptRecordRef<'_>, fields: &mut
             applied.text_data = true;
         }
         cx.kept.report.fields_written += 1;
+        written_here += 1;
     }
-    cx.kept.report.nodes_written += 1;
-    cx.kept.report.records_written += 1;
+    if written_here > 0 {
+        cx.kept.report.nodes_written += 1;
+        if dropped_here == 0 {
+            cx.kept.report.records_written += 1;
+        } else {
+            cx.kept.report.nodes_partial += 1;
+        }
+    }
     applied
 }
 
@@ -322,6 +345,14 @@ fn classify(path: &[Arc<str>]) -> Option<IdKind> {
         | ["ancestorPathBeforeDeletion", "#"] => Some(IdKind::Definition),
         _ => None,
     }
+}
+
+/// Whether the node a kept reference names is written by this save under that guid: attached, owner of the record the guid
+/// belongs to (a copy that carries the same source id is not).
+fn node_reference_is_written(cx: &mut ExportCtx<'_>, g: (u32, u32)) -> bool {
+    let doc = cx.doc;
+    let Some(nid) = cx.node_with_guid(g) else { return false };
+    is_attached(doc, nid) && doc.fig_kept.record_of_node(nid).is_some_and(|r| r.guid() == g)
 }
 
 fn guid_of(fields: &[(Arc<str>, V)]) -> Option<(u32, u32)> {
@@ -398,8 +429,7 @@ fn walk(cx: &mut ExportCtx<'_>, maps: &IdMaps, value: &mut V, path: &mut Vec<Arc
             let mapped = match kind {
                 IdKind::Definition => g,
                 IdKind::Node => {
-                    let written = cx.node_with_guid(g).is_some_and(|nid| is_attached(cx.doc, nid)) && cx.doc.fig_kept.record_by_guid(g).is_some();
-                    if !written {
+                    if !node_reference_is_written(cx, g) {
                         return Err("node_not_written");
                     }
                     g
@@ -417,6 +447,17 @@ fn walk(cx: &mut ExportCtx<'_>, maps: &IdMaps, value: &mut V, path: &mut Vec<Arc
             for (name, v) in fields.iter_mut() {
                 match (&**name, &mut *v) {
                     (n, V::Uint(old)) if BLOB_FIELDS.contains(&n) => *old = add_kept_blob(cx, *old).ok_or("blob_missing")?,
+                    ("nodeId", V::String(id)) => {
+                        let g = parse_guid_pair(id).ok_or("string_id_not_a_guid")?;
+                        if !node_reference_is_written(cx, g) {
+                            return Err("node_not_written");
+                        }
+                    }
+                    ("mediaHash", V::String(hash)) => {
+                        if !hash.is_empty() && !cx.doc.images.contains_key(hash.as_str()) {
+                            return Err("image_not_written");
+                        }
+                    }
                     ("hash", V::Bytes(hash)) => {
                         if let Err(reason) = check_image_hash(cx, path, hash) {
                             if reason == "hash_at_an_unlisted_path" {
