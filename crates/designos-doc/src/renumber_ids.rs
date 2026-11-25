@@ -38,7 +38,7 @@ impl Document {
         // A counter past the limit carries no history worth keeping; a lower one is never moved back.
         let counter = if self.next_id > LAST_SAFE_ID { 0 } else { self.next_id };
         self.next_id = counter.max(largest);
-        self.mark_full_dirty();
+        self.bump_full_epoch();
         remapped
     }
 

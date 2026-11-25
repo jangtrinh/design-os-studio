@@ -20,6 +20,7 @@ mod grid;
 mod kept_derived;
 mod kept_fields;
 mod kept_overrides;
+mod prop_ids;
 pub(crate) use carrier::{CARRIED_FIELDS, CARRIER_KEY_PREFIX};
 pub use kept_fields::KeptWriteReport;
 
@@ -433,6 +434,7 @@ struct ExportCtx<'a> {
     blobs: Vec<Vec<u8>>,
     changes: Vec<V>,
     kept: kept_fields::KeptState,
+    prop_ids: prop_ids::PropIds,
 }
 
 /// Glyph blob indices are counted from here while nodes are written, far above any real blob table, and then
@@ -554,6 +556,7 @@ impl<'a> ExportCtx<'a> {
             blobs: Vec::new(),
             changes: Vec::new(),
             kept: kept_fields::KeptState::new(doc, schema, nc_def),
+            prop_ids: Default::default(),
         };
         let bump_next_local = |next_local: &mut u32, local: u32| {
             if let Some(next) = local.checked_add(1) {
@@ -769,6 +772,9 @@ impl<'a> ExportCtx<'a> {
                 bump_next_local(&mut cx.next_local, g.1);
             }
         }
+        // The ids the file's records give component property definitions are spent as well: Figma's id for a definition is kept, so no
+        // fresh guid may take one.
+        let kept_prop_defs = prop_ids::reserve_file_defs(&mut cx);
         // Second pass: allocate fresh GUIDs for anything without an explicit `s:l`.
         for &id in doc.nodes.keys() {
             if !cx.node_guids.contains_key(&id) {
@@ -824,12 +830,8 @@ impl<'a> ExportCtx<'a> {
                 cx.style_guids.insert(id.clone(), g);
             }
         }
-        for (&id, n) in &doc.nodes {
-            for p in &n.component.props {
-                let g = cx.alloc_guid(4);
-                cx.prop_guids.insert((id, p.name.clone()), g);
-            }
-        }
+        prop_ids::assign(&mut cx, kept_prop_defs);
+        kept_fields::index_override_keys(&mut cx);
         for (ext_key, asset) in &doc.library.external {
             if let Some(nid) = asset.node {
                 let prefix = format!("{}:", asset.library_id);
@@ -1005,44 +1007,6 @@ impl<'a> ExportCtx<'a> {
 
     fn resolve_coll_guid(&self, id: &str) -> Option<(u32, u32)> {
         self.coll_guids.get(id).copied().or_else(|| self.coll_guids.get(&format!("VariableCollectionId:{id}")).copied()).or_else(|| parse_guid_pair(id))
-    }
-
-    fn resolve_prop_guid(&self, scope_node: NodeId, prop_name: &str) -> (u32, u32) {
-        if let Some(rest) = prop_name.strip_prefix("propDefId:") {
-            if let Some(g) = parse_guid_pair(rest) {
-                return g;
-            }
-        }
-        let key = prop_name.split('#').next().unwrap_or(prop_name).to_string();
-        let mut cur = Some(scope_node);
-        while let Some(c) = cur {
-            if let Some(&g) = self.prop_guids.get(&(c, key.clone())) {
-                return g;
-            }
-            if let Some(n) = self.doc.get(c) {
-                if let NodeKind::Instance { component: Some(master_id), .. } = n.kind {
-                    if let Some(&g) = self.prop_guids.get(&(master_id, key.clone())) {
-                        return g;
-                    }
-                    if let Some(set_id) = self.doc.get(master_id).and_then(|m| m.parent) {
-                        if let Some(&g) = self.prop_guids.get(&(set_id, key.clone())) {
-                            return g;
-                        }
-                    }
-                }
-                cur = n.parent;
-            } else {
-                break;
-            }
-        }
-        if let Some((_, &g)) = self.prop_guids.iter().find(|((_, name), _)| name == &key) {
-            return g;
-        }
-        let mut h = 2166136261u32;
-        for b in key.as_bytes() {
-            h = (h ^ (*b as u32)).wrapping_mul(16777619);
-        }
-        (4, h.max(1))
     }
 }
 
@@ -1764,6 +1728,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         _ => None,
     };
     // a connector lowered to plain shapes is not the record the file held
+    kept_fields::begin_layer(cx);
     let kept_record = if lowered_conn.is_none() { kept_fields::select(cx, doc, id, nguid) } else { None };
     let (ty, is_state_group) = match &node.kind {
         NodeKind::Page { .. } => ("CANVAS", false),
@@ -1900,7 +1865,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     if node.component.is_slot_content {
         fields.push(("isSlotContent", V::Bool(true)));
     }
-    if let Some(src) = authored_source_guid(cx, id) {
+    if let Some(src) = kept_fields::kept_override_key(cx, id).or_else(|| authored_source_guid(cx, id)) {
         fields.push(("overrideKey", guid(src.0, src.1)));
     } else if in_component {
         fields.push(("overrideKey", guid(nguid.0, nguid.1)));
@@ -2363,7 +2328,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             }) else {
                 continue;
             };
-            let def_g = cx.resolve_prop_guid(id, prop_name);
+            let def_g = cx.resolve_binding_guid(id, prop_name);
             prop_refs.push(msg(vec![("defID", guid(def_g.0, def_g.1)), ("componentPropNodeField", en(node_field))]));
         }
         if !prop_refs.is_empty() {
@@ -2377,7 +2342,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         let mut legacy = Vec::new();
         let mut name_lost = false;
         for (prop_name, val) in &node.component.variant_props {
-            let def_g = cx.resolve_prop_guid(id, prop_name);
+            let def_g = cx.resolve_spec_guid(id, prop_name);
             let bare_name =
                 prop_name.strip_prefix("propDefId:").map(|_| String::new()).unwrap_or_else(|| prop_name.split('#').next().unwrap_or(prop_name).to_string());
             vspecs.push(msg(vec![("propDefId", guid(def_g.0, def_g.1)), ("value", V::String(val.clone()))]));
@@ -2391,7 +2356,9 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         if name_lost {
             carried.push(("variantPropSpecs", serde_json::Value::Array(legacy)));
         }
-        fields.push(("variantPropSpecs", V::Array(vspecs)));
+        if !vspecs.is_empty() {
+            fields.push(("variantPropSpecs", V::Array(vspecs)));
+        }
     }
 
     // Geometry blobs.
@@ -2695,7 +2662,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     if let Some(existing_pcm) = node.fig_metadata.get("parameterConsumptionMap") {
         if let Ok(existing_val) = serde_json::from_str::<serde_json::Value>(existing_pcm) {
             if let Some(arr) = existing_val.get("entries").and_then(serde_json::Value::as_array) {
-                pcm_entries.extend(arr.iter().cloned());
+                pcm_entries.extend(cx.route_metadata_prop_refs(id, arr.to_vec()));
             }
         }
     }
@@ -2708,7 +2675,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     // The original `commandsBlob` numbers refer to the imported file's blob table. Re-index them into this
     // export's table before writing derived text. An edited text layer must not export its stale glyph cache.
     // Only a layer that carries derived text pays for a copy of its metadata.
-    let applied = kept_record.map(|rec| kept_fields::apply(cx, rec, &mut msg_fields));
+    let applied = kept_record.map(|rec| kept_fields::apply(cx, id, rec, &mut msg_fields));
+    kept_fields::fold_unresolved(cx, applied.as_ref());
     let figma_style_ids = applied.as_ref().is_some_and(|a| a.text_data);
     let derived_text_meta =
         (matches!(&node.kind, NodeKind::Text(_)) && (node.fig_text_geometry.is_some() || node.fig_metadata.contains_key("derivedTextData"))).then(|| {
@@ -2719,7 +2687,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             meta.remove("derivedTextData");
             meta
         });
-    append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, derived_text_meta.as_ref().unwrap_or(&node.fig_metadata));
+    // the consumption map was written above from the same metadata, entry by entry: what it left out stays out
+    append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, derived_text_meta.as_ref().unwrap_or(&node.fig_metadata), &["parameterConsumptionMap"]);
     cx.changes.push(V::Message(msg_fields));
 
     if let Some((lc, carrier_val)) = lowered_conn {
@@ -2852,7 +2821,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             }
             if let Some(meta_obj) = meta_obj {
                 let meta_btree: BTreeMap<String, String> = meta_obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect();
-                append_fig_metadata(cx.schema, cx.nc_def, &mut t_msg_fields, &meta_btree);
+                append_fig_metadata(cx.schema, cx.nc_def, &mut t_msg_fields, &meta_btree, &[]);
             }
             cx.changes.push(V::Message(t_msg_fields));
 
@@ -2893,7 +2862,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 if let Some(kf_meta_obj) = kf_meta_obj {
                     let k_meta_btree: BTreeMap<String, String> =
                         kf_meta_obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect();
-                    append_fig_metadata(cx.schema, cx.nc_def, &mut k_msg_fields, &k_meta_btree);
+                    append_fig_metadata(cx.schema, cx.nc_def, &mut k_msg_fields, &k_meta_btree, &[]);
                 }
                 cx.changes.push(V::Message(k_msg_fields));
             }
@@ -3339,8 +3308,14 @@ fn authored_source_node(doc: &Document, id: NodeId) -> Option<NodeId> {
     origin
 }
 
+/// The key the overrides of an instance use for the layer `id`: the key the file gave the layer of the main it was made from, else
+/// that layer's guid.
 fn authored_source_guid(cx: &ExportCtx<'_>, id: NodeId) -> Option<(u32, u32)> {
     let orig = authored_source_node(cx.doc, id)?;
+    // a layer the file gave no key (the null guid) is addressed by its own guid, as the loader reads it
+    if let Some(k) = kept_fields::kept_override_key(cx, orig).filter(|k| *k != (u32::MAX, u32::MAX)) {
+        return Some(k);
+    }
     if let Some(g) = cx.doc.get(orig).and_then(|n| n.source_id.as_deref()).and_then(|s| s.rsplit(';').next()).and_then(parse_guid_pair) {
         return Some(g);
     }
@@ -3728,7 +3703,7 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
             if has_nested_prop_ov {
                 let mut prop_assigns = Vec::new();
                 for (prop_name, pval) in &n.component.values {
-                    let def_g = cx.resolve_prop_guid(cid, prop_name);
+                    let def_g = cx.resolve_nested_assignment_guid(cid, prop_name);
                     let val_msg = match pval {
                         PropValue::Bool(b) => msg(vec![("boolValue", V::Bool(*b))]),
                         PropValue::Text(s) | PropValue::Variant(s) => msg(vec![("textValue", msg(vec![("characters", V::String(s.clone()))]))]),
@@ -4386,12 +4361,18 @@ fn encode_slot_prop_config(cfg: &designos_doc::SlotPropConfig) -> V {
     msg(f)
 }
 
-fn append_fig_metadata(schema: &crate::kiwi::Schema, nc_def: usize, fields: &mut Vec<(std::sync::Arc<str>, V)>, meta: &BTreeMap<String, String>) {
+fn append_fig_metadata(
+    schema: &crate::kiwi::Schema,
+    nc_def: usize,
+    fields: &mut Vec<(std::sync::Arc<str>, V)>,
+    meta: &BTreeMap<String, String>,
+    skip: &[&str],
+) {
     if meta.is_empty() {
         return;
     }
     for (k, v) in meta {
-        if v.is_empty() || fields.iter().any(|(existing, _)| &**existing == k.as_str()) {
+        if v.is_empty() || skip.contains(&k.as_str()) || fields.iter().any(|(existing, _)| &**existing == k.as_str()) {
             continue;
         }
         if let Some(pair) = nc_field_from_metadata(schema, nc_def, k, v) {
@@ -5134,7 +5115,7 @@ mod held_back_tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         let mut fields = Vec::new();
-        append_fig_metadata(schema, nc, &mut fields, &meta);
+        append_fig_metadata(schema, nc, &mut fields, &meta, &[]);
         let names: Vec<&str> = fields.iter().map(|(k, _)| &**k).collect();
         assert_eq!(names, ["key"]);
     }
