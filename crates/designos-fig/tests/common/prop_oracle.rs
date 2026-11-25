@@ -252,3 +252,25 @@ pub fn counts(v: &[Violation]) -> BTreeMap<&'static str, usize> {
     }
     m
 }
+
+/// How many references to a property id the records hold.
+pub fn reference_count(records: &[V]) -> usize {
+    records.iter().map(|r| references(r).len()).sum()
+}
+
+/// What the original file said, and what the oracle found in it: the baseline a saved file is compared with.
+pub struct Baseline {
+    pub was: Original,
+    pub before: Vec<Violation>,
+    pub references: usize,
+}
+
+pub fn baseline(original_records: &[V]) -> Baseline {
+    let was = original(original_records);
+    let before = check(original_records, &was);
+    Baseline { references: reference_count(original_records), was, before }
+}
+
+pub fn new_against(saved: &[V], base: &Baseline) -> Vec<Violation> {
+    check(saved, &base.was).into_iter().filter(|v| !base.before.iter().any(|b| b.same_as(v))).collect()
+}
