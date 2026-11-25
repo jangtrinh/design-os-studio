@@ -224,3 +224,48 @@ fn the_schema_an_export_embeds_holds_figmas_whole_node_change_tree() {
     let (own_nc, figma_nc) = (embedded.find("NodeChange").unwrap(), figma.find("NodeChange").unwrap());
     assert!(embedded.same_definition(own_nc, &figma, figma_nc), "the embedded NodeChange tree equals Figma's");
 }
+
+#[test]
+fn a_nested_override_two_levels_deep_never_gains_a_held_back_field() {
+    // an override of an override of an override: each level states its own text and carries fields held back
+    let held = |level: u64| {
+        json!({
+            "textUserLayoutVersion": 5 + level,
+            "fontVersion": "1",
+            "prototypeInteractions": [{"id": guid(7, level), "event": {"interactionType": "ON_CLICK"}, "actions": []}],
+        })
+    };
+    let with_held = |mut entry: Value, level: u64| {
+        for (k, v) in held(level).as_object().unwrap() {
+            entry[k] = v.clone();
+        }
+        entry
+    };
+    let deepest = json!({"guidPath": {"guids": [guid(ICON.0, ICON.1)]}, "visible": false});
+    let middle = json!({
+        "guidPath": {"guids": [guid(LABEL.0, LABEL.1)]},
+        "textData": {"characters": "Go back"},
+        "symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1), "symbolOverrides": [with_held(deepest.clone(), 3)]},
+    });
+    let outer = json!({
+        "guidPath": {"guids": [guid(VARIANT.0, VARIANT.1)]},
+        "symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1), "symbolOverrides": [with_held(middle.clone(), 2)]},
+    });
+    let input = deferred_file(json!([with_held(outer.clone(), 1)]));
+    let in_file = instance_entries(&input);
+    let level2 = &in_file[0]["symbolData"]["symbolOverrides"][0];
+    let level3 = &level2["symbolData"]["symbolOverrides"][0];
+    for (what, entry) in [("outer", &in_file[0]), ("middle", level2), ("deepest", level3)] {
+        assert!(entry.get("textUserLayoutVersion").is_some() && entry.get("prototypeInteractions").is_some(), "the input's {what} entry holds the fields");
+    }
+
+    let doc = import_fig(&input).expect("import");
+    let saved = instance_entries(&export_fig(&doc).expect("export"));
+    let (outer_out, middle_out) = (&saved[0], &saved[0]["symbolData"]["symbolOverrides"][0]);
+    let deepest_out = &middle_out["symbolData"]["symbolOverrides"][0];
+    for (what, entry) in [("outer", outer_out), ("middle", middle_out), ("deepest", deepest_out)] {
+        assert_lacks(entry, &["textUserLayoutVersion", "fontVersion", "prototypeInteractions"], what);
+    }
+    assert_eq!(middle_out["textData"]["characters"], json!("Go back"), "the rest of the middle entry is kept");
+    assert_eq!(deepest_out["visible"], json!(false), "the rest of the deepest entry is kept");
+}
