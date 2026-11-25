@@ -210,7 +210,9 @@ pub fn check(saved: &[V], was: &Original) -> Vec<Violation> {
     for r in saved {
         let Some(at) = r.get("guid").and_then(pair) else { continue };
         for (key, id, assignment) in references(r) {
-            let owner = if assignment { tree.assignment_owner(at) } else { tree.binding_owner(at) };
+            // the picks of an instance, like its assignments, name properties of the set of its main
+            let is_instance = tree.rec.get(&at).is_some_and(|r| ty(r) == "INSTANCE");
+            let owner = if assignment || (key == "variantPropSpecs" && is_instance) { tree.assignment_owner(at) } else { tree.binding_owner(at) };
             let Some(owner) = owner else { continue };
             match defined_by.get(&id) {
                 Some(owners) if owners.contains(&owner) => {
