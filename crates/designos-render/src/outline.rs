@@ -94,11 +94,22 @@ pub fn has_dashes(s: &d::Stroke) -> bool {
     !s.dashes.is_empty() && s.dashes.iter().all(|d| *d >= 0.0) && s.dashes.iter().sum::<f32>() > 0.0
 }
 
-/// Whether the dashes of `n` follow Figma's rule of one pattern per segment (see [`crate::dash`]): a dashed
-/// stroke of anything but a flattened boolean result, whose short lines are not Figma's segments, and text, whose
-/// glyph outlines the kit gives no dashed stroke to measure.
+/// Whether the dashes of `n` follow Figma's rule of one pattern per segment (see [`crate::dash`]). Not for a flattened
+/// boolean result, whose short lines are not Figma's segments; not for text, ellipses and FigJam items, which the kit
+/// gives no dashed stroke that fits the rule (its four dashed ellipses store 16 dots whatever their size, and it holds
+/// no dashed connector or shape with text), so they keep the continuous dash.
 pub fn dashes_by_segment(n: &Node) -> bool {
-    has_dashes(&n.stroke) && !matches!(n.kind, d::NodeKind::BooleanOp(_) | d::NodeKind::Text(_))
+    has_dashes(&n.stroke)
+        && !matches!(
+            n.kind,
+            d::NodeKind::BooleanOp(_)
+                | d::NodeKind::Text(_)
+                | d::NodeKind::Ellipse(_)
+                | d::NodeKind::Sticky(_)
+                | d::NodeKind::Connector(_)
+                | d::NodeKind::ShapeWithText(_)
+                | d::NodeKind::Stamp { .. }
+        )
 }
 
 /// Strokes `path` as `n` strokes it at line width `width`, each dash following Figma's rule where that applies.

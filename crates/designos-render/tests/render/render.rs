@@ -852,9 +852,8 @@ fn thin_inside_dashed_rect_keeps_stroke() {
 #[test]
 fn inside_dashed_ellipse_round_cap_extends_past_dash_end() {
     let mut t = T::new();
-    // Circle of radius 40 centered at (50, 50). The path starts at (90, 50) and runs clockwise in four quarter arcs of
-    // 62.8, each one period (the pattern 40, 20 stretched by 1.05): a dash of 41.9 is centred on every vertex of the
-    // circle, half of it on each arc, and the gap between two of them, 20.9, is centred on the middle of the arc, (78.3, 78.3).
+    // Circle of radius 40 centered at (50, 50). The dash path starts at (90, 50) and runs clockwise, so the first
+    // 40px dash ends at (71.6, 83.7). The gap, 20px, is longer than twice the weight.
     let e = t.add(None, |id| {
         let mut n = Node::ellipse(id, Rect::new(10.0, 10.0, 80.0, 80.0));
         n.fills.clear();
@@ -866,14 +865,14 @@ fn inside_dashed_ellipse_round_cap_extends_past_dash_end() {
         n
     });
     let pm_round = t.render(100, 100);
-    assert_eq!(px(&pm_round, 87, 53), [255, 0, 0, 255], "inside dash body is painted at (87, 53)");
-    assert_eq!(px(&pm_round, 82, 70), [255, 0, 0, 255], "round cap is painted 1.7px past the end of the first half dash at (82, 70)");
-    assert_eq!(px(&pm_round, 76, 76), WHITE, "middle of the gap is unpainted at (76, 76)");
+    assert_eq!(px(&pm_round, 83, 68), [255, 0, 0, 255], "inside dash body is painted at (83, 68)");
+    assert_eq!(px(&pm_round, 68, 83), [255, 0, 0, 255], "round cap is painted 2.6px past the dash end at (68, 83)");
+    assert_eq!(px(&pm_round, 61, 86), WHITE, "middle of the gap is unpainted at (61, 86)");
 
     t.node(e).stroke.cap = StrokeCap::None;
     let pm_butt = t.render(100, 100);
-    assert_eq!(px(&pm_butt, 87, 53), [255, 0, 0, 255], "butt dash body is painted at (87, 53)");
-    assert_eq!(px(&pm_butt, 82, 70), WHITE, "butt dash ends at the dash end so (82, 70) is unpainted");
+    assert_eq!(px(&pm_butt, 83, 68), [255, 0, 0, 255], "butt dash body is painted at (83, 68)");
+    assert_eq!(px(&pm_butt, 68, 83), WHITE, "butt dash ends at the dash end so (68, 83) is unpainted");
 }
 
 #[test]

@@ -900,18 +900,18 @@ fn inside_dashed_ellipse_round_cap_extends_past_dash_end_gpu() {
     let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
     let c = compare(&mut g, "inside_dashed_ellipse_round_cap", &t.doc, t.page, vp, (100, 100), 8);
     assert!(c.report_aa.ratio < 0.005, "mismatch with AA forgiven {:.3}%", c.report_aa.ratio * 100.0);
-    let body = c.gpu.pixel(87, 53).unwrap();
-    assert_eq!([body.red(), body.green(), body.blue(), body.alpha()], [255, 0, 0, 255], "GPU inside dash body painted at (87, 53)");
-    let cap = c.gpu.pixel(82, 70).unwrap();
-    assert_eq!([cap.red(), cap.green(), cap.blue(), cap.alpha()], [255, 0, 0, 255], "GPU round cap painted 1.7px past the dash end at (82, 70)");
-    let gap = c.gpu.pixel(76, 76).unwrap();
-    assert_eq!([gap.red(), gap.green(), gap.blue(), gap.alpha()], [255, 255, 255, 255], "GPU middle of the gap white at (76, 76)");
+    let body = c.gpu.pixel(83, 68).unwrap();
+    assert_eq!([body.red(), body.green(), body.blue(), body.alpha()], [255, 0, 0, 255], "GPU inside dash body painted at (83, 68)");
+    let cap = c.gpu.pixel(68, 83).unwrap();
+    assert_eq!([cap.red(), cap.green(), cap.blue(), cap.alpha()], [255, 0, 0, 255], "GPU round cap painted 2.6px past the dash end at (68, 83)");
+    let gap = c.gpu.pixel(61, 86).unwrap();
+    assert_eq!([gap.red(), gap.green(), gap.blue(), gap.alpha()], [255, 255, 255, 255], "GPU middle of the gap white at (61, 86)");
 
     t.node(e).stroke.cap = StrokeCap::None;
     g.compiler.geom.clear();
     let c_butt = compare(&mut g, "inside_dashed_ellipse_butt_cap", &t.doc, t.page, vp, (100, 100), 8);
-    let butt = c_butt.gpu.pixel(82, 70).unwrap();
-    assert_eq!([butt.red(), butt.green(), butt.blue(), butt.alpha()], [255, 255, 255, 255], "GPU butt dash ends at the dash end so (82, 70) is white");
+    let butt = c_butt.gpu.pixel(68, 83).unwrap();
+    assert_eq!([butt.red(), butt.green(), butt.blue(), butt.alpha()], [255, 255, 255, 255], "GPU butt dash ends at the dash end so (68, 83) is white");
 }
 
 fn png_bytes(w: u32, h: u32, f: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
