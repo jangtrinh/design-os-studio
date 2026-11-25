@@ -239,7 +239,9 @@ fn a_record_or_blob_that_names_bytes_outside_the_arena_is_dropped_and_counted() 
     assert_eq!(store.counts().dropped_kept_records, 2);
     assert_eq!(store.counts().records_kept, 1);
     assert_eq!(store.blob(0).map(<[u8]>::len), Some(8));
-    assert_eq!(store.blob(1).map(<[u8]>::len), Some(0), "an out-of-range blob slot reads as empty");
+    assert!(store.blob(1).is_none(), "an out-of-range blob slot is absent, not empty");
+    assert_eq!(store.counts().dropped_blob_slots, 1);
+    assert_eq!(store.blob_count(), 2, "the numbering of the table is kept");
 }
 
 #[test]
@@ -327,4 +329,27 @@ fn a_layout_after_an_edit_is_not_blessed_and_a_node_edited_before_the_settle_sta
     doc.pending_relayout.push(parent);
     while doc.flush_pending_relayout_step() > 0 {}
     assert_eq!(doc.fig_kept_node_matches_snapshot(kids[0]), Some(false));
+}
+
+#[test]
+fn a_loader_step_moves_snapshots_in_place_and_a_shared_store_is_copied_only_for_the_one_that_writes() {
+    let (mut doc, ids) = document_with_store(3);
+    let at = Arc::as_ptr(&doc.fig_kept);
+    let (_, written) = doc.record_fig_kept_writes(|d| d.get_mut(ids[0]).unwrap().size.x += 40.0);
+    doc.advance_fig_kept_snapshots(&written);
+    assert_eq!(doc.fig_kept_node_matches_snapshot(ids[0]), Some(true));
+    assert_eq!(Arc::as_ptr(&doc.fig_kept), at, "the store was written in place, not rebuilt");
+    doc.finish_fig_kept_settle();
+    assert_eq!(Arc::as_ptr(&doc.fig_kept), at, "ending the settle copies nothing either");
+
+    // a clone shares the store; the document that writes gets its own copy, the other keeps what it had
+    let mut other = doc.clone();
+    assert!(Arc::ptr_eq(&doc.fig_kept, &other.fig_kept));
+    let (_, written) = doc.record_fig_kept_writes(|d| d.get_mut(ids[1]).unwrap().size.x += 40.0);
+    doc.advance_fig_kept_snapshots(&written);
+    assert!(!Arc::ptr_eq(&doc.fig_kept, &other.fig_kept));
+    assert!(doc.fig_kept.shares_data_with(&other.fig_kept), "the arena and records are still shared");
+    assert_eq!(doc.fig_kept_node_matches_snapshot(ids[1]), Some(true));
+    other.get_mut(ids[1]).unwrap().size.x += 40.0;
+    assert_eq!(other.fig_kept_node_matches_snapshot(ids[1]), Some(false), "the clone's snapshot did not move");
 }

@@ -31,6 +31,11 @@ pub struct BlobSlot {
     pub len: u32,
 }
 
+impl BlobSlot {
+    /// A slot that names no bytes: the entry of the blob table it stood for pointed outside the arena.
+    pub const ABSENT: BlobSlot = BlobSlot { offset: u32::MAX, len: u32::MAX };
+}
+
 /// What a record is: a layer, whose structural fields (`guid`, `phase`, `parentIndex`) the tree writer owns and are not
 /// kept, or any other record (a page, the document, a style, a variable), kept whole.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,6 +87,8 @@ pub struct KeptCounts {
     /// decode (0 when they did not fit and were left out).
     pub decode_values_left: usize,
     pub kept_extra_values_charged: usize,
+    /// Entries of the blob table whose slot pointed outside the arena: they read as absent.
+    pub dropped_blob_slots: usize,
     /// Records left out because they passed a bound (their size, their field count, the arena's size or the disk budget) or
     /// held a range the arena does not.
     pub dropped_kept_records: usize,
@@ -117,7 +124,17 @@ impl KeptData {
             by_guid.entry(rec.guid).or_insert(kept.len() as u32);
             kept.push(rec);
         }
-        let mut blobs: Vec<BlobSlot> = blobs.into_iter().map(|b| if fits(b.offset, b.len) { b } else { BlobSlot { offset: 0, len: 0 } }).collect();
+        let mut blobs: Vec<BlobSlot> = blobs
+            .into_iter()
+            .map(|b| {
+                if fits(b.offset, b.len) {
+                    b
+                } else {
+                    counts.dropped_blob_slots += 1;
+                    BlobSlot::ABSENT
+                }
+            })
+            .collect();
         // the vectors grew by doubling while the capture ran; what is kept for the life of the document holds no spare room
         fields.shrink_to_fit();
         kept.shrink_to_fit();
@@ -246,7 +263,7 @@ impl FigKeptStore {
 
     /// The bytes of entry `index` of the file's blob table.
     pub fn blob(&self, index: usize) -> Option<&[u8]> {
-        let slot = self.data.blobs.get(index)?;
+        let slot = self.data.blobs.get(index).filter(|s| **s != BlobSlot::ABSENT)?;
         self.data.arena.bytes().get(slot.offset as usize..slot.offset as usize + slot.len as usize)
     }
 
@@ -369,7 +386,7 @@ impl Document {
     /// Ends the open-time settle: the snapshot is the file's own value from here on, and nothing moves it but a page load.
     pub fn finish_fig_kept_settle(&mut self) {
         if self.fig_kept.snapshot_due_after_settle() {
-            self.fig_kept = Arc::new((*self.fig_kept).clone().with_snapshot_due_after_settle(false));
+            Arc::make_mut(&mut self.fig_kept).snapshot_due_after_settle = false;
         }
     }
 
@@ -401,13 +418,13 @@ impl Document {
         if moved.is_empty() {
             return;
         }
-        let mut store = (*self.fig_kept).clone();
+        // in place while this document holds the only handle; a document that shares the store with a clone copies it once
+        let store = Arc::make_mut(&mut self.fig_kept);
         for (id, snapshot) in moved {
             if let Some(n) = store.nodes.get_mut(&id) {
                 n.snapshot = snapshot;
             }
         }
-        self.fig_kept = Arc::new(store);
     }
 
     /// Runs a page load `f`, and returns the nodes it wrote as they were before: those are the nodes whose snapshot may move
