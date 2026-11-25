@@ -651,9 +651,17 @@ impl App {
     /// reports the work still queued. True while subtrees remain, so the caller keeps repainting.
     pub fn step_pending_relayout(&mut self) -> bool {
         if self.doc.pending_relayout().is_empty() {
+            // the layout the open of a `.fig` left to settle is done (or there was none)
+            self.doc.finish_fig_kept_settle();
             return false;
         }
-        let remaining = self.doc.flush_pending_relayout_step();
+        // While the open-time layout settles, the nodes the solver writes keep their snapshot of the file's value (a node
+        // anyone edited does not): the solver is rewriting what the file stored, which is not an edit.
+        let remaining =
+            if self.doc.fig_kept.snapshot_due_after_settle() { self.doc.flush_pending_relayout_step_on_open() } else { self.doc.flush_pending_relayout_step() };
+        if remaining == 0 {
+            self.doc.finish_fig_kept_settle();
+        }
         self.relayout_moved_geometry();
         remaining > 0
     }
@@ -663,9 +671,14 @@ impl App {
     /// is still queued would be stored with the stale layout and nothing would finish it on reopen.
     pub fn settle_pending_relayout(&mut self) {
         if self.doc.pending_relayout().is_empty() {
+            self.doc.finish_fig_kept_settle();
             return;
         }
-        self.doc.flush_pending_relayout();
+        if self.doc.fig_kept.snapshot_due_after_settle() {
+            self.doc.flush_pending_relayout_on_open();
+        } else {
+            self.doc.flush_pending_relayout();
+        }
         self.relayout_moved_geometry();
     }
 

@@ -1066,6 +1066,7 @@ dependencies = [
 name = "designos-doc"
 version = "0.7.17"
 dependencies = [
+ "memmap2",
  "regex",
  "schemars",
  "serde",
