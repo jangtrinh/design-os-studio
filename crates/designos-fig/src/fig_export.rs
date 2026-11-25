@@ -2473,7 +2473,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             }
         }
         NodeKind::Vector { network: Some(net), .. } if !net.vertices.is_empty() => {
-            let (blob_bytes, style_table) = encode_vector_network_blob(net);
+            let (blob_bytes, style_table) = encode_vector_network_blob(net, node.corner_radii[0]);
             let blob_idx = cx.add_blob(blob_bytes);
             let mut vd = vec![("vectorNetworkBlob", V::Uint(blob_idx)), ("normalizedSize", vec2(node.size.x, node.size.y))];
             if !style_table.is_empty() {
@@ -2515,7 +2515,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                         fields.push(("strokeGeometry", V::Array(sgs)));
                     }
                     let (blob_bytes, style_table) =
-                        encode_vector_network_blob(&crate::export::network_with_node_cap_on_open_ends(&lc.network, node.stroke.cap));
+                        encode_vector_network_blob(&crate::export::network_with_node_cap_on_open_ends(&lc.network, node.stroke.cap), 0.0);
                     let blob_idx = cx.add_blob(blob_bytes);
                     let mut vd = vec![("vectorNetworkBlob", V::Uint(blob_idx)), ("normalizedSize", vec2(node.size.x, node.size.y))];
                     if !style_table.is_empty() {
@@ -2760,7 +2760,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             if !sgs.is_empty() {
                 v_fields.push(("strokeGeometry", V::Array(sgs)));
             }
-            let (blob_bytes, style_table) = encode_vector_network_blob(&crate::export::network_with_node_cap_on_open_ends(&lc.network, node.stroke.cap));
+            let (blob_bytes, style_table) = encode_vector_network_blob(&crate::export::network_with_node_cap_on_open_ends(&lc.network, node.stroke.cap), 0.0);
             let blob_idx = cx.add_blob(blob_bytes);
             let mut vd = vec![("vectorNetworkBlob", V::Uint(blob_idx)), ("normalizedSize", vec2(node.size.x, node.size.y))];
             if !style_table.is_empty() {
@@ -3838,7 +3838,7 @@ fn encode_geometry_blobs(cx: &mut ExportCtx, paths: &[Path]) -> Vec<V> {
         .collect()
 }
 
-fn encode_vector_network_blob(net: &VectorNetwork) -> (Vec<u8>, Vec<V>) {
+fn encode_vector_network_blob(net: &VectorNetwork, node_radius: f32) -> (Vec<u8>, Vec<V>) {
     let mut b = Vec::new();
     let mut style_table = Vec::new();
     // Figma's form of an unfilled region is not written: an unfilled region is left out
@@ -3847,7 +3847,11 @@ fn encode_vector_network_blob(net: &VectorNetwork) -> (Vec<u8>, Vec<V>) {
         b.extend_from_slice(&(n as u32).to_le_bytes());
     }
     for (i, v) in net.vertices.iter().enumerate() {
-        let has_style = v.cap.is_some() || v.join.is_some() || v.corner_radius > 0.0 || v.mirror != HandleMirror::None;
+        // The importer gives every vertex the node's radius before the table; so a vertex is written only when its
+        // radius differs from it (a radius of 0 under a node radius included), or when it is above 0 with no node radius.
+        let own_radius =
+            if node_radius > 0.0 { (v.corner_radius != node_radius).then_some(v.corner_radius) } else { (v.corner_radius > 0.0).then_some(v.corner_radius) };
+        let has_style = v.cap.is_some() || v.join.is_some() || own_radius.is_some() || v.mirror != HandleMirror::None;
         let sid = if has_style {
             let id = (style_table.len() + 1) as u32;
             let mut so = vec![("styleID", V::Uint(id))];
@@ -3864,8 +3868,8 @@ fn encode_vector_network_blob(net: &VectorNetwork) -> (Vec<u8>, Vec<V>) {
                     }),
                 ));
             }
-            if v.corner_radius > 0.0 {
-                so.push(("cornerRadius", fl(v.corner_radius)));
+            if let Some(r) = own_radius {
+                so.push(("cornerRadius", fl(r)));
             }
             if v.mirror != HandleMirror::None {
                 let m = match v.mirror {
