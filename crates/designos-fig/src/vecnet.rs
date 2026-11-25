@@ -360,8 +360,7 @@ mod tests {
     fn an_imported_network_with_a_region_does_not_fill_its_other_loop_after_the_region_is_dropped() {
         let bare = network_from_json(&two_squares_json(false)).unwrap();
         assert!(bare.fills_closed_loops_without_regions);
-        assert_eq!(bare.fill_paths().len(), 1, "no regions: both loops fill, as one compound path");
-        assert_eq!(bare.fill_paths()[0].cmds.iter().filter(|c| matches!(c, designos_doc::PathCmd::MoveTo(_))).count(), 2);
+        assert_eq!(bare.fill_paths().len(), 2, "no regions: both loops fill, one path each");
         let net = network_from_json(&two_squares_json(true)).unwrap();
         assert!(!net.fills_closed_loops_without_regions);
         assert_eq!(net.fill_paths().len(), 1, "the region alone");

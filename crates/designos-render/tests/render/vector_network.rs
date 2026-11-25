@@ -189,45 +189,146 @@ fn a_region_less_kit_outline_still_fills_after_a_vertex_is_nudged() {
     assert_eq!(px(&pm, 42, 2), [255, 255, 255, 255], "the cut corner is outside it");
 }
 
-/// An imported network with no regions: a square of 80 with a square of 40 inside it, the inner one running the same
-/// way round as the outer one or the other way.
-fn imported_ring(opposite: bool) -> VectorNetwork {
+type Pt = (f32, f32);
+type Handles = (Pt, Pt);
+
+/// An imported network (marked, no regions) from closed `loops`, each its own vertices and segments; `handles` gives the
+/// bezier handles of the segments of the loop of the same index (none: straight).
+fn imported(loops: &[Vec<Pt>], handles: &[Vec<Handles>]) -> VectorNetwork {
     let mut net = VectorNetwork::default();
-    for p in [v(10.0, 10.0), v(90.0, 10.0), v(90.0, 90.0), v(10.0, 90.0), v(30.0, 30.0), v(70.0, 30.0), v(70.0, 70.0), v(30.0, 70.0)] {
-        net.add_vertex(p);
-    }
-    for (a, b) in [(0, 1), (1, 2), (2, 3), (3, 0)] {
-        net.connect(a, b).unwrap();
-    }
-    let inner = if opposite { [(4, 7), (7, 6), (6, 5), (5, 4)] } else { [(4, 5), (5, 6), (6, 7), (7, 4)] };
-    for (a, b) in inner {
-        net.connect(a, b).unwrap();
+    for (k, pts) in loops.iter().enumerate() {
+        let first = net.vertices.len();
+        for &(x, y) in pts {
+            net.add_vertex(v(x, y));
+        }
+        for i in 0..pts.len() {
+            let ((ax, ay), (bx, by)) = handles.get(k).and_then(|h| h.get(i)).copied().unwrap_or_default();
+            net.segments.push(designos_doc::vector::Segment { a: first + i, b: first + (i + 1) % pts.len(), ta: v(ax, ay), tb: v(bx, by) });
+        }
     }
     net.fills_closed_loops_without_regions = true;
     net
 }
 
-/// Giving the loops of an imported network their regions before an edit does not change what is drawn, and the bucket
-/// then works on the ring and on the hole as it does on any network.
-#[test]
-fn materialising_an_imported_ring_draws_the_same_picture_and_the_bucket_unfills_the_ring_only() {
-    let red = Color::rgb(255, 0, 0);
-    for opposite in [true, false] {
-        let net = imported_ring(opposite);
-        let (d, page) = page_with(net.clone(), red, 0.0, StrokeCap::None);
-        let before = render(&d, page);
-        assert_eq!(px(&before, 20, 50), [255, 0, 0, 255], "the ring is filled");
-        let hole = if opposite { [255, 255, 255, 255] } else { [255, 0, 0, 255] };
-        assert_eq!(px(&before, 50, 50), hole, "the hole, opposite {opposite}");
-        let mut materialised = net;
-        materialised.materialize_closed_loop_fill();
-        let (d, page) = page_with(materialised, red, 0.0, StrokeCap::None);
-        assert_eq!(render(&d, page).data(), before.data(), "opposite {opposite}: the same picture");
-        let (mut d, page) = (d, page);
-        let id = vector_id(&d, page);
-        assert!(!bucket(&mut d, id, 20.0, 50.0));
-        let after = render(&d, page);
-        assert_eq!(px(&after, 20, 50), [255, 255, 255, 255], "the ring is unfilled");
-        assert_eq!(px(&after, 50, 50), hole, "the hole is as it was");
+fn square(x: f32, y: f32, side: f32, reversed: bool) -> Vec<Pt> {
+    let mut pts = vec![(x, y), (x + side, y), (x + side, y + side), (x, y + side)];
+    if reversed {
+        pts.reverse();
     }
+    pts
+}
+
+fn circle(cx: f32, cy: f32, r: f32, reversed: bool) -> (Vec<Pt>, Vec<Handles>) {
+    let k = 0.552_284_8 * r;
+    let pts = vec![(cx + r, cy), (cx, cy + r), (cx - r, cy), (cx, cy - r)];
+    let h = vec![((0.0, k), (k, 0.0)), ((-k, 0.0), (0.0, k)), ((0.0, -k), (-k, 0.0)), ((k, 0.0), (0.0, -k))];
+    if reversed {
+        (vec![pts[0], pts[3], pts[2], pts[1]], vec![((0.0, -k), (k, 0.0)), ((-k, 0.0), (0.0, -k)), ((0.0, k), (-k, 0.0)), ((k, 0.0), (0.0, k))])
+    } else {
+        (pts, h)
+    }
+}
+
+/// The fill of `net` at 4x on a 120 x 120 page, as bytes.
+fn fill_at_4x(net: &VectorNetwork) -> Vec<u8> {
+    let (d, page) = page_with(net.clone(), Color::rgb(255, 0, 0), 0.0, StrokeCap::None);
+    let mut pm = Pixmap::new(480, 480).unwrap();
+    render_page(&d, page, &Viewport { zoom: 4.0, ..Viewport::default() }, &mut pm);
+    pm.data().to_vec()
+}
+
+/// Shapes whose fill must not change when the loops get their regions: `(name, network, a point inside one loop)`.
+fn materialise_fixtures() -> Vec<(&'static str, VectorNetwork, Vec2)> {
+    let (c_outer, h_outer) = circle(60.3, 60.7, 40.0, false);
+    let (c_in, h_in) = circle(60.3, 60.7, 15.0, false);
+    let (c_in_rev, h_in_rev) = circle(60.3, 60.7, 15.0, true);
+    let (c_mid, h_mid) = circle(60.3, 60.7, 28.0, true);
+    let (ca, ha) = circle(45.3, 55.7, 30.0, false);
+    let (cb, hb) = circle(75.1, 55.7, 30.0, true);
+    let star = |r: f32| -> Vec<Pt> {
+        let at = |k: usize| -> Pt {
+            let a = -std::f32::consts::FRAC_PI_2 + k as f32 * 1.256_637;
+            (60.3 + r * a.cos(), 62.7 + r * a.sin())
+        };
+        (0..5).map(|k| at((k * 2) % 5)).collect()
+    };
+    let (tip, tip_h) = circle(60.3, 28.0, 4.0, false);
+    vec![
+        ("disjoint squares", imported(&[square(5.3, 5.7, 40.0, false), square(60.3, 60.7, 40.0, true)], &[]), v(20.0, 20.0)),
+        ("sliver and square", imported(&[vec![(10.3, 10.7), (10.7, 10.7), (10.7, 13.7), (10.3, 13.7)], square(50.3, 50.7, 30.0, false)], &[]), v(60.0, 60.0)),
+        ("same-winding ring", imported(&[c_outer.clone(), c_in.clone()], &[h_outer.clone(), h_in.clone()]), v(60.3, 30.0)),
+        ("opposite-wound ring", imported(&[c_outer.clone(), c_in_rev], &[h_outer.clone(), h_in_rev]), v(60.3, 30.0)),
+        ("three deep", imported(&[c_outer, c_mid, c_in.clone()], &[h_outer, h_mid, h_in.clone()]), v(60.3, 25.0)),
+        ("crescent", imported(&[vec![(10.3, 60.7), (90.9, 62.1)]], &[vec![((25.0, -20.0), (-25.0, -20.0)), ((-30.0, -70.0), (30.0, -70.0))]]), v(50.0, 40.0)),
+        ("heart", imported(&[vec![(50.3, 90.7), (50.3, 30.1)]], &[vec![((65.0, -40.0), (55.0, -45.0)), ((-55.0, -45.0), (-65.0, -40.0))]]), v(70.0, 50.0)),
+        (
+            "figure 8 with no crossing vertex",
+            imported(&[vec![(20.3, 50.7), (90.1, 50.7)]], &[vec![((10.0, -50.0), (-10.0, 50.0)), ((-10.0, -50.0), (10.0, 50.0))]]),
+            v(35.0, 45.0),
+        ),
+        ("crossing circles, opposite winding", imported(&[ca, cb], &[ha, hb]), v(25.0, 56.0)),
+        ("pentagram", imported(&[star(45.0)], &[]), v(60.3, 25.0)),
+        ("pentagram with a circle in a tip", imported(&[star(45.0), tip], &[vec![], tip_h]), v(60.3, 28.0)),
+    ]
+}
+
+/// Giving the loops of an imported network their regions draws the picture the fallback drew, byte for byte at 4x, for
+/// curved, nested, crossing and self-crossing loops: each region is a closed chain filled with the non-zero rule, the
+/// fallback's own paths.
+#[test]
+fn materialising_draws_the_fallback_fill_byte_for_byte() {
+    for (name, net, _) in materialise_fixtures() {
+        let before = fill_at_4x(&net);
+        assert!(before.chunks(4).any(|p| p[1] < 255), "{name}: something is drawn");
+        let mut after = net;
+        assert!(after.materialize_closed_loop_fill(), "{name}");
+        assert!(!after.fills_closed_loops_without_regions && !after.regions.is_empty(), "{name}: regions now");
+        assert!(fill_at_4x(&after) == before, "{name}: the picture changed");
+    }
+}
+
+/// The bucket on one loop never changes a pixel outside the face it clicked: for every shape, the pixels beyond the
+/// outer polygon of the clicked face are byte-equal to before the click.
+#[test]
+fn the_bucket_changes_no_pixel_outside_the_face_it_clicked() {
+    for (name, net, click) in materialise_fixtures() {
+        let before = fill_at_4x(&net);
+        let mut edited = net;
+        // a loop that crosses itself with no vertex where it does has no face to click (its signed area is nil)
+        let Some(face) = edited.face_at(click) else {
+            assert!(name.starts_with("figure 8"), "{name}: a face under the click");
+            continue;
+        };
+        let (mut lo, mut hi) = (v(f32::MAX, f32::MAX), v(f32::MIN, f32::MIN));
+        for p in edited.face_contours(&face).first().expect("an outer loop") {
+            (lo, hi) = (v(lo.x.min(p.x), lo.y.min(p.y)), v(hi.x.max(p.x), hi.y.max(p.y)));
+        }
+        edited.toggle_face(&face);
+        let after = fill_at_4x(&edited);
+        let (x0, y0, x1, y1) = ((lo.x * 4.0 - 4.0) as usize, (lo.y * 4.0 - 4.0) as usize, (hi.x * 4.0 + 4.0) as usize, (hi.y * 4.0 + 4.0) as usize);
+        for y in 0..480usize {
+            for x in 0..480usize {
+                if (x0..=x1).contains(&x) && (y0..=y1).contains(&y) {
+                    continue;
+                }
+                let i = (y * 480 + x) * 4;
+                assert!(before[i..i + 4] == after[i..i + 4], "{name}: pixel ({x}, {y}) outside the clicked face changed");
+            }
+        }
+    }
+}
+
+/// A sliver of 0.4 next to a square: the bucket unfills the square and the sliver stays.
+#[test]
+fn the_bucket_on_a_square_leaves_a_sliver_beside_it_filled() {
+    let fixtures = materialise_fixtures();
+    let (_, net, click) = fixtures.iter().find(|f| f.0 == "sliver and square").unwrap();
+    let mut edited = net.clone();
+    let face = edited.face_at(*click).unwrap();
+    assert!(!edited.toggle_face(&face));
+    let after = fill_at_4x(&edited);
+    // the page is white and the fill red: a filled pixel has lost its green (the sliver is under 2 px wide at 4x, so partly)
+    let filled = |x: f32, y: f32| after[((y * 4.0) as usize * 480 + (x * 4.0) as usize) * 4 + 1] < 200;
+    assert!(!filled(60.0, 60.0), "the square is unfilled");
+    assert!(filled(10.5, 12.0), "the sliver beside it is still filled");
 }

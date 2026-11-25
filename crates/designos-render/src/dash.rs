@@ -115,7 +115,7 @@ fn last_point(piece: &Piece) -> Option<sk::Point> {
 /// The dashes of one segment, in order: the first starts at its start, the last ends at its end.
 fn dash_segment(seg: Seg, array: &[f32], period: f32) -> Vec<Piece> {
     let length = seg.length();
-    if length < MIN_SEGMENT {
+    if !length.is_finite() || length < MIN_SEGMENT {
         return Vec::new();
     }
     if length < array[0] {
@@ -273,6 +273,10 @@ fn contours_of(path: &sk::Path) -> Vec<(Vec<Seg>, bool)> {
 /// How many dashes [`dash_segment`] cuts of `seg`.
 fn dash_count(seg: Seg, array: &[f32], period: f32) -> f64 {
     let length = seg.length();
+    if !length.is_finite() {
+        // a segment of infinite or undefined length is over any bound
+        return f64::INFINITY;
+    }
     if length < MIN_SEGMENT {
         return 0.0;
     }
