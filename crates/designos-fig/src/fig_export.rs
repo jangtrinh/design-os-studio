@@ -18,8 +18,10 @@ use std::sync::Arc;
 mod carrier;
 mod grid;
 mod kept_derived;
+mod kept_fields;
 mod kept_overrides;
 pub(crate) use carrier::{CARRIED_FIELDS, CARRIER_KEY_PREFIX};
+pub use kept_fields::KeptWriteReport;
 
 /// Plugin id under which Studio keeps node data that has no field in Figma's NodeChange schema. It travels
 /// as ordinary `pluginData` entries, which Figma keeps for any plugin id and ignores when it does not know the
@@ -124,11 +126,12 @@ pub(crate) fn export_schema() -> &'static crate::kiwi::Schema {
     SCHEMA.get_or_init(figma_like_schema)
 }
 
-/// The `NodeChange` fields the export schema defines but no writer produces yet, sorted. The schema holds Figma's whole
-/// `NodeChange` so that a kept value can be written back whole; until a field is written from a kept value that is
-/// gated on the layer being unedited, the writers that read from the schema (the metadata writer, the override writer
-/// of an unopened instance and the JSON-to-kiwi conversions of the export) skip it, so they never write an old copy of
-/// it beside an edit. A field leaves this list only when its writer is gated.
+/// The `NodeChange` fields the export schema defines that no writer but the store's produces, sorted. The schema holds Figma's
+/// whole `NodeChange` so that a kept value can be written back whole. The writers that read from the schema (the metadata
+/// writer, the override writer of an unopened instance and the JSON-to-kiwi conversions of the export) skip these fields, so
+/// they never write an old copy of one beside an edit. The only writer of them is `kept_fields`, which writes the kept value
+/// of a layer whose value is still the one the file had (and writes nothing for an edited layer, so nothing of the old value
+/// comes back). A field leaves this list when a gated writer of its own replaces `kept_fields` for it.
 #[rustfmt::skip]
 pub(crate) const HELD_BACK_UNTIL_KEPT: &[&str] = &[
     "accessibleHTMLTag", "accessibleLabel", "agendaMetadataMap", "agendaPositionMap", "aiCanvasPrompt", "aiChatThread", "aiEditScopeLabel",
@@ -363,10 +366,15 @@ fn validate_shader_refs(doc: &Document, schema: &crate::kiwi::Schema) -> Result<
 /// derived data only while its main component is as it was when the file was opened); no page is opened and the loader
 /// is left as it was.
 pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
+    export_fig_with_kept_report(doc).map(|(bytes, _)| bytes)
+}
+
+/// [`export_fig`] that also reports what the save wrote from the records a `.fig` open kept (see [`KeptWriteReport`]).
+pub fn export_fig_with_kept_report(doc: &Document) -> Result<(Vec<u8>, KeptWriteReport), FigError> {
     let schema = export_schema();
     validate_shader_refs(doc, schema)?;
     let root = schema.find("Message").ok_or_else(|| FigError::Format("missing Message in schema".into()))?;
-    let message = build_message(doc, schema);
+    let (message, report) = build_message(doc, schema);
     let schema_bytes = schema.encode();
     let msg_bytes = schema.encode_message(root, &message).map_err(|e| FigError::Format(format!("kiwi encode: {e}")))?;
     let canvas = container::write_container(&schema_bytes, &msg_bytes, Compression::Zstd, 106);
@@ -377,7 +385,7 @@ pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
             "thumbnail_size": {"width": 400, "height": 200}
         }
     });
-    Ok(container::write_zip(&canvas, &doc.images, Some(&meta)))
+    Ok((container::write_zip(&canvas, &doc.images, Some(&meta)), report))
 }
 
 /// Serializes `doc` into a `.fig` binary archive and returns a sibling report of any variable or
@@ -424,6 +432,7 @@ struct ExportCtx<'a> {
     emitted_track_guids: HashSet<(u32, u32)>,
     blobs: Vec<Vec<u8>>,
     changes: Vec<V>,
+    kept: kept_fields::KeptState,
 }
 
 /// Glyph blob indices are counted from here while nodes are written, far above any real blob table, and then
@@ -544,12 +553,28 @@ impl<'a> ExportCtx<'a> {
             emitted_track_guids: HashSet::new(),
             blobs: Vec::new(),
             changes: Vec::new(),
+            kept: kept_fields::KeptState::new(doc, schema, nc_def),
         };
         let bump_next_local = |next_local: &mut u32, local: u32| {
             if let Some(next) = local.checked_add(1) {
                 *next_local = (*next_local).max(next);
             }
         };
+        // A layer the store has a record for is written under the guid of that record, so it reserves it before any other layer
+        // that carries the same source id (a merged copy): the original's record must stay with the original.
+        if cx.kept.is_active() {
+            for (&id, n) in &doc.nodes {
+                if doc.fig_kept.record_of_node(id).is_none() || doc.library_page.is_some_and(|lp| n.parent == Some(lp)) {
+                    continue;
+                }
+                if let Some(g) = n.source_id.as_deref().and_then(parse_guid_pair) {
+                    if cx.used_guids.insert(g) {
+                        bump_next_local(&mut cx.next_local, g.1);
+                        cx.node_guids.insert(id, g);
+                    }
+                }
+            }
+        }
         // First pass: reserve explicit `s:l` GUIDs so generated ones never collide.
         for (&id, n) in &doc.nodes {
             if doc.library_page.is_some_and(|lp| n.parent == Some(lp)) && n.source_id.as_deref().is_some_and(|sid| doc.styles.contains_key(sid)) {
@@ -734,6 +759,14 @@ impl<'a> ExportCtx<'a> {
                         }
                     }
                 }
+            }
+        }
+        // Every guid the file's records name is spent, whether or not its node is still here: a fresh guid never reuses one, or a
+        // kept reference to a deleted node would point at the layer that took its number.
+        for rec in doc.fig_kept.records() {
+            let g = rec.guid();
+            if cx.used_guids.insert(g) {
+                bump_next_local(&mut cx.next_local, g.1);
             }
         }
         // Second pass: allocate fresh GUIDs for anything without an explicit `s:l`.
@@ -1017,7 +1050,7 @@ fn pos_str(idx: usize) -> String {
     format!("!{idx:06}")
 }
 
-fn build_message(doc: &Document, schema: &crate::kiwi::Schema) -> V {
+fn build_message(doc: &Document, schema: &crate::kiwi::Schema) -> (V, KeptWriteReport) {
     let mut cx = ExportCtx::new(doc, schema);
     // 1. Root DOCUMENT record.
     let mut doc_fields = vec![("guid", guid(0, 0)), ("phase", en("CREATED")), ("type", en("DOCUMENT")), ("name", V::String(doc.name.clone()))];
@@ -1129,7 +1162,14 @@ fn build_message(doc: &Document, schema: &crate::kiwi::Schema) -> V {
 
     cx.settle_glyph_blobs();
     let blobs: Vec<V> = cx.blobs.into_iter().map(|b| st(vec![("bytes", V::Bytes(b))])).collect();
-    msg(vec![("type", en("NODE_CHANGES")), ("sessionID", V::Uint(0)), ("ackID", V::Uint(0)), ("nodeChanges", V::Array(cx.changes)), ("blobs", V::Array(blobs))])
+    let message = msg(vec![
+        ("type", en("NODE_CHANGES")),
+        ("sessionID", V::Uint(0)),
+        ("ackID", V::Uint(0)),
+        ("nodeChanges", V::Array(cx.changes)),
+        ("blobs", V::Array(blobs)),
+    ]);
+    (message, cx.kept.report)
 }
 
 /// Whether `id` hangs under a page or the library page.
@@ -1592,7 +1632,7 @@ fn def_slot_content_id<'a>(link: &'a ComponentLink, prop_name: &str) -> Option<&
 ///
 /// Nothing is written to the blob table unless the whole value can be written: a blob the geometry does not hold, or an id
 /// that cannot be mapped, leaves the text without `derivedTextData` and no orphan blob behind.
-fn reindexed_derived_text(cx: &mut ExportCtx, node: &Node) -> Option<(Arc<str>, V)> {
+fn reindexed_derived_text(cx: &mut ExportCtx, node: &Node, figma_style_ids: bool) -> Option<(Arc<str>, V)> {
     let saved = node.fig_text_geometry.as_deref().filter(|saved| saved.matches(node))?;
     if saved.wire.is_empty() {
         return reindexed_legacy_derived_text(cx, node, saved);
@@ -1602,15 +1642,19 @@ fn reindexed_derived_text(cx: &mut ExportCtx, node: &Node) -> Option<(Arc<str>, 
     let link = node.style_refs.contains_key("text").then_some(node.text_style_overrides);
     let own_style_has_rows = table_runs(text, link).len() > text.runs.len();
     let row_ids = run_row_ids(node, text, link);
-    if saved.run_sids.len() != text.runs.len() {
+    if !figma_style_ids && saved.run_sids.len() != text.runs.len() {
         return None;
     }
     // runs that share Figma's id but no longer share a style get rows of their own, and a stored id cannot say which of
     // them its glyph or bar belongs to: the text is written without derived data and Figma lays it out again
-    if row_ids.is_none() && saved.run_sids.iter().enumerate().any(|(i, sid)| saved.run_sids[..i].contains(sid)) {
+    if !figma_style_ids && row_ids.is_none() && saved.run_sids.iter().enumerate().any(|(i, sid)| saved.run_sids[..i].contains(sid)) {
         return None;
     }
     let style_id = |figma: u32| -> Option<u32> {
+        if figma_style_ids {
+            // the kept `textData` is written, with Figma's own numbering of its style rows: the glyphs name those rows
+            return Some(figma);
+        }
         match saved.run_sids.iter().position(|&sid| sid == figma) {
             Some(run) => row_ids.as_ref().and_then(|ids| ids.get(run).copied()).or_else(|| u32::try_from(run + 1).ok()),
             None if own_style_has_rows => None,
@@ -1708,6 +1752,7 @@ fn reindexed_legacy_derived_text(cx: &mut ExportCtx, node: &Node, saved: &design
 fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibling_idx: usize, parent_dir: Option<LayoutDirection>, in_component: bool) {
     let Some(node) = cx.doc.get(id).cloned() else { return };
     let nguid = cx.node_guids[&id];
+    let doc = cx.doc;
     let lowered_conn = match (&node.kind, cx.doc.kind) {
         (NodeKind::Connector(cp), k) if k != DocumentKind::Board => {
             let fmt_guid = |nid: NodeId| cx.node_guids.get(&nid).map(|&(s, l)| format!("{s}:{l}"));
@@ -1718,6 +1763,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         }
         _ => None,
     };
+    // a connector lowered to plain shapes is not the record the file held
+    let kept_record = if lowered_conn.is_none() { kept_fields::select(cx, doc, id, nguid) } else { None };
     let (ty, is_state_group) = match &node.kind {
         NodeKind::Page { .. } => ("CANVAS", false),
         NodeKind::Frame(_) => ("FRAME", false),
@@ -2661,9 +2708,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     // The original `commandsBlob` numbers refer to the imported file's blob table. Re-index them into this
     // export's table before writing derived text. An edited text layer must not export its stale glyph cache.
     // Only a layer that carries derived text pays for a copy of its metadata.
+    let applied = kept_record.map(|rec| kept_fields::apply(cx, rec, &mut msg_fields));
+    let figma_style_ids = applied.as_ref().is_some_and(|a| a.text_data);
     let derived_text_meta =
         (matches!(&node.kind, NodeKind::Text(_)) && (node.fig_text_geometry.is_some() || node.fig_metadata.contains_key("derivedTextData"))).then(|| {
-            if let Some(pair) = reindexed_derived_text(cx, &node) {
+            if let Some(pair) = reindexed_derived_text(cx, &node, figma_style_ids) {
                 msg_fields.push(pair);
             }
             let mut meta = node.fig_metadata.clone();

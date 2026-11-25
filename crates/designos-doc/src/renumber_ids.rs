@@ -46,11 +46,18 @@ impl Document {
     fn apply_id_map(&mut self, map: &BTreeMap<NodeId, NodeId>) {
         let f = |id: NodeId| map.get(&id).copied().unwrap_or(id);
         let old_nodes = std::mem::take(&mut self.nodes);
+        // A node that names other nodes by id (an instance's main, a connector's ends, a reaction's target) holds other values
+        // after its ids are rewritten. That is the renumbering's doing and not an edit, so a node that still had its snapshot's
+        // value moves its snapshot forward over it; an edited node stays different.
+        let unedited: std::collections::HashSet<NodeId> =
+            old_nodes.iter().filter(|(id, node)| self.fig_kept.node_snapshot(**id).is_some_and(|s| s.matches(node))).map(|(id, _)| *id).collect();
         for (id, mut node) in old_nodes {
             remap_node(&mut node, &f);
             self.nodes.insert(f(id), node);
         }
         self.pages.iter_mut().for_each(|p| *p = f(*p));
+        self.pending_relayout.iter_mut().for_each(|p| *p = f(*p));
+        self.loader_relayout_roots = std::mem::take(&mut self.loader_relayout_roots).into_iter().map(f).collect();
         self.library_page = self.library_page.map(f);
         for flow in &mut self.flows {
             flow.page = f(flow.page);
@@ -64,7 +71,11 @@ impl Document {
             })
             .collect();
         if !self.fig_kept.is_empty() {
-            self.fig_kept = std::sync::Arc::new(self.fig_kept.remapped(f));
+            let nodes = &self.nodes;
+            self.fig_kept = std::sync::Arc::new(
+                self.fig_kept
+                    .remapped(f, |old, new| unedited.contains(&old).then(|| nodes.get(&new).map(crate::fig_kept_snapshot::NodeSnapshot::of)).flatten()),
+            );
         }
         for thread in &mut self.comments {
             thread.anchor.page = f(thread.anchor.page);

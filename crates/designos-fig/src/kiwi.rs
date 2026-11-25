@@ -229,6 +229,9 @@ pub enum KiwiValue {
     Array(Vec<KiwiValue>),
     Struct(Vec<(Arc<str>, KiwiValue)>),
     Message(Vec<(Arc<str>, KiwiValue)>),
+    /// A field's value already in wire form (a kept field spliced from the arena): the encoder writes the bytes as they are,
+    /// array length and all. Only an exporter builds one, and only for a field of a message; nothing reads it back as a value.
+    Raw(Vec<u8>),
 }
 
 impl KiwiValue {
@@ -693,6 +696,29 @@ impl Schema {
         self.decode_def(root, &mut r, 0, false)
     }
 
+    /// Decodes the bytes of one field of message `def`, the field numbered `no`, as that field's value, with the table of
+    /// [`Self::zero_wire_table`]. The bytes may come from a document file: the caps scale with their length as for
+    /// [`Self::decode_message_prepared`], and the value must fill them exactly.
+    pub(crate) fn decode_field_value_prepared(&self, def: usize, no: u32, bytes: &[u8], zero_wire: &[bool]) -> Result<(Arc<str>, KiwiValue)> {
+        let d = self.defs.get(def).filter(|d| d.kind == DefKind::Message).ok_or_else(|| KiwiError::Bad("not a message definition".into()))?;
+        let f = d
+            .field_by_value
+            .get(no as usize)
+            .and_then(|&x| x)
+            .map(|i| &d.fields[i])
+            .or_else(|| d.fields.iter().find(|f| f.value == no))
+            .ok_or_else(|| KiwiError::Bad(format!("unknown field id {no} in {}", d.name)))?;
+        let mut r = Reader::new(bytes);
+        r.values_left = bytes.len().saturating_mul(64).saturating_add(4096).min(MAX_DECODED_VALUES);
+        r.zero_wire = zero_wire.to_vec();
+        r.zero_wire_left = zero_wire_budget(bytes.len());
+        let value = self.decode_field(f, &mut r, 0, false)?;
+        if !r.at_end() {
+            return Err(KiwiError::Bad(format!("{} bytes left after field {}", r.remaining(), f.name)));
+        }
+        Ok((f.name.clone(), value))
+    }
+
     /// Per definition: whether one instance occupies zero bytes on the wire. Enums (a varint), messages (a terminator)
     /// and arrays (a length) always take bytes; a struct takes none only if every field is a non-array zero-size struct.
     /// A cyclic struct can never finish decoding, so it is not reported as zero-size.
@@ -1116,6 +1142,10 @@ impl Schema {
     }
 
     fn encode_field(&self, f: &Field, v: &KiwiValue, w: &mut Writer, depth: usize) -> Result<()> {
+        if let KiwiValue::Raw(bytes) = v {
+            w.buf.extend_from_slice(bytes);
+            return Ok(());
+        }
         if !f.is_array {
             return self.encode_type(f.ty, v, w, depth + 1);
         }
@@ -1580,6 +1610,7 @@ pub fn to_json(v: &KiwiValue) -> serde_json::Value {
             }
         }
         KiwiValue::Bytes(b) => Value::String(hex(b)),
+        KiwiValue::Raw(_) => Value::Null,
         KiwiValue::Enum(n) => Value::String(n.to_string()),
         KiwiValue::EnumRaw(u) => Value::Number(Number::from(*u)),
         KiwiValue::Array(a) => Value::Array(a.iter().map(to_json).collect()),
@@ -1618,6 +1649,7 @@ pub fn into_json(v: KiwiValue) -> serde_json::Value {
             }
         }
         KiwiValue::Bytes(b) => Value::String(hex(&b)),
+        KiwiValue::Raw(_) => Value::Null,
         KiwiValue::Enum(n) => Value::String(n.to_string()),
         KiwiValue::EnumRaw(u) => Value::Number(Number::from(u)),
         KiwiValue::Array(a) => Value::Array(a.into_iter().map(into_json).collect()),
@@ -1657,6 +1689,7 @@ pub fn to_json_fast(v: &KiwiValue) -> serde_json::Value {
             }
         }
         KiwiValue::Bytes(b) => Value::String(hex(b)),
+        KiwiValue::Raw(_) => Value::Null,
         KiwiValue::Enum(n) => Value::String(n.to_string()),
         KiwiValue::EnumRaw(u) => Value::Number(Number::from(*u)),
         KiwiValue::Array(a) => Value::Array(a.iter().map(to_json_fast).collect()),
@@ -1699,6 +1732,7 @@ pub fn into_json_fast(v: KiwiValue) -> serde_json::Value {
             }
         }
         KiwiValue::Bytes(b) => Value::String(hex(&b)),
+        KiwiValue::Raw(_) => Value::Null,
         KiwiValue::Enum(n) => Value::String(n.to_string()),
         KiwiValue::EnumRaw(u) => Value::Number(Number::from(u)),
         KiwiValue::Array(a) => Value::Array(a.into_iter().map(into_json_fast).collect()),
