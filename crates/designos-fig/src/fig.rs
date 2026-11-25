@@ -2726,13 +2726,15 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
 
 /// REST-shaped `vectorNetwork` from the `vectorData` blob of a `.fig` vector.
 /// The blob is stored in the normalised size; vertices and tangents are
-/// scaled to the node's size.
+/// scaled to the node's size, each axis on its own. A line has a zero
+/// normalised height (or width): that axis has nothing to scale and stays as
+/// stored, while the other still scales.
 fn convert_vector_network(nc: &Value, blobs: &[&[u8]]) -> Option<Value> {
     let vd = nc.get("vectorData")?;
     let blob = blobs.get(vd.get("vectorNetworkBlob")?.as_u64()? as usize)?;
     let size = |v: Option<&Value>| v.and_then(|s| Some((fnum(s, "x")?, fnum(s, "y")?)));
     let scale = match (size(nc.get("size")), size(vd.get("normalizedSize"))) {
-        (Some((w, h)), Some((nw, nh))) if nw > 0.0 && nh > 0.0 => (w / nw, h / nh),
+        (Some((w, h)), Some((nw, nh))) => (axis_scale(w, nw), axis_scale(h, nh)),
         _ => (1.0, 1.0),
     };
     let (mut net, styles) = crate::vecnet::network_from_blob(blob, scale)?;
@@ -2740,6 +2742,15 @@ fn convert_vector_network(nc: &Value, blobs: &[&[u8]]) -> Option<Value> {
         crate::vecnet::apply_style_table(&mut net, &styles, table);
     }
     Some(crate::vecnet::network_to_json(&net))
+}
+
+/// Node size over normalised size along one axis; an axis with no normalised extent is not scaled.
+fn axis_scale(size: f32, normalised: f32) -> f32 {
+    if normalised > 0.0 {
+        size / normalised
+    } else {
+        1.0
+    }
 }
 
 fn matrix_json(t: &Value) -> Value {
