@@ -123,22 +123,26 @@ pub(super) fn assign(cx: &mut ExportCtx<'_>, kept: Vec<KeptDefs>) {
             }
         }
     }
-    let mut claimed: HashSet<Guid> = HashSet::new();
+    // Figma gives one id to a property that many components share (a copy of a component set keeps its properties' ids), so the same
+    // id may define a property on several layers; on one layer each definition has an id of its own.
+    let mut live: HashSet<Guid> = HashSet::new();
     for (&id, n) in &doc.nodes {
+        let mut taken: Vec<Guid> = Vec::new();
         for p in &n.component.props {
             let from_file = by_node
                 .get(&id)
-                .and_then(|k| k.defs.iter().find(|d| d.parent.is_none() && d.name.as_deref() == Some(bare(&p.name)) && !claimed.contains(&d.id)))
+                .and_then(|k| k.defs.iter().find(|d| d.parent.is_none() && d.name.as_deref() == Some(bare(&p.name)) && !taken.contains(&d.id)))
                 .map(|d| d.id);
             let g = match from_file {
                 Some(g) => g,
                 None => cx.alloc_guid(session),
             };
-            claimed.insert(g);
+            taken.push(g);
+            live.insert(g);
             cx.prop_guids.insert((id, p.name.clone()), g);
         }
     }
-    cx.prop_ids.live.extend(claimed);
+    cx.prop_ids.live.extend(live);
 
     // A variant's copy of a set property is written only from the store, whole, so it is a definition of this save only when that
     // is certain: the layer is written from the store, every entry of the field is a plain alias, and every parent is defined.

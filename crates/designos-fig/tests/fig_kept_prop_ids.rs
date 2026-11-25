@@ -493,3 +493,40 @@ fn a_layer_the_file_gave_no_key_is_addressed_by_its_own_guid_in_the_overrides_st
     assert!(paths.iter().all(|p| p.last() != Some(&none)), "no entry names a layer by the null key: {paths:?}");
     assert_eq!(override_key(&out, MAIN_TEXT), Some(none), "the layer keeps the null key the file gave it");
 }
+
+#[test]
+fn a_property_id_that_two_components_share_is_written_for_both() {
+    // Figma keeps a property's id when a component is copied, so two mains define the same id
+    let second = (2, 7);
+    let mut all = nodes();
+    all.push(node(
+        second,
+        (0, 1),
+        "d",
+        "SYMBOL",
+        "Copy of Main",
+        vec![
+            ("size", vec2(100.0, 40.0)),
+            (
+                "componentPropDefs",
+                V::Array(vec![msg(vec![
+                    ("id", guid(LABEL.0, LABEL.1)),
+                    ("name", V::String("Label".into())),
+                    ("type", en("TEXT")),
+                    ("initialValue", text("Hello")),
+                ])]),
+            ),
+        ],
+    ));
+    for edit in [false, true] {
+        let mut doc = import_fig(&fig_file(all.clone(), vec![icon_blob()])).expect("imports");
+        if edit {
+            edit_everything(&mut doc);
+        }
+        let (saved, _) = export_fig_with_kept_report(&doc).expect("saves");
+        let out = records(&saved);
+        for at in [MAIN, second] {
+            assert_eq!(ids_of(record_of(&out, at), "componentPropDefs", "id"), vec![LABEL], "edit: {edit}, record {at:?}");
+        }
+    }
+}
