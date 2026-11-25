@@ -52,9 +52,9 @@ fn parse_kept(text: &str, main_guid: (u32, u32)) -> Option<Kept> {
 
 /// The kiwi field `NodeChange.symbolData.symbolOverrides` of the schema being written.
 fn symbol_overrides_field(schema: &crate::kiwi::Schema, nc_def: usize) -> Option<&crate::kiwi::Field> {
-    let symbol_data = schema.defs.get(nc_def)?.fields.iter().find(|f| &*f.name == "symbolData")?;
+    let symbol_data = schema.defs.get(nc_def)?.field_named("symbolData")?;
     let FieldType::Def(sd_idx) = symbol_data.ty else { return None };
-    schema.defs.get(sd_idx)?.fields.iter().find(|f| &*f.name == "symbolOverrides")
+    schema.defs.get(sd_idx)?.field_named("symbolOverrides")
 }
 
 fn field_guid(v: &V) -> Option<(u32, u32)> {

@@ -210,7 +210,7 @@ fn strip_held_back(schema: &crate::kiwi::Schema, nc_def: usize, def: usize, valu
     }
     // A value that cannot hold a `NodeChange` has nothing to strip: left as it is, it keeps every field, so it is not
     // reported empty either. Paint lists, glyph arrays and geometry never reach this walk's per-field work.
-    if !schema.reaches(def, nc_def) {
+    if !schema.reaches_node_change(def) {
         return false;
     }
     let had = fields.len();
@@ -219,7 +219,7 @@ fn strip_held_back(schema: &crate::kiwi::Schema, nc_def: usize, def: usize, valu
     }
     fields.retain_mut(|(k, v)| {
         let Some(FieldType::Def(child)) = d.field_named(k).map(|f| f.ty) else { return true };
-        if !schema.reaches(child, nc_def) {
+        if !schema.reaches_node_change(child) {
             return true;
         }
         match v {
@@ -4964,7 +4964,7 @@ mod held_back_tests {
     fn the_strip_skips_what_cannot_hold_a_node_change_and_still_strips_what_can() {
         let s = crate::testkit::figma_like_schema();
         let nc = s.find("NodeChange").expect("NodeChange");
-        let reaches = |name: &str| s.reaches(s.find(name).unwrap_or_else(|| panic!("{name} in schema")), nc);
+        let reaches = |name: &str| s.reaches_node_change(s.find(name).unwrap_or_else(|| panic!("{name} in schema")));
         assert!(reaches("NodeChange") && reaches("SymbolData") && reaches("TextData"), "these hold a NodeChange");
         assert!(!reaches("DerivedTextData") && !reaches("Path") && !reaches("Vector"), "glyphs and geometry hold none");
         // Everything reached from `NodeChange` is still stripped: a held-back key inside a symbol override entry.

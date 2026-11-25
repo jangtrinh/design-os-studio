@@ -45,7 +45,7 @@ pub(crate) fn wire_from_kiwi(derived: &KiwiValue) -> Option<Vec<u8>> {
 pub(crate) fn wire_from_json(derived: &serde_json::Value) -> Option<Vec<u8>> {
     let t = target()?;
     // strictly: a value that does not convert whole is not kept shortened
-    let field = t.schema.defs.get(t.node_change)?.fields.iter().find(|f| &*f.name == "derivedTextData")?;
+    let field = t.schema.defs.get(t.node_change)?.field_named("derivedTextData")?;
     let value = t.schema.field_from_json_strict(field, derived, 0)?;
     t.schema.encode_message(t.derived, &value).ok()
 }

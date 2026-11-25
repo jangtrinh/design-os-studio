@@ -142,9 +142,10 @@ impl Def {
 
     /// The position of the field called `name` (the first one when a hostile schema repeats a name), in constant time.
     ///
-    /// The table is built with the definition. `fields` is public, so a caller that removes or reorders fields afterwards
-    /// leaves the table stale; a table whose size differs from `fields`, or whose position no longer holds the name, is
-    /// not trusted and the lookup scans instead, so the answer is the one a scan gives (unless a field was renamed in place, which nothing does).
+    /// The table is built with the definition. `fields` is public, so a caller that changes it afterwards must call
+    /// [`Self::reindex`]. A table whose size differs from `fields` (a field added or removed), or whose position no longer
+    /// holds the name, is not trusted and the lookup scans instead, so it still answers as a scan does. A table of the same
+    /// size whose names were replaced is not noticed: it answers "not found" for a name it does not know, without a scan.
     pub fn field_position(&self, name: &str) -> Option<usize> {
         if self.is_indexed() {
             match self.field_by_name.get(name) {
@@ -159,6 +160,12 @@ impl Def {
         #[cfg(test)]
         NAME_SCANS.with(|c| c.set(c.get() + 1));
         self.fields.iter().position(|f| &*f.name == name)
+    }
+
+    /// Rebuilds the name and value tables after `fields` was changed.
+    pub fn reindex(&mut self) {
+        self.field_by_value = build_field_by_value(&self.fields);
+        self.field_by_name = build_field_by_name(&self.fields);
     }
 
     /// The field called `name`; see [`Self::field_position`].
@@ -200,8 +207,8 @@ fn build_field_by_value(fields: &[Field]) -> Vec<Option<usize>> {
 #[derive(Debug, Clone, Default)]
 pub struct Schema {
     pub defs: Vec<Def>,
-    /// The answer of [`Schema::reaches`] for the first target asked about: the target and one flag per definition.
-    reach: std::sync::OnceLock<(usize, Vec<bool>)>,
+    /// The answer of [`Schema::reaches_node_change`], one flag per definition.
+    reach: std::sync::OnceLock<Vec<bool>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -447,20 +454,19 @@ impl Schema {
         Ok(schema)
     }
 
-    /// Whether a value of definition `from` can hold a value of definition `target` through message fields, `from == target`
-    /// included. Arrays and nesting are followed; structs are not (a struct holds no message). Worked out once per schema for
-    /// the first target asked about, which in practice is always the same one.
-    pub fn reaches(&self, from: usize, target: usize) -> bool {
-        let compute = || {
-            let mut flags: Vec<bool> = (0..self.defs.len()).map(|i| i == target).collect();
+    /// Whether a value of definition `from` can hold a `NodeChange` through message fields, `NodeChange` itself included.
+    /// Arrays and nesting are followed; structs are not (a struct holds no message). Worked out once per schema.
+    pub fn reaches_node_change(&self, from: usize) -> bool {
+        let flags = self.reach.get_or_init(|| {
+            let target = self.find("NodeChange");
+            let mut flags: Vec<bool> = (0..self.defs.len()).map(|i| Some(i) == target).collect();
             loop {
                 let mut changed = false;
                 for (i, d) in self.defs.iter().enumerate() {
                     if flags[i] || d.kind != DefKind::Message {
                         continue;
                     }
-                    let hit = d.fields.iter().any(|f| matches!(f.ty, FieldType::Def(c) if flags.get(c).copied().unwrap_or(false)));
-                    if hit {
+                    if d.fields.iter().any(|f| matches!(f.ty, FieldType::Def(c) if flags.get(c).copied().unwrap_or(false))) {
                         flags[i] = true;
                         changed = true;
                     }
@@ -469,12 +475,8 @@ impl Schema {
                     return flags;
                 }
             }
-        };
-        let (cached_target, flags) = self.reach.get_or_init(|| (target, compute()));
-        if *cached_target == target {
-            return flags.get(from).copied().unwrap_or(false);
-        }
-        compute().get(from).copied().unwrap_or(false)
+        });
+        flags.get(from).copied().unwrap_or(false)
     }
 
     pub fn encode(&self) -> Vec<u8> {
@@ -1741,6 +1743,13 @@ mod tests {
         assert!(s.defs[nc].field_named("noSuchField").is_none());
         assert!(s.def_field_from_json(nc, "visible", &serde_json::json!(true)).is_some());
         assert_eq!(NAME_SCANS.with(|c| c.get()), 0, "no lookup by name scanned the fields");
+
+        // The same encode against a schema whose table is gone scans once per field written: the count above is the table's.
+        let mut bare = s.clone();
+        bare.defs[nc].field_by_name.clear();
+        NAME_SCANS.with(|c| c.set(0));
+        assert_eq!(bare.encode_message(nc, &value).expect("encodes"), wire, "the scan writes the same bytes");
+        assert_eq!(NAME_SCANS.with(|c| c.get()), names.len(), "without the table every field written is a scan");
     }
 
     #[test]
@@ -1753,6 +1762,10 @@ mod tests {
         assert!(s.defs[nc].field_named(&first).is_none(), "a removed field is gone");
         assert!(s.defs[nc].field_named(&second).is_some(), "a field that moved is still found");
         assert!(NAME_SCANS.with(|c| c.get()) > 0, "the stale table was not trusted");
+        s.defs[nc].reindex();
+        NAME_SCANS.with(|c| c.set(0));
+        assert!(s.defs[nc].field_named(&first).is_none() && s.defs[nc].field_named(&second).is_some());
+        assert_eq!(NAME_SCANS.with(|c| c.get()), 0, "after reindex the table answers again");
         // A repeated name resolves to the first field, as a scan does.
         let dup = s.defs[nc].fields[3].clone();
         s.defs[nc].fields.push(Field { value: 9999, ..dup.clone() });
