@@ -112,6 +112,8 @@ pub(crate) fn network_from_json(v: &Value) -> Option<VectorNetwork> {
         }
         net.regions.push(Region { rule, loops, filled: true });
     }
+    // Figma fills each closed loop of a network that has no regions (a file stores an outline for it)
+    net.fills_closed_loops_without_regions = true;
     Some(net)
 }
 
@@ -338,6 +340,7 @@ mod tests {
         assert_eq!(j["vertices"][2]["strokeCap"], "SQUARE");
         assert_eq!(j["vertices"][0]["handleMirroring"], "ANGLE");
         assert_eq!(j["regions"][0]["windingRule"], "EVENODD");
+        net.fills_closed_loops_without_regions = true; // what an import marks
         assert_eq!(network_from_json(&j).unwrap(), net);
         // out-of-range indices are refused
         assert!(network_from_json(&json!({"vertices": [{"x": 0, "y": 0}], "segments": [{"start": 0, "end": 3}]})).is_none());

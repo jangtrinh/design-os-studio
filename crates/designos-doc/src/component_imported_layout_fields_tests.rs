@@ -96,6 +96,7 @@ fn network() -> VectorNetwork {
             Segment { a: 2, b: 0, ta: Vec2::ZERO, tb: Vec2::ZERO },
         ],
         regions: vec![Region { rule: FillRule::NonZero, loops: vec![vec![0, 1, 2]], filled: true }],
+        ..Default::default()
     }
 }
 

@@ -98,19 +98,44 @@ fn an_unfilled_only_loop_stays_unfilled_through_a_save_and_fills_again() {
 }
 
 /// Figma stores a fill outline for the closed loops of a network that has no regions at all (a `.fig` holds a visible
-/// fill for no other kind of region-less network), so a loop with its region dropped fills, and an open chain
-/// does not.
+/// fill for no other kind of region-less network), so an imported network, which the import marks, fills its
+/// closed loops and not its open chains. A network Studio drew with its region dropped stays unfilled, as it always was.
 #[test]
-fn a_network_without_regions_fills_its_closed_loops_only() {
+fn an_imported_network_without_regions_fills_its_closed_loops_only() {
     let mut net = VectorNetwork::from_paths(&[rect_path(10.0, 10.0, 80.0, 80.0)]);
     net.regions.clear();
-    let (d, page) = page_with(net, Color::rgb(255, 0, 0), 0.0, StrokeCap::None);
-    assert_eq!(px(&render(&d, page), 50, 50), [255, 0, 0, 255], "the closed loop fills");
+    let red = Color::rgb(255, 0, 0);
+    let (d, page) = page_with(net.clone(), red, 0.0, StrokeCap::None);
+    assert_eq!(px(&render(&d, page), 50, 50), [255, 255, 255, 255], "a Studio network without a region is not filled");
+    net.fills_closed_loops_without_regions = true;
+    let (d, page) = page_with(net, red, 0.0, StrokeCap::None);
+    assert_eq!(px(&render(&d, page), 50, 50), [255, 0, 0, 255], "the imported closed loop fills");
 
     let open =
         Path { cmds: vec![PathCmd::MoveTo(v(10.0, 10.0)), PathCmd::LineTo(v(90.0, 10.0)), PathCmd::LineTo(v(90.0, 90.0))], fill_rule: FillRule::NonZero };
-    let (d, page) = page_with(VectorNetwork::from_paths(&[open]), Color::rgb(255, 0, 0), 0.0, StrokeCap::None);
+    let mut net = VectorNetwork::from_paths(&[open]);
+    net.fills_closed_loops_without_regions = true;
+    let (d, page) = page_with(net, red, 0.0, StrokeCap::None);
     assert_eq!(px(&render(&d, page), 70, 30), [255, 255, 255, 255], "an open chain has no area to fill");
+}
+
+/// The bucket on one loop of an imported network with two loops and no region unfills that loop only, and a save keeps it so.
+#[test]
+fn the_bucket_on_one_imported_loop_leaves_the_other_filled_through_a_save() {
+    let mut net = VectorNetwork::from_paths(&[rect_path(10.0, 10.0, 40.0, 80.0), rect_path(60.0, 10.0, 30.0, 80.0)]);
+    net.regions.clear();
+    net.fills_closed_loops_without_regions = true;
+    let (mut d, page) = page_with(net, Color::rgb(255, 0, 0), 4.0, StrokeCap::None);
+    let pm = render(&d, page);
+    assert_eq!((px(&pm, 30, 50), px(&pm, 75, 50)), ([255, 0, 0, 255], [255, 0, 0, 255]), "both loops fill");
+    let id = vector_id(&d, page);
+    assert!(!bucket(&mut d, id, 30.0, 50.0));
+    let loaded = Document::from_json(&d.to_json().unwrap()).unwrap();
+    for doc in [&d, &loaded] {
+        let pm = render(doc, page);
+        assert_eq!(px(&pm, 30, 50), [255, 255, 255, 255], "the clicked loop is unfilled");
+        assert_eq!(px(&pm, 75, 50), [255, 0, 0, 255], "the other loop is still filled");
+    }
 }
 
 #[test]
@@ -155,6 +180,7 @@ fn a_region_less_kit_outline_still_fills_after_a_vertex_is_nudged() {
         net.connect(a, b).unwrap();
     }
     assert!(net.regions.is_empty());
+    net.fills_closed_loops_without_regions = true; // what the import marks
     net.vertices[2].pos = v(0.5, 59.283123);
     let (d, page) = page_with(net, Color::rgb(255, 0, 0), 0.0, StrokeCap::None);
     let pm = render(&d, page);

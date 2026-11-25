@@ -97,6 +97,15 @@ pub struct VectorNetwork {
     pub vertices: Vec<Vertex>,
     pub segments: Vec<Segment>,
     pub regions: Vec<Region>,
+    /// Set by the `.fig` and REST import: Figma stores a fill outline for each closed loop of a network without
+    /// regions, so such a network fills its closed loops until it gets a region. A network Studio drew, or one read
+    /// from a file written before this existed, leaves its loops unfilled. Written only when set.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fills_closed_loops_without_regions: bool,
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 /// A bounded area of the planar network: an outer loop plus holes.
@@ -481,14 +490,36 @@ impl VectorNetwork {
         r
     }
 
-    /// The geometry the fill paints: the filled regions. A network with no regions at all (an unfilled region
-    /// counts as one) fills each closed loop instead (an open chain stays unfilled): Figma stores a fill outline for exactly those loops, the one
-    /// kind of region-less network a `.fig` file holds a visible fill for.
+    /// The geometry the fill paints: the filled regions. A network the `.fig` import marked, with no regions at all
+    /// (an unfilled region counts as one), fills each closed loop instead and leaves an open chain unfilled: Figma stores
+    /// a fill outline for exactly those loops, the one kind of region-less network a `.fig` file holds a visible fill for.
     pub fn fill_paths(&self) -> Vec<Path> {
-        if self.regions.is_empty() && self.is_valid() {
+        if self.fills_closed_loops_without_regions && self.regions.is_empty() && self.is_valid() {
             return self.closed_loop_paths();
         }
         self.to_paths_split().0
+    }
+
+    /// Turns the closed loops an imported network fills without regions into filled regions and drops the flag, so an
+    /// edit that adds the first region does not switch the fill of the other loops off. Call it before any edit that
+    /// can create a region.
+    pub fn materialize_closed_loop_fill(&mut self) {
+        if !self.fills_closed_loops_without_regions || !self.is_valid() {
+            return;
+        }
+        self.fills_closed_loops_without_regions = false;
+        if !self.regions.is_empty() {
+            return;
+        }
+        let loops: Vec<Vec<usize>> = self
+            .leftover_chains(&vec![false; self.segments.len()])
+            .into_iter()
+            .filter(|(_, closed)| *closed)
+            .map(|(chain, _)| chain.iter().map(|(s, _)| *s).collect())
+            .collect();
+        for lp in loops {
+            self.regions.push(Region { rule: FillRule::NonZero, loops: vec![lp], filled: true });
+        }
     }
 
     /// One path per closed loop of segments no region covers, filled with the non-zero rule.
@@ -916,6 +947,7 @@ impl VectorNetwork {
         if a == b || a >= self.vertices.len() || b >= self.vertices.len() {
             return None;
         }
+        self.materialize_closed_loop_fill();
         let before: BTreeSet<Vec<usize>> = self.faces().iter().map(Face::key).collect();
         let mid = lerp(self.pos(a), self.pos(b), 0.5);
         // keep absolute handle positions when the vertex moves
@@ -952,6 +984,7 @@ impl VectorNetwork {
 
     /// Fills every face that was not part of `before`.
     pub fn fill_new_faces(&mut self, before: &BTreeSet<Vec<usize>>) {
+        self.materialize_closed_loop_fill();
         for f in self.faces() {
             let key = f.key();
             if !before.contains(&key) && !self.regions.iter().any(|r| sorted_key(&r.loops) == key) {
@@ -1196,6 +1229,7 @@ impl VectorNetwork {
     /// Fills or unfills a face; returns whether it is filled afterwards. A face with a region flips the
     /// region's `filled`, so unfilling the only loop of a network does not leave it without regions.
     pub fn toggle_face(&mut self, face: &Face) -> bool {
+        self.materialize_closed_loop_fill();
         match self.region_of_face(face) {
             Some(i) => {
                 self.regions[i].filled = !self.regions[i].filled;
@@ -1271,7 +1305,12 @@ impl VectorNetwork {
             }
         }
         // refit every run
-        let mut new_net = VectorNetwork { vertices: self.vertices.clone(), segments: vec![], regions: vec![] };
+        let mut new_net = VectorNetwork {
+            vertices: self.vertices.clone(),
+            segments: vec![],
+            regions: vec![],
+            fills_closed_loops_without_regions: self.fills_closed_loops_without_regions,
+        };
         let mut run_new_segs: Vec<Vec<usize>> = vec![]; // new segments per run, in run direction
         let mut seg_run: Vec<Option<(usize, bool)>> = vec![None; ns];
         for (ri, run) in runs.iter().enumerate() {
@@ -1757,6 +1796,63 @@ mod tests {
         assert!((area(&n.fill_paths()) - 5000.0).abs() < 1.0);
     }
 
+    fn flagged_two_loops() -> VectorNetwork {
+        let mut n = VectorNetwork::from_paths(&[rect_path(0.0, 0.0, 50.0, 50.0), rect_path(100.0, 0.0, 50.0, 50.0)]);
+        n.regions.clear();
+        n.fills_closed_loops_without_regions = true;
+        n
+    }
+
+    #[test]
+    fn the_bucket_on_one_loop_of_an_imported_network_unfills_only_that_loop() {
+        let mut n = flagged_two_loops();
+        assert_eq!(n.fill_paths().len(), 2);
+        let a = n.face_at(v(25.0, 25.0)).unwrap();
+        assert!(!n.toggle_face(&a), "the loop was filled by the import rule, now it is not");
+        assert_eq!(n.regions.len(), 2, "both loops are regions now");
+        assert!(!n.regions.iter().find(|r| sorted_key(&r.loops) == a.key()).unwrap().filled);
+        let fills = n.fill_paths();
+        assert_eq!(fills.len(), 1, "the other loop keeps its fill");
+        assert!((area(&fills) - 2500.0).abs() < 1.0);
+        assert!(n.toggle_face(&a));
+        assert_eq!(n.fill_paths().len(), 2);
+    }
+
+    #[test]
+    fn joining_the_ends_of_a_chain_next_to_an_imported_loop_keeps_the_loop_filled() {
+        let mut n = flagged_two_loops();
+        // an open chain of three sides of a square, its ends 0.5 apart
+        let first = n.vertices.len();
+        for p in [v(200.0, 0.0), v(250.0, 0.0), v(250.0, 50.0), v(200.0, 50.0), v(200.0, 0.5)] {
+            n.add_vertex(p);
+        }
+        for k in 0..4 {
+            n.connect(first + k, first + k + 1);
+        }
+        assert_eq!(n.fill_paths().len(), 2);
+        n.join_vertices(first, first + 4).unwrap();
+        assert!(n.regions.iter().all(|r| r.filled));
+        assert_eq!(n.fill_paths().len(), 3, "the two loops the file had and the one the join closed");
+    }
+
+    #[test]
+    fn the_flag_and_the_regions_survive_a_save() {
+        let mut n = flagged_two_loops();
+        let json = serde_json::to_string(&n).unwrap();
+        assert!(json.contains("fills_closed_loops_without_regions"), "{json}");
+        let back: VectorNetwork = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, n);
+        assert_eq!(back.fill_paths().len(), 2);
+        let a = n.face_at(v(25.0, 25.0)).unwrap();
+        n.toggle_face(&a);
+        let back: VectorNetwork = serde_json::from_str(&serde_json::to_string(&n).unwrap()).unwrap();
+        assert_eq!(back, n);
+        assert_eq!(back.fill_paths().len(), 1);
+        // a network that does not carry the flag does not write it
+        let plain = VectorNetwork::from_paths(&[rect_path(0.0, 0.0, 50.0, 50.0)]);
+        assert!(!serde_json::to_string(&plain).unwrap().contains("fills_closed"));
+    }
+
     #[test]
     fn unfilling_the_only_loop_leaves_it_unfilled_rather_than_falling_back_to_the_closed_loop_rule() {
         let mut n = VectorNetwork::from_paths(&[rect_path(0.0, 0.0, 50.0, 50.0)]);
@@ -1785,6 +1881,9 @@ mod tests {
     fn a_network_without_regions_fills_its_closed_loops_and_not_its_open_chains() {
         let mut n = VectorNetwork::from_paths(&[rect_path(0.0, 0.0, 50.0, 50.0), rect_path(100.0, 0.0, 50.0, 50.0)]);
         n.regions.clear();
+        // a network Studio drew, or one from a file written before the flag, fills nothing without regions
+        assert!(n.fill_paths().is_empty());
+        n.fills_closed_loops_without_regions = true;
         // two closed loops and nothing else: both fill, one path each
         let fills = n.fill_paths();
         assert_eq!(fills.len(), 2);

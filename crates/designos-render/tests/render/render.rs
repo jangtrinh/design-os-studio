@@ -744,6 +744,7 @@ fn dashed_round_line_with_end_caps(t: &mut T, vertex_caps: (Option<StrokeCap>, O
                     vertices: vec![v0, v1],
                     segments: vec![vector::Segment { a: 0, b: 1, ta: Vec2::ZERO, tb: Vec2::ZERO }],
                     regions: Vec::new(),
+                    ..Default::default()
                 }),
             },
         );
@@ -806,6 +807,7 @@ fn solid_open_line_all_butt_vertex_caps_stay_butt() {
                     vertices: vec![v0, v1],
                     segments: vec![vector::Segment { a: 0, b: 1, ta: Vec2::ZERO, tb: Vec2::ZERO }],
                     regions: Vec::new(),
+                    ..Default::default()
                 }),
             },
         );
