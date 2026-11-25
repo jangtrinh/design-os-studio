@@ -20,6 +20,7 @@ mod grid;
 mod kept_derived;
 mod kept_fields;
 mod kept_overrides;
+mod prop_ids;
 pub(crate) use carrier::{CARRIED_FIELDS, CARRIER_KEY_PREFIX};
 pub use kept_fields::KeptWriteReport;
 
@@ -433,6 +434,7 @@ struct ExportCtx<'a> {
     blobs: Vec<Vec<u8>>,
     changes: Vec<V>,
     kept: kept_fields::KeptState,
+    prop_ids: prop_ids::PropIds,
 }
 
 /// Glyph blob indices are counted from here while nodes are written, far above any real blob table, and then
@@ -554,6 +556,7 @@ impl<'a> ExportCtx<'a> {
             blobs: Vec::new(),
             changes: Vec::new(),
             kept: kept_fields::KeptState::new(doc, schema, nc_def),
+            prop_ids: Default::default(),
         };
         let bump_next_local = |next_local: &mut u32, local: u32| {
             if let Some(next) = local.checked_add(1) {
@@ -769,6 +772,9 @@ impl<'a> ExportCtx<'a> {
                 bump_next_local(&mut cx.next_local, g.1);
             }
         }
+        // The ids the file's records give component property definitions are spent as well: Figma's id for a definition is kept, so no
+        // fresh guid may take one.
+        let kept_prop_defs = prop_ids::reserve_file_defs(&mut cx);
         // Second pass: allocate fresh GUIDs for anything without an explicit `s:l`.
         for &id in doc.nodes.keys() {
             if !cx.node_guids.contains_key(&id) {
@@ -824,12 +830,7 @@ impl<'a> ExportCtx<'a> {
                 cx.style_guids.insert(id.clone(), g);
             }
         }
-        for (&id, n) in &doc.nodes {
-            for p in &n.component.props {
-                let g = cx.alloc_guid(4);
-                cx.prop_guids.insert((id, p.name.clone()), g);
-            }
-        }
+        prop_ids::assign(&mut cx, kept_prop_defs);
         for (ext_key, asset) in &doc.library.external {
             if let Some(nid) = asset.node {
                 let prefix = format!("{}:", asset.library_id);
@@ -1005,44 +1006,6 @@ impl<'a> ExportCtx<'a> {
 
     fn resolve_coll_guid(&self, id: &str) -> Option<(u32, u32)> {
         self.coll_guids.get(id).copied().or_else(|| self.coll_guids.get(&format!("VariableCollectionId:{id}")).copied()).or_else(|| parse_guid_pair(id))
-    }
-
-    fn resolve_prop_guid(&self, scope_node: NodeId, prop_name: &str) -> (u32, u32) {
-        if let Some(rest) = prop_name.strip_prefix("propDefId:") {
-            if let Some(g) = parse_guid_pair(rest) {
-                return g;
-            }
-        }
-        let key = prop_name.split('#').next().unwrap_or(prop_name).to_string();
-        let mut cur = Some(scope_node);
-        while let Some(c) = cur {
-            if let Some(&g) = self.prop_guids.get(&(c, key.clone())) {
-                return g;
-            }
-            if let Some(n) = self.doc.get(c) {
-                if let NodeKind::Instance { component: Some(master_id), .. } = n.kind {
-                    if let Some(&g) = self.prop_guids.get(&(master_id, key.clone())) {
-                        return g;
-                    }
-                    if let Some(set_id) = self.doc.get(master_id).and_then(|m| m.parent) {
-                        if let Some(&g) = self.prop_guids.get(&(set_id, key.clone())) {
-                            return g;
-                        }
-                    }
-                }
-                cur = n.parent;
-            } else {
-                break;
-            }
-        }
-        if let Some((_, &g)) = self.prop_guids.iter().find(|((_, name), _)| name == &key) {
-            return g;
-        }
-        let mut h = 2166136261u32;
-        for b in key.as_bytes() {
-            h = (h ^ (*b as u32)).wrapping_mul(16777619);
-        }
-        (4, h.max(1))
     }
 }
 

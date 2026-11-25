@@ -213,6 +213,25 @@ impl KeptState {
     pub(crate) fn is_active(&self) -> bool {
         self.plan.is_some()
     }
+
+    /// The field number the file's schema gives the `NodeChange` field `name`.
+    pub(super) fn field_number(&self, name: &str) -> Option<u32> {
+        self.plan.as_ref()?.fields.iter().find(|(_, f)| &*f.name == name).map(|(no, _)| *no)
+    }
+
+    /// Reads the kept bytes of one field as a value, with no check of the ids in it.
+    pub(super) fn decode_unchecked(&self, schema: &Schema, nc_def: usize, no: u32, bytes: &[u8]) -> Option<(Arc<str>, V)> {
+        let plan = self.plan.as_ref()?;
+        schema.decode_field_value_prepared(nc_def, no, bytes, &plan.zero_wire).ok()
+    }
+}
+
+/// Whether the save writes node `id` from the store: it has a layer record under the guid the save writes it with, and its value is
+/// still the one the file had.
+pub(super) fn layer_is_written_from_the_store(cx: &ExportCtx<'_>, id: NodeId) -> bool {
+    let doc = cx.doc;
+    let (Some(rec), Some(&guid)) = (doc.fig_kept.record_of_node(id), cx.node_guids.get(&id)) else { return false };
+    rec.kind() == KeptRecordKind::Layer && rec.guid() == guid && doc.fig_kept_node_matches_snapshot(id) == Some(true)
 }
 
 /// The record to write for node `id` (exported under `guid`), or `None` for a layer that is written as Studio models it.

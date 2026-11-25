@@ -280,7 +280,8 @@ fn remap_prop_assignments(cx: &mut ExportCtx<'_>, kept: &Kept, entry: &mut V, in
     for a in assigns {
         let Some(old) = a.get("defID").and_then(field_guid) else { continue };
         let Some(name) = kept.props.get(&format!("{}:{}", old.0, old.1)) else { continue };
-        let g = cx.resolve_prop_guid(scope, name);
+        // a property no definition of this file has (a library's) keeps the id the file gave it
+        let Some(g) = cx.prop_guid_in_scope(scope, name) else { continue };
         if let Some(slot) = a.get_mut("defID") {
             *slot = guid(g.0, g.1);
         }
