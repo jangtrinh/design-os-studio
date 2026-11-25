@@ -1863,7 +1863,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     if node.component.is_slot_content {
         fields.push(("isSlotContent", V::Bool(true)));
     }
-    if let Some(src) = authored_source_guid(cx, id) {
+    if let Some(src) = kept_fields::kept_override_key(cx, id).or_else(|| authored_source_guid(cx, id)) {
         fields.push(("overrideKey", guid(src.0, src.1)));
     } else if in_component {
         fields.push(("overrideKey", guid(nguid.0, nguid.1)));
@@ -3302,8 +3302,13 @@ fn authored_source_node(doc: &Document, id: NodeId) -> Option<NodeId> {
     origin
 }
 
+/// The key the overrides of an instance use for the layer `id`: the key the file gave the layer of the main it was made from, else
+/// that layer's guid.
 fn authored_source_guid(cx: &ExportCtx<'_>, id: NodeId) -> Option<(u32, u32)> {
     let orig = authored_source_node(cx.doc, id)?;
+    if let Some(k) = kept_fields::kept_override_key(cx, orig) {
+        return Some(k);
+    }
     if let Some(g) = cx.doc.get(orig).and_then(|n| n.source_id.as_deref()).and_then(|s| s.rsplit(';').next()).and_then(parse_guid_pair) {
         return Some(g);
     }

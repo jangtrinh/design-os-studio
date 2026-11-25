@@ -60,6 +60,8 @@ const INSTANCE: (u32, u32) = (2, 6);
 
 /// The ids Figma gave the properties: the set's variant property, the aliases of it on the two variants, and a text property
 /// of `Main`.
+/// The key Figma gave the text of the main in the overrides of its instances: not the layer's own guid.
+const KEY: (u32, u32) = (7, 77);
 const SIZE: (u32, u32) = (4, 10);
 const SIZE_ON_SMALL: (u32, u32) = (4, 20);
 const SIZE_ON_LARGE: (u32, u32) = (4, 21);
@@ -140,7 +142,10 @@ fn nodes_with_label(label: (u32, u32)) -> Vec<V> {
         FAMILY,
         "\u{e900}",
         &[(0, 0.0)],
-        vec![("componentPropRefs", V::Array(vec![msg(vec![("defID", guid(label.0, label.1)), ("componentPropNodeField", en("TEXT_DATA"))])]))],
+        vec![
+            ("componentPropRefs", V::Array(vec![msg(vec![("defID", guid(label.0, label.1)), ("componentPropNodeField", en("TEXT_DATA"))])])),
+            ("overrideKey", guid(KEY.0, KEY.1)),
+        ],
     ));
     nodes.push(node(
         INSTANCE,
@@ -419,4 +424,48 @@ fn an_id_the_file_gave_a_property_is_never_given_to_a_layer_studio_makes() {
     let defs: Vec<(u32, u32)> = all.iter().flat_map(|r| ids_of(r, "componentPropDefs", "id")).collect();
     assert_eq!(defs.iter().filter(|g| **g == (1, clash.1)).count(), 1, "Figma's id is written: {defs:?}");
     assert!(all.iter().all(|r| guid_of(r) != (1, clash.1)), "no layer is written under the id of a property definition");
+}
+
+fn override_paths(all: &[V], at: (u32, u32)) -> Vec<Vec<(u32, u32)>> {
+    let entries = record_of(all, at).get("symbolData").and_then(|s| s.get("symbolOverrides")).and_then(V::as_array).map(|a| a.to_vec()).unwrap_or_default();
+    entries
+        .iter()
+        .map(|e| e.get("guidPath").and_then(|p| p.get("guids")).and_then(V::as_array).map(|g| g.iter().map(pair).collect()).unwrap_or_default())
+        .collect()
+}
+
+fn override_key(all: &[V], at: (u32, u32)) -> Option<(u32, u32)> {
+    record_of(all, at).get("overrideKey").map(pair)
+}
+
+#[test]
+fn a_layer_keeps_the_key_figma_gave_it_in_the_overrides_of_its_instances_edited_or_not() {
+    let original = file();
+    assert_eq!(override_key(&records(&original), MAIN_TEXT), Some(KEY));
+    for edit in [false, true] {
+        let mut doc = import_fig(&original).expect("imports");
+        if edit {
+            let id = by_name(&doc, "Caption");
+            doc.get_mut(id).unwrap().opacity = 0.5;
+        }
+        let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+        assert_eq!(override_key(&records(&saved), MAIN_TEXT), Some(KEY), "edited: {edit}, {report:?}");
+    }
+}
+
+#[test]
+fn an_override_studio_writes_names_the_layer_by_the_key_figma_gave_it() {
+    let original = file();
+    let mut doc = import_fig(&original).expect("imports");
+    let instance = by_name(&doc, "Use");
+    let child = doc.get(instance).unwrap().children[0];
+    let node = doc.get_mut(child).unwrap();
+    node.opacity = 0.3;
+    node.component.overrides.insert(designos_doc::OverrideField::Opacity);
+    let (saved, _) = export_fig_with_kept_report(&doc).expect("saves");
+    let all = records(&saved);
+    let paths = override_paths(&all, INSTANCE);
+    assert!(paths.iter().any(|p| p.last() == Some(&KEY)), "an entry names the text by its key: {paths:?}");
+    assert!(paths.iter().all(|p| p.last() != Some(&MAIN_TEXT)), "none names it by its guid: {paths:?}");
+    assert_eq!(override_key(&all, MAIN_TEXT), Some(KEY), "and the layer carries that key");
 }

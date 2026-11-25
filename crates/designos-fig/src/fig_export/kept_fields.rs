@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 /// Fields a save does not write from the store, so Studio's own value (or none) is written as it was before.
 ///
-/// - The override key, until the instance data that names it is written from the store too.
+/// - The override key: Studio's writer gives it from the record (see [`kept_override_key`]), edited layer or not.
 /// - What an instance carries (its overrides and the data Figma derived for it): it is gated on the instance's content and on
 ///   the component it names, not on the instance alone.
 /// - Outlines and vector networks, which name blobs and which Studio re-encodes.
@@ -146,6 +146,8 @@ pub(crate) struct KeptState {
     maps: Option<Arc<IdMaps>>,
     /// The file's blob number -> the number it has in this save.
     blobs: HashMap<u32, u32>,
+    /// The field number of `overrideKey` in the file's schema.
+    override_key_no: Option<u32>,
     pub(crate) report: KeptWriteReport,
 }
 
@@ -200,7 +202,8 @@ impl KeptState {
                     .collect()
             })
             .unwrap_or_default();
-        Self { plan: Some(Arc::new(Plan { fields, zero_wire: schema.zero_wire_table() })), ..Self::default() }
+        let override_key_no = schema.defs.get(nc_def).and_then(|d| d.field_named("overrideKey")).map(|f| f.value);
+        Self { plan: Some(Arc::new(Plan { fields, zero_wire: schema.zero_wire_table() })), override_key_no, ..Self::default() }
     }
 
     /// Whether any layer can be written from the store.
@@ -218,6 +221,38 @@ impl KeptState {
         let plan = self.plan.as_ref()?;
         schema.decode_field_value_prepared(nc_def, no, bytes, &plan.zero_wire).ok()
     }
+}
+
+/// The key the file's record for node `id` gives the layer in the overrides of its instances (`overrideKey`), when the record is the
+/// layer's own, whatever has become of the layer since: the key names the layer and is no value of it. Studio's writer names the layer
+/// by this key in the overrides it writes, and writes it as the layer's own key, so an override entry and the layer it names agree
+/// whichever of the two Studio wrote and whichever the file's bytes give back.
+pub(super) fn kept_override_key(cx: &ExportCtx<'_>, id: NodeId) -> Option<(u32, u32)> {
+    let no = cx.kept.override_key_no.filter(|_| cx.kept.is_active())?;
+    let rec = cx.doc.fig_kept.record_of_node(id)?;
+    if rec.kind() != KeptRecordKind::Layer || cx.node_guids.get(&id) != Some(&rec.guid()) {
+        return None;
+    }
+    guid_struct(rec.field(no)?)
+}
+
+/// A `GUID` struct as the wire holds it: the session and the local id, one variable-length number each, and nothing after.
+fn guid_struct(bytes: &[u8]) -> Option<(u32, u32)> {
+    let mut at = 0;
+    let mut next = || -> Option<u32> {
+        let mut value = 0u64;
+        for shift in (0..35).step_by(7) {
+            let b = *bytes.get(at)?;
+            at += 1;
+            value |= u64::from(b & 0x7f) << shift;
+            if b & 0x80 == 0 {
+                return u32::try_from(value).ok();
+            }
+        }
+        None
+    };
+    let (session, local) = (next()?, next()?);
+    (at == bytes.len()).then_some((session, local))
 }
 
 /// Whether the save writes node `id` from the store: it has a layer record under the guid the save writes it with, and its value is
@@ -544,4 +579,20 @@ fn add_kept_blob(cx: &mut ExportCtx<'_>, old: u32) -> Option<u32> {
     let slot = cx.add_blob(bytes);
     cx.kept.blobs.insert(old, slot);
     Some(slot)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::guid_struct;
+
+    #[test]
+    fn a_guid_struct_reads_two_variable_length_numbers_and_nothing_else() {
+        assert_eq!(guid_struct(&[0x87, 0x01, 0x05]), Some((135, 5)));
+        assert_eq!(guid_struct(&[0x00, 0x00]), Some((0, 0)));
+        assert_eq!(guid_struct(&[0xff, 0xff, 0xff, 0xff, 0x0f, 0x01]), Some((u32::MAX, 1)));
+        assert_eq!(guid_struct(&[0x87, 0x01]), None, "the local id is missing");
+        assert_eq!(guid_struct(&[0x01, 0x02, 0x03]), None, "bytes are left over");
+        assert_eq!(guid_struct(&[0x80, 0x80, 0x80, 0x80, 0x80, 0x01, 0x01]), None, "a number past 32 bits");
+        assert_eq!(guid_struct(&[0x81]), None, "a number that does not end");
+    }
 }
