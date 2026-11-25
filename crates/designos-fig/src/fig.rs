@@ -2738,6 +2738,11 @@ fn convert_vector_network(nc: &Value, blobs: &[&[u8]]) -> Option<Value> {
         _ => (1.0, 1.0),
     };
     let (mut net, styles) = crate::vecnet::network_from_blob(blob, scale)?;
+    // The node's `cornerRadius` rounds every vertex; the style table then sets the vertices that have a radius of
+    // their own, a radius of 0 included.
+    if let Some(r) = fnum(nc, "cornerRadius") {
+        crate::vecnet::apply_node_corner_radius(&mut net, r);
+    }
     if let Some(table) = vd.get("styleOverrideTable").and_then(Value::as_array) {
         crate::vecnet::apply_style_table(&mut net, &styles, table);
     }
