@@ -469,3 +469,27 @@ fn an_override_studio_writes_names_the_layer_by_the_key_figma_gave_it() {
     assert!(paths.iter().all(|p| p.last() != Some(&MAIN_TEXT)), "none names it by its guid: {paths:?}");
     assert_eq!(override_key(&all, MAIN_TEXT), Some(KEY), "and the layer carries that key");
 }
+
+#[test]
+fn a_layer_the_file_gave_no_key_is_addressed_by_its_own_guid_in_the_overrides_studio_writes() {
+    let none = (u32::MAX, u32::MAX);
+    let mut all = nodes();
+    for n in &mut all {
+        if guid_of(n) == MAIN_TEXT {
+            let V::Message(fields) = n else { unreachable!() };
+            fields.iter_mut().find(|(k, _)| &**k == "overrideKey").expect("the text has a key").1 = guid(none.0, none.1);
+        }
+    }
+    let mut doc = import_fig(&fig_file(all, vec![icon_blob()])).expect("imports");
+    let instance = by_name(&doc, "Use");
+    let child = doc.get(instance).unwrap().children[0];
+    let node = doc.get_mut(child).unwrap();
+    node.opacity = 0.3;
+    node.component.overrides.insert(designos_doc::OverrideField::Opacity);
+    let (saved, _) = export_fig_with_kept_report(&doc).expect("saves");
+    let out = records(&saved);
+    let paths = override_paths(&out, INSTANCE);
+    assert!(paths.iter().any(|p| p.last() == Some(&MAIN_TEXT)), "the entry names the text by its guid: {paths:?}");
+    assert!(paths.iter().all(|p| p.last() != Some(&none)), "no entry names a layer by the null key: {paths:?}");
+    assert_eq!(override_key(&out, MAIN_TEXT), Some(none), "the layer keeps the null key the file gave it");
+}

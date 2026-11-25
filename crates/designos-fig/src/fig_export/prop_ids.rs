@@ -205,10 +205,15 @@ impl ExportCtx<'_> {
         None
     }
 
-    /// The id a save writes for the property `prop_name` of `scope`. A name no definition has gets an id of the session Studio
-    /// keeps for itself, the same one each time.
+    /// The id a save writes for the property `prop_name` of `scope`: the one in scope, else the one of any definition of that name
+    /// (an instance whose main this file does not hold, set apart from its variants), else an id of the session Studio keeps for
+    /// itself, the same one each time.
     pub(super) fn resolve_prop_guid(&mut self, scope: NodeId, prop_name: &str) -> Guid {
         if let Some(g) = self.prop_guid_in_scope(scope, prop_name) {
+            return g;
+        }
+        let key = bare(prop_name);
+        if let Some((_, &g)) = self.prop_guids.iter().find(|((_, name), _)| name == key) {
             return g;
         }
         if let Some(&g) = self.prop_ids.unresolved.get(prop_name) {

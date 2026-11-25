@@ -3306,7 +3306,8 @@ fn authored_source_node(doc: &Document, id: NodeId) -> Option<NodeId> {
 /// that layer's guid.
 fn authored_source_guid(cx: &ExportCtx<'_>, id: NodeId) -> Option<(u32, u32)> {
     let orig = authored_source_node(cx.doc, id)?;
-    if let Some(k) = kept_fields::kept_override_key(cx, orig) {
+    // a layer the file gave no key (the null guid) is addressed by its own guid, as the loader reads it
+    if let Some(k) = kept_fields::kept_override_key(cx, orig).filter(|k| *k != (u32::MAX, u32::MAX)) {
         return Some(k);
     }
     if let Some(g) = cx.doc.get(orig).and_then(|n| n.source_id.as_deref()).and_then(|s| s.rsplit(';').next()).and_then(parse_guid_pair) {
