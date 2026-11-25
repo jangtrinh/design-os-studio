@@ -306,7 +306,8 @@ fn materialising_draws_the_fallback_fill_byte_for_byte() {
 
 /// A translucent stroke over loops whose bands overlap (crossing circles, nested rings closer than the stroke, loops
 /// touching, a loop crossing itself) is the same picture before and after the loops get their regions: the stroke runs
-/// over the same per-chain paths either way, so no band is painted twice.
+/// over the same per-chain paths either way, so materialising changes nothing. (Where two chains' bands overlap the
+/// translucent stroke is painted once per chain, before and after alike.)
 #[test]
 fn materialising_keeps_a_translucent_stroke_over_overlapping_chains_byte_for_byte() {
     let mut checked = 0;
