@@ -120,16 +120,25 @@ fn a_nested_span_for_another_size_leaves_the_copy_shaped() {
 /// A deferred fixture whose instance carries the data Figma stored for the copy of the button's label (the label has none of
 /// its own): 90 x 20, one glyph from blob 0.
 fn deferred_with_nested_text() -> Vec<u8> {
-    let derived = json!([{
+    deferred_with_nested_text_sized(true)
+}
+
+/// The same fixture; without `size` the instance's entry carries the stored text and nothing else Studio reads, so the
+/// copy keeps the main's 120 x 48 box and the stored layout is of that box.
+fn deferred_with_nested_text_sized(sized: bool) -> Vec<u8> {
+    let layout = if sized { json!({"x": 90.0, "y": 20.0}) } else { json!({"x": 120.0, "y": 48.0}) };
+    let mut entry = json!({
         "guidPath": {"guids": [json_guid(LABEL.0, LABEL.1)]},
-        "size": {"x": 90.0, "y": 20.0},
         "derivedTextData": {
-            "layoutSize": {"x": 90.0, "y": 20.0},
+            "layoutSize": layout,
             "fontMetaData": [{"key": {"family": "Inter", "style": "Regular", "postscript": ""}}],
             "glyphs": [{"commandsBlob": 0, "position": {"x": 0.0, "y": 20.0}, "fontSize": 14.0, "firstCharacter": 0}]
         }
-    }]);
-    fixture_with(json!({"derivedSymbolData": derived}), text_and_stroke_overrides(), Vec::new(), vec![icon_blob()])
+    });
+    if sized {
+        entry["size"] = json!({"x": 90.0, "y": 20.0});
+    }
+    fixture_with(json!({"derivedSymbolData": [entry]}), text_and_stroke_overrides(), Vec::new(), vec![icon_blob()])
 }
 
 fn hydrated_label(doc: &Document) -> &Node {
@@ -171,4 +180,26 @@ fn a_deferred_page_whose_main_changed_shapes_its_instance_texts() {
     let label = hydrated_label(&doc);
     assert_eq!(label.size, designos_doc::Vec2::new(125.0, 48.0), "the stale derived size is refused with the rest of the derived data");
     assert_eq!(stored_glyph_use(label), StoredGlyphUse::NoStoredData, "and so is the stored text: the copy shapes");
+}
+
+#[test]
+fn a_deferred_page_whose_main_changed_shapes_its_instance_texts_when_the_entry_holds_only_text() {
+    let mut untouched = import_fig(&deferred_with_nested_text_sized(false)).unwrap();
+    let untouched_page = page_named(&untouched, "404 pages");
+    assert!(untouched.ensure_page_hydrated(untouched_page));
+    assert_eq!(stored_glyph_use(hydrated_label(&untouched)), StoredGlyphUse::Drawn, "the entry alone is enough to draw");
+
+    // a letter spacing change keeps the size, fonts and characters the stored data is checked against
+    let mut doc = import_fig(&deferred_with_nested_text_sized(false)).unwrap();
+    let page = page_named(&doc, "404 pages");
+    let main_label = doc
+        .nodes
+        .values()
+        .find(|n| n.name == "Text" && n.parent.and_then(|p| doc.get(p)).is_some_and(|p| p.name == "Buttons/Button"))
+        .map(|n| n.id)
+        .expect("main label");
+    let NodeKind::Text(text) = &mut doc.get_mut(main_label).unwrap().kind else { unreachable!() };
+    text.style.letter_spacing += 3.0;
+    assert!(doc.ensure_page_hydrated(page));
+    assert_eq!(stored_glyph_use(hydrated_label(&doc)), StoredGlyphUse::NoStoredData, "the main changed: the copy shapes");
 }

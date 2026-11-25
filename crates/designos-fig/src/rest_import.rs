@@ -2355,7 +2355,8 @@ impl<'a> Ctx<'a> {
         let mut instance_roots = HashMap::new();
         let mut swap_mains_of: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
         for &inst in pending_by_page.values().flatten() {
-            if self.overrides.get(&inst).is_none_or(|o| o.fast_derived.is_empty()) {
+            // the stored texts are checked against the main too, also when the instance stores nothing else Studio reads
+            if self.overrides.get(&inst).is_none_or(|o| o.fast_derived.is_empty() && o.texts.is_empty()) {
                 continue;
             }
             if let Some(&main) = targets.get(&inst) {
