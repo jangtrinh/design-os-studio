@@ -226,15 +226,17 @@ fn strip_held_back(schema: &crate::kiwi::Schema, nc_def: usize, def: usize, valu
     had > 0 && fields.is_empty()
 }
 
-/// `field` (a `NodeChange` field name and its value), or `None` when it is held back or holds only held-back keys.
-fn without_held_back(schema: &crate::kiwi::Schema, nc_def: usize, field: Option<(Arc<str>, V)>) -> Option<(Arc<str>, V)> {
+/// `field` (a field name of the message `parent` and its value), or `None` when it is held back or holds only held-back
+/// keys. Held-back names apply to the fields of `NodeChange` alone; `parent` is `NodeChange` for its own fields, or the
+/// message a nested value hangs from (a paint, an effect).
+fn without_held_back(schema: &crate::kiwi::Schema, nc_def: usize, parent: usize, field: Option<(Arc<str>, V)>) -> Option<(Arc<str>, V)> {
     let (name, value) = field?;
-    if is_held_back(&name) {
+    if parent == nc_def && is_held_back(&name) {
         return None;
     }
-    // The field is a one-field message of the `NodeChange` for the walk, which then reads its type from the definition.
+    // The field is a one-field message of `parent` for the walk, which then reads its type from the definition.
     let mut holder = V::Message(vec![(name.clone(), value)]);
-    if strip_held_back(schema, nc_def, nc_def, &mut holder, 0) {
+    if strip_held_back(schema, nc_def, parent, &mut holder, 0) {
         return None;
     }
     let V::Message(mut fields) = holder else { return None };
@@ -247,7 +249,7 @@ fn nc_field_from_json(schema: &crate::kiwi::Schema, nc_def: usize, name: &str, v
     if is_held_back(name) {
         return None;
     }
-    without_held_back(schema, nc_def, schema.def_field_from_json(nc_def, name, v))
+    without_held_back(schema, nc_def, nc_def, schema.def_field_from_json(nc_def, name, v))
 }
 
 /// The same for a value kept as text in `Node::fig_metadata`.
@@ -255,7 +257,7 @@ fn nc_field_from_metadata(schema: &crate::kiwi::Schema, nc_def: usize, name: &st
     if is_held_back(name) {
         return None;
     }
-    without_held_back(schema, nc_def, schema.def_field_from_metadata(nc_def, name, raw))
+    without_held_back(schema, nc_def, nc_def, schema.def_field_from_metadata(nc_def, name, raw))
 }
 
 /// What a shader message that cannot be written whole tells the person saving: the layer, what is wrong, what to do.
@@ -277,6 +279,7 @@ fn decode_shader_ref(
     };
     let def_idx = schema.find(def_name).ok_or_else(|| FigError::Format(format!("missing {def_name} in schema")))?;
     let def = &schema.defs[def_idx];
+    let nc_def = schema.find("NodeChange").ok_or_else(|| FigError::Format("missing NodeChange in schema".into()))?;
     let mut out = Vec::new();
     for (k, v) in obj {
         if skip.contains(&k.as_str()) || v.is_null() {
@@ -296,7 +299,8 @@ fn decode_shader_ref(
                 return Err(shader_refusal(owner_name, format!("invalid shader field {k:?} on {def_name}")));
             }
         }
-        out.push((sf.name.clone(), kv));
+        // A `NodeChange` field held back, nested under the paint or effect, is left out as it was before the schema knew it.
+        out.extend(without_held_back(schema, nc_def, def_idx, Some((sf.name.clone(), kv))));
     }
     Ok(out)
 }
@@ -4996,6 +5000,25 @@ mod held_back_tests {
         let (_, value) = nc_field_from_json(schema, nc, "variableConsumptionMap", &map).expect("the map is written");
         let entry = &value.get("entries").and_then(V::as_array).unwrap()[0];
         assert!(entry.get("variableData").is_some(), "{entry:?}");
+    }
+
+    #[test]
+    fn a_held_back_key_nested_under_a_shader_paint_is_dropped_not_written() {
+        let schema = export_schema();
+        let shader = ShaderRef {
+            raw: json!({"opacityVar": {"value": {"textDataValue": {"characters": "x", "styleOverrideTable": [{"styleID": 1, "fontSize": 12.0, "fontVersion": "1"}]}}}}),
+        };
+        let fields = decode_shader_ref(schema, "Paint", "layer", &shader, &[]).expect("the shader converts");
+        let (name, var) = &fields[0];
+        assert_eq!(&**name, "opacityVar");
+        let row = &var
+            .get("value")
+            .and_then(|v| v.get("textDataValue"))
+            .and_then(|t| t.get("styleOverrideTable"))
+            .and_then(V::as_array)
+            .expect("the table is written")[0];
+        assert!(row.get("styleID").is_some() && row.get("fontSize").is_some(), "what is not held back stays: {row:?}");
+        assert!(row.get("fontVersion").is_none(), "the held-back key is left out: {row:?}");
     }
 
     #[test]

@@ -14,7 +14,7 @@ use designos_doc::*;
 use designos_fig::container::{self, Compression};
 use designos_fig::kiwi::{Field, FieldType, KiwiValue as V, Schema};
 use designos_fig::testkit::{figma_like_schema, msg, parse_schema_text};
-use designos_fig::{export_fig, import_fig};
+use designos_fig::{export_fig, import_fig, import_fig_node_changes};
 use serde_json::{json, Value};
 
 fn real() -> Schema {
@@ -268,4 +268,64 @@ fn a_nested_override_two_levels_deep_never_gains_a_held_back_field() {
     }
     assert_eq!(middle_out["textData"]["characters"], json!("Go back"), "the rest of the middle entry is kept");
     assert_eq!(deepest_out["visible"], json!(false), "the rest of the deepest entry is kept");
+}
+
+#[test]
+fn a_keyframe_track_passthrough_child_is_saved_without_its_held_back_keys() {
+    // children of a keyframe track the importer does not model are kept as whole records and written back; a record of
+    // Figma's carries fields that no writer gates yet
+    let held = json!({
+        "fontVersion": "1",
+        "textUserLayoutVersion": 5,
+        "prototypeInteractions": [{"id": guid(7, 1), "event": {"interactionType": "ON_CLICK"}, "actions": []}],
+    });
+    let mut preset = fig_node(
+        (1, 23),
+        (1, 21),
+        "ANIMATION_PRESET_INSTANCE",
+        "TrackPresetChild",
+        json!({"timelineDuration": 400000, "pluginData": [{"pluginID": "p2", "key": "k2", "value": "v2"}]}),
+    );
+    for (k, v) in held.as_object().unwrap() {
+        preset[k] = v.clone();
+    }
+    let hero = fig_node(
+        (1, 20),
+        (0, 1),
+        "FRAME",
+        "Hero",
+        json!({
+            "timelineDefinitions": {"entries": [{"id": guid(3, 1), "data": {"durationUs": 1000000, "defaultTimeline": true}}]},
+            "parameterConsumptionMap": {"entries": [{
+                "nodeField": 18,
+                "variableField": "OPACITY",
+                "variableData": {
+                    "value": {"keyframeTrackParameterValue": {"parameters": [{
+                        "type": "MANUAL",
+                        "value": {"manual": {"keyframeTrackId": {"guid": guid(1, 21)}, "timelineDefId": guid(3, 1)}}
+                    }]}},
+                    "dataType": "KEYFRAME_TRACK_PARAMETER_DATA",
+                    "resolvedDataType": "KEYFRAME_TRACK_PARAMETER_DATA"
+                }
+            }]}
+        }),
+    );
+    let mut changes = document_and_page();
+    changes.push(hero);
+    changes.push(fig_node((1, 21), (1, 20), "KEYFRAME_TRACK", "OpacityTrack", json!({"keyframeOperation": "SET", "trackLoopMode": "NONE"})));
+    changes.push(preset);
+
+    let doc = import_fig_node_changes(&json!({"nodeChanges": changes}), "Motion").expect("import");
+    let hero = by_name(&doc, "Hero");
+    let kept = hero.fig_metadata.get("_motionTrackMeta").expect("the import keeps the track's data");
+    for key in ["fontVersion", "textUserLayoutVersion", "prototypeInteractions"] {
+        assert!(kept.contains(key), "the kept passthrough child holds {key}");
+    }
+
+    let saved = node_changes(&export_fig(&doc).expect("export"));
+    let child = record(&saved, "TrackPresetChild");
+    assert_eq!(child["type"], json!("ANIMATION_PRESET_INSTANCE"));
+    assert_eq!(child["timelineDuration"], json!(400000), "the other keys are kept");
+    assert_eq!(child["pluginData"], json!([{"pluginID": "p2", "key": "k2", "value": "v2"}]), "the other keys are kept");
+    assert_lacks(child, &["fontVersion", "textUserLayoutVersion", "prototypeInteractions"], "a keyframe track passthrough child");
 }
