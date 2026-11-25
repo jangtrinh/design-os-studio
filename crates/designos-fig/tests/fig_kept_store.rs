@@ -204,3 +204,23 @@ fn a_no_edit_save_is_the_same_with_and_without_the_store() {
     assert!(!with.fig_kept.is_empty());
     assert_eq!(designos_fig::export_fig(&with).unwrap(), designos_fig::export_fig(&without).unwrap());
 }
+
+#[test]
+fn loading_a_deferred_page_does_not_turn_an_unedited_node_into_an_edited_one() {
+    let (mut doc, report) = import_fig_with_report(&designos_fig::testkit::deferred_pages_fig()).expect("imports");
+    assert!(doc.has_pending_pages(), "the fixture defers a page");
+    assert!(report.kept_records > 0);
+    let edited = |doc: &designos_doc::Document| -> Vec<designos_doc::NodeId> {
+        doc.nodes.keys().copied().filter(|id| doc.fig_kept_node_matches_snapshot(*id) == Some(false)).collect()
+    };
+    assert!(edited(&doc).is_empty(), "nothing is edited at the end of the open");
+    let with_entry = doc.fig_kept.snapshot_count();
+    assert!(with_entry > 0);
+    // one node is edited by the user before the page loads
+    let hero =
+        doc.nodes.values().find(|n| n.name == designos_fig::testkit::DEFERRED_PAGE_INSTANCE_NAME).map(|n| n.id).expect("the instance on the deferred page");
+    doc.get_mut(hero).unwrap().name = "renamed by the user".into();
+    assert!(doc.hydrate_all_pages());
+    assert_eq!(doc.fig_kept.snapshot_count(), with_entry, "loading a page adds no entry: its nodes have no record of their own");
+    assert_eq!(edited(&doc), vec![hero], "the loader's own writes are not edits, and the user's edit still is one");
+}

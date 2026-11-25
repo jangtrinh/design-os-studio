@@ -101,7 +101,7 @@ pub struct KeptData {
 impl KeptData {
     /// Builds the store's shared part. A record or blob slot that names bytes outside the arena is dropped and counted,
     /// never trusted: what built the ranges is a decoder, but the store does not rely on it.
-    pub fn new(arena: KeptArena, records: Vec<KeptRecord>, fields: Vec<KeptField>, blobs: Vec<BlobSlot>, mut counts: KeptCounts) -> Self {
+    pub fn new(arena: KeptArena, records: Vec<KeptRecord>, mut fields: Vec<KeptField>, blobs: Vec<BlobSlot>, mut counts: KeptCounts) -> Self {
         let size = arena.len() as u64;
         let fits = |offset: u32, len: u32| u64::from(offset) + u64::from(len) <= size;
         let mut kept = Vec::with_capacity(records.len());
@@ -117,7 +117,11 @@ impl KeptData {
             by_guid.entry(rec.guid).or_insert(kept.len() as u32);
             kept.push(rec);
         }
-        let blobs = blobs.into_iter().map(|b| if fits(b.offset, b.len) { b } else { BlobSlot { offset: 0, len: 0 } }).collect();
+        let blobs: Vec<BlobSlot> = blobs.into_iter().map(|b| if fits(b.offset, b.len) { b } else { BlobSlot { offset: 0, len: 0 } }).collect();
+        // the vectors grew by doubling while the capture ran; what is kept for the life of the document holds no spare room
+        fields.shrink_to_fit();
+        kept.shrink_to_fit();
+        by_guid.shrink_to_fit();
         Self { arena, records: kept, fields, blobs, by_guid, counts }
     }
 }

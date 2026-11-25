@@ -23,13 +23,13 @@ pub const MAX_KEPT_RECORD_BYTES: usize = 4 << 20;
 /// Most fields kept for one record. `NodeChange` has 616 fields, so a record past this repeats fields.
 pub const MAX_KEPT_FIELDS_PER_RECORD: usize = 1024;
 
-/// The disk budget of one open file: the largest inflated payload kept. The largest file measured, 1,058,895 records, is about
-/// 1.3 GB, so this leaves it half again as much. A payload past it keeps nothing and every record of it is counted.
-/// Offsets are 32 bits, which bounds the budget below 4 GiB.
-pub const MAX_KEPT_ARENA_BYTES: usize = 2 << 30;
+/// The disk budget of one open file: the largest inflated payload kept. The kit's payload is 193 MB for 119,748 records
+/// (1.6 KB a record), so the largest file measured, 1,058,895 records, is about 1.7 GB; this leaves it 1.75 times as much. A
+/// payload past it keeps nothing and every record of it is counted. Offsets are 32 bits, which bounds the budget below 4 GiB.
+pub const MAX_KEPT_ARENA_BYTES: usize = 3 << 30;
 
-/// The payload size from which the arena is written to a file and mapped instead of held in memory: the kit's is
-/// a fifth of it, and it is the size at which the process's own buffers already dominate the open.
+/// The payload size from which the arena is written to a file and mapped instead of held in memory: 512 MiB is 2.8 times
+/// the kit's payload, so the kit stays in memory, and the largest file measured (about 1.7 GB) is mapped.
 pub const SPILL_THRESHOLD_BYTES: usize = 512 << 20;
 
 /// Wire bytes that pay for one kept field range. A file cannot make the ranges outweigh the payload by more than
