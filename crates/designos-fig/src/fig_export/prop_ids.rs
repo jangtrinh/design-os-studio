@@ -48,6 +48,8 @@ pub(crate) struct PropIds {
     defined_by: HashMap<NodeId, HashSet<Guid>>,
     /// The named definitions of each layer's own record.
     kept_named: HashMap<NodeId, Vec<Guid>>,
+    /// Every id some group writes (built when first asked).
+    written_anywhere: Option<HashSet<Guid>>,
     /// Whether every layer of the group that has this root is written from the store and unmoved.
     groups: HashMap<NodeId, bool>,
     /// The session Studio-made ids come from.
@@ -291,6 +293,27 @@ impl ExportCtx<'_> {
         }
     }
 
+    /// Whether some layer of the save defines the property `g`: the model's properties, or the named definitions of a record written as
+    /// the file had it. An id nothing defines is dangling whoever names it.
+    pub(super) fn prop_is_written_anywhere(&mut self, g: Guid) -> bool {
+        if self.prop_ids.written_anywhere.is_none() {
+            let mut all: HashSet<Guid> = self.prop_ids.defined_by.values().flatten().copied().collect();
+            let kept: Vec<(NodeId, Vec<Guid>)> = self.prop_ids.kept_named.iter().map(|(n, v)| (*n, v.clone())).collect();
+            for (n, ids) in kept {
+                if kept_fields::node_is_verbatim(self, n) {
+                    all.extend(ids);
+                }
+            }
+            self.prop_ids.written_anywhere = Some(all);
+        }
+        self.prop_ids.written_anywhere.as_ref().is_some_and(|s| s.contains(&g))
+    }
+
+    /// [`Self::prop_is_written_anywhere`], or the file never defined `g` (a library's).
+    pub(super) fn prop_is_written_anywhere_or_library(&mut self, g: Guid) -> bool {
+        !self.prop_ids.file_defs.contains(&g) || self.prop_is_written_anywhere(g)
+    }
+
     /// Whether an assignment of the property `g` on the instance `target` (a layer of a main, addressed by an override entry) may stay
     /// as the file had it: the file never defined the id, or the group of the instance's main is whole or writes it.
     pub(super) fn instance_prop_is_written(&mut self, target: NodeId, g: Guid) -> bool {
@@ -301,7 +324,7 @@ impl ExportCtx<'_> {
             Some(NodeKind::Instance { component, .. }) => *component,
             _ => None,
         };
-        let Some(owner) = self.assignment_owner(target) else { return true };
+        let Some(owner) = self.assignment_owner(target) else { return self.prop_is_written_anywhere(g) };
         self.group_is_verbatim(owner) || self.group_writes_def(owner, main, g)
     }
 

@@ -277,15 +277,24 @@ fn entry_target(cx: &mut ExportCtx<'_>, entry: &V, inst_id: NodeId, main_guid: (
 /// Checks the component properties an entry sets against what this save writes. The file keeps the id Figma gave a property, so an
 /// id stays as it was when the owner of the node the entry addresses still writes it (or is whole, or the file never defined it). An
 /// id the owner no longer writes is looked up again by the name the file gave it, inside that owner only, and left out, counted,
-/// when the owner has no property of that name. An entry whose target is not a layer of this file is left as the file had it.
+/// when the owner has no property of that name. An entry whose target is not a layer of this file keeps the id if some group still
+/// writes it, and is left out, counted, if none does.
 fn remap_prop_assignments(cx: &mut ExportCtx<'_>, kept: &Kept, entry: &mut V, inst_id: NodeId, main_guid: (u32, u32)) {
     if entry.get("componentPropAssignments").is_none() {
         return;
     }
-    let Some(target) = entry_target(cx, entry, inst_id, main_guid) else { return };
+    let target = entry_target(cx, entry, inst_id, main_guid);
     let Some(V::Array(assigns)) = entry.get_mut("componentPropAssignments") else { return };
     assigns.retain_mut(|a| {
         let Some(old) = a.get("defID").and_then(field_guid) else { return true };
+        let Some(target) = target else {
+            // the path leads to no layer of this file: all that can be said is whether any group still writes the property
+            if cx.prop_is_written_anywhere_or_library(old) {
+                return true;
+            }
+            cx.count_dropped_prop_entry();
+            return false;
+        };
         if cx.instance_prop_is_written(target, old) {
             return true;
         }

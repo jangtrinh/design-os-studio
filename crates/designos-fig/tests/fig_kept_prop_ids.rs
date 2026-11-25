@@ -863,3 +863,77 @@ fn an_unopened_instance_keeps_the_id_of_a_nested_instances_property_when_the_pat
         .collect();
     assert_eq!(ids, vec![(4, 71)], "the entry still names Button's Label, not Main's: {report:?}");
 }
+
+fn nested_assignment_ids(saved: &[u8]) -> Vec<(u32, u32)> {
+    let out = records(saved);
+    let entries =
+        record_of(&out, (1, 21)).get("symbolData").and_then(|s| s.get("symbolOverrides")).and_then(V::as_array).map(|a| a.to_vec()).unwrap_or_default();
+    entries
+        .iter()
+        .flat_map(|e| {
+            e.get("componentPropAssignments")
+                .and_then(V::as_array)
+                .map(|a| a.iter().filter_map(|x| x.get("defID")).map(pair).collect::<Vec<_>>())
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
+#[test]
+fn an_entry_of_an_unopened_instance_is_left_out_and_counted_when_the_property_it_sets_was_deleted() {
+    let mut doc = import_fig(&deferred_file_with_a_nested_instance()).expect("imports");
+    let button = by_name(&doc, "Button");
+    designos_doc::delete_prop(&mut doc, button, "Label").apply(&mut doc).expect("deletes");
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+    assert_eq!(nested_assignment_ids(&saved), Vec::<(u32, u32)>::new(), "no entry names the deleted property: {report:?}");
+    assert!(report.prop_refs_dropped >= 1, "the loss is counted: {report:?}");
+}
+
+#[test]
+fn an_entry_whose_path_leads_to_no_layer_keeps_its_id_while_a_group_writes_it_and_loses_it_when_none_does() {
+    let mut all = deferred_file_with_a_nested_instance();
+    // the same file, its entry addressing a layer the file does not hold
+    let mut changes = {
+        let archive = container::open(&all).expect("open");
+        let (schema_bin, msg_bin) = container::read_archive_chunks(&archive).expect("chunks");
+        let schema = Schema::decode(&schema_bin).expect("schema");
+        let root = schema.root_message().expect("root");
+        schema.decode_message(root, &msg_bin).expect("message")
+    };
+    fn retarget(v: &mut V) {
+        match v {
+            V::Message(f) | V::Struct(f) => {
+                for (k, x) in f.iter_mut() {
+                    if &**k == "guids" {
+                        *x = V::Array(vec![guid(7, 99)]);
+                    } else {
+                        retarget(x);
+                    }
+                }
+            }
+            V::Array(a) => a.iter_mut().for_each(retarget),
+            _ => {}
+        }
+    }
+    if let Some(V::Array(nodes)) = changes.take_field("nodeChanges") {
+        let mut nodes = nodes;
+        for n in &mut nodes {
+            if guid_of(n) == (1, 21) {
+                retarget(n);
+            }
+        }
+        let blobs = changes.take_field("blobs").unwrap_or(V::Array(vec![]));
+        let schema = designos_fig::testkit::figma_like_schema();
+        let body = schema.encode_message(schema.find("Message").unwrap(), &msg(vec![("nodeChanges", V::Array(nodes)), ("blobs", blobs)])).unwrap();
+        all = container::write_container(&schema.encode(), &body, container::Compression::Zstd, 161);
+    }
+    let doc = import_fig(&all).expect("imports");
+    let (saved, _) = export_fig_with_kept_report(&doc).expect("saves");
+    assert_eq!(nested_assignment_ids(&saved), vec![(4, 71)], "a group still writes Button's Label");
+    let mut doc = import_fig(&all).expect("imports");
+    let button = by_name(&doc, "Button");
+    designos_doc::delete_prop(&mut doc, button, "Label").apply(&mut doc).expect("deletes");
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+    assert_eq!(nested_assignment_ids(&saved), Vec::<(u32, u32)>::new(), "no group writes it any more: {report:?}");
+    assert!(report.prop_refs_dropped >= 1, "{report:?}");
+}
