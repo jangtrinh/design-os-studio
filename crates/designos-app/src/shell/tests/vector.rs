@@ -717,12 +717,15 @@ fn the_paint_bucket_fills_and_unfills_an_enclosed_area() {
     s.mv(at(&s, 370.0, 830.0));
     assert!(s.app().canvas.vedit.as_ref().unwrap().hover_face.is_some());
     s.click(at(&s, 370.0, 830.0));
-    assert!(network(&s, id).regions.is_empty(), "the loop was filled, now it is not");
+    let unfilled = network(&s, id);
+    assert!(unfilled.regions.len() == 1 && !unfilled.regions[0].filled, "the loop was filled, now its region is unfilled");
+    assert!(unfilled.fill_paths().is_empty(), "an unfilled only loop is not filled by the closed-loop fallback");
     assert!(matches!(&s.app().doc.get(id).unwrap().kind, NodeKind::Vector { network: Some(n), .. } if n.has_stroke_only_segments()));
     s.click(at(&s, 370.0, 830.0));
-    assert_eq!(network(&s, id).regions.len(), 1, "filled again");
+    let refilled = network(&s, id);
+    assert!(refilled.regions.len() == 1 && refilled.regions[0].filled, "filled again");
     s.cmd_key(Key::Z);
-    assert!(network(&s, id).regions.is_empty());
+    assert!(!network(&s, id).regions[0].filled && network(&s, id).fill_paths().is_empty(), "undo unfills it again");
     // clicking outside the shape does nothing
     let n0 = s.app().hist.can_undo();
     s.click(at(&s, 700.0, 960.0));

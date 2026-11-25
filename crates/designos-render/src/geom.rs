@@ -503,7 +503,10 @@ fn derived_shape(doc: &Document, n: &Node, tol: f32) -> Option<Shape> {
                 return None;
             }
             if let Some(net) = network.as_ref().filter(|n| n.is_valid()) {
-                if net.has_stroke_only_segments() {
+                // `paths` may be Figma's stroke outline (a closed vector stored without regions and without a fill has
+                // no other geometry), so an imported network that fills its closed loops always takes its fill from the
+                // network, not from `paths`
+                if net.has_stroke_only_segments() || (net.fills_closed_loops_without_regions && net.regions.is_empty()) {
                     s.fill_only = Some(vector_paths(&net.fill_paths()).paths);
                 }
             }

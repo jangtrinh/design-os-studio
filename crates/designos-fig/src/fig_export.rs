@@ -3841,7 +3841,9 @@ fn encode_geometry_blobs(cx: &mut ExportCtx, paths: &[Path]) -> Vec<V> {
 fn encode_vector_network_blob(net: &VectorNetwork) -> (Vec<u8>, Vec<V>) {
     let mut b = Vec::new();
     let mut style_table = Vec::new();
-    for n in [net.vertices.len(), net.segments.len(), net.regions.len()] {
+    // Figma's form of an unfilled region is not written: an unfilled region is left out
+    let regions: Vec<&designos_doc::vector::Region> = net.regions.iter().filter(|r| r.filled).collect();
+    for n in [net.vertices.len(), net.segments.len(), regions.len()] {
         b.extend_from_slice(&(n as u32).to_le_bytes());
     }
     for (i, v) in net.vertices.iter().enumerate() {
@@ -3892,7 +3894,7 @@ fn encode_vector_network_blob(net: &VectorNetwork) -> (Vec<u8>, Vec<V>) {
         b.extend_from_slice(&blob_f32(seg.tb.x));
         b.extend_from_slice(&blob_f32(seg.tb.y));
     }
-    for reg in &net.regions {
+    for reg in regions {
         let rule = if reg.rule == FillRule::NonZero { 1u32 } else { 0u32 };
         b.extend_from_slice(&rule.to_le_bytes());
         b.extend_from_slice(&(reg.loops.len() as u32).to_le_bytes());

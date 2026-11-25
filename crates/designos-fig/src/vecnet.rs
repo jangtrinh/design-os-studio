@@ -110,8 +110,11 @@ pub(crate) fn network_from_json(v: &Value) -> Option<VectorNetwork> {
             }
             loops.push(idx);
         }
-        net.regions.push(Region { rule, loops });
+        net.regions.push(Region { rule, loops, filled: true });
     }
+    // Figma fills each closed loop of a network that has no regions (a file stores an outline for it); a network with
+    // regions is filled by its regions alone, and must not start filling its other loops when an edit drops them
+    net.fills_closed_loops_without_regions = net.regions.is_empty();
     Some(net)
 }
 
@@ -141,8 +144,12 @@ pub(crate) fn network_to_json(net: &VectorNetwork) -> Value {
         })
         .collect();
     let segments: Vec<Value> = net.segments.iter().map(|s| json!({"start": s.a, "end": s.b, "tangentStart": p(s.ta), "tangentEnd": p(s.tb)})).collect();
-    let regions: Vec<Value> =
-        net.regions.iter().map(|r| json!({"windingRule": if r.rule == FillRule::EvenOdd { "EVENODD" } else { "NONZERO" }, "loops": r.loops})).collect();
+    let regions: Vec<Value> = net
+        .regions
+        .iter()
+        .filter(|r| r.filled)
+        .map(|r| json!({"windingRule": if r.rule == FillRule::EvenOdd { "EVENODD" } else { "NONZERO" }, "loops": r.loops}))
+        .collect();
     json!({"vertices": vertices, "segments": segments, "regions": regions})
 }
 
@@ -207,7 +214,7 @@ pub(crate) fn network_from_blob(b: &[u8], scale: (f32, f32)) -> Option<(VectorNe
             }
             loops.push(l);
         }
-        net.regions.push(Region { rule: if style_rule & 1 == 1 { FillRule::NonZero } else { FillRule::EvenOdd }, loops });
+        net.regions.push(Region { rule: if style_rule & 1 == 1 { FillRule::NonZero } else { FillRule::EvenOdd }, loops, filled: true });
     }
     Some((net, styles))
 }
@@ -328,14 +335,67 @@ mod tests {
         net.vertices[1].corner_radius = 6.0;
         net.vertices[2].cap = Some(StrokeCap::Square);
         net.vertices[0].mirror = HandleMirror::Angle;
-        net.regions.push(Region { rule: FillRule::EvenOdd, loops: vec![vec![0, 1, 2]] });
+        net.regions.push(Region { rule: FillRule::EvenOdd, loops: vec![vec![0, 1, 2]], filled: true });
         let j = network_to_json(&net);
         assert_eq!(j["vertices"][1]["cornerRadius"], 6.0);
         assert_eq!(j["vertices"][2]["strokeCap"], "SQUARE");
         assert_eq!(j["vertices"][0]["handleMirroring"], "ANGLE");
         assert_eq!(j["regions"][0]["windingRule"], "EVENODD");
-        assert_eq!(network_from_json(&j).unwrap(), net);
+        assert_eq!(network_from_json(&j).unwrap(), net, "a network with a region is not marked");
         // out-of-range indices are refused
         assert!(network_from_json(&json!({"vertices": [{"x": 0, "y": 0}], "segments": [{"start": 0, "end": 3}]})).is_none());
+    }
+
+    fn two_squares_json(region_over_the_first: bool) -> Value {
+        let sq = |x: f64| [(x, 0.0), (x + 50.0, 0.0), (x + 50.0, 50.0), (x, 50.0)];
+        let vertices: Vec<Value> = sq(0.0).iter().chain(sq(100.0).iter()).map(|(x, y)| json!({"x": x, "y": y})).collect();
+        let segments: Vec<Value> = (0..2).flat_map(|k| (0..4).map(move |i| json!({"start": k * 4 + i, "end": k * 4 + (i + 1) % 4}))).collect();
+        let regions = if region_over_the_first { json!([{"windingRule": "NONZERO", "loops": [[0, 1, 2, 3]]}]) } else { json!([]) };
+        json!({"vertices": vertices, "segments": segments, "regions": regions})
+    }
+
+    /// Only a network the file stores without regions fills its closed loops; a network with a region over one loop and a
+    /// bare second loop (which Figma leaves unfilled) does not start filling the second when an edit drops the region.
+    #[test]
+    fn an_imported_network_with_a_region_does_not_fill_its_other_loop_after_the_region_is_dropped() {
+        let bare = network_from_json(&two_squares_json(false)).unwrap();
+        assert!(bare.fills_closed_loops_without_regions);
+        assert_eq!(bare.fill_paths().len(), 2, "no regions: both loops fill, one path each");
+        let net = network_from_json(&two_squares_json(true)).unwrap();
+        assert!(!net.fills_closed_loops_without_regions);
+        assert_eq!(net.fill_paths().len(), 1, "the region alone");
+        type Edit = fn(&mut VectorNetwork);
+        let edits: [(&str, Edit); 3] = [
+            ("a segment of the loop is deleted", |n| n.delete_segment(0)),
+            ("vertices of the loop are deleted until two sides are left", |n| {
+                n.delete_vertex(0);
+                n.delete_vertex(0);
+            }),
+            ("the loop is cut at a vertex", |n| {
+                n.split_vertex(0);
+            }),
+        ];
+        for (what, edit) in edits {
+            let mut n = net.clone();
+            edit(&mut n);
+            assert!(n.regions.is_empty(), "{what}: the region went");
+            assert!(n.fill_paths().is_empty(), "{what}: the bare loop stays unfilled");
+        }
+    }
+
+    /// Figma's form of an unfilled region is not written: the region is left out of the JSON and of the blob.
+    #[test]
+    fn an_unfilled_region_is_left_out_of_the_json_and_the_blob() {
+        let mut net = VectorNetwork::default();
+        for p in [Vec2::new(0.0, 0.0), Vec2::new(50.0, 0.0), Vec2::new(50.0, 50.0)] {
+            net.add_vertex(p);
+        }
+        net.connect(0, 1);
+        net.connect(1, 2);
+        net.connect(2, 0);
+        net.regions.push(Region { rule: FillRule::NonZero, loops: vec![vec![0, 1, 2]], filled: false });
+        assert_eq!(network_to_json(&net)["regions"].as_array().map(Vec::len), Some(0));
+        net.regions[0].filled = true;
+        assert_eq!(network_to_json(&net)["regions"].as_array().map(Vec::len), Some(1));
     }
 }

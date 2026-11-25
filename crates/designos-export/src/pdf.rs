@@ -1094,8 +1094,10 @@ mod vector_page {
             if paints.is_empty() {
                 return;
             }
-            // precomputed outlines, per-side weights, and arrowhead/per-vertex caps are areas to fill
+            // precomputed outlines, per-side weights, arrowhead/per-vertex caps and dashes that Figma cuts one
+            // segment at a time (a PDF dash pattern runs on along the whole path) are areas to fill
             let area = sh.stroke_paths.is_some()
+                || designos_render::dashes_by_segment(n)
                 || (n.stroke.side_weights.is_some() && sh.is_rect)
                 || designos_render::vectorops::has_arrow_caps(n)
                 || designos_render::vectorops::vertex_caps(n).is_some();

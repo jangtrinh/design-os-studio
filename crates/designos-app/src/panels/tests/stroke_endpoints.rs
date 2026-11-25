@@ -2,8 +2,10 @@
 //! options, and the room their names have in the Stroke section.
 //!
 //! The dashed line runs at `y = 20` from `x = 10`, weight 4, dashes `[10, 6]`, so the stroke fills rows 18..22.
-//! On a line 84 long the dashes cover x = 10..20, 26..36, 42..52, 58..68, 74..84 and 90..94: the path ends
-//! inside the last dash, so the cap of the end point shows.
+//! A line 84 long holds five periods of 16.8 (the pattern stretched by 1.05), so its dashes cover x = 10..15.25,
+//! 21.55..32.05, 38.35..48.85, 55.15..65.65, 71.95..82.45 and 88.75..94: half a dash at both ends of the path, so
+//! the cap of the end point always shows. A path with an arrow head runs its dashes on continuously instead,
+//! x = 10..20, 26..36 ... as far as the head.
 
 use super::*;
 use egui::Pos2;
@@ -139,7 +141,9 @@ fn assert_drawn(app: &App, page: NodeId, gpu: &mut Option<designos_gpu::Headless
 }
 
 const ROUND_INNER_DASH_ENDS: [Probe; 2] =
-    [("the inner end of the first dash is round", 21, 19, MOSTLY), ("the inner end of the fifth dash is round", 85, 19, MOSTLY)];
+    [("the inner end of the first dash is round", 16, 19, MOSTLY), ("the inner end of the fifth dash is round", 83, 19, MOSTLY)];
+/// The first dash of a line with an arrow head ends at x = 20, with a round cap past it.
+const ARROW_INNER_DASH_END: [Probe; 1] = [("the inner end of the first dash is round", 21, 19, MOSTLY)];
 
 #[test]
 fn end_point_edits_on_a_dashed_round_line_keep_the_dash_cap_and_draw_each_terminal_on_cpu_and_gpu() {
@@ -188,7 +192,7 @@ fn a_line_arrow_end_point_on_a_dashed_round_line_draws_the_head_and_keeps_round_
     panel.pick(&mut app, "stroke-end-point", StrokeCap::ArrowLines);
     assert_eq!(app.doc.get(line).unwrap().stroke.cap, StrokeCap::Round);
     assert_eq!(end_caps(&app, line), Some((Some(StrokeCap::Round), Some(StrokeCap::ArrowLines))));
-    let mut probes = ROUND_INNER_DASH_ENDS[..1].to_vec();
+    let mut probes = ARROW_INNER_DASH_END.to_vec();
     probes.extend([
         ("the upper wing of the head", 87, 13, MOSTLY),
         ("the lower wing of the head", 87, 26, MOSTLY),

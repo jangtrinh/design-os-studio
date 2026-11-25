@@ -126,7 +126,8 @@ fn a_vector_network_with_a_non_finite_vertex_keeps_its_network_on_export() {
             Segment { a: 1, b: 2, ta: Vec2::ZERO, tb: Vec2::ZERO },
             Segment { a: 2, b: 0, ta: Vec2::ZERO, tb: Vec2::ZERO },
         ],
-        regions: vec![Region { rule: FillRule::NonZero, loops: vec![vec![0, 1, 2]] }],
+        regions: vec![Region { rule: FillRule::NonZero, loops: vec![vec![0, 1, 2]], filled: true }],
+        ..Default::default()
     };
     let mut node = Node::new(id, NodeKind::Vector { paths: Vec::new(), network: Some(net) });
     node.name = "Net".into();

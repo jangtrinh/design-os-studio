@@ -553,6 +553,7 @@ pub fn map_stroke(styles: &BTreeMap<String, String>, font_size: f32) -> Stroke {
         join: StrokeJoin::Miter,
         miter_limit: 4.0,
         dashes,
+        ..Default::default()
     }
 }
 

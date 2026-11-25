@@ -12,6 +12,7 @@ mod backdrop_index;
 mod blur;
 pub mod board;
 mod boolean;
+mod dash;
 pub mod diff_image;
 mod effects;
 mod fx;
@@ -42,8 +43,8 @@ pub use index::SceneIndex;
 pub use lint_env::RenderLintEnv;
 pub use mask::{apply_luminance_mask, mask_frame_box, mask_stencil, vector_mask_descendant_stencil, LUMINANCE_MASK_COEFFS};
 pub use outline::{
-    dashed_rect_stroke_path, decoded_image, decoded_image_mean, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline,
-    stroke_plan, text_outlines, text_outlines_for_node, NodeShape, StrokeClip, StrokePlan, TextOutline,
+    dashed_rect_stroke_path, dashes_by_segment, decoded_image, decoded_image_mean, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into,
+    stroke_outline, stroke_plan, text_outlines, text_outlines_for_node, NodeShape, StrokeClip, StrokePlan, TextOutline,
 };
 use paint::{blend_mode, fill_paths, stroke_paths, PaintEnv};
 pub use stored_glyphs::UNIT_CACHE_BYTES as STORED_GLYPH_CACHE_BYTES;
@@ -977,6 +978,7 @@ impl Renderer<'_> {
             || vectorops::has_per_vertex_joins(n)
             || vectorops::has_arrow_caps(n)
             || vectorops::vertex_caps(n).is_some()
+            || outline::dashes_by_segment(n)
         {
             let scale = (ts.sx.hypot(ts.ky)).max(ts.kx.hypot(ts.sy)).max(1.0);
             let Some(plan) = outline::stroke_plan(n, sh, scale) else { return };

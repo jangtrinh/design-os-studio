@@ -93,6 +93,30 @@ fn differing_pixels(a: &Pixels, b: &Pixels, w: f32, h: f32, tolerance: u8) -> (u
     (bad, total)
 }
 
+/// Samples on a 2 px grid where the canvas and the page differ, split in two: where both draw pure white or the pure
+/// ink `(200, 30, 30)` they must agree to 12 (interior), and where either is partly covered they may differ by up to
+/// 60 (edge). Returns the interior misses, the edge misses and the sample count.
+fn differing_interior_and_edge(a: &Pixels, b: &Pixels, w: f32, h: f32) -> (usize, usize, usize) {
+    let pure = |c: [u8; 3]| c.iter().all(|v| *v >= 250) || spread(c, [200, 30, 30]) <= 6;
+    let (mut interior, mut edge, mut total) = (0, 0, 0);
+    let mut y = 1.0;
+    while y < h {
+        let mut x = 1.0;
+        while x < w {
+            total += 1;
+            let (ca, cb) = (a.at(x, y), b.at(x, y));
+            if pure(ca) && pure(cb) {
+                interior += usize::from(spread(ca, cb) > 12);
+            } else {
+                edge += usize::from(spread(ca, cb) > 60);
+            }
+            x += 2.0;
+        }
+        y += 2.0;
+    }
+    (interior, edge, total)
+}
+
 fn solid(r: u8, g: u8, b: u8) -> Paint {
     Paint::solid(Color::rgb(r, g, b))
 }
@@ -489,10 +513,10 @@ fn dashed_inside_and_outside_rectangle_strokes_match_the_canvas() {
     // (align, cap, weight, dashes, corner radius, a point in the middle of the first dash)
     let cases = [
         (StrokeAlign::Inside, StrokeCap::Round, 8.0, [10.0, 14.0], 0.0, (39.0, 34.0)),
-        (StrokeAlign::Inside, StrokeCap::None, 8.0, [10.0, 14.0], 0.0, (39.0, 34.0)),
-        (StrokeAlign::Inside, StrokeCap::Square, 6.0, [9.0, 7.0], 12.0, (53.0, 33.0)),
+        (StrokeAlign::Inside, StrokeCap::None, 8.0, [10.0, 14.0], 0.0, (33.0, 34.0)),
+        (StrokeAlign::Inside, StrokeCap::Square, 6.0, [9.0, 7.0], 12.0, (57.0, 33.0)),
         (StrokeAlign::Outside, StrokeCap::Square, 8.0, [10.0, 14.0], 0.0, (31.0, 26.0)),
-        (StrokeAlign::Outside, StrokeCap::None, 6.0, [9.0, 7.0], 12.0, (46.0, 27.0)),
+        (StrokeAlign::Outside, StrokeCap::None, 6.0, [9.0, 7.0], 12.0, (44.0, 27.0)),
     ];
     let mut failures = Vec::new();
     for (align, cap, weight, dashes, radius, first_dash) in cases {
@@ -504,9 +528,13 @@ fn dashed_inside_and_outside_rectangle_strokes_match_the_canvas() {
         let out = export(&doc, frame);
         assert_eq!(out.kind, PageKind::Vector, "{label}");
         out.assert_canvas_shows(&label, first_dash, [200, 30, 30], 3);
-        let (bad, total) = differing_pixels(&out.canvas, &out.page, 200.0, 120.0, 12);
-        if bad * 500 > total {
-            failures.push(format!("{label}: {bad} of {total} sampled pixels differ from the canvas"));
+        out.assert_agree_at(&label, &[first_dash], 12);
+        // both draw the dashes as filled outlines, one under an anti-aliased mask and one under an exact clip, so only
+        // an edge pixel (partly covered in either picture) may be covered by a different fraction; where both pictures
+        // draw pure ink or pure white they agree to the tolerance of every other PDF test
+        let (interior, edge, total) = differing_interior_and_edge(&out.canvas, &out.page, 200.0, 120.0);
+        if interior > 0 || edge * 500 > total {
+            failures.push(format!("{label}: {interior} interior and {edge} edge of {total} sampled pixels differ from the canvas"));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -529,12 +557,12 @@ fn thin_dashed_rectangle_stroke_matches_the_canvas() {
     stroked_rect(&mut doc, frame, Rect::new(10.0, 10.0, 200.0, 4.0), stroke);
     let out = export(&doc, frame);
     assert_eq!(out.kind, PageKind::Vector);
-    out.assert_canvas_shows("first dash", (14.0, 12.0), [200, 30, 30], 3);
-    out.assert_canvas_shows("round cap past the dash end", (19.5, 11.5), [200, 30, 30], 3);
+    out.assert_canvas_shows("first dash", (12.0, 12.0), [200, 30, 30], 3);
+    out.assert_canvas_shows("round cap past the dash end", (16.5, 11.5), [200, 30, 30], 3);
     out.assert_canvas_shows("middle of the gap", (40.0, 12.0), [240, 240, 240], 3);
     let (bad, total) = differing_pixels(&out.canvas, &out.page, 240.0, 30.0, 12);
     assert!(bad * 500 <= total, "{bad} of {total} sampled pixels differ from the canvas");
-    out.assert_agree_at("thin rectangle", &[(14.0, 12.0), (19.5, 11.5), (40.0, 12.0)], 12);
+    out.assert_agree_at("thin rectangle", &[(12.0, 12.0), (16.5, 11.5), (40.0, 12.0)], 12);
 }
 
 /// A closed pentagram (five vertices joined to every second one) in a 120 x 120 box at (40, 40): its centre
@@ -1318,4 +1346,56 @@ fn randomised_frames_of_supported_features_are_vector_and_match_the_canvas() {
 fn randomised_frames_with_unsupported_features_still_match_the_canvas() {
     let vector_pages = random_frames_agree(true, 150);
     assert!(vector_pages >= 5, "some dense frames are still vector ({vector_pages} of 150)");
+}
+
+/// The dash of a FigJam board item runs on continuously from the start of its path in the PDF as on the canvas: the kit
+/// has no dashed board item that fits the one-pattern-per-segment rule of the design canvas.
+#[test]
+fn dashed_board_items_keep_the_continuous_dash_in_the_pdf() {
+    let ink = |n: &mut Node| {
+        n.stroke = Stroke {
+            paints: vec![solid(200, 30, 30)],
+            weight: 4.0,
+            align: StrokeAlign::Center,
+            cap: StrokeCap::None,
+            dashes: vec![10.0, 10.0],
+            ..Default::default()
+        };
+    };
+    // a square shape with text: its top side runs from x = 20, the dash covers 20..30 and the gap 30..40
+    let (mut doc, _page, frame) = frame_doc(140.0, 140.0);
+    let id = doc.alloc_id();
+    let mut shape = Node::shape_with_text(id, Rect::new(20.0, 20.0, 100.0, 100.0), ShapeKind::Square, "");
+    ink(&mut shape);
+    doc.insert(frame, shape).unwrap();
+    let out = export(&doc, frame);
+    let red = [200, 30, 30];
+    out.assert_canvas_shows("shape, dash", (27.0, 19.0), red, 3);
+    out.assert_agree_at("shape, dash and gap", &[(27.0, 19.0), (37.0, 19.0)], 12);
+    assert!(spread(out.page.at(27.0, 19.0), red) <= 12, "the PDF draws the first dash to x = 30");
+    assert!(spread(out.page.at(37.0, 19.0), red) > 60, "and the gap from 30 to 40");
+
+    // an elbow connector: along its first leg the dash covers 0..10 from the start of the route and the gap 10..20
+    let (mut doc, _page, frame) = frame_doc(360.0, 300.0);
+    let a = doc.alloc_id();
+    doc.insert(frame, Node::sticky(a, Rect::new(20.0, 20.0, 80.0, 80.0), "")).unwrap();
+    let b = doc.alloc_id();
+    doc.insert(frame, Node::sticky(b, Rect::new(260.0, 200.0, 80.0, 80.0), "")).unwrap();
+    let c = doc.alloc_id();
+    let props = ConnectorProps { start: ConnectorEnd::attached(a, Magnet::Auto), end: ConnectorEnd::attached(b, Magnet::Auto), ..Default::default() };
+    let mut conn = Node::connector(c, props);
+    ink(&mut conn);
+    doc.insert(frame, conn).unwrap();
+    sync_connector(&mut doc, c);
+    let route = connector_route(&doc, c).unwrap();
+    let (p0, p1) = (route.pts[0], route.pts[1]);
+    let len = ((p1.x - p0.x).powi(2) + (p1.y - p0.y).powi(2)).sqrt();
+    assert!(route.pts.len() >= 3 && len > 40.0, "an elbow with a long first leg");
+    let at = |d: f32| (p0.x + (p1.x - p0.x) * d / len, p0.y + (p1.y - p0.y) * d / len);
+    let out = export(&doc, frame);
+    let (dash, gap) = (at(7.0), at(17.0));
+    out.assert_canvas_shows("connector, dash", dash, red, 3);
+    out.assert_agree_at("connector, dash and gap", &[dash, gap], 12);
+    assert!(spread(out.page.at(dash.0, dash.1), red) <= 12, "the PDF draws the first dash to 10 along the first leg");
+    assert!(spread(out.page.at(gap.0, gap.1), red) > 60, "and the gap from 10 to 20");
 }

@@ -514,6 +514,10 @@ pub struct Stroke {
     pub join: StrokeJoin,
     pub miter_limit: f32,
     pub dashes: Vec<f32>,
+    /// Render-only, never saved: the dashes run on along the whole path instead of being cut one segment at a time.
+    /// The renderer sets it on the lowered body of a FigJam board item, which keeps the continuous dash.
+    #[serde(skip)]
+    pub continuous_dashes: bool,
 }
 
 impl Stroke {
