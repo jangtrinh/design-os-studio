@@ -105,9 +105,10 @@ fn bare(name: &str) -> &str {
 /// from the session Studio keeps for itself.
 pub(super) fn assign(cx: &mut ExportCtx<'_>, kept: Vec<KeptDefs>) {
     let doc = cx.doc;
-    // a session no id of the file uses, so an id Studio makes cannot be one Figma made
+    // a session no id of the file uses, so an id Studio makes cannot be one Figma made (counted down from the largest a signed 32-bit
+    // reader still takes)
     let sessions: HashSet<u32> = cx.used_guids.iter().map(|g| g.0).collect();
-    let mut session = u32::MAX - 1;
+    let mut session = i32::MAX as u32;
     while sessions.contains(&session) && session > 5 {
         session -= 1;
     }
