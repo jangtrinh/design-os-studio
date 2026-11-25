@@ -297,9 +297,17 @@ impl FigKeptStore {
         }
     }
 
-    /// The same store with every node key `f` maps; the records and the arena are shared.
-    pub fn remapped(&self, f: impl Fn(NodeId) -> NodeId) -> FigKeptStore {
-        let nodes = self.nodes.iter().map(|(id, n)| (f(*id), *n)).collect();
+    /// The same store with every node key `f` maps; the records and the arena are shared. `snapshot_of(old, new)` gives a node a
+    /// new snapshot where its renumbering changed what the snapshot hashes (a node that names other nodes by id).
+    pub fn remapped(&self, f: impl Fn(NodeId) -> NodeId, snapshot_of: impl Fn(NodeId, NodeId) -> Option<NodeSnapshot>) -> FigKeptStore {
+        let nodes = self
+            .nodes
+            .iter()
+            .map(|(id, n)| {
+                let new = f(*id);
+                (new, KeptNode { snapshot: snapshot_of(*id, new).unwrap_or(n.snapshot), ..*n })
+            })
+            .collect();
         FigKeptStore { data: self.data.clone(), nodes }
     }
 

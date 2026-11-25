@@ -125,43 +125,122 @@ fn what_a_loader_writes_of_its_own_is_not_an_edit() {
     assert_eq!(doc.fig_kept_node_matches_snapshot(ids[0]), Some(true), "the runtime flags of a deferred entry are bookkeeping");
 }
 
+/// A document with one node, `base`, that has a record.
+fn document_with_node(base: impl FnOnce(NodeId) -> Node) -> (Document, NodeId) {
+    let arena: Vec<u8> = vec![0, 0];
+    let records = vec![KeptRecord::new((1, 1), KeptRecordKind::Layer, 0, 1)];
+    let fields = vec![KeptField { no: 7, offset: 0, len: 2 }];
+    let data = KeptData::new(KeptArena::in_memory(arena), records, fields, Vec::new(), KeptCounts::default());
+    let mut doc = Document::new("kept");
+    let page = doc.add_page("P");
+    let id = doc.alloc_id();
+    let mut node = base(id);
+    node.source_id = Some("1:1".into());
+    doc.insert(page, node).unwrap();
+    doc.fig_kept = Arc::new(FigKeptStore::new(data));
+    doc.take_fig_kept_snapshot();
+    (doc, id)
+}
+
+fn frame_base(id: NodeId) -> Node {
+    Node::frame(id, Rect::new(0.0, 0.0, 10.0, 10.0))
+}
+
+fn text_base(id: NodeId) -> Node {
+    Node::text(id, Rect::new(0.0, 0.0, 10.0, 10.0), "hi", Default::default())
+}
+
+fn vector_base(id: NodeId) -> Node {
+    let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0));
+    n.kind = NodeKind::Vector { paths: Vec::new(), network: None };
+    n
+}
+
+fn with_text(n: &mut Node, f: impl FnOnce(&mut crate::TextProps)) {
+    let NodeKind::Text(t) = &mut n.kind else { panic!("a text node") };
+    f(t);
+}
+
 /// A snapshot that still matches after a change means no group `node_group_eq` compares differs, whatever the hash is made of.
-/// The converse is not claimed: the snapshot leaves out bookkeeping that `node_group_eq` compares.
+/// The converse is not claimed: the snapshot leaves out bookkeeping that `node_group_eq` compares. Every change here is one
+/// edit of one property of the kinds of node whose fields a save writes back.
 #[test]
 fn a_match_after_a_change_means_every_group_is_equal() {
-    type Change = (&'static str, fn(&mut Node));
+    type Change = (&'static str, fn(NodeId) -> Node, fn(&mut Node));
+    let rect: fn(NodeId) -> Node = |id| Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0));
     let changes: Vec<Change> = vec![
-        ("name", |n| n.name.push('x')),
-        ("visible", |n| n.visible = !n.visible),
-        ("locked", |n| n.locked = !n.locked),
-        ("opacity", |n| n.opacity = 0.25),
-        ("blend", |n| n.blend = BlendMode::Multiply),
-        ("transform", |n| n.transform.tx += 5.0),
-        ("size", |n| n.size.y += 5.0),
-        ("fills", |n| n.fills.push(Paint::solid(Color::WHITE))),
-        ("stroke", |n| n.stroke.weight += 2.0),
-        ("corner radii", |n| n.corner_radii[1] = 3.0),
-        ("corner smoothing", |n| n.corner_smoothing = 0.6),
-        ("mask", |n| n.is_mask = true),
-        ("lock aspect", |n| n.lock_aspect = !n.lock_aspect),
-        ("hyperlink", |n| n.hyperlink = Some("https://example.com".into())),
-        ("source id", |n| n.source_id = Some("1:1 ".into())),
-        ("kind", |n| n.kind = NodeKind::Ellipse(Default::default())),
-        ("kind to group", |n| n.kind = NodeKind::Group),
-        ("component link", |n| n.component.description = "d".into()),
-        ("component overrides", |n| {
+        ("name", rect, |n| n.name.push('x')),
+        ("visible", rect, |n| n.visible = !n.visible),
+        ("locked", rect, |n| n.locked = !n.locked),
+        ("opacity", rect, |n| n.opacity = 0.25),
+        ("blend", rect, |n| n.blend = BlendMode::Multiply),
+        ("transform", rect, |n| n.transform.tx += 5.0),
+        ("size", rect, |n| n.size.y += 5.0),
+        ("fills", rect, |n| n.fills.push(Paint::solid(Color::WHITE))),
+        ("stroke", rect, |n| n.stroke.weight += 2.0),
+        ("corner radii", rect, |n| n.corner_radii[1] = 3.0),
+        ("corner smoothing", rect, |n| n.corner_smoothing = 0.6),
+        ("mask", rect, |n| n.is_mask = true),
+        ("lock aspect", rect, |n| n.lock_aspect = !n.lock_aspect),
+        ("hyperlink", rect, |n| n.hyperlink = Some("https://example.com".into())),
+        ("source id", rect, |n| n.source_id = Some("1:1 ".into())),
+        ("kind", rect, |n| n.kind = NodeKind::Ellipse(Default::default())),
+        ("kind to group", rect, |n| n.kind = NodeKind::Group),
+        ("component link", rect, |n| n.component.description = "d".into()),
+        ("component overrides", rect, |n| {
             n.component.overrides.insert(crate::OverrideField::Layout);
         }),
-        ("plugin data", |n| {
+        ("plugin data", rect, |n| {
             n.plugin_data.insert("p".into(), "v".to_string());
         }),
+        ("effects", frame_base, |n| n.effects.push(crate::Effect::LayerBlur { radius: 4.0, visible: true })),
+        ("constraints", frame_base, |n| n.constraints.horizontal = crate::Constraint::Max),
+        ("layout child", frame_base, |n| n.layout_child.grow = 1.0),
+        ("style refs", frame_base, |n| {
+            n.style_refs.insert("fill".into(), "1:2".into());
+        }),
+        ("variable binding", frame_base, |n| {
+            n.variables.bindings.insert("fills".into(), "VariableID:1:2".into());
+        }),
+        ("variable mode", frame_base, |n| {
+            n.variables.modes.insert("VariableCollectionId:1:3".into(), "1:4".into());
+        }),
+        ("auto layout", frame_base, |n| n.kind.frame_props_mut().unwrap().auto_layout = Some(crate::AutoLayout::default())),
+        ("clips content", frame_base, |n| {
+            let fp = n.kind.frame_props_mut().unwrap();
+            fp.clips_content = !fp.clips_content;
+        }),
+        ("prototype reactions", frame_base, |n| n.prototype.fixed_children.push(NodeId(77))),
+        ("dev status", frame_base, |n| n.dev.status_updated = Some("2026-01-01T00:00:00Z".into())),
+        ("export settings", frame_base, |n| n.export_settings.push(Default::default())),
+        ("slide", frame_base, |n| n.slide = Some(crate::SlideProps { notes: "n".into() })),
+        ("detached symbol", frame_base, |n| n.detached_symbol_id = Some("1:9".into())),
+        ("metadata", frame_base, |n| {
+            n.fig_metadata.insert("editInfo".into(), "{}".into());
+        }),
+        ("extra", frame_base, |n| {
+            n.extra.insert("k".into(), serde_json::json!(1));
+        }),
+        ("motion", frame_base, |n| n.motion = Some(Default::default())),
+        ("text content", text_base, |n| with_text(n, |t| t.content.push('x'))),
+        ("text size", text_base, |n| with_text(n, |t| t.style.font_size += 1.0)),
+        ("text run", text_base, |n| with_text(n, |t| t.runs.push(crate::TextRun { start: 0, end: 1, style: t.style.clone() }))),
+        ("text auto resize", text_base, |n| with_text(n, |t| t.max_lines = Some(2))),
+        ("vector paths", vector_base, |n| {
+            if let NodeKind::Vector { paths, .. } = &mut n.kind {
+                paths.push(Default::default());
+            }
+        }),
+        ("fill geometry", vector_base, |n| n.fill_geometry = Some(Vec::new())),
+        ("stroke geometry", vector_base, |n| n.stroke_geometry = Some(Vec::new())),
     ];
-    for (what, change) in changes {
-        let (mut doc, ids) = document_with_store(1);
-        let before = doc.get(ids[0]).unwrap().clone();
-        change(doc.get_mut(ids[0]).unwrap());
-        let after = doc.get(ids[0]).unwrap();
-        let matches = doc.fig_kept_node_matches_snapshot(ids[0]).unwrap();
+    for (what, base, change) in changes {
+        let (mut doc, id) = document_with_node(base);
+        let before = doc.get(id).unwrap().clone();
+        assert_eq!(doc.fig_kept_node_matches_snapshot(id), Some(true), "{what}: unedited to begin with");
+        change(doc.get_mut(id).unwrap());
+        let after = doc.get(id).unwrap();
+        let matches = doc.fig_kept_node_matches_snapshot(id).unwrap();
         let equal_everywhere = ALL_GROUPS.iter().all(|g| node_group_eq(&before, after, *g));
         assert!(!matches || equal_everywhere, "{what}: the snapshot still matches though a group differs");
         assert!(!matches, "{what}: this change is an edit");
@@ -208,6 +287,38 @@ fn renumbering_the_ids_keeps_every_kept_entry_on_the_same_node() {
         assert_eq!(format!("9:{}", rec.guid().1), node.source_id.clone().unwrap());
         assert_eq!(doc.fig_kept_node_matches_snapshot(node.id), Some(true));
     }
+}
+
+#[test]
+fn renumbering_keeps_an_unedited_node_that_names_another_equal_and_an_edited_one_different() {
+    let mut doc = Document::new("high ids");
+    let page = doc.add_page("P");
+    let arena: Vec<u8> = (0..20).collect();
+    let records: Vec<KeptRecord> = (0..3).map(|i| KeptRecord::new((9, i + 1), KeptRecordKind::Layer, i, 1)).collect();
+    let fields: Vec<KeptField> = (0..3).map(|i| KeptField { no: 3, offset: i * 2, len: 2 }).collect();
+    let data = KeptData::new(KeptArena::in_memory(arena), records, fields, Vec::new(), KeptCounts::default());
+    let main = NodeId(u64::MAX);
+    let mut m = Node::frame(main, Rect::new(0.0, 0.0, 1.0, 1.0));
+    m.source_id = Some("9:1".into());
+    doc.insert(page, m).unwrap();
+    let instance = |id: u64, src: &str| {
+        let mut n = Node::frame(NodeId(id), Rect::new(0.0, 0.0, 1.0, 1.0));
+        n.kind = NodeKind::Instance { frame: Default::default(), component: Some(main), component_key: None };
+        n.source_id = Some(src.into());
+        n
+    };
+    doc.insert(page, instance(u64::MAX - 1, "9:2")).unwrap();
+    doc.insert(page, instance(u64::MAX - 2, "9:3")).unwrap();
+    doc.fig_kept = Arc::new(FigKeptStore::new(data));
+    doc.take_fig_kept_snapshot();
+    doc.get_mut(NodeId(u64::MAX - 2)).unwrap().name = "edited".into();
+    assert!(doc.renumber_ids_for_headroom() > 0);
+    let by_source = |doc: &Document, src: &str| doc.nodes.values().find(|n| n.source_id.as_deref() == Some(src)).map(|n| n.id).unwrap();
+    let (unedited, edited) = (by_source(&doc, "9:2"), by_source(&doc, "9:3"));
+    let NodeKind::Instance { component, .. } = &doc.get(unedited).unwrap().kind else { panic!("an instance") };
+    assert_eq!(*component, Some(by_source(&doc, "9:1")), "the instance names the renumbered main");
+    assert_eq!(doc.fig_kept_node_matches_snapshot(unedited), Some(true), "the renumbering is not an edit of the instance");
+    assert_eq!(doc.fig_kept_node_matches_snapshot(edited), Some(false), "an edited instance stays edited");
 }
 
 #[test]
