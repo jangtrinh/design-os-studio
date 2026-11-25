@@ -7,9 +7,10 @@
 //!
 //! The entries are read-only data from the loader ([`Document::pending_instance_overrides`]). Two kinds of reference in
 //! them only mean something inside the file they came from, so they are mapped into the file being written: a geometry
-//! blob is added to this file's blob table, and a component property is looked up again by the name the file gave it, inside the
-//! entry's own owner, because the file keeps the id Figma gave it and this file's definition may have gone. (That remap has no check
-//! of the owner's written definitions yet; it is a follow-up.) A field the
+//! blob is added to this file's blob table, and a component property keeps the id Figma gave it. A property id is checked against
+//! what this save writes: it stays when the owner of the layer the entry addresses (found by walking the path inside each main, step
+//! by step) still writes it or the file never defined it; otherwise it is looked up again by the name the file gave it, in that
+//! owner only, and the assignment is left out, and counted, when the owner has no property of that name. A field the
 //! writer's schema holds but no writer gates yet (prototype interactions on an override, text layout versions: see
 //! `HELD_BACK_UNTIL_KEPT`) is left out of the entry, and so is one the schema has no definition for; the rest of the
 //! entry is written as it was.
@@ -263,15 +264,53 @@ fn remap_geometry(cx: &mut ExportCtx<'_>, kept: &Kept, list: &mut V) {
     });
 }
 
-/// The node an entry's `guidPath` ends at, inside the main component: the one whose component properties the entry sets. The path
-/// names it by its override key when the file gave it one, else by its guid. `None` when the path does not lead to a node of this
-/// file.
-fn entry_target(cx: &mut ExportCtx<'_>, entry: &V, inst_id: NodeId, main_guid: (u32, u32)) -> Option<NodeId> {
-    let last = entry.get("guidPath").and_then(|p| p.get("guids")).and_then(V::as_array).and_then(|a| a.last()).and_then(field_guid);
-    match last {
-        Some(g) if g != main_guid => super::kept_fields::node_with_override_key(cx, g).or_else(|| cx.node_with_guid(g)),
-        _ => Some(inst_id),
+/// The layer inside `main` (and what is under it, not into instances) that one step of an override path names: the layer that has the
+/// step as its key, or that has no key of its own and the step as its guid. Keys are unique only inside one main, so a step is looked
+/// up in the one main the path has reached and nowhere else.
+fn step_target(cx: &mut ExportCtx<'_>, main: NodeId, step: (u32, u32)) -> Option<NodeId> {
+    let doc = cx.doc;
+    let mut stack = vec![main];
+    let mut seen = 0usize;
+    while let Some(id) = stack.pop() {
+        seen += 1;
+        if seen > doc.nodes.len() + 1 {
+            return None;
+        }
+        let n = doc.get(id)?;
+        if id != main {
+            let key = super::kept_fields::kept_override_key(cx, id).filter(|k| *k != (u32::MAX, u32::MAX));
+            if key == Some(step) || (key.is_none() && cx.node_guids.get(&id) == Some(&step)) {
+                return Some(id);
+            }
+        }
+        if id == main || !matches!(n.kind, NodeKind::Instance { .. }) {
+            stack.extend(n.children.iter().copied());
+        }
     }
+    None
+}
+
+/// The node an entry's `guidPath` leads to: from the instance's main, one step at a time, going into the main of each instance a step
+/// names. An entry that is the instance's own (its path is its main's guid) leads to the instance. `None` when a step names no layer.
+fn entry_target(cx: &mut ExportCtx<'_>, entry: &V, inst_id: NodeId, main: NodeId, main_guid: (u32, u32)) -> Option<NodeId> {
+    let path: Vec<(u32, u32)> =
+        entry.get("guidPath").and_then(|p| p.get("guids")).and_then(V::as_array).map(|a| a.iter().filter_map(field_guid).collect()).unwrap_or_default();
+    if path.last().is_none_or(|g| *g == main_guid) {
+        return Some(inst_id);
+    }
+    let mut cur = main;
+    let mut target = None;
+    for (i, step) in path.iter().enumerate() {
+        let found = step_target(cx, cur, *step)?;
+        target = Some(found);
+        if i + 1 < path.len() {
+            match cx.doc.get(found)?.kind {
+                NodeKind::Instance { component: Some(m), .. } => cur = m,
+                _ => return None,
+            }
+        }
+    }
+    target
 }
 
 /// Checks the component properties an entry sets against what this save writes. The file keeps the id Figma gave a property, so an
@@ -279,11 +318,11 @@ fn entry_target(cx: &mut ExportCtx<'_>, entry: &V, inst_id: NodeId, main_guid: (
 /// id the owner no longer writes is looked up again by the name the file gave it, inside that owner only, and left out, counted,
 /// when the owner has no property of that name. An entry whose target is not a layer of this file keeps the id if some group still
 /// writes it, and is left out, counted, if none does.
-fn remap_prop_assignments(cx: &mut ExportCtx<'_>, kept: &Kept, entry: &mut V, inst_id: NodeId, main_guid: (u32, u32)) {
+fn remap_prop_assignments(cx: &mut ExportCtx<'_>, kept: &Kept, entry: &mut V, inst_id: NodeId, main: NodeId, main_guid: (u32, u32)) {
     if entry.get("componentPropAssignments").is_none() {
         return;
     }
-    let target = entry_target(cx, entry, inst_id, main_guid);
+    let target = entry_target(cx, entry, inst_id, main, main_guid);
     let Some(V::Array(assigns)) = entry.get_mut("componentPropAssignments") else { return };
     assigns.retain_mut(|a| {
         let Some(old) = a.get("defID").and_then(field_guid) else { return true };
@@ -340,7 +379,7 @@ pub(super) fn pending_symbol_overrides(cx: &mut ExportCtx<'_>, inst_id: NodeId, 
                 remap_geometry(cx, &kept, list);
             }
         }
-        remap_prop_assignments(cx, &kept, e, inst_id, main_guid);
+        remap_prop_assignments(cx, &kept, e, inst_id, main, main_guid);
     }
     restate_edited_self_fields(cx, inst_id, main, main_guid, &mut entries);
     (!entries.is_empty()).then_some(entries)

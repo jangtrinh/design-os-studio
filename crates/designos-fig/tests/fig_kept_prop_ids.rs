@@ -937,3 +937,139 @@ fn an_entry_whose_path_leads_to_no_layer_keeps_its_id_while_a_group_writes_it_an
     assert_eq!(nested_assignment_ids(&saved), Vec::<(u32, u32)>::new(), "no group writes it any more: {report:?}");
     assert!(report.prop_refs_dropped >= 1, "{report:?}");
 }
+
+/// [`deferred_file_with_a_nested_instance`] with a consumption map on `Copy` (a binding to a property of a library, which the file
+/// never defined), so the store writes `Copy`'s map.
+fn deferred_file_with_a_nested_instance_and_a_consumption_map() -> Vec<u8> {
+    let bytes = deferred_file_with_a_nested_instance();
+    rewrite_nodes(&bytes, |n| {
+        if guid_of(n) == (1, 21) {
+            let V::Message(fields) = n else { unreachable!() };
+            fields.push((
+                "parameterConsumptionMap".into(),
+                msg(vec![(
+                    "entries",
+                    V::Array(vec![msg(vec![
+                        ("variableField", en("OPACITY")),
+                        ("variableData", msg(vec![("value", msg(vec![("propRefValue", msg(vec![("defId", guid(9, 9))]))])), ("dataType", en("FLOAT"))])),
+                    ])]),
+                )]),
+            ));
+        }
+    })
+}
+
+/// Decodes a `.fig` built by the fixtures, lets `f` change each record, and writes it again.
+fn rewrite_nodes(bytes: &[u8], mut f: impl FnMut(&mut V)) -> Vec<u8> {
+    let archive = container::open(bytes).expect("open");
+    let (schema_bin, msg_bin) = container::read_archive_chunks(&archive).expect("chunks");
+    let schema = Schema::decode(&schema_bin).expect("schema");
+    let root = schema.root_message().expect("root");
+    let mut message = schema.decode_message(root, &msg_bin).expect("message");
+    let Some(V::Array(mut nodes)) = message.take_field("nodeChanges") else { panic!("no records") };
+    nodes.iter_mut().for_each(&mut f);
+    let blobs = message.take_field("blobs").unwrap_or(V::Array(vec![]));
+    let schema = designos_fig::testkit::figma_like_schema();
+    let body = schema.encode_message(schema.find("Message").unwrap(), &msg(vec![("nodeChanges", V::Array(nodes)), ("blobs", blobs)])).unwrap();
+    container::write_container(&schema.encode(), &body, container::Compression::Zstd, 161)
+}
+
+#[test]
+fn a_dropped_entry_of_an_unopened_instance_is_counted_when_the_store_writes_the_instances_consumption_map() {
+    let mut doc = import_fig(&deferred_file_with_a_nested_instance_and_a_consumption_map()).expect("imports");
+    let button = by_name(&doc, "Button");
+    designos_doc::delete_prop(&mut doc, button, "Label").apply(&mut doc).expect("deletes");
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+    assert_eq!(nested_assignment_ids(&saved), Vec::<(u32, u32)>::new(), "the entry for the deleted property is left out: {report:?}");
+    let out = records(&saved);
+    assert!(record_of(&out, (1, 21)).get("parameterConsumptionMap").is_some(), "the store wrote the instance's map");
+    assert!(report.prop_refs_dropped >= 1, "the entry that was left out is counted: {report:?}");
+}
+
+/// Two mains. `Main` (1:10) holds a nested instance of `Button` (4:71 Label) that has no key, so a path names it by its guid 1:12.
+/// `Other` (1:13) holds a nested instance of `Icon` (4:72 Label) whose key is that same number 1:12. The deferred instance of
+/// `Main` assigns Button's Label at the path [1:12].
+fn deferred_file_with_two_mains_that_share_a_number() -> Vec<u8> {
+    let bytes = deferred_file_with_a_nested_instance();
+    let mut all = Vec::new();
+    {
+        let archive = container::open(&bytes).expect("open");
+        let (schema_bin, msg_bin) = container::read_archive_chunks(&archive).expect("chunks");
+        let schema = Schema::decode(&schema_bin).expect("schema");
+        let root = schema.root_message().expect("root");
+        let mut message = schema.decode_message(root, &msg_bin).expect("message");
+        if let Some(V::Array(nodes)) = message.take_field("nodeChanges") {
+            all = nodes;
+        }
+    }
+    // `Nested` keeps no key; its guid is the number the path names
+    fn path_to_the_guid(v: &mut V) {
+        match v {
+            V::Message(f) | V::Struct(f) => {
+                for (k, x) in f.iter_mut() {
+                    if &**k == "guids" {
+                        *x = V::Array(vec![guid(1, 12)]);
+                    } else {
+                        path_to_the_guid(x);
+                    }
+                }
+            }
+            V::Array(a) => a.iter_mut().for_each(path_to_the_guid),
+            _ => {}
+        }
+    }
+    for n in &mut all {
+        if guid_of(n) == (1, 12) {
+            let V::Message(fields) = n else { unreachable!() };
+            fields.retain(|(k, _)| &**k != "overrideKey");
+        }
+        if guid_of(n) == (1, 21) {
+            path_to_the_guid(n);
+        }
+    }
+    let plain = |extra: Vec<(&'static str, V)>| {
+        let mut f = vec![
+            ("visible", V::Bool(true)),
+            ("opacity", designos_fig::testkit::fl(1.0)),
+            ("phase", en("CREATED")),
+            ("size", vec2(100.0, 40.0)),
+            ("transform", designos_fig::testkit::matrix(0.0, 0.0)),
+            ("blendMode", en("PASS_THROUGH")),
+        ];
+        f.extend(extra);
+        f
+    };
+    let label = |id: (u32, u32)| {
+        (
+            "componentPropDefs",
+            V::Array(vec![msg(vec![("id", guid(id.0, id.1)), ("name", V::String("Label".into())), ("type", en("TEXT")), ("initialValue", text("x"))])]),
+        )
+    };
+    let extra = vec![
+        node((1, 13), (0, 1), "#", "SYMBOL", "Other", plain(vec![])),
+        node((1, 15), (0, 1), "$", "SYMBOL", "Icon", plain(vec![label((4, 72))])),
+        node(
+            (1, 14),
+            (1, 13),
+            "!",
+            "INSTANCE",
+            "Other nested",
+            plain(vec![("symbolData", msg(vec![("symbolID", guid(1, 15))])), ("overrideKey", guid(1, 12))]),
+        ),
+    ];
+    let at = all.iter().position(|n| guid_of(n) == (9, 1)).expect("the fillers");
+    for (i, n) in extra.into_iter().enumerate() {
+        all.insert(at + i, n);
+    }
+    fig_file(all, vec![icon_blob()])
+}
+
+#[test]
+fn an_entry_is_followed_inside_its_own_main_not_to_a_layer_of_another_main_that_has_that_number_as_its_key() {
+    let bytes = deferred_file_with_two_mains_that_share_a_number();
+    let mut doc = import_fig(&bytes).expect("imports");
+    let icon = by_name(&doc, "Icon");
+    doc.get_mut(icon).unwrap().opacity = 0.5;
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+    assert_eq!(nested_assignment_ids(&saved), vec![(4, 71)], "Button's Label stays: the path leads to Main's nested instance, not to Other's: {report:?}");
+}

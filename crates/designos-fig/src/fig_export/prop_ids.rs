@@ -336,9 +336,10 @@ impl ExportCtx<'_> {
         self.prop_is_written_anywhere(g) && (self.group_is_verbatim(owner) || self.group_writes_def(owner, main, g))
     }
 
-    /// Counts an entry left out of the file for naming a property the save does not write (see [`kept_fields::fold_unresolved`]).
+    /// Counts an override entry of an unopened instance left out of the file for naming a property the save does not write. It goes
+    /// straight into the report: nothing the store writes replaces the instance's overrides, so nothing can take the loss back.
     pub(super) fn count_dropped_prop_entry(&mut self) {
-        self.kept.pending[kept_fields::PENDING_DROPPED_ENTRY] += 1;
+        self.kept.report.prop_refs_dropped += 1;
     }
 
     /// The consumption entries Studio writes from the metadata a layer carried. An entry that binds to a component property is
@@ -394,7 +395,7 @@ impl ExportCtx<'_> {
         }
         if own_main {
             match n.kind {
-                NodeKind::Instance { component: Some(m), .. } => return in_group(m),
+                NodeKind::Instance { component, .. } => return component.and_then(in_group),
                 NodeKind::Component(_) | NodeKind::ComponentSet(_) => return in_group(scope),
                 _ => {}
             }

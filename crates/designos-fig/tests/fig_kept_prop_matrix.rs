@@ -415,7 +415,9 @@ fn run_shape(index: usize) {
         let dangling = c.get("Dangling").copied().unwrap_or(0);
         // a dropped consumption entry leaves nothing in the file that could dangle: only an id Studio could not resolve is counted
         let counted = report.prop_name_unresolved;
-        if bad > 0 || dangling > counted {
+        // every reference of these fixtures can be followed: an override path the oracle cannot follow would hide a wrong write
+        let unjudged = c.get("UnresolvedPath").copied().unwrap_or(0);
+        if bad > 0 || dangling > counted || unjudged > 0 {
             failures.push(format!("{edit}: {violations:?} report {report:?}"));
         }
         let was = records(&original);
