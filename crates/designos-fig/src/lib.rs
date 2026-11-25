@@ -55,7 +55,7 @@ pub use fig::{
 };
 #[doc(hidden)]
 pub use fig::{extract_fig_derived_symbol_data, import_fig_node_changes, FigDerivedSymbolEntry, FigInstanceDerivedData};
-pub use fig_export::{export_fig, export_fig_with_report, path_to_commands_blob};
+pub use fig_export::{export_fig, export_fig_with_kept_report, export_fig_with_report, path_to_commands_blob, KeptWriteReport};
 pub use kept_capture::{
     set_kept_spill_dir, KeptOptions, KEPT_CAPTURE_ENABLED, MAX_KEPT_ARENA_BYTES, MAX_KEPT_FIELDS_PER_RECORD, MAX_KEPT_RECORD_BYTES, SPILL_THRESHOLD_BYTES,
 };
