@@ -188,3 +188,46 @@ fn a_region_less_kit_outline_still_fills_after_a_vertex_is_nudged() {
     assert_eq!(px(&pm, 20, 20), [255, 0, 0, 255], "inside the page");
     assert_eq!(px(&pm, 42, 2), [255, 255, 255, 255], "the cut corner is outside it");
 }
+
+/// An imported network with no regions: a square of 80 with a square of 40 inside it, the inner one running the same
+/// way round as the outer one or the other way.
+fn imported_ring(opposite: bool) -> VectorNetwork {
+    let mut net = VectorNetwork::default();
+    for p in [v(10.0, 10.0), v(90.0, 10.0), v(90.0, 90.0), v(10.0, 90.0), v(30.0, 30.0), v(70.0, 30.0), v(70.0, 70.0), v(30.0, 70.0)] {
+        net.add_vertex(p);
+    }
+    for (a, b) in [(0, 1), (1, 2), (2, 3), (3, 0)] {
+        net.connect(a, b).unwrap();
+    }
+    let inner = if opposite { [(4, 7), (7, 6), (6, 5), (5, 4)] } else { [(4, 5), (5, 6), (6, 7), (7, 4)] };
+    for (a, b) in inner {
+        net.connect(a, b).unwrap();
+    }
+    net.fills_closed_loops_without_regions = true;
+    net
+}
+
+/// Giving the loops of an imported network their regions before an edit does not change what is drawn, and the bucket
+/// then works on the ring and on the hole as it does on any network.
+#[test]
+fn materialising_an_imported_ring_draws_the_same_picture_and_the_bucket_unfills_the_ring_only() {
+    let red = Color::rgb(255, 0, 0);
+    for opposite in [true, false] {
+        let net = imported_ring(opposite);
+        let (d, page) = page_with(net.clone(), red, 0.0, StrokeCap::None);
+        let before = render(&d, page);
+        assert_eq!(px(&before, 20, 50), [255, 0, 0, 255], "the ring is filled");
+        let hole = if opposite { [255, 255, 255, 255] } else { [255, 0, 0, 255] };
+        assert_eq!(px(&before, 50, 50), hole, "the hole, opposite {opposite}");
+        let mut materialised = net;
+        materialised.materialize_closed_loop_fill();
+        let (d, page) = page_with(materialised, red, 0.0, StrokeCap::None);
+        assert_eq!(render(&d, page).data(), before.data(), "opposite {opposite}: the same picture");
+        let (mut d, page) = (d, page);
+        let id = vector_id(&d, page);
+        assert!(!bucket(&mut d, id, 20.0, 50.0));
+        let after = render(&d, page);
+        assert_eq!(px(&after, 20, 50), [255, 255, 255, 255], "the ring is unfilled");
+        assert_eq!(px(&after, 50, 50), hole, "the hole is as it was");
+    }
+}

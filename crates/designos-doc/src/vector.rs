@@ -511,29 +511,30 @@ impl VectorNetwork {
         if !self.regions.is_empty() {
             return;
         }
-        let loops: Vec<Vec<usize>> = self
-            .leftover_chains(&vec![false; self.segments.len()])
-            .into_iter()
-            .filter(|(_, closed)| *closed)
-            .map(|(chain, _)| chain.iter().map(|(s, _)| *s).collect())
-            .collect();
-        for lp in loops {
-            self.regions.push(Region { rule: FillRule::NonZero, loops: vec![lp], filled: true });
+        // the fill as it is drawn now, then one region per face: filled where the face lies inside that fill, so
+        // the picture does not change and the key of every region is the key of a face, which the bucket looks up
+        let contours: Vec<Vec<Vec2>> = self.closed_loop_paths().iter().flat_map(|p| flatten_path(p, 0.1)).map(|(pts, _)| pts).collect();
+        for face in self.faces() {
+            let filled = face_probe(self, &face).is_none_or(|p| winding_number(p, &contours) != 0);
+            self.regions.push(Region { rule: FillRule::EvenOdd, loops: face.loops, filled });
         }
     }
 
-    /// One path per closed loop of segments no region covers, filled with the non-zero rule.
+    /// The closed loops of segments no region covers, as the sub-paths of one path filled with the non-zero rule: loops
+    /// that run opposite ways leave a hole, loops that run the same way fill it twice, as in Figma's compound paths.
     fn closed_loop_paths(&self) -> Vec<Path> {
         let covered = vec![false; self.segments.len()];
-        self.leftover_chains(&covered)
-            .into_iter()
-            .filter(|(_, closed)| *closed)
-            .filter_map(|(chain, _)| {
-                let mut cmds = vec![];
+        let mut cmds = vec![];
+        for (chain, closed) in self.leftover_chains(&covered) {
+            if closed {
                 self.emit_chain(&chain, true, &mut cmds);
-                (!cmds.is_empty()).then_some(Path { cmds, fill_rule: FillRule::NonZero })
-            })
-            .collect()
+            }
+        }
+        if cmds.is_empty() {
+            vec![]
+        } else {
+            vec![Path { cmds, fill_rule: FillRule::NonZero }]
+        }
     }
 
     /// True when some segments are not part of any filled region, so the
@@ -1494,6 +1495,44 @@ pub fn point_in_polygon(p: Vec2, poly: &[Vec2]) -> bool {
     inside
 }
 
+/// A point just inside `face`, off its boundary and its holes: next to the first side of its outer loop, on the side
+/// the face lies on. `None` when the outer loop has no usable side.
+fn face_probe(net: &VectorNetwork, face: &Face) -> Option<Vec2> {
+    let contours = net.face_contours(face);
+    let outer = contours.first()?;
+    let n = outer.len();
+    (0..n).find_map(|i| {
+        let (a, b) = (outer[i], outer[(i + 1) % n]);
+        let (d, l) = (sub(b, a), dist(a, b));
+        if l < 1e-4 {
+            return None;
+        }
+        let (mid, eps) = (lerp(a, b, 0.5), (l * 0.01).min(0.05).max(1e-3));
+        let normal = Vec2::new(-d.y / l, d.x / l);
+        [eps, -eps].into_iter().map(|e| add(mid, mul(normal, e))).find(|p| point_in_even_odd(*p, &contours))
+    })
+}
+
+/// The winding number of the closed `contours` round `p`: non-zero where the non-zero rule paints.
+fn winding_number(p: Vec2, contours: &[Vec<Vec2>]) -> i32 {
+    let mut w = 0;
+    for poly in contours {
+        let n = poly.len();
+        for i in 0..n {
+            let (a, b) = (poly[i], poly[(i + 1) % n]);
+            let side = (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y);
+            if a.y <= p.y {
+                if b.y > p.y && side > 0.0 {
+                    w += 1;
+                }
+            } else if b.y <= p.y && side < 0.0 {
+                w -= 1;
+            }
+        }
+    }
+    w
+}
+
 /// Even-odd containment across several contours.
 pub fn point_in_even_odd(p: Vec2, contours: &[Vec<Vec2>]) -> bool {
     contours.iter().filter(|c| point_in_polygon(p, c)).count() % 2 == 1
@@ -1796,6 +1835,83 @@ mod tests {
         assert!((area(&n.fill_paths()) - 5000.0).abs() < 1.0);
     }
 
+    /// Whether `p` is painted by `paths`, each by its own rule.
+    fn painted(paths: &[Path], p: Vec2) -> bool {
+        paths.iter().any(|path| {
+            let contours: Vec<Vec<Vec2>> = flatten_path(path, 0.05).into_iter().map(|(pts, _)| pts).collect();
+            match path.fill_rule {
+                FillRule::EvenOdd => point_in_even_odd(p, &contours),
+                FillRule::NonZero => winding_number(p, &contours) != 0,
+            }
+        })
+    }
+
+    /// An imported network with no regions: a square of 100 and a square of 40 inside it, the inner one running the
+    /// same way round as the outer one or the other way.
+    fn imported_ring(opposite: bool) -> VectorNetwork {
+        let mut n = VectorNetwork::default();
+        for p in [v(0.0, 0.0), v(100.0, 0.0), v(100.0, 100.0), v(0.0, 100.0), v(30.0, 30.0), v(70.0, 30.0), v(70.0, 70.0), v(30.0, 70.0)] {
+            n.add_vertex(p);
+        }
+        for (a, b) in [(0, 1), (1, 2), (2, 3), (3, 0)] {
+            n.connect(a, b);
+        }
+        let inner = if opposite { [(4, 7), (7, 6), (6, 5), (5, 4)] } else { [(4, 5), (5, 6), (6, 7), (7, 4)] };
+        for (a, b) in inner {
+            n.connect(a, b);
+        }
+        n.fills_closed_loops_without_regions = true;
+        n
+    }
+
+    const RING: Vec2 = Vec2 { x: 10.0, y: 50.0 };
+    const HOLE: Vec2 = Vec2 { x: 50.0, y: 50.0 };
+
+    #[test]
+    fn an_imported_ring_fills_by_the_winding_of_its_loops() {
+        let opposite = imported_ring(true);
+        assert!(painted(&opposite.fill_paths(), RING) && !painted(&opposite.fill_paths(), HOLE), "loops that run opposite ways leave a hole");
+        let same = imported_ring(false);
+        assert!(painted(&same.fill_paths(), RING) && painted(&same.fill_paths(), HOLE), "loops that run the same way fill the hole twice");
+    }
+
+    #[test]
+    fn materialising_the_fallback_does_not_change_the_picture() {
+        for opposite in [true, false] {
+            let before = imported_ring(opposite);
+            let mut after = before.clone();
+            after.materialize_closed_loop_fill();
+            assert!(!after.fills_closed_loops_without_regions);
+            assert_eq!(after.regions.len(), 2, "one region per face: the ring and the inside");
+            for k in 0..400 {
+                let p = v(2.5 + (k % 20) as f32 * 5.0, 2.5 + (k / 20) as f32 * 5.0);
+                assert_eq!(painted(&before.fill_paths(), p), painted(&after.fill_paths(), p), "opposite {opposite}: at {p:?}");
+            }
+            for r in &after.regions {
+                assert!(after.faces().iter().any(|f| f.key() == sorted_key(&r.loops)), "a region key is a face key");
+            }
+        }
+    }
+
+    #[test]
+    fn the_bucket_on_an_imported_ring_unfills_the_ring_and_leaves_the_hole_as_it_was() {
+        // loops that run opposite ways: the hole is empty and stays empty
+        let mut n = imported_ring(true);
+        let ring = n.face_at(RING).unwrap();
+        assert!(!n.toggle_face(&ring), "the ring was filled, now it is not");
+        assert!(!painted(&n.fill_paths(), RING) && !painted(&n.fill_paths(), HOLE));
+        assert!(n.toggle_face(&ring));
+        assert!(painted(&n.fill_paths(), RING) && !painted(&n.fill_paths(), HOLE), "filled again");
+        // loops that run the same way: the hole is filled until the bucket clicks it
+        let mut n = imported_ring(false);
+        let ring = n.face_at(RING).unwrap();
+        assert!(!n.toggle_face(&ring));
+        assert!(!painted(&n.fill_paths(), RING) && painted(&n.fill_paths(), HOLE), "the hole stays filled");
+        let hole = n.face_at(HOLE).unwrap();
+        assert!(!n.toggle_face(&hole));
+        assert!(!painted(&n.fill_paths(), RING) && !painted(&n.fill_paths(), HOLE));
+    }
+
     fn flagged_two_loops() -> VectorNetwork {
         let mut n = VectorNetwork::from_paths(&[rect_path(0.0, 0.0, 50.0, 50.0), rect_path(100.0, 0.0, 50.0, 50.0)]);
         n.regions.clear();
@@ -1806,7 +1922,7 @@ mod tests {
     #[test]
     fn the_bucket_on_one_loop_of_an_imported_network_unfills_only_that_loop() {
         let mut n = flagged_two_loops();
-        assert_eq!(n.fill_paths().len(), 2);
+        assert!((area(&n.fill_paths()) - 5000.0).abs() < 1.0, "both loops fill");
         let a = n.face_at(v(25.0, 25.0)).unwrap();
         assert!(!n.toggle_face(&a), "the loop was filled by the import rule, now it is not");
         assert_eq!(n.regions.len(), 2, "both loops are regions now");
@@ -1829,7 +1945,7 @@ mod tests {
         for k in 0..4 {
             n.connect(first + k, first + k + 1);
         }
-        assert_eq!(n.fill_paths().len(), 2);
+        assert!((area(&n.fill_paths()) - 5000.0).abs() < 1.0);
         n.join_vertices(first, first + 4).unwrap();
         assert!(n.regions.iter().all(|r| r.filled));
         assert_eq!(n.fill_paths().len(), 3, "the two loops the file had and the one the join closed");
@@ -1842,7 +1958,7 @@ mod tests {
         assert!(json.contains("fills_closed_loops_without_regions"), "{json}");
         let back: VectorNetwork = serde_json::from_str(&json).unwrap();
         assert_eq!(back, n);
-        assert_eq!(back.fill_paths().len(), 2);
+        assert!((area(&back.fill_paths()) - 5000.0).abs() < 1.0);
         let a = n.face_at(v(25.0, 25.0)).unwrap();
         n.toggle_face(&a);
         let back: VectorNetwork = serde_json::from_str(&serde_json::to_string(&n).unwrap()).unwrap();
@@ -1886,7 +2002,7 @@ mod tests {
         n.fills_closed_loops_without_regions = true;
         // two closed loops and nothing else: both fill, one path each
         let fills = n.fill_paths();
-        assert_eq!(fills.len(), 2);
+        assert_eq!(fills.len(), 1, "one compound path");
         assert!((area(&fills) - 5000.0).abs() < 1.0);
         // the stroke geometry is unchanged: the loops are still the leftover chains of `to_paths`
         assert!(n.has_stroke_only_segments());
@@ -1896,7 +2012,7 @@ mod tests {
         let c = n.add_vertex(v(260.0, 60.0));
         n.connect(a, b);
         n.connect(b, c);
-        assert_eq!(n.fill_paths().len(), 2, "the open chain is not filled");
+        assert!((area(&n.fill_paths()) - 5000.0).abs() < 1.0, "the open chain is not filled");
         // once any region exists the regions alone are filled
         let f = n.face_at(v(25.0, 25.0)).unwrap();
         n.toggle_face(&f);
