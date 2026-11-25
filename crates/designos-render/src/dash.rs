@@ -233,7 +233,7 @@ pub fn dash_each_segment(path: &sk::Path, array: &[f32]) -> Option<sk::Path> {
     // tiny-skia stops at a million dashes in one call, and dashing a path in one call bounds the path; cut segment by
     // segment the bound is per segment, so the dashes of the whole path are counted before any is cut
     let dashes: f64 = contours.iter().flat_map(|(segs, _)| segs).map(|seg| dash_count(*seg, array, period)).sum();
-    if !(dashes <= MAX_DASHES) {
+    if dashes.is_nan() || dashes > MAX_DASHES {
         return None;
     }
     let mut out = sk::PathBuilder::new();
