@@ -1347,3 +1347,55 @@ fn randomised_frames_with_unsupported_features_still_match_the_canvas() {
     let vector_pages = random_frames_agree(true, 150);
     assert!(vector_pages >= 5, "some dense frames are still vector ({vector_pages} of 150)");
 }
+
+/// The dash of a FigJam board item runs on continuously from the start of its path in the PDF as on the canvas: the kit
+/// has no dashed board item that fits the one-pattern-per-segment rule of the design canvas.
+#[test]
+fn dashed_board_items_keep_the_continuous_dash_in_the_pdf() {
+    let ink = |n: &mut Node| {
+        n.stroke = Stroke {
+            paints: vec![solid(200, 30, 30)],
+            weight: 4.0,
+            align: StrokeAlign::Center,
+            cap: StrokeCap::None,
+            dashes: vec![10.0, 10.0],
+            ..Default::default()
+        };
+    };
+    // a square shape with text: its top side runs from x = 20, the dash covers 20..30 and the gap 30..40
+    let (mut doc, _page, frame) = frame_doc(140.0, 140.0);
+    let id = doc.alloc_id();
+    let mut shape = Node::shape_with_text(id, Rect::new(20.0, 20.0, 100.0, 100.0), ShapeKind::Square, "");
+    ink(&mut shape);
+    doc.insert(frame, shape).unwrap();
+    let out = export(&doc, frame);
+    let red = [200, 30, 30];
+    out.assert_canvas_shows("shape, dash", (27.0, 19.0), red, 3);
+    out.assert_agree_at("shape, dash and gap", &[(27.0, 19.0), (37.0, 19.0)], 12);
+    assert!(spread(out.page.at(27.0, 19.0), red) <= 12, "the PDF draws the first dash to x = 30");
+    assert!(spread(out.page.at(37.0, 19.0), red) > 60, "and the gap from 30 to 40");
+
+    // an elbow connector: along its first leg the dash covers 0..10 from the start of the route and the gap 10..20
+    let (mut doc, _page, frame) = frame_doc(360.0, 300.0);
+    let a = doc.alloc_id();
+    doc.insert(frame, Node::sticky(a, Rect::new(20.0, 20.0, 80.0, 80.0), "")).unwrap();
+    let b = doc.alloc_id();
+    doc.insert(frame, Node::sticky(b, Rect::new(260.0, 200.0, 80.0, 80.0), "")).unwrap();
+    let c = doc.alloc_id();
+    let props = ConnectorProps { start: ConnectorEnd::attached(a, Magnet::Auto), end: ConnectorEnd::attached(b, Magnet::Auto), ..Default::default() };
+    let mut conn = Node::connector(c, props);
+    ink(&mut conn);
+    doc.insert(frame, conn).unwrap();
+    sync_connector(&mut doc, c);
+    let route = connector_route(&doc, c).unwrap();
+    let (p0, p1) = (route.pts[0], route.pts[1]);
+    let len = ((p1.x - p0.x).powi(2) + (p1.y - p0.y).powi(2)).sqrt();
+    assert!(route.pts.len() >= 3 && len > 40.0, "an elbow with a long first leg");
+    let at = |d: f32| (p0.x + (p1.x - p0.x) * d / len, p0.y + (p1.y - p0.y) * d / len);
+    let out = export(&doc, frame);
+    let (dash, gap) = (at(7.0), at(17.0));
+    out.assert_canvas_shows("connector, dash", dash, red, 3);
+    out.assert_agree_at("connector, dash and gap", &[dash, gap], 12);
+    assert!(spread(out.page.at(dash.0, dash.1), red) <= 12, "the PDF draws the first dash to 10 along the first leg");
+    assert!(spread(out.page.at(gap.0, gap.1), red) > 60, "and the gap from 10 to 20");
+}

@@ -97,9 +97,12 @@ pub fn has_dashes(s: &d::Stroke) -> bool {
 /// Whether the dashes of `n` follow Figma's rule of one pattern per segment (see [`crate::dash`]). Not for a flattened
 /// boolean result, whose short lines are not Figma's segments; not for text, ellipses and FigJam items, which the kit
 /// gives no dashed stroke that fits the rule (its four dashed ellipses store 16 dots whatever their size, and it holds
-/// no dashed connector or shape with text), so they keep the continuous dash.
+/// no dashed connector or shape with text), so they keep the continuous dash. Every renderer draws a board item as its
+/// lowered body (a vector or a rectangle), so the kind is not enough: `board::lower` sets
+/// [`d::Stroke::continuous_dashes`] on the body, and every renderer reads it from the node it strokes.
 pub fn dashes_by_segment(n: &Node) -> bool {
     has_dashes(&n.stroke)
+        && !n.stroke.continuous_dashes
         && !matches!(
             n.kind,
             d::NodeKind::BooleanOp(_)
@@ -110,6 +113,21 @@ pub fn dashes_by_segment(n: &Node) -> bool {
                 | d::NodeKind::ShapeWithText(_)
                 | d::NodeKind::Stamp { .. }
         )
+}
+
+/// `n` with [`d::Stroke::continuous_dashes`] set when its dashes run on along the whole path (see [`dashes_by_segment`]),
+/// so the code below it needs no other way to know.
+pub(crate) fn continuous_dashes_of(n: &Node) -> Option<Node> {
+    (has_dashes(&n.stroke) && !dashes_by_segment(n)).then(|| {
+        let mut owned = n.clone();
+        owned.stroke.continuous_dashes = true;
+        owned
+    })
+}
+
+/// The stroke of `n` to expand into outlines, with [`d::Stroke::continuous_dashes`] set when the dashes run on.
+pub(crate) fn expansion_stroke(n: &Node) -> d::Stroke {
+    d::Stroke { continuous_dashes: n.stroke.continuous_dashes || (has_dashes(&n.stroke) && !dashes_by_segment(n)), ..n.stroke.clone() }
 }
 
 /// Strokes `path` as `n` strokes it at line width `width`, each dash following Figma's rule where that applies.
@@ -343,7 +361,8 @@ fn dashed_rect_center_path(n: &Node, align: d::StrokeAlign) -> Option<sk::Path> 
 /// Stroke geometry of a node with a shape, mirroring the CPU renderer's
 /// handling of precomputed outlines, per-side weights and the three alignments.
 pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
-    let _continuous = (has_dashes(&n.stroke) && !dashes_by_segment(n)).then(crate::dash::ContinuousDashes::begin);
+    let continuous = continuous_dashes_of(n);
+    let n = continuous.as_ref().unwrap_or(n);
     let align = if sh.closed { n.stroke.align } else { d::StrokeAlign::Center };
     if let Some(sp) = &sh.stroke_paths {
         let clip = match align {

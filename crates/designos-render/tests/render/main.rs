@@ -12,6 +12,7 @@ mod backdrop_index;
 mod basic_shapes_match_figma;
 mod blend;
 mod board;
+mod board_dashes;
 mod board_gallery;
 mod boolean_with_zero_width_ring;
 mod color_profile;

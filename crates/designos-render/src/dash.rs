@@ -191,32 +191,11 @@ fn dash_contour(segs: &[Seg], closed: bool, array: &[f32], period: f32) -> Vec<P
     out
 }
 
-thread_local! {
-    static CONTINUOUS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-/// While alive, [`dash_path`] on this thread dashes continuously along each contour, for geometry that is a
-/// flattened result and so has no segments of Figma's kind. Guards nest: dropping one restores what was set before.
-pub struct ContinuousDashes {
-    before: bool,
-}
-
-impl ContinuousDashes {
-    pub fn begin() -> Self {
-        Self { before: CONTINUOUS.with(|c| c.replace(true)) }
-    }
-}
-
-impl Drop for ContinuousDashes {
-    fn drop(&mut self) {
-        CONTINUOUS.with(|c| c.set(self.before));
-    }
-}
-
-/// `path` dashed by `array`: one pattern per segment (see the module docs), or one pattern along each contour
-/// while a [`ContinuousDashes`] guard is alive.
-pub fn dash_path(path: &sk::Path, array: &[f32], res_scale: f32) -> Option<sk::Path> {
-    if CONTINUOUS.with(|c| c.get()) {
+/// `path` dashed by `array`: one pattern per segment (see the module docs), or, when `continuous`, one pattern along
+/// each contour, for geometry whose segments are not Figma's (a flattened result, a path an arrow head cuts short) and
+/// for kinds the kit gives no data for.
+pub fn dash_path(path: &sk::Path, array: &[f32], res_scale: f32, continuous: bool) -> Option<sk::Path> {
+    if continuous {
         return path.dash(&sk::StrokeDash::new(array.to_vec(), 0.0)?, res_scale);
     }
     dash_each_segment(path, array)
@@ -411,16 +390,11 @@ mod tests {
     }
 
     #[test]
-    fn nested_guards_restore_the_flag_they_found() {
+    fn continuous_dashes_run_on_along_the_contour_and_the_default_is_per_segment() {
         let line = line(0.0, 0.0, 0.0, 66.0);
-        let segments = |p: &sk::Path| p.segments().filter(|s| matches!(s, PathSegment::MoveTo(_))).count();
-        let outer = ContinuousDashes::begin();
-        {
-            let _inner = ContinuousDashes::begin();
-        }
-        assert_eq!(segments(&dash_path(&line, &[1.0, 1.0], 1.0).unwrap()), 33, "still continuous: 66 / 2 dashes");
-        drop(outer);
-        assert_eq!(segments(&dash_path(&line, &[1.0, 1.0], 1.0).unwrap()), 34, "per segment again: half dashes at both ends");
+        let starts = |p: &sk::Path| p.segments().filter(|s| matches!(s, PathSegment::MoveTo(_))).count();
+        assert_eq!(starts(&dash_path(&line, &[1.0, 1.0], 1.0, true).unwrap()), 33, "continuous: 66 / 2 dashes");
+        assert_eq!(starts(&dash_path(&line, &[1.0, 1.0], 1.0, false).unwrap()), 34, "per segment: half dashes at both ends");
     }
 
     #[test]
@@ -433,9 +407,11 @@ mod tests {
             pb.line_to(if i % 2 == 1 { 900.0 } else { 0.0 }, i as f32);
         }
         let path = pb.finish().unwrap();
-        let started = std::time::Instant::now();
+        let segments = contours_of(&path).iter().map(|(segs, _)| segs.len()).sum::<usize>();
+        assert_eq!(segments, 100);
+        let counted: f64 = contours_of(&path).iter().flat_map(|(segs, _)| segs).map(|seg| dash_count(*seg, &[0.001, 0.001], 0.002)).sum();
+        assert!(counted > MAX_DASHES, "the count alone, {counted}, is over the bound, so no dash is cut");
         assert!(dash_each_segment(&path, &[0.001, 0.001]).is_none());
-        assert!(started.elapsed() < std::time::Duration::from_secs(1), "the count is made before any dash is cut");
         // a path whose dashes are all counted but few still draws
         assert!(dash_each_segment(&path, &[100.0, 100.0]).is_some());
     }

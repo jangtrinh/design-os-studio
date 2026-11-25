@@ -105,12 +105,22 @@ struct StrokeKey {
     join: d::StrokeJoin,
     miter_limit: f32,
     dashes: Vec<f32>,
+    continuous_dashes: bool,
 }
 
 impl StrokeKey {
     fn of(n: &Node) -> Self {
         let s = &n.stroke;
-        Self { weight: s.weight, side_weights: s.side_weights, align: s.align, cap: s.cap, join: s.join, miter_limit: s.miter_limit, dashes: s.dashes.clone() }
+        Self {
+            weight: s.weight,
+            side_weights: s.side_weights,
+            align: s.align,
+            cap: s.cap,
+            join: s.join,
+            miter_limit: s.miter_limit,
+            dashes: s.dashes.clone(),
+            continuous_dashes: s.continuous_dashes,
+        }
     }
     fn same(&self, n: &Node) -> bool {
         let s = &n.stroke;
@@ -121,6 +131,7 @@ impl StrokeKey {
             && self.join == s.join
             && self.miter_limit == s.miter_limit
             && self.dashes == s.dashes
+            && self.continuous_dashes == s.continuous_dashes
     }
 }
 

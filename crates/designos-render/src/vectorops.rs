@@ -584,7 +584,7 @@ fn sk_stroke_with_join(s: &d::Stroke, width: f32, cap: d::StrokeCap, join: d::St
 fn expand_stroked(path: &sk::Path, stroke: &d::Stroke, st: &sk::Stroke, res_scale: f32) -> Option<sk::Path> {
     let Some(array) = crate::dash::dash_array(&stroke.dashes) else { return path.stroke(st, res_scale.max(1e-4)) };
     let res_scale = res_scale.max(1e-4);
-    crate::dash::dash_path(path, &array, res_scale)?.stroke(st, res_scale)
+    crate::dash::dash_path(path, &array, res_scale, stroke.continuous_dashes)?.stroke(st, res_scale)
 }
 
 /// Expands one tiny-skia path by the stroke (dashes first).
@@ -910,7 +910,7 @@ fn expand_dashed_shaft(
     let inner = shaft_cap(stroke.cap);
     let st = sk_stroke(stroke, width, inner);
     let Some(array) = crate::dash::dash_array(&stroke.dashes) else { return skp.stroke(&st, res_scale) };
-    let dashed = crate::dash::dash_path(&skp, &array, res_scale)?;
+    let dashed = crate::dash::dash_path(&skp, &array, res_scale, stroke.continuous_dashes)?;
     let (terminal_start, terminal_end) = (skp.points().first().copied()?, skp.points().last().copied()?);
     let at = |a: sk::Point, b: sk::Point| (a.x - b.x).hypot(a.y - b.y) <= 1e-2;
 
@@ -995,7 +995,13 @@ fn expand_open_subpath_with_caps(
     let dashed = crate::outline::has_dashes(stroke);
     // an arrow head cuts the path short, which would stretch a pattern fitted to its segments: the dashes of that
     // path run on continuously (the kit holds no dashed arrow to measure)
-    let _continuous = (dashed && (start_cap.is_arrow() || end_cap.is_arrow())).then(crate::dash::ContinuousDashes::begin);
+    let arrow_stroke;
+    let stroke = if dashed && (start_cap.is_arrow() || end_cap.is_arrow()) {
+        arrow_stroke = d::Stroke { continuous_dashes: true, ..stroke.clone() };
+        &arrow_stroke
+    } else {
+        stroke
+    };
     let mut pb = sk::PathBuilder::new();
     let trimmed = trim_open_cubics(&cs, start_trim, end_trim);
     if !trimmed.is_empty() {
@@ -1334,8 +1340,7 @@ pub(crate) fn mixed_subpath_stroke_outline(n: &Node, sh: &crate::geom::Shape) ->
         _ => None,
     };
     let doc_paths: Vec<d::Path> = sh.paths.iter().map(|(p, r)| sk_to_doc(p, rule_of(*r))).collect();
-    let _continuous = (crate::outline::has_dashes(&n.stroke) && !crate::outline::dashes_by_segment(n)).then(crate::dash::ContinuousDashes::begin);
-    let outlined = outline_stroke_along(&doc_paths, &n.stroke, network, None);
+    let outlined = outline_stroke_along(&doc_paths, &crate::outline::expansion_stroke(n), network, None);
     vector_paths(&outlined).paths
 }
 
@@ -1365,9 +1370,7 @@ pub fn outline_node_stroke(doc: &Document, n: &Node) -> Vec<d::Path> {
         _ => None,
     };
     let aligned_outline = node_shape(doc, n, 0.05).and_then(|sh| crate::outline::dashed_rect_stroke_path(n, &sh));
-    // a flattened boolean result has no segments of Figma's kind
-    let _continuous = (crate::outline::has_dashes(&n.stroke) && !crate::outline::dashes_by_segment(n)).then(crate::dash::ContinuousDashes::begin);
-    outline_stroke_along(&paths, &n.stroke, network, aligned_outline.as_ref())
+    outline_stroke_along(&paths, &crate::outline::expansion_stroke(n), network, aligned_outline.as_ref())
 }
 
 /// `aligned_outline` replaces the closed sub-paths as the line that an `Inside` or `Outside`
