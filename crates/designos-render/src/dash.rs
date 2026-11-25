@@ -21,6 +21,8 @@ use tiny_skia::PathSegment;
 const JOIN_TOLERANCE: f32 = 1e-2;
 /// Segments shorter than this carry no dash.
 const MIN_SEGMENT: f32 = 1e-3;
+/// The dashes tiny-skia cuts in one call at most; more than this over a whole path draws nothing.
+const MAX_DASHES: f64 = 1_000_000.0;
 const CURVE_STEPS: usize = 48;
 /// The resolution a segment is measured and cut at, whatever the device scale: dash ends sit in the same place on the
 /// canvas, the GPU and the PDF.
@@ -227,11 +229,16 @@ pub fn dash_each_segment(path: &sk::Path, array: &[f32]) -> Option<sk::Path> {
     if period <= 0.0 || array.len() < 2 {
         return None;
     }
+    let contours = contours_of(path);
+    // tiny-skia stops at a million dashes in one call, and dashing a path in one call bounds the path; cut segment by
+    // segment the bound is per segment, so the dashes of the whole path are counted before any is cut
+    let dashes: f64 = contours.iter().flat_map(|(segs, _)| segs).map(|seg| dash_count(*seg, array, period)).sum();
+    if !(dashes <= MAX_DASHES) {
+        return None;
+    }
     let mut out = sk::PathBuilder::new();
-    let mut segs: Vec<Seg> = Vec::new();
-    let (mut start, mut cur) = (sk::Point::zero(), sk::Point::zero());
-    let flush = |segs: &mut Vec<Seg>, closed: bool, out: &mut sk::PathBuilder| {
-        for piece in dash_contour(segs, closed, array, period) {
+    for (segs, closed) in &contours {
+        for piece in dash_contour(segs, *closed, array, period) {
             for s in piece {
                 match s {
                     PathSegment::MoveTo(p) => out.move_to(p.x, p.y),
@@ -242,12 +249,20 @@ pub fn dash_each_segment(path: &sk::Path, array: &[f32]) -> Option<sk::Path> {
                 }
             }
         }
-        segs.clear();
-    };
+    }
+    out.finish()
+}
+
+/// The segments of every contour of `path`, with whether the contour is closed. A closed contour ends with the line
+/// back to its start when the path does not draw it.
+fn contours_of(path: &sk::Path) -> Vec<(Vec<Seg>, bool)> {
+    let mut out: Vec<(Vec<Seg>, bool)> = Vec::new();
+    let mut segs: Vec<Seg> = Vec::new();
+    let (mut start, mut cur) = (sk::Point::zero(), sk::Point::zero());
     for s in path.segments() {
         match s {
             PathSegment::MoveTo(p) => {
-                flush(&mut segs, false, &mut out);
+                out.push((std::mem::take(&mut segs), false));
                 (start, cur) = (p, p);
             }
             PathSegment::LineTo(p) => {
@@ -266,13 +281,26 @@ pub fn dash_each_segment(path: &sk::Path, array: &[f32]) -> Option<sk::Path> {
                 if !near(cur, start) {
                     segs.push(Seg::Line(cur, start));
                 }
-                flush(&mut segs, true, &mut out);
+                out.push((std::mem::take(&mut segs), true));
                 cur = start;
             }
         }
     }
-    flush(&mut segs, false, &mut out);
-    out.finish()
+    out.push((segs, false));
+    out.retain(|(segs, _)| !segs.is_empty());
+    out
+}
+
+/// How many dashes [`dash_segment`] cuts of `seg`.
+fn dash_count(seg: Seg, array: &[f32], period: f32) -> f64 {
+    let length = seg.length();
+    if length < MIN_SEGMENT {
+        return 0.0;
+    }
+    if length < array[0] {
+        return 1.0;
+    }
+    f64::from((length / period).round().max(1.0)) * (array.len() / 2) as f64
 }
 
 #[cfg(test)]
@@ -393,6 +421,23 @@ mod tests {
         assert_eq!(segments(&dash_path(&line, &[1.0, 1.0], 1.0).unwrap()), 33, "still continuous: 66 / 2 dashes");
         drop(outer);
         assert_eq!(segments(&dash_path(&line, &[1.0, 1.0], 1.0).unwrap()), 34, "per segment again: half dashes at both ends");
+    }
+
+    #[test]
+    fn a_path_of_many_segments_is_bounded_by_the_dashes_of_the_whole_path() {
+        // 100 segments of 900 with 0.001 on, 0.001 off: 450,000 dashes each, 45 million in all. Each segment is under
+        // tiny-skia's cap of a million dashes, the path is not: it draws nothing, as one continuous dash would.
+        let mut pb = sk::PathBuilder::new();
+        pb.move_to(0.0, 0.0);
+        for i in 1..=100 {
+            pb.line_to(if i % 2 == 1 { 900.0 } else { 0.0 }, i as f32);
+        }
+        let path = pb.finish().unwrap();
+        let started = std::time::Instant::now();
+        assert!(dash_each_segment(&path, &[0.001, 0.001]).is_none());
+        assert!(started.elapsed() < std::time::Duration::from_secs(1), "the count is made before any dash is cut");
+        // a path whose dashes are all counted but few still draws
+        assert!(dash_each_segment(&path, &[100.0, 100.0]).is_some());
     }
 
     #[test]
