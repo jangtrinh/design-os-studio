@@ -46,7 +46,7 @@ pub(crate) struct PropIds {
     file_defs: HashSet<Guid>,
     /// The ids the model's properties of each layer have in this save.
     defined_by: HashMap<NodeId, HashSet<Guid>>,
-    /// The named definitions of each layer's own record.
+    /// The definitions of each layer's own record.
     kept_named: HashMap<NodeId, Vec<Guid>>,
     /// Every id some group writes (built when first asked).
     written_anywhere: Option<HashSet<Guid>>,
@@ -156,9 +156,10 @@ pub(super) fn assign(cx: &mut ExportCtx<'_>, kept: Vec<KeptDefs>) {
         }
     }
     for (nid, k) in by_node {
-        let named: Vec<Guid> = k.defs.iter().filter(|d| d.name.is_some() && d.parent.is_none()).map(|d| d.id).collect();
-        if !named.is_empty() {
-            cx.prop_ids.kept_named.insert(nid, named);
+        // every definition of the record, a variant's alias included: all of them are written when the record is
+        let ids: Vec<Guid> = k.defs.iter().map(|d| d.id).collect();
+        if !ids.is_empty() {
+            cx.prop_ids.kept_named.insert(nid, ids);
         }
     }
 }
@@ -282,7 +283,12 @@ impl ExportCtx<'_> {
                 Some(NodeKind::Instance { component, .. }) => *component,
                 _ => None,
             };
-            if !self.prop_ids.file_defs.contains(&g) || self.group_is_verbatim(owner) || self.group_writes_def(owner, main, g) {
+            if !self.prop_ids.file_defs.contains(&g) {
+                return Ok(());
+            }
+            // an id the file's records define but no group writes in this save names nothing, whoever's group the instance's is: a
+            // nested instance can name a property of the component around it (the property is bubbled up), and that group may have gone
+            if self.prop_is_written_anywhere(g) && (self.group_is_verbatim(owner) || self.group_writes_def(owner, main, g)) {
                 return Ok(());
             }
             return Err("prop_def_not_written");
@@ -326,7 +332,8 @@ impl ExportCtx<'_> {
             _ => None,
         };
         let Some(owner) = self.assignment_owner(target) else { return self.prop_is_written_anywhere(g) };
-        self.group_is_verbatim(owner) || self.group_writes_def(owner, main, g)
+        // see `kept_prop_ref_is_written`: a nested instance can name a property of the component around it
+        self.prop_is_written_anywhere(g) && (self.group_is_verbatim(owner) || self.group_writes_def(owner, main, g))
     }
 
     /// Counts an entry left out of the file for naming a property the save does not write (see [`kept_fields::fold_unresolved`]).
