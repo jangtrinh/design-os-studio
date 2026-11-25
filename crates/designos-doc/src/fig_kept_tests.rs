@@ -395,12 +395,18 @@ fn a_spilled_arena_is_a_mapped_file_with_the_same_bytes_and_no_file_left_behind(
 /// the second one. Every column and child has a record. `queued_by_loader` columns are on the queue when the snapshot is
 /// taken, as the layout an import leaves is; the others are queued by the test as an edit would.
 fn columns_with_store(n: u32, queued_by_loader: &[usize]) -> (Document, Vec<NodeId>, Vec<[NodeId; 2]>) {
+    columns_with_store_from(n, queued_by_loader, 0)
+}
+
+/// [`columns_with_store`] with the id counter put at `first_id`, so a large value gives every node an id the renumber moves.
+fn columns_with_store_from(n: u32, queued_by_loader: &[usize], first_id: u64) -> (Document, Vec<NodeId>, Vec<[NodeId; 2]>) {
     let total = n * 3;
     let arena: Vec<u8> = vec![0; total as usize];
     let records: Vec<KeptRecord> = (1..=total).map(|i| KeptRecord::new((1, i), KeptRecordKind::Layer, i - 1, 1)).collect();
     let fields: Vec<KeptField> = (0..total).map(|i| KeptField { no: 1, offset: i, len: 1 }).collect();
     let data = KeptData::new(KeptArena::in_memory(arena), records, fields, Vec::new(), KeptCounts::default());
     let mut doc = Document::new("columns");
+    doc.next_id = first_id;
     let page = doc.add_page("P");
     let mut columns = Vec::new();
     let mut kids = Vec::new();
@@ -509,14 +515,92 @@ fn an_edit_in_another_column_leaves_a_queued_loader_root_alone() {
 
 #[test]
 fn renumbering_the_ids_follows_the_queued_roots_and_their_tags() {
-    let (mut doc, parent, _) = column_with_store();
-    doc.get_mut(NodeId(0)); // nothing at id 0; the queue is untouched
-    assert_eq!(doc.pending_relayout(), &[parent]);
-    let before = doc.loader_relayout_roots.clone();
-    assert_eq!(before.len(), 1);
-    // ids are small here: the renumber maps nothing, and both sets must still hold the same nodes
-    let _ = doc.renumber_ids_for_headroom();
-    assert_eq!(doc.loader_relayout_roots, before);
+    // every id sits above the allocation limit, so the renumber really rewrites them
+    let (mut doc, columns, _) = columns_with_store_from(1, &[0], u64::MAX - 100);
+    let old_parent = columns[0];
+    assert!(old_parent.0 > u64::MAX - 100);
+    assert_eq!(doc.pending_relayout(), &[old_parent]);
+    assert!(doc.loader_relayout_roots.contains(&old_parent));
+    assert!(doc.renumber_ids_for_headroom() > 0);
+    assert!(doc.get(old_parent).is_none(), "the node has a new id");
+    let parent = doc.pages.iter().find_map(|p| doc.get(*p)?.children.first().copied()).expect("the column");
+    assert_ne!(parent, old_parent);
+    assert_eq!(doc.pending_relayout(), &[parent], "the queue follows the new id");
+    assert_eq!(doc.loader_relayout_roots, std::collections::BTreeSet::from([parent]), "so does the tag, and the renumber does not drop it");
+    let kids = doc.get(parent).unwrap().children.clone();
+    drain(&mut doc);
+    for id in [parent, kids[0], kids[1]] {
+        assert_eq!(doc.fig_kept_node_matches_snapshot(id), Some(true), "the loader's layout still moves the snapshots after the renumber");
+    }
+}
+
+/// A column whose second child already sits where the solver puts it, with the solve queued by the loader: a structural edit
+/// that moves it is then the only thing that can change its place.
+fn settled_column_queued_again() -> (Document, NodeId, [NodeId; 2]) {
+    let (mut doc, parent, kids) = column_with_store();
+    drain(&mut doc);
+    doc.pending_relayout.push(parent);
+    doc.take_fig_kept_snapshot();
+    assert!(doc.loader_relayout_roots.contains(&parent));
+    for id in [parent, kids[0], kids[1]] {
+        assert_eq!(doc.fig_kept_node_matches_snapshot(id), Some(true));
+    }
+    (doc, parent, kids)
+}
+
+#[test]
+fn removing_a_child_makes_the_queued_loader_layout_the_edits() {
+    let (mut doc, parent, kids) = settled_column_queued_again();
+    assert!(doc.loader_relayout_roots.contains(&parent));
+    doc.remove(kids[0]).unwrap();
+    assert!(doc.loader_relayout_roots.is_empty(), "the root is no longer the loader's");
+    drain(&mut doc);
+    assert_eq!(doc.fig_kept_node_matches_snapshot(kids[1]), Some(false), "the sibling the removal pulled up is not blessed");
+}
+
+#[test]
+fn inserting_a_child_makes_the_queued_loader_layout_the_edits() {
+    let (mut doc, parent, kids) = column_with_store();
+    let id = doc.alloc_id();
+    doc.insert(parent, Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+    assert!(doc.loader_relayout_roots.is_empty());
+    drain(&mut doc);
+    assert_eq!(doc.fig_kept_node_matches_snapshot(kids[0]), Some(true), "nothing moved the first child");
+}
+
+#[test]
+fn reparenting_a_child_makes_the_queued_loader_layout_the_edits() {
+    let (mut doc, parent, kids) = settled_column_queued_again();
+    let page = doc.get(parent).unwrap().parent.unwrap();
+    doc.reparent(kids[0], page, 0).unwrap();
+    assert!(doc.loader_relayout_roots.is_empty());
+    drain(&mut doc);
+    assert_eq!(doc.fig_kept_node_matches_snapshot(kids[1]), Some(false));
+}
+
+#[test]
+fn undoing_a_removal_makes_the_queued_loader_layout_the_edits() {
+    let (mut doc, parent, kids) = column_with_store();
+    let mut history = crate::History::default();
+    history.exec(&mut doc, crate::Command::Remove { id: kids[0] }).unwrap();
+    // the removal's own tag drop is not what this test is about: put the tag back as if the loader had queued it after
+    doc.loader_relayout_roots.insert(parent);
+    history.undo(&mut doc).unwrap();
+    assert!(doc.loader_relayout_roots.is_empty(), "an undo that puts a child back is an edit");
+}
+
+#[test]
+fn a_whole_tree_dirty_mark_from_an_edit_drops_every_tag_and_a_page_load_does_not() {
+    let (mut doc, columns, _) = columns_with_store(2, &[0, 1]);
+    assert_eq!(doc.loader_relayout_roots.len(), 2);
+    doc.record_fig_kept_writes(|d| d.mark_tree_full_dirty());
+    assert_eq!(doc.loader_relayout_roots.len(), 2, "a page load's own mark leaves the loader's roots");
+    doc.mark_tree_full_dirty();
+    assert!(doc.loader_relayout_roots.is_empty(), "an edit's mark drops them: any node may have changed");
+    let _ = columns;
+    let (mut doc, _, _) = columns_with_store(1, &[0]);
+    doc.mark_full_dirty();
+    assert!(doc.loader_relayout_roots.is_empty());
 }
 
 #[test]

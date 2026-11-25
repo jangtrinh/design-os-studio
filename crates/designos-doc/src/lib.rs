@@ -901,7 +901,7 @@ impl Document {
         self.forget_loaded_pages(loader_at, &*guard, [page]);
         drop(guard);
         if changed {
-            self.mark_tree_full_dirty();
+            self.bump_tree_full_epoch();
             // A record takes a sync of the instance, which asks the loader: only once it is released.
             record_requested_imported_layouts(self);
         }
@@ -942,7 +942,7 @@ impl Document {
         }
         drop(guard);
         if changed {
-            self.mark_tree_full_dirty();
+            self.bump_tree_full_epoch();
             record_requested_imported_layouts(self);
         }
         changed
@@ -1273,19 +1273,45 @@ impl Document {
 
     #[inline]
     pub fn mark_full_dirty(&mut self) {
+        self.untag_all_loader_roots();
+        self.bump_full_epoch();
+    }
+
+    #[inline]
+    pub fn mark_tree_full_dirty(&mut self) {
+        self.untag_all_loader_roots();
+        self.bump_tree_full_epoch();
+    }
+
+    /// [`Self::mark_full_dirty`] for a change that is not an edit (an id renumber): the loader's queued roots keep their tag.
+    #[inline]
+    pub(crate) fn bump_full_epoch(&mut self) {
         self.dirty.epoch += 1;
         self.dirty.geom_full_epoch = self.dirty.epoch;
         self.dirty.tree_full_epoch = self.dirty.epoch;
     }
 
+    /// [`Self::mark_tree_full_dirty`] for a page load that has just finished, whose own roots must keep their tag.
     #[inline]
-    pub fn mark_tree_full_dirty(&mut self) {
+    pub(crate) fn bump_tree_full_epoch(&mut self) {
         self.dirty.epoch += 1;
         self.dirty.tree_full_epoch = self.dirty.epoch;
     }
 
+    /// A change that may reach any node and is not a page load's: no queued root is the loader's alone any more, because its
+    /// solve would also lay out what the change moved.
+    #[inline]
+    fn untag_all_loader_roots(&mut self) {
+        if !self.loader_relayout_roots.is_empty() && !self.loader_solving {
+            self.loader_relayout_roots.clear();
+        }
+    }
+
     #[inline]
     pub fn mark_node_dirty(&mut self, id: NodeId) {
+        if !self.loader_relayout_roots.is_empty() && !self.loader_solving {
+            self.untag_loader_roots_above(id);
+        }
         self.dirty.epoch += 1;
         let ep = self.dirty.epoch;
         let full = self.dirty.geom_full_epoch.max(self.dirty.tree_full_epoch);
@@ -1413,9 +1439,6 @@ impl Document {
 
     pub fn get_mut(&mut self, id: NodeId) -> Option<&mut Node> {
         if self.nodes.contains_key(&id) {
-            if !self.loader_relayout_roots.is_empty() && !self.loader_solving {
-                self.untag_loader_roots_above(id);
-            }
             self.mark_node_dirty(id);
             if let (Some(log), Some(node)) = (self.write_log.as_mut(), self.nodes.get(&id)) {
                 log.entry(id).or_insert_with(|| node.clone());
@@ -1424,8 +1447,9 @@ impl Document {
         self.nodes.get_mut(&id)
     }
 
-    /// A write that is not a page load's reaches `id`: a queued root the loader tagged that holds `id` (or is `id`) is solved as
-    /// an edit's from now on, because its solve would also lay out what the write changed.
+    /// A change that is not a page load's reaches `id` (a write, an insert, a removal, a move, an undo): a queued root the loader
+    /// tagged that holds `id` (or is `id`) is solved as an edit's from now on, because its solve would also lay out what the change
+    /// moved.
     fn untag_loader_roots_above(&mut self, id: NodeId) {
         let mut cur = Some(id);
         for _ in 0..=self.nodes.len() {
