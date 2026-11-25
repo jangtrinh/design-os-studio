@@ -267,7 +267,7 @@ impl ExportCtx<'_> {
         if defined(&self.prop_ids, root) || main.is_some_and(|m| defined(&self.prop_ids, m)) {
             return true;
         }
-        self.prop_ids.kept_named.get(&root).is_some_and(|ids| ids.contains(&g)) && kept_fields::node_is_verbatim(self, root)
+        self.prop_ids.kept_named.get(&root).is_some_and(|ids| ids.contains(&g)) && self.group_is_verbatim(root)
     }
 
     /// Whether a kept reference to the property `g`, found in a field of the layer being written, may be written as the file had it.
@@ -300,7 +300,8 @@ impl ExportCtx<'_> {
             let mut all: HashSet<Guid> = self.prop_ids.defined_by.values().flatten().copied().collect();
             let kept: Vec<(NodeId, Vec<Guid>)> = self.prop_ids.kept_named.iter().map(|(n, v)| (*n, v.clone())).collect();
             for (n, ids) in kept {
-                if kept_fields::node_is_verbatim(self, n) {
+                // a record's definitions are written only while its whole group is as the file had it
+                if kept_fields::node_is_verbatim(self, n) && self.binding_owner(n).is_none_or(|root| self.group_is_verbatim(root)) {
                     all.extend(ids);
                 }
             }
