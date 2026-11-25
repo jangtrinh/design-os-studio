@@ -475,8 +475,20 @@ impl VectorNetwork {
                 regions.push(Path { cmds, fill_rule: r.rule });
             }
         }
+        // an imported network with no regions fills each closed chain as a path of its own (the union of the loops, as
+        // Figma stores them), so the fill, the stroke and everything built from these paths (Flatten, Boolean, Offset)
+        // see one rule
+        let implicit_fill = self.fills_closed_loops_without_regions && self.regions.is_empty();
         let mut cmds = vec![];
         for (chain, closed) in self.leftover_chains(&covered) {
+            if closed && implicit_fill {
+                let mut own = vec![];
+                self.emit_chain(&chain, true, &mut own);
+                if !own.is_empty() {
+                    regions.push(Path { cmds: own, fill_rule: FillRule::NonZero });
+                }
+                continue;
+            }
             self.emit_chain(&chain, closed, &mut cmds);
         }
         let rest = (!cmds.is_empty()).then_some(Path { cmds, fill_rule: FillRule::NonZero });
@@ -491,12 +503,10 @@ impl VectorNetwork {
     }
 
     /// The geometry the fill paints: the filled regions. A network the `.fig` import marked, with no regions at all
-    /// (an unfilled region counts as one), fills each closed loop instead and leaves an open chain unfilled: Figma stores
-    /// a fill outline for exactly those loops, the one kind of region-less network a `.fig` file holds a visible fill for.
+    /// (an unfilled region counts as one), has each closed loop as a region-like path of its own instead and leaves an open
+    /// chain unfilled: Figma stores a fill outline for exactly those loops, the one kind of region-less network a `.fig`
+    /// file holds a visible fill for. [`Self::to_paths_split`] builds them, so this and `to_paths` always agree.
     pub fn fill_paths(&self) -> Vec<Path> {
-        if self.fills_closed_loops_without_regions && self.regions.is_empty() && self.is_valid() {
-            return self.closed_loop_paths();
-        }
         self.to_paths_split().0
     }
 
@@ -530,21 +540,6 @@ impl VectorNetwork {
         self.fills_closed_loops_without_regions = false;
         self.regions = regions;
         true
-    }
-
-    /// The closed loops of segments no region covers, one path each filled with the non-zero rule: painted one after the
-    /// other they cover the union of their interiors (Figma stores one fill path per loop, and fills "all enclosed space").
-    fn closed_loop_paths(&self) -> Vec<Path> {
-        let covered = vec![false; self.segments.len()];
-        self.leftover_chains(&covered)
-            .into_iter()
-            .filter(|(_, closed)| *closed)
-            .filter_map(|(chain, _)| {
-                let mut cmds = vec![];
-                self.emit_chain(&chain, true, &mut cmds);
-                (!cmds.is_empty()).then_some(Path { cmds, fill_rule: FillRule::NonZero })
-            })
-            .collect()
     }
 
     /// True when some segments are not part of any filled region, so the
@@ -958,7 +953,9 @@ impl VectorNetwork {
         if a == b || a >= self.vertices.len() || b >= self.vertices.len() {
             return None;
         }
-        self.materialize_closed_loop_fill();
+        if !self.materialize_closed_loop_fill() {
+            return None;
+        }
         let before: BTreeSet<Vec<usize>> = self.faces().iter().map(Face::key).collect();
         let mid = lerp(self.pos(a), self.pos(b), 0.5);
         // keep absolute handle positions when the vertex moves
@@ -1976,6 +1973,25 @@ mod tests {
         }
     }
 
+    /// Everything built from `to_paths` (Flatten, Offset, Shape builder, Boolean operands, export) sees the same union as
+    /// the fill: a region-less donut wound the opposite way is one solid disc there too, not a ring.
+    #[test]
+    fn to_paths_gives_a_flagged_network_the_union_the_fill_draws() {
+        for opposite in [true, false] {
+            let n = imported_ring(opposite);
+            let paths = n.to_paths();
+            assert_eq!(paths.len(), 2, "one path per closed loop, not one compound path");
+            assert!(paths.iter().all(|p| p.fill_rule == FillRule::NonZero));
+            assert!(painted(&paths, HOLE) && painted(&paths, RING), "opposite {opposite}: a solid disc");
+            assert_eq!(n.fill_paths(), n.to_paths_split().0);
+        }
+        // a Studio-drawn network is not touched: its loops without regions stay one stroke-only path
+        let mut drawn = imported_ring(true);
+        drawn.fills_closed_loops_without_regions = false;
+        assert_eq!(drawn.to_paths().len(), 1);
+        assert!(drawn.fill_paths().is_empty());
+    }
+
     #[test]
     fn materialising_gives_each_closed_chain_a_region_of_its_own_and_draws_the_same_paths() {
         for opposite in [true, false] {
@@ -2101,14 +2117,17 @@ mod tests {
         let fills = n.fill_paths();
         assert_eq!(fills.len(), 2, "one fill path per closed loop");
         assert!((area(&fills) - 5000.0).abs() < 1.0);
-        // the stroke geometry is unchanged: the loops are still the leftover chains of `to_paths`
-        assert!(n.has_stroke_only_segments());
-        // an open chain next to them has no area
+        // the loops are all fill, none is stroke only; `to_paths` is the same two paths
+        assert!(!n.has_stroke_only_segments());
+        assert_eq!(n.to_paths().len(), 2);
+        // an open chain next to them has no area and is the only stroke-only part
         let a = n.add_vertex(v(200.0, 0.0));
         let b = n.add_vertex(v(260.0, 0.0));
         let c = n.add_vertex(v(260.0, 60.0));
         n.connect(a, b);
         n.connect(b, c);
+        assert!(n.has_stroke_only_segments());
+        assert_eq!(n.to_paths().len(), 3);
         assert!((area(&n.fill_paths()) - 5000.0).abs() < 1.0, "the open chain is not filled");
         // once any region exists the regions alone are filled
         let f = n.face_at(v(25.0, 25.0)).unwrap();

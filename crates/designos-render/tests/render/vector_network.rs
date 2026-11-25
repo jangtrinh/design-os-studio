@@ -231,7 +231,15 @@ fn circle(cx: f32, cy: f32, r: f32, reversed: bool) -> (Vec<Pt>, Vec<Handles>) {
 
 /// The fill of `net` at 4x on a 120 x 120 page, as bytes.
 fn fill_at_4x(net: &VectorNetwork) -> Vec<u8> {
-    let (d, page) = page_with(net.clone(), Color::rgb(255, 0, 0), 0.0, StrokeCap::None);
+    picture_at_4x(net, 0.0)
+}
+
+/// `net` at 4x on a 120 x 120 page with a blue stroke of `stroke_w` at half opacity (a translucent stroke shows any
+/// outline painted twice), as bytes.
+fn picture_at_4x(net: &VectorNetwork, stroke_w: f32) -> Vec<u8> {
+    let (mut d, page) = page_with(net.clone(), Color::rgb(255, 0, 0), stroke_w, StrokeCap::None);
+    let id = vector_id(&d, page);
+    d.get_mut(id).unwrap().stroke.paints[0].opacity = 0.5;
     let mut pm = Pixmap::new(480, 480).unwrap();
     render_page(&d, page, &Viewport { zoom: 4.0, ..Viewport::default() }, &mut pm);
     pm.data().to_vec()
@@ -269,6 +277,15 @@ fn materialise_fixtures() -> Vec<(&'static str, VectorNetwork, Vec2)> {
         ("crossing circles, opposite winding", imported(&[ca, cb], &[ha, hb]), v(25.0, 56.0)),
         ("pentagram", imported(&[star(45.0)], &[]), v(60.3, 25.0)),
         ("pentagram with a circle in a tip", imported(&[star(45.0), tip], &[vec![], tip_h]), v(60.3, 28.0)),
+        ("squares touching at a corner", imported(&[square(5.3, 5.7, 40.0, false), square(45.3, 45.7, 40.0, false)], &[]), v(20.0, 20.0)),
+        (
+            "close nested rings",
+            imported(
+                &[circle(60.3, 60.7, 20.0, false).0, circle(60.3, 60.7, 17.0, true).0],
+                &[circle(60.3, 60.7, 20.0, false).1, circle(60.3, 60.7, 17.0, true).1],
+            ),
+            v(60.3, 42.2),
+        ),
     ]
 }
 
@@ -287,10 +304,46 @@ fn materialising_draws_the_fallback_fill_byte_for_byte() {
     }
 }
 
-/// The bucket on one loop never changes a pixel outside the face it clicked: for every shape, the pixels beyond the
-/// outer polygon of the clicked face are byte-equal to before the click.
+/// A translucent stroke over loops whose bands overlap (crossing circles, nested rings closer than the stroke, loops
+/// touching, a loop crossing itself) is the same picture before and after the loops get their regions: the stroke runs
+/// over the same per-chain paths either way, so no band is painted twice.
+#[test]
+fn materialising_keeps_a_translucent_stroke_over_overlapping_chains_byte_for_byte() {
+    let mut checked = 0;
+    for (name, net, _) in materialise_fixtures() {
+        if !["crossing circles, opposite winding", "close nested rings", "squares touching at a corner", "pentagram", "same-winding ring"].contains(&name) {
+            continue;
+        }
+        let before = picture_at_4x(&net, 6.0);
+        let mut after = net;
+        assert!(after.materialize_closed_loop_fill(), "{name}");
+        assert!(picture_at_4x(&after, 6.0) == before, "{name}: the stroked picture changed");
+        checked += 1;
+    }
+    assert_eq!(checked, 5);
+}
+
+/// What Flatten, Offset path, the shape builder and Boolean operands read (`node_paths`) is the union the canvas fills:
+/// a region-less donut wound the other way is a solid disc there too.
+#[test]
+fn the_paths_flatten_reads_draw_the_canvas_fill() {
+    for (name, net, _) in materialise_fixtures() {
+        let canvas = fill_at_4x(&net);
+        let (mut d, page) = page_with(net, Color::rgb(255, 0, 0), 0.0, StrokeCap::None);
+        let id = vector_id(&d, page);
+        let paths = designos_render::vectorops::node_paths(&d, d.get(id).unwrap()).expect("a vector has geometry");
+        d.get_mut(id).unwrap().kind = NodeKind::Vector { paths, network: None };
+        let mut pm = Pixmap::new(480, 480).unwrap();
+        render_page(&d, page, &Viewport { zoom: 4.0, ..Viewport::default() }, &mut pm);
+        assert!(pm.data() == canvas.as_slice(), "{name}: the paths a Flatten reads draw another picture than the canvas");
+    }
+}
+
+/// The bucket on one loop never changes a pixel outside the face it clicked, and where the face is a loop of its own it
+/// does change the pixels inside it (so the test cannot pass by the click doing nothing).
 #[test]
 fn the_bucket_changes_no_pixel_outside_the_face_it_clicked() {
+    let mut loops_clicked = 0;
     for (name, net, click) in materialise_fixtures() {
         let before = fill_at_4x(&net);
         let mut edited = net;
@@ -303,19 +356,30 @@ fn the_bucket_changes_no_pixel_outside_the_face_it_clicked() {
         for p in edited.face_contours(&face).first().expect("an outer loop") {
             (lo, hi) = (v(lo.x.min(p.x), lo.y.min(p.y)), v(hi.x.max(p.x), hi.y.max(p.y)));
         }
+        // whether the face is exactly one chain, which the click then flips
+        let mut probe = edited.clone();
+        assert!(probe.materialize_closed_loop_fill());
+        let is_a_loop = probe.region_of_face(&face).is_some();
         edited.toggle_face(&face);
         let after = fill_at_4x(&edited);
         let (x0, y0, x1, y1) = ((lo.x * 4.0 - 4.0) as usize, (lo.y * 4.0 - 4.0) as usize, (hi.x * 4.0 + 4.0) as usize, (hi.y * 4.0 + 4.0) as usize);
+        let mut changed_inside = 0;
         for y in 0..480usize {
             for x in 0..480usize {
+                let i = (y * 480 + x) * 4;
                 if (x0..=x1).contains(&x) && (y0..=y1).contains(&y) {
+                    changed_inside += usize::from(before[i..i + 4] != after[i..i + 4]);
                     continue;
                 }
-                let i = (y * 480 + x) * 4;
                 assert!(before[i..i + 4] == after[i..i + 4], "{name}: pixel ({x}, {y}) outside the clicked face changed");
             }
         }
+        if is_a_loop {
+            assert!(changed_inside > 0, "{name}: the click on a loop changed nothing");
+            loops_clicked += 1;
+        }
     }
+    assert!(loops_clicked >= 6, "the bucket was tried on {loops_clicked} loops");
 }
 
 /// A sliver of 0.4 next to a square: the bucket unfills the square and the sliver stays.

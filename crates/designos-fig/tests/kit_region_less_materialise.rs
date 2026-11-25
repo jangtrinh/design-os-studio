@@ -52,7 +52,7 @@ fn materialising_every_region_less_kit_vector_draws_the_fallback_picture() {
     let mut doc = designos_fig::import_fig(&bytes).unwrap();
     doc.hydrate_all_pages();
     let (mut total, mut identical, mut refused, mut empty, mut unscored) = (0usize, 0usize, 0usize, 0usize, 0usize);
-    let (mut multi, mut nested, mut edited, mut confined, mut no_face) = (0usize, 0usize, 0usize, 0usize, 0usize);
+    let (mut multi, mut nested, mut edited, mut confined, mut no_face, mut disjoint) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
     let mut differing: Vec<String> = Vec::new();
     for (id, n) in doc.nodes.iter() {
         let NodeKind::Vector { network: Some(net), .. } = &n.kind else { continue };
@@ -100,9 +100,8 @@ fn materialising_every_region_less_kit_vector_draws_the_fallback_picture() {
         if boxes.len() >= 2 {
             multi += 1;
             let inside = |a: &(f32, f32, f32, f32), b: &(f32, f32, f32, f32)| a.0 >= b.0 && a.1 >= b.1 && a.2 <= b.2 && a.3 <= b.3;
-            if boxes.iter().enumerate().any(|(i, a)| boxes.iter().enumerate().any(|(j, b)| i != j && inside(a, b))) {
-                nested += 1;
-            }
+            let is_nested = boxes.iter().enumerate().any(|(i, a)| boxes.iter().enumerate().any(|(j, b)| i != j && inside(a, b)));
+            nested += usize::from(is_nested);
             // the edit leg: click the largest loop that has a face of its own
             let mut candidates: Vec<_> = after_net.faces().into_iter().filter(|f| f.loops.len() == 1 && after_net.region_of_face(f).is_some()).collect();
             candidates.sort_by(|a, b| b.area.total_cmp(&a.area));
@@ -117,14 +116,22 @@ fn materialising_every_region_less_kit_vector_draws_the_fallback_picture() {
             let pc = raster(&clicked.fill_paths(), ts, w, h);
             let (cx0, cy0, cx1, cy1) =
                 (((fb.0 - x0) * scale) as i64 - 3, ((fb.1 - y0) * scale) as i64 - 3, ((fb.2 - x0) * scale) as i64 + 3, ((fb.3 - y0) * scale) as i64 + 3);
-            let mut moved_outside = 0usize;
+            let (mut moved_outside, mut moved_inside) = (0usize, 0usize);
             for yy in 0..h as i64 {
                 for xx in 0..w as i64 {
-                    if xx >= cx0 && xx <= cx1 && yy >= cy0 && yy <= cy1 {
-                        continue;
-                    }
                     let i = (yy * w as i64 + xx) as usize;
-                    moved_outside += usize::from(pb[i] != pc[i]);
+                    if xx >= cx0 && xx <= cx1 && yy >= cy0 && yy <= cy1 {
+                        moved_inside += usize::from(pb[i] != pc[i]);
+                    } else {
+                        moved_outside += usize::from(pb[i] != pc[i]);
+                    }
+                }
+            }
+            if !is_nested {
+                // disjoint loops: unfilling one must change its own pixels
+                disjoint += 1;
+                if moved_inside == 0 {
+                    differing.push(format!("{key}: the bucket on a disjoint loop changed nothing"));
                 }
             }
             edited += 1;
@@ -142,6 +149,7 @@ fn materialising_every_region_less_kit_vector_draws_the_fallback_picture() {
     );
     eprintln!("KIT networks with two or more loops: {multi}; with nested loops (a box inside a box): {nested}");
     eprintln!("KIT edit leg: clicked {edited}, confined {confined}, no loop with a face of its own: {no_face}");
+    eprintln!("KIT networks with two or more disjoint loops (no loop box inside another): {disjoint}");
     for d in &differing {
         eprintln!("KIT exception {d}");
     }
