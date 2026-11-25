@@ -82,6 +82,10 @@ pub struct KeptWriteReport {
     pub nodes_guid_mismatch: usize,
     /// Fields written in place of Studio's.
     pub fields_written: usize,
+    /// Property references Studio wrote under an id of its own session because no definition in scope has the name.
+    pub prop_name_unresolved: usize,
+    /// Consumption entries Studio left out because they bind to a property the save does not write for the layer's owner.
+    pub prop_refs_dropped: usize,
     /// Kept fields left out, by why. Studio's own field (if it writes one) is written instead.
     pub fields_dropped_by_reason: BTreeMap<&'static str, usize>,
     /// Layers written from the store with no kept field left out.
@@ -150,6 +154,10 @@ pub(crate) struct KeptState {
     override_key_no: Option<u32>,
     /// The layer whose kept fields are being written.
     pub(super) scope: Option<NodeId>,
+    /// What Studio wrote for the layer being written that counts against the report, by kind (see [`fold_unresolved`]).
+    pub(super) pending: [usize; 5],
+    /// Whether each layer asked about still has the value its snapshot took.
+    matches: HashMap<NodeId, bool>,
     /// Layers whose file key is not used because another layer of the same main has it already.
     rejected_keys: HashSet<NodeId>,
     pub(crate) report: KeptWriteReport,
@@ -267,12 +275,22 @@ fn guid_struct(bytes: &[u8]) -> Option<(u32, u32)> {
     (at == bytes.len()).then_some((session, local))
 }
 
-/// Whether the save writes node `id` from the store: it has a layer record under the guid the save writes it with, and its value is
-/// still the one the file had.
-pub(super) fn layer_is_written_from_the_store(cx: &ExportCtx<'_>, id: NodeId) -> bool {
+/// Whether node `id` has the value its snapshot took (asked once per layer in a save).
+fn snapshot_matches(cx: &mut ExportCtx<'_>, id: NodeId) -> bool {
+    if let Some(&m) = cx.kept.matches.get(&id) {
+        return m;
+    }
+    let m = cx.doc.fig_kept_node_matches_snapshot(id) == Some(true);
+    cx.kept.matches.insert(id, m);
+    m
+}
+
+/// Whether the save writes node `id` as the file had it: it has a layer record under the guid the save writes it with, its value is
+/// still the one the file had, and it sits under the parent the file put it under.
+pub(super) fn node_is_verbatim(cx: &mut ExportCtx<'_>, id: NodeId) -> bool {
     let doc = cx.doc;
     let (Some(rec), Some(&guid)) = (doc.fig_kept.record_of_node(id), cx.node_guids.get(&id)) else { return false };
-    rec.kind() == KeptRecordKind::Layer && rec.guid() == guid && doc.fig_kept_node_matches_snapshot(id) == Some(true)
+    rec.kind() == KeptRecordKind::Layer && rec.guid() == guid && snapshot_matches(cx, id) && doc.fig_kept_node_moved(id) == Some(false)
 }
 
 /// The record to write for node `id` (exported under `guid`), or `None` for a layer that is written as Studio models it.
@@ -289,7 +307,7 @@ pub(crate) fn select<'a>(cx: &mut ExportCtx<'a>, doc: &'a Document, id: NodeId, 
         cx.kept.report.nodes_guid_mismatch += 1;
         return None;
     }
-    if doc.fig_kept_node_matches_snapshot(id) != Some(true) {
+    if !snapshot_matches(cx, id) {
         cx.kept.report.nodes_edited += 1;
         if cx.kept.report.edited_sample.len() < MAX_EDITED_SAMPLES {
             cx.kept.report.edited_sample.push(id);
@@ -299,8 +317,39 @@ pub(crate) fn select<'a>(cx: &mut ExportCtx<'a>, doc: &'a Document, id: NodeId, 
     Some(rec)
 }
 
+pub(super) const UNRESOLVED_ASSIGNMENT: usize = 0;
+pub(super) const UNRESOLVED_BINDING: usize = 1;
+pub(super) const UNRESOLVED_SPEC: usize = 2;
+pub(super) const UNRESOLVED_NESTED: usize = 3;
+pub(super) const PENDING_DROPPED_ENTRY: usize = 4;
+
+/// Starts counting what Studio writes for the next layer.
+pub(super) fn begin_layer(cx: &mut ExportCtx<'_>) {
+    cx.kept.pending = [0; 5];
+}
+
+/// Adds what Studio wrote for the layer to the report, except what the store then replaced: a reference Studio could not resolve
+/// by name is only counted when it is the one that ends up in the file.
+pub(super) fn fold_unresolved(cx: &mut ExportCtx<'_>, applied: Option<&Applied>) {
+    let replaced = applied.map(|a| a.replaced).unwrap_or([false; 5]);
+    let p = cx.kept.pending;
+    for (i, n) in p.iter().enumerate() {
+        if replaced[i] {
+            continue;
+        }
+        if i == PENDING_DROPPED_ENTRY {
+            cx.kept.report.prop_refs_dropped += n;
+        } else {
+            cx.kept.report.prop_name_unresolved += n;
+        }
+    }
+    cx.kept.pending = [0; 5];
+}
+
 /// What [`apply`] did that the rest of the node's record depends on.
 pub(crate) struct Applied {
+    /// Which of the counted kinds of reference the store wrote the field of (index: the `UNRESOLVED_*` and `PENDING_*` constants).
+    pub(super) replaced: [bool; 5],
     /// The kept `textData` is written, so the glyph style ids Figma stored are the ones its rows use.
     pub(crate) text_data: bool,
 }
@@ -308,8 +357,8 @@ pub(crate) struct Applied {
 /// Writes the kept fields of `rec` into `fields`, each in place of the field of the same name Studio wrote.
 pub(crate) fn apply(cx: &mut ExportCtx<'_>, id: NodeId, rec: KeptRecordRef<'_>, fields: &mut Vec<(Arc<str>, V)>) -> Applied {
     cx.kept.scope = Some(id);
-    let Some(plan) = cx.kept.plan.clone() else { return Applied { text_data: false } };
-    let mut applied = Applied { text_data: false };
+    let Some(plan) = cx.kept.plan.clone() else { return Applied { text_data: false, replaced: [false; 5] } };
+    let mut applied = Applied { text_data: false, replaced: [false; 5] };
     let (mut written_here, mut dropped_here) = (0usize, 0usize);
     for (no, bytes) in rec.fields() {
         let Some(fp) = plan.fields.get(&no) else {
@@ -318,6 +367,12 @@ pub(crate) fn apply(cx: &mut ExportCtx<'_>, id: NodeId, rec: KeptRecordRef<'_>, 
             continue;
         };
         if !fp.written {
+            continue;
+        }
+        // the definition side of a property group is the store's only while the whole group is as the file had it
+        if !cx.store_may_write_property_key(id, &fp.name) {
+            cx.kept.report.drop_field("group_not_verbatim");
+            dropped_here += 1;
             continue;
         }
         let value = if fp.decode {
@@ -338,6 +393,13 @@ pub(crate) fn apply(cx: &mut ExportCtx<'_>, id: NodeId, rec: KeptRecordRef<'_>, 
         }
         if &*fp.name == "textData" {
             applied.text_data = true;
+        }
+        match &*fp.name {
+            "componentPropAssignments" => applied.replaced[UNRESOLVED_ASSIGNMENT] = true,
+            "componentPropRefs" => applied.replaced[UNRESOLVED_BINDING] = true,
+            "variantPropSpecs" => applied.replaced[UNRESOLVED_SPEC] = true,
+            "parameterConsumptionMap" => applied.replaced[PENDING_DROPPED_ENTRY] = true,
+            _ => {}
         }
         cx.kept.report.fields_written += 1;
         written_here += 1;
@@ -372,7 +434,7 @@ enum IdKind {
     VariableSet,
     Mode,
     Style,
-    /// A component property definition: it has to be one this save defines (see `prop_ids`), or one the file never defined.
+    /// A component property definition: see `prop_ids` for who may write a reference to one.
     PropDef,
     /// An id the record defines or remembers, not one that points at something that has to exist.
     Definition,
@@ -513,7 +575,7 @@ fn walk(cx: &mut ExportCtx<'_>, maps: &IdMaps, value: &mut V, path: &mut Vec<Arc
                 IdKind::Mode => *maps.modes.get(&g).ok_or("mode_not_written")?,
                 IdKind::Style => *maps.styles.get(&g).ok_or("style_not_written")?,
                 IdKind::PropDef => {
-                    cx.check_prop_reference(cx.kept.scope.ok_or("prop_def_without_a_layer")?, g)?;
+                    cx.kept_prop_ref_is_written(path.first().map(|p| &**p).unwrap_or(""), g)?;
                     g
                 }
             };

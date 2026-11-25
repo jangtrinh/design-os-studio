@@ -352,13 +352,11 @@ fn a_main_studio_writes_leaves_the_kept_instance_and_variants_naming_its_ids() {
     assert_eq!(ids_of(record_of(&now, MAIN), "componentPropDefs", "id"), vec![LABEL]);
     assert_eq!(ids_of(record_of(&now, SET), "componentPropDefs", "id"), vec![SIZE]);
     assert_eq!(record_of(&now, INSTANCE).get("componentPropAssignments"), record_of(&was, INSTANCE).get("componentPropAssignments"), "the instance is Figma's");
-    assert_eq!(
-        record_of(&now, SMALL).get("componentPropDefs"),
-        record_of(&was, SMALL).get("componentPropDefs"),
-        "the alias on the variant is Figma's, and its parent is written"
-    );
+    // the set is edited, so its whole group is Studio's: no alias is written, and the variants name the set's property by its id
+    assert!(record_of(&now, SMALL).get("componentPropDefs").is_none(), "an alias is Figma's only inside a whole group");
+    assert_eq!(ids_of(record_of(&now, SMALL), "variantPropSpecs", "propDefId"), vec![SIZE]);
     assert_eq!(dangling(&now), dangling(&was));
-    assert_eq!(report.fields_dropped(), 0, "{report:?}");
+    assert!(report.fields_dropped_by_reason.get("group_not_verbatim").copied().unwrap_or(0) >= 1, "{report:?}");
 }
 
 #[test]
@@ -368,7 +366,8 @@ fn deleting_a_property_drops_the_kept_references_to_it_and_studio_writes_its_own
     doc.get_mut(main).unwrap().component.props.clear();
     let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
     let now = records(&saved);
-    assert!(report.fields_dropped_by_reason.get("prop_def_not_written").copied().unwrap_or(0) >= 2, "{report:?}");
+    assert!(report.fields_dropped_by_reason.get("prop_def_not_written").copied().unwrap_or(0) >= 1, "the instance's assignment: {report:?}");
+    assert!(report.fields_dropped_by_reason.get("group_not_verbatim").copied().unwrap_or(0) >= 1, "the main's group is Studio's: {report:?}");
     assert!(record_of(&now, MAIN).get("componentPropDefs").is_none(), "nothing defines it any more");
     let named_label = |all: &[V]| -> Vec<(u32, u32)> {
         all.iter()
@@ -392,7 +391,7 @@ fn deleting_a_set_property_drops_the_variants_alias_and_spec_that_name_it() {
     doc.get_mut(set).unwrap().component.props.clear();
     let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
     let now = records(&saved);
-    assert!(report.fields_dropped_by_reason.get("prop_def_not_written").copied().unwrap_or(0) >= 2, "{report:?}");
+    assert!(report.fields_dropped_by_reason.get("group_not_verbatim").copied().unwrap_or(0) >= 2, "{report:?}");
     assert!(ids_of(record_of(&now, SMALL), "componentPropDefs", "parentPropDefId").is_empty(), "no alias names the deleted property");
     assert!(!ids_of(record_of(&now, SMALL), "variantPropSpecs", "propDefId").contains(&SIZE), "no spec names it");
     // the main is another component's: untouched
@@ -671,7 +670,7 @@ fn a_copy_of_a_main_binds_its_layers_to_its_own_property_and_not_the_originals()
     let nodes = designos_doc::duplicate_subtree(&mut doc, main);
     let copy = nodes[0].id;
     designos_doc::Command::Insert { parent: page, index: 99, nodes }.apply(&mut doc).expect("pastes");
-    let (saved, _) = export_fig_with_kept_report(&doc).expect("saves");
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
     let now = records(&saved);
     assert!(doc.get(copy).and_then(|n| n.source_id.clone()).is_none(), "a copy has no record of its own");
     // the copy's own record is the SYMBOL that is neither the original nor the instance's; its children name it as their parent
@@ -681,7 +680,7 @@ fn a_copy_of_a_main_binds_its_layers_to_its_own_property_and_not_the_originals()
         .expect("the copy is written");
     let copy_guid = guid_of(copy_record);
     let under_copy: Vec<&V> = now.iter().filter(|r| r.get("parentIndex").and_then(|p| p.get("guid")).map(pair) == Some(copy_guid)).collect();
-    assert!(under_copy.iter().any(|r| r.get("parameterConsumptionMap").is_some()), "the copy's text keeps its binding");
+    assert!(report.prop_refs_dropped >= 1, "the copy's text lost its binding, and the loss is counted: {report:?}");
     assert!(under_copy.iter().all(|r| !names(r, LABEL)), "none of the copy's layers binds to the original's property");
     assert!(!names(copy_record, LABEL), "nor does the copy's definition");
 }
@@ -705,15 +704,47 @@ fn a_key_two_layers_of_one_main_would_share_is_kept_for_the_first_only() {
     assert_eq!(own, Some(other), "the other is addressed by its own guid");
 }
 
+const LOOSE_FRAME: (u32, u32) = (2, 30);
+const LOOSE: (u32, u32) = (2, 31);
+
+/// `nodes()` and a variant that sits in a plain frame, with a spec that names the set's property: the kit holds 798 of these.
+fn with_a_loose_variant() -> Vec<u8> {
+    let mut all = nodes();
+    all.push(node(LOOSE_FRAME, (0, 1), "f", "FRAME", "Country", vec![("size", vec2(100.0, 40.0))]));
+    all.push(node(
+        LOOSE,
+        LOOSE_FRAME,
+        "a",
+        "SYMBOL",
+        "Loose",
+        vec![
+            ("size", vec2(10.0, 10.0)),
+            ("variantPropSpecs", V::Array(vec![msg(vec![("propDefId", guid(SIZE.0, SIZE.1)), ("value", V::String("sm".into()))])])),
+        ],
+    ));
+    fig_file(all, vec![icon_blob()])
+}
+
 #[test]
-fn a_variant_outside_any_set_keeps_its_spec_when_some_layer_defines_the_property() {
-    // the kit holds variants in a plain frame whose set is elsewhere
-    let original = file();
-    let mut doc = import_fig(&original).expect("imports");
-    let (set, small) = (by_name(&doc, "Set"), doc.get(by_name(&doc, "Set")).unwrap().children[0]);
-    let page = doc.get(set).unwrap().parent.unwrap();
-    doc.reparent(small, page, 0).expect("moves");
+fn a_loose_variant_as_the_file_had_it_is_written_as_it_was_and_a_moved_or_edited_one_is_studios() {
+    let original = with_a_loose_variant();
+    let was = records(&original);
+    let doc = import_fig(&original).expect("imports");
     let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
-    assert_eq!(report.fields_dropped_by_reason.get("prop_def_not_written"), None, "{report:?}");
-    assert_eq!(record_of(&records(&saved), SMALL).get("variantPropSpecs"), record_of(&records(&original), SMALL).get("variantPropSpecs"));
+    assert_eq!(record_of(&records(&saved), LOOSE).get("variantPropSpecs"), record_of(&was, LOOSE).get("variantPropSpecs"), "{report:?}");
+    assert_eq!(report.prop_name_unresolved, 0, "{report:?}");
+    for edit in ["move", "edit"] {
+        let mut doc = import_fig(&original).expect("imports");
+        let id = by_name(&doc, "Loose");
+        if edit == "move" {
+            let page = doc.get(doc.get(id).unwrap().parent.unwrap()).unwrap().parent.unwrap();
+            doc.reparent(id, page, 0).expect("moves");
+        } else {
+            doc.get_mut(id).unwrap().opacity = 0.5;
+        }
+        let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+        let ids = ids_of(record_of(&records(&saved), LOOSE), "variantPropSpecs", "propDefId");
+        assert!(ids.iter().all(|g| *g != SIZE), "{edit}: Studio does not name another component's property by its name: {ids:?}");
+        assert!(report.prop_name_unresolved >= 1, "{edit}: the unresolved name is counted: {report:?}");
+    }
 }

@@ -675,3 +675,18 @@ fn a_loader_step_moves_snapshots_in_place_and_a_shared_store_is_copied_only_for_
     other.get_mut(ids[1]).unwrap().size.x += 40.0;
     assert_eq!(other.fig_kept_node_matches_snapshot(ids[1]), Some(false), "the clone's snapshot did not move");
 }
+
+#[test]
+fn a_layer_moved_under_another_parent_reads_as_moved_and_the_move_is_no_edit_of_its_value() {
+    let (mut doc, parent, kids) = column_with_store();
+    let page = doc.get(parent).unwrap().parent.unwrap();
+    assert_eq!(doc.fig_kept_node_moved(kids[0]), Some(false));
+    assert_eq!(doc.fig_kept_node_moved(parent), Some(false));
+    doc.reparent(kids[0], page, 0).unwrap();
+    assert_eq!(doc.fig_kept_node_moved(kids[0]), Some(true), "it sits under the page now");
+    assert_eq!(doc.fig_kept_node_moved(kids[1]), Some(false), "its sibling did not move");
+    assert_eq!(doc.fig_kept_node_matches_snapshot(kids[0]), Some(true), "the move is not part of the value the other keys are gated on");
+    doc.reparent(kids[0], parent, 0).unwrap();
+    assert_eq!(doc.fig_kept_node_moved(kids[0]), Some(false), "put back, it is where the file had it");
+    assert_eq!(doc.fig_kept_node_moved(NodeId(u64::MAX)), None);
+}

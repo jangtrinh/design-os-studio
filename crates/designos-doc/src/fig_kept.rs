@@ -149,6 +149,10 @@ impl KeptData {
 struct KeptNode {
     record: u32,
     snapshot: NodeSnapshot,
+    /// The guid of the node's parent when the snapshot was taken (`None` for a parent the file gave no guid, such as the library
+    /// page). It tells a layer that was moved from one that was only edited; it is no part of the snapshot, so a move does not
+    /// change what the other keys of the record do.
+    parent: Option<(u32, u32)>,
 }
 
 /// A document's store of Figma's records. See the module documentation.
@@ -269,6 +273,10 @@ impl FigKeptStore {
         self.data.blobs.len()
     }
 
+    fn node_entry(&self, id: NodeId) -> Option<&KeptNode> {
+        self.nodes.get(&id)
+    }
+
     /// The value node `id` had when the snapshot was taken.
     pub fn node_snapshot(&self, id: NodeId) -> Option<&NodeSnapshot> {
         self.nodes.get(&id).map(|n| &n.snapshot)
@@ -338,16 +346,26 @@ impl Document {
         self.loader_relayout_roots.extend(queued);
         let store = self.fig_kept.clone();
         let mut seen = std::collections::HashSet::new();
-        let mut wanted: Vec<(NodeId, u32, &Node)> = Vec::new();
+        let mut wanted: Vec<(NodeId, u32, &Node, Option<(u32, u32)>)> = Vec::new();
         for (id, node) in &self.nodes {
             let Some(guid) = guid_of(node) else { continue };
             let Some(&record) = store.data.by_guid.get(&guid) else { continue };
             if seen.insert(guid) {
-                wanted.push((*id, record, node));
+                let parent = node.parent.and_then(|p| self.nodes.get(&p)).and_then(guid_of);
+                wanted.push((*id, record, node, parent));
             }
         }
         let nodes = snapshot_nodes(&wanted);
         self.fig_kept = Arc::new(store.with_nodes(nodes));
+    }
+
+    /// Whether node `id` now sits under another parent than the file put it under: `Some(true)` for a moved layer, `Some(false)`
+    /// for one under its own parent, `None` when no record was kept for it. A layer the file placed under a parent that has no guid
+    /// of its own counts as unmoved while it stays under such a parent.
+    pub fn fig_kept_node_moved(&self, id: NodeId) -> Option<bool> {
+        let kept = self.fig_kept.node_entry(id)?;
+        let now = self.nodes.get(&id)?.parent.and_then(|p| self.nodes.get(&p)).and_then(guid_of);
+        Some(kept.parent != now)
     }
 
     /// Whether node `id` still has the value its snapshot took: `Some(true)` for an unedited node, `Some(false)` for an edited
@@ -399,8 +417,8 @@ impl Document {
 }
 
 /// Snapshots `wanted`, on worker threads when there are many.
-fn snapshot_nodes(wanted: &[(NodeId, u32, &Node)]) -> HashMap<NodeId, KeptNode> {
-    let one = |&(id, record, node): &(NodeId, u32, &Node)| (id, KeptNode { record, snapshot: NodeSnapshot::of(node) });
+fn snapshot_nodes(wanted: &[(NodeId, u32, &Node, Option<(u32, u32)>)]) -> HashMap<NodeId, KeptNode> {
+    let one = |&(id, record, node, parent): &(NodeId, u32, &Node, Option<(u32, u32)>)| (id, KeptNode { record, snapshot: NodeSnapshot::of(node), parent });
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, 16);
     if wanted.len() < 2_048 || threads <= 1 {
         return wanted.iter().map(one).collect();

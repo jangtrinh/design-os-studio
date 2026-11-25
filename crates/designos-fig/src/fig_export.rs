@@ -1728,6 +1728,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         _ => None,
     };
     // a connector lowered to plain shapes is not the record the file held
+    kept_fields::begin_layer(cx);
     let kept_record = if lowered_conn.is_none() { kept_fields::select(cx, doc, id, nguid) } else { None };
     let (ty, is_state_group) = match &node.kind {
         NodeKind::Page { .. } => ("CANVAS", false),
@@ -2327,7 +2328,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             }) else {
                 continue;
             };
-            let def_g = cx.resolve_prop_guid(id, prop_name);
+            let def_g = cx.resolve_binding_guid(id, prop_name);
             prop_refs.push(msg(vec![("defID", guid(def_g.0, def_g.1)), ("componentPropNodeField", en(node_field))]));
         }
         if !prop_refs.is_empty() {
@@ -2341,8 +2342,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         let mut legacy = Vec::new();
         let mut name_lost = false;
         for (prop_name, val) in &node.component.variant_props {
-            // a variant of a set that no longer defines the property says nothing about it
-            let Some(def_g) = cx.resolve_variant_spec_guid(id, prop_name) else { continue };
+            let def_g = cx.resolve_spec_guid(id, prop_name);
             let bare_name =
                 prop_name.strip_prefix("propDefId:").map(|_| String::new()).unwrap_or_else(|| prop_name.split('#').next().unwrap_or(prop_name).to_string());
             vspecs.push(msg(vec![("propDefId", guid(def_g.0, def_g.1)), ("value", V::String(val.clone()))]));
@@ -2676,6 +2676,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     // export's table before writing derived text. An edited text layer must not export its stale glyph cache.
     // Only a layer that carries derived text pays for a copy of its metadata.
     let applied = kept_record.map(|rec| kept_fields::apply(cx, id, rec, &mut msg_fields));
+    kept_fields::fold_unresolved(cx, applied.as_ref());
     let figma_style_ids = applied.as_ref().is_some_and(|a| a.text_data);
     let derived_text_meta =
         (matches!(&node.kind, NodeKind::Text(_)) && (node.fig_text_geometry.is_some() || node.fig_metadata.contains_key("derivedTextData"))).then(|| {
@@ -3702,7 +3703,7 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
             if has_nested_prop_ov {
                 let mut prop_assigns = Vec::new();
                 for (prop_name, pval) in &n.component.values {
-                    let def_g = cx.resolve_prop_guid(cid, prop_name);
+                    let def_g = cx.resolve_nested_assignment_guid(cid, prop_name);
                     let val_msg = match pval {
                         PropValue::Bool(b) => msg(vec![("boolValue", V::Bool(*b))]),
                         PropValue::Text(s) | PropValue::Variant(s) => msg(vec![("textValue", msg(vec![("characters", V::String(s.clone()))]))]),
