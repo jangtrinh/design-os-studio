@@ -67,6 +67,8 @@ fn rules() -> Vec<Rule> {
 
 struct Info {
     node_radius: f32,
+    /// The record has a `cornerRadius` field (else the radius comes from the four per-corner fields).
+    from_corner_radius_field: bool,
     style_ids: Vec<u32>,
     table: Vec<kit_fidelity_kiwi::KiwiValue>,
 }
@@ -143,7 +145,7 @@ fn kit_vector_corner_radius_rules() {
         let Some(b) = r.blobs.get(bi as usize) else { continue };
         let node_radius = f32_of(rec, "cornerRadius").unwrap_or(0.0);
         let table = vd.get("styleOverrideTable").and_then(|t| t.as_array()).map(|a| a.to_vec()).unwrap_or_default();
-        info.insert(g, Info { node_radius, style_ids: vertex_styles(b), table });
+        info.insert(g, Info { node_radius, from_corner_radius_field: false, style_ids: vertex_styles(b), table });
     }
     let blobs = r.blobs;
     drop(r.records);
@@ -161,12 +163,15 @@ fn kit_vector_corner_radius_rules() {
             continue;
         }
         let Some(inf) = info.get(&t.guid) else { continue };
-        if inf.node_radius <= 0.0 {
-            continue;
-        }
         let Some(&id) = keys.by_source.get(&t.guid) else { continue };
         let Ok(nodes) = live_nodes(&doc, id) else { continue };
         let root = &nodes[0];
+        // The radius the layer has in the document, whichever fields of the record gave it.
+        let radius = if root.corner_radii.iter().all(|r| *r == root.corner_radii[0]) { root.corner_radii[0] } else { 0.0 };
+        if radius <= 0.0 {
+            continue;
+        }
+        let inf = &Info { node_radius: radius, style_ids: inf.style_ids.clone(), table: inf.table.clone(), from_corner_radius_field: inf.node_radius > 0.0 };
         let NodeKind::Vector { network: Some(net), .. } = &root.kind else { continue };
         let fig = figma_paths(&t.fill, &blobs);
         let hidden = keys.is_hidden(id);
@@ -207,9 +212,10 @@ fn kit_vector_corner_radius_rules() {
         by_class.entry(class.clone()).or_default().push(0);
         let _ = writeln!(
             log,
-            "VEC {} R={} verts={} regions={} hidden={}{}  matches:[{}]",
+            "VEC {} R={} field={} verts={} regions={} hidden={}{}  matches:[{}]",
             t.guid,
             inf.node_radius,
+            inf.from_corner_radius_field,
             net.vertices.len(),
             net.regions.len(),
             hidden,

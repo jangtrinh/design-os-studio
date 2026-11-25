@@ -57,6 +57,11 @@ fn sheet_outline_blob() -> Vec<u8> {
 }
 
 fn sheet_fig(node_radius: Option<f32>, style_radius: Option<f32>) -> Vec<u8> {
+    sheet_fig_with(node_radius.map(|r| ("cornerRadius", fl(r))).into_iter().collect(), style_radius)
+}
+
+/// The sheet with the given extra fields on its record (`cornerRadius`, or the four per-corner radii).
+fn sheet_fig_with(node_fields: Vec<(&'static str, V)>, style_radius: Option<f32>) -> Vec<u8> {
     let mut extra = vec![
         ("fillPaints", V::Array(vec![solid(0.0, 0.0, 0.0)])),
         ("fillGeometry", geometry(1)),
@@ -72,9 +77,7 @@ fn sheet_fig(node_radius: Option<f32>, style_radius: Option<f32>) -> Vec<u8> {
             ]),
         ),
     ];
-    if let Some(r) = node_radius {
-        extra.push(("cornerRadius", fl(r)));
-    }
+    extra.extend(node_fields);
     let sheet = layer(1, (0, 1), "!", "VECTOR", (52.0, 71.72), (0.0, 0.0), extra);
     fig(vec![sheet], vec![sheet_network_blob(), sheet_outline_blob()])
 }
@@ -164,4 +167,22 @@ fn a_save_keeps_per_vertex_radii_of_a_vector_without_a_node_radius() {
     assert_eq!(radii(&doc, id), vec![0.0, 0.0, 0.0, 2.0, 2.0]);
     assert_eq!(radii_after_a_save(&doc), vec![0.0, 0.0, 0.0, 2.0, 2.0]);
     assert_eq!(radii_after_a_save(&nudged(&doc, id)), vec![0.0, 0.0, 0.0, 2.0, 2.0]);
+}
+
+/// The four per-corner radii without a `cornerRadius` field, as the kit stores some vectors.
+fn per_corner_radii(r: f32) -> Vec<(&'static str, V)> {
+    ["rectangleTopLeftCornerRadius", "rectangleTopRightCornerRadius", "rectangleBottomRightCornerRadius", "rectangleBottomLeftCornerRadius"]
+        .into_iter()
+        .map(|k| (k, fl(r)))
+        .collect()
+}
+
+#[test]
+fn per_corner_radii_alone_do_not_round_the_vertices_and_a_save_keeps_it_so() {
+    let (_, doc, keys) = load(&sheet_fig_with(per_corner_radii(4.0), None));
+    let id = keys.by_source["1:1"];
+    assert_eq!(doc.get(id).unwrap().corner_radii, [4.0; 4], "the layer has the radius");
+    assert_eq!(radii(&doc, id), vec![0.0; 5], "Figma's outline of such a vector keeps its corners sharp");
+    // the save writes a `cornerRadius` of its own for the layer, which the vertices must not pick up on reopen
+    assert_eq!(radii_after_a_save(&doc), vec![0.0; 5]);
 }
