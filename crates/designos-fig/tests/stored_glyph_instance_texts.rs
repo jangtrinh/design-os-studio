@@ -152,6 +152,12 @@ fn a_deferred_page_draws_the_stored_glyphs_of_its_instance_texts_when_it_opens()
 
 #[test]
 fn a_deferred_page_whose_main_changed_shapes_its_instance_texts() {
+    // the same file, left alone, draws: it is the change of the main that takes the data away
+    let mut untouched = import_fig(&deferred_with_nested_text()).unwrap();
+    let untouched_page = page_named(&untouched, "404 pages");
+    assert!(untouched.ensure_page_hydrated(untouched_page));
+    assert_eq!(stored_glyph_use(hydrated_label(&untouched)), StoredGlyphUse::Drawn);
+
     let mut doc = import_fig(&deferred_with_nested_text()).unwrap();
     let page = page_named(&doc, "404 pages");
     let main_label = doc
