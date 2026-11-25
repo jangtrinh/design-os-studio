@@ -704,3 +704,16 @@ fn a_key_two_layers_of_one_main_would_share_is_kept_for_the_first_only() {
     let own = if keys[0] == Some(KEY) { keys[1] } else { keys[0] };
     assert_eq!(own, Some(other), "the other is addressed by its own guid");
 }
+
+#[test]
+fn a_variant_outside_any_set_keeps_its_spec_when_some_layer_defines_the_property() {
+    // the kit holds variants in a plain frame whose set is elsewhere
+    let original = file();
+    let mut doc = import_fig(&original).expect("imports");
+    let (set, small) = (by_name(&doc, "Set"), doc.get(by_name(&doc, "Set")).unwrap().children[0]);
+    let page = doc.get(set).unwrap().parent.unwrap();
+    doc.reparent(small, page, 0).expect("moves");
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+    assert_eq!(report.fields_dropped_by_reason.get("prop_def_not_written"), None, "{report:?}");
+    assert_eq!(record_of(&records(&saved), SMALL).get("variantPropSpecs"), record_of(&records(&original), SMALL).get("variantPropSpecs"));
+}

@@ -42,6 +42,8 @@ pub(crate) struct PropIds {
     /// The ids each layer defines in this save: those of the properties the model holds on it, and the aliases a variant writes from
     /// the store. An id is a definition of a layer, not of the file: a Figma copy of a set defines the ids of the set it was made from.
     live_by_owner: HashMap<NodeId, HashSet<Guid>>,
+    /// Every id some layer defines in this save.
+    defined_anywhere: HashSet<Guid>,
     /// The name the file gave a definition, by id.
     file_def_names: HashMap<Guid, String>,
     /// The session Studio-made ids come from.
@@ -166,6 +168,7 @@ pub(super) fn assign(cx: &mut ExportCtx<'_>, kept: Vec<KeptDefs>) {
             cx.prop_ids.live_by_owner.entry(*nid).or_default().extend(k.defs.iter().map(|d| d.id));
         }
     }
+    cx.prop_ids.defined_anywhere = cx.prop_ids.live_by_owner.values().flatten().copied().collect();
 }
 
 impl PropIds {
@@ -182,6 +185,15 @@ impl ExportCtx<'_> {
     pub(super) fn prop_def_is_in_scope(&self, scope: NodeId, g: Guid) -> bool {
         if !self.prop_ids.file_defs.contains(&g) {
             return true;
+        }
+        // A variant that sits outside any set (a file can hold one whose set is elsewhere or gone) has no owner to ask: the
+        // definition has to exist somewhere in this save.
+        if self.doc.get(scope).is_some_and(|n| {
+            matches!(n.kind, designos_doc::NodeKind::Component(_))
+                && !n.component.variant_props.is_empty()
+                && !n.parent.and_then(|p| self.doc.get(p)).is_some_and(|p| matches!(p.kind, designos_doc::NodeKind::ComponentSet(_)))
+        }) {
+            return self.prop_ids.defined_anywhere.contains(&g);
         }
         let mut cur = Some(scope);
         while let Some(c) = cur {
