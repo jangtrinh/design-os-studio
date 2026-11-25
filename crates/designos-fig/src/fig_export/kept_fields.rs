@@ -20,8 +20,7 @@ use std::sync::Arc;
 
 /// Fields a save does not write from the store, so Studio's own value (or none) is written as it was before.
 ///
-/// - The component property ids and override keys: the exporter renumbers them, so a kept reference would name another
-///   definition until the exporter keeps Figma's ids.
+/// - The override key, until the instance data that names it is written from the store too.
 /// - What an instance carries (its overrides and the data Figma derived for it): it is gated on the instance's content and on
 ///   the component it names, not on the instance alone.
 /// - Outlines and vector networks, which name blobs and which Studio re-encodes.
@@ -34,11 +33,6 @@ use std::sync::Arc;
 ///   and writes the anchors of the children with them, so the definitions and the anchors have to come from the same writer.
 /// - Every field whose name starts with `derived`: a cache of the layer's content, its children or its main.
 pub(crate) const NOT_WRITTEN_FROM_THE_STORE: &[&str] = &[
-    "componentPropDefs",
-    "variantPropSpecs",
-    "componentPropRefs",
-    "componentPropAssignments",
-    "parameterConsumptionMap",
     "overrideKey",
     "symbolData",
     "fillGeometry",
@@ -330,6 +324,8 @@ enum IdKind {
     VariableSet,
     Mode,
     Style,
+    /// A component property definition: it has to be one this save defines (see `prop_ids`), or one the file never defined.
+    PropDef,
     /// An id the record defines or remembers, not one that points at something that has to exist.
     Definition,
 }
@@ -350,7 +346,18 @@ fn classify(path: &[Arc<str>]) -> Option<IdKind> {
     if last == "guid" && before == Some("variableSetID") {
         return Some(IdKind::VariableSet);
     }
+    // the layer a component property value or a symbol id names
+    if (last == "guidValue" && matches!(names[0], "componentPropAssignments" | "componentPropDefs")) || (last == "guid" && before == Some("symbolIdValue")) {
+        return Some(IdKind::Node);
+    }
+    if last == "defId" && before == Some("propRefValue") {
+        return Some(IdKind::PropDef);
+    }
     match names.as_slice() {
+        ["componentPropAssignments" | "componentPropRefs", "#", "defID"] | ["variantPropSpecs", "#", "propDefId"] | ["componentPropDefs", "#", "parentPropDefId"] => {
+            Some(IdKind::PropDef)
+        }
+        ["componentPropDefs", "#", "id"] => Some(IdKind::Definition),
         ["variableModeBySetMap", "entries", "#", "variableModeID"] => Some(IdKind::Mode),
         ["handoffStatusMap", "entries", "#", "guid"]
         | ["hyperlink", "guid"]
@@ -457,6 +464,10 @@ fn walk(cx: &mut ExportCtx<'_>, maps: &IdMaps, value: &mut V, path: &mut Vec<Arc
                 IdKind::VariableSet => *maps.sets.get(&g).ok_or("variable_set_not_written")?,
                 IdKind::Mode => *maps.modes.get(&g).ok_or("mode_not_written")?,
                 IdKind::Style => *maps.styles.get(&g).ok_or("style_not_written")?,
+                IdKind::PropDef => {
+                    cx.prop_ids.check_reference(g)?;
+                    g
+                }
             };
             for (name, v) in fields.iter_mut() {
                 *v = V::Uint(if &**name == "sessionID" { mapped.0 } else { mapped.1 });

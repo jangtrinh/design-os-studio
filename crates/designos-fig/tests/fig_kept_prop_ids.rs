@@ -68,6 +68,10 @@ const LABEL: (u32, u32) = (4, 30);
 /// A component set with a variant property and two variants, a main with a text property that a text of it shows, and an instance
 /// of that main that sets the property.
 fn nodes() -> Vec<V> {
+    nodes_with_label(LABEL)
+}
+
+fn nodes_with_label(label: (u32, u32)) -> Vec<V> {
     let mut nodes = document_and_page();
     let plain = |extra: Vec<(&'static str, V)>| {
         let mut fields = vec![("size", vec2(100.0, 40.0))];
@@ -121,7 +125,7 @@ fn nodes() -> Vec<V> {
         plain(vec![(
             "componentPropDefs",
             V::Array(vec![msg(vec![
-                ("id", guid(LABEL.0, LABEL.1)),
+                ("id", guid(label.0, label.1)),
                 ("name", V::String("Label".into())),
                 ("type", en("TEXT")),
                 ("initialValue", text("Hello")),
@@ -136,7 +140,7 @@ fn nodes() -> Vec<V> {
         FAMILY,
         "\u{e900}",
         &[(0, 0.0)],
-        vec![("componentPropRefs", V::Array(vec![msg(vec![("defID", guid(LABEL.0, LABEL.1)), ("componentPropNodeField", en("TEXT_DATA"))])]))],
+        vec![("componentPropRefs", V::Array(vec![msg(vec![("defID", guid(label.0, label.1)), ("componentPropNodeField", en("TEXT_DATA"))])]))],
     ));
     nodes.push(node(
         INSTANCE,
@@ -146,7 +150,7 @@ fn nodes() -> Vec<V> {
         "Use",
         plain(vec![
             ("symbolData", msg(vec![("symbolID", guid(MAIN.0, MAIN.1))])),
-            ("componentPropAssignments", V::Array(vec![msg(vec![("defID", guid(LABEL.0, LABEL.1)), ("value", text("Bye"))])])),
+            ("componentPropAssignments", V::Array(vec![msg(vec![("defID", guid(label.0, label.1)), ("value", text("Bye"))])])),
         ]),
     ));
     nodes
@@ -266,4 +270,153 @@ fn a_file_with_no_store_names_each_property_by_one_id_on_both_sides() {
     assert_eq!(w.assigned.iter().find(|a| a.0 == INSTANCE).map(|a| a.1), Some(label));
     assert!(w.specs.iter().all(|s| s.1 == size));
     assert!(!session_of_file().contains(&label.0) && !session_of_file().contains(&size.0), "Studio's ids, not Figma's, when nothing records them");
+}
+
+/// Every reference to a definition the saved records hold no definition of.
+fn dangling(all: &[V]) -> Vec<((u32, u32), (u32, u32))> {
+    let defined: std::collections::BTreeSet<(u32, u32)> = all.iter().flat_map(|r| ids_of(r, "componentPropDefs", "id")).collect();
+    let mut out = Vec::new();
+    for r in all {
+        let at = guid_of(r);
+        for (list, key) in
+            [("componentPropAssignments", "defID"), ("componentPropRefs", "defID"), ("variantPropSpecs", "propDefId"), ("componentPropDefs", "parentPropDefId")]
+        {
+            out.extend(ids_of(r, list, key).into_iter().filter(|g| !defined.contains(g)).map(|g| (at, g)));
+        }
+    }
+    out
+}
+
+#[test]
+fn a_set_a_main_and_an_instance_saved_with_no_edit_keep_figmas_property_records() {
+    let original = file();
+    let doc = import_fig(&original).expect("imports");
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+    let (was, now) = (records(&original), records(&saved));
+    for (id, list) in [
+        (SET, "componentPropDefs"),
+        (SMALL, "componentPropDefs"),
+        (LARGE, "componentPropDefs"),
+        (SMALL, "variantPropSpecs"),
+        (LARGE, "variantPropSpecs"),
+        (MAIN, "componentPropDefs"),
+        (MAIN_TEXT, "componentPropRefs"),
+        (INSTANCE, "componentPropAssignments"),
+    ] {
+        assert_eq!(record_of(&now, id).get(list), record_of(&was, id).get(list), "{id:?} {list} is Figma's");
+    }
+    assert_eq!(dangling(&now), dangling(&was), "no reference names a definition the file does not hold");
+    assert_eq!(report.nodes_edited, 0);
+    assert_eq!(report.fields_dropped(), 0, "{report:?}");
+}
+
+#[test]
+fn an_instance_studio_writes_names_the_ids_of_a_main_written_from_the_store() {
+    let original = file();
+    let mut doc = import_fig(&original).expect("imports");
+    let instance = by_name(&doc, "Use");
+    doc.get_mut(instance).unwrap().opacity = 0.5;
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+    let now = records(&saved);
+    assert!(report.nodes_edited >= 1);
+    assert_eq!(ids_of(record_of(&now, MAIN), "componentPropDefs", "id"), vec![LABEL], "the main is Figma's record");
+    assert_eq!(ids_of(record_of(&now, INSTANCE), "componentPropAssignments", "defID"), vec![LABEL], "Studio's assignment names Figma's id");
+    assert_eq!(dangling(&now), dangling(&records(&original)));
+}
+
+#[test]
+fn a_main_studio_writes_leaves_the_kept_instance_and_variants_naming_its_ids() {
+    let original = file();
+    let mut doc = import_fig(&original).expect("imports");
+    for name in ["Main", "Set"] {
+        let id = by_name(&doc, name);
+        doc.get_mut(id).unwrap().opacity = 0.5;
+    }
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+    let (was, now) = (records(&saved), records(&original));
+    let _ = (&was, &now);
+    let now = records(&saved);
+    let was = records(&original);
+    assert_eq!(ids_of(record_of(&now, MAIN), "componentPropDefs", "id"), vec![LABEL]);
+    assert_eq!(ids_of(record_of(&now, SET), "componentPropDefs", "id"), vec![SIZE]);
+    assert_eq!(record_of(&now, INSTANCE).get("componentPropAssignments"), record_of(&was, INSTANCE).get("componentPropAssignments"), "the instance is Figma's");
+    assert_eq!(
+        record_of(&now, SMALL).get("componentPropDefs"),
+        record_of(&was, SMALL).get("componentPropDefs"),
+        "the alias on the variant is Figma's, and its parent is written"
+    );
+    assert_eq!(dangling(&now), dangling(&was));
+    assert_eq!(report.fields_dropped(), 0, "{report:?}");
+}
+
+#[test]
+fn deleting_a_property_drops_the_kept_references_to_it_and_studio_writes_its_own() {
+    let mut doc = import_fig(&file()).expect("imports");
+    let main = by_name(&doc, "Main");
+    doc.get_mut(main).unwrap().component.props.clear();
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+    let now = records(&saved);
+    assert!(report.fields_dropped_by_reason.get("prop_def_not_written").copied().unwrap_or(0) >= 2, "{report:?}");
+    assert!(record_of(&now, MAIN).get("componentPropDefs").is_none(), "nothing defines it any more");
+    let named_label = |all: &[V]| -> Vec<(u32, u32)> {
+        all.iter()
+            .flat_map(|r| ids_of(r, "componentPropAssignments", "defID").into_iter().chain(ids_of(r, "componentPropRefs", "defID")))
+            .filter(|g| *g == LABEL)
+            .collect()
+    };
+    assert!(named_label(&now).is_empty(), "no kept reference to the deleted property is written");
+    let studio_made = ids_of(record_of(&now, INSTANCE), "componentPropAssignments", "defID");
+    assert_eq!(studio_made.len(), 1, "Studio writes the instance's value as it models it");
+    assert!(!session_of_file().contains(&studio_made[0].0), "{studio_made:?}");
+    // the set was not touched
+    assert_eq!(ids_of(record_of(&now, SET), "componentPropDefs", "id"), vec![SIZE]);
+    assert_eq!(ids_of(record_of(&now, SMALL), "variantPropSpecs", "propDefId"), vec![SIZE]);
+}
+
+#[test]
+fn deleting_a_set_property_drops_the_variants_alias_and_spec_that_name_it() {
+    let mut doc = import_fig(&file()).expect("imports");
+    let set = by_name(&doc, "Set");
+    doc.get_mut(set).unwrap().component.props.clear();
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+    let now = records(&saved);
+    assert!(report.fields_dropped_by_reason.get("prop_def_not_written").copied().unwrap_or(0) >= 2, "{report:?}");
+    assert!(ids_of(record_of(&now, SMALL), "componentPropDefs", "parentPropDefId").is_empty(), "no alias names the deleted property");
+    assert!(!ids_of(record_of(&now, SMALL), "variantPropSpecs", "propDefId").contains(&SIZE), "no spec names it");
+    // the main is another component's: untouched
+    assert_eq!(ids_of(record_of(&now, MAIN), "componentPropDefs", "id"), vec![LABEL]);
+}
+
+#[test]
+fn an_assignment_of_a_property_the_file_never_defined_is_written_as_it_was() {
+    // an instance of a main whose definitions live in a library file: the id means something there
+    let library_def = (9, 99);
+    let mut nodes = nodes();
+    for n in &mut nodes {
+        if guid_of(n) == INSTANCE {
+            let V::Message(fields) = n else { unreachable!() };
+            if let Some(slot) = fields.iter_mut().find(|(k, _)| &**k == "componentPropAssignments") {
+                slot.1 = V::Array(vec![msg(vec![("defID", guid(library_def.0, library_def.1)), ("value", text("Bye"))])]);
+            }
+        }
+    }
+    let original = fig_file(nodes, vec![icon_blob()]);
+    let doc = import_fig(&original).expect("imports");
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+    assert_eq!(ids_of(record_of(&records(&saved), INSTANCE), "componentPropAssignments", "defID"), vec![library_def], "{report:?}");
+}
+
+#[test]
+fn an_id_the_file_gave_a_property_is_never_given_to_a_layer_studio_makes() {
+    // the id Studio would hand the first layer it makes (the copy of the main's text inside the instance)
+    let probe = import_fig(&fig_file(nodes_with_label((4, 2)), vec![icon_blob()])).expect("imports");
+    let made: Vec<(u32, u32)> = records(&export_fig_with_kept_report(&probe).expect("saves").0).iter().map(guid_of).filter(|g| g.0 == 1).collect();
+    assert!(!made.is_empty(), "the instance's copy of the text is a layer Studio makes");
+    let clash = made.iter().copied().min().unwrap();
+    let doc = import_fig(&fig_file(nodes_with_label((1, clash.1)), vec![icon_blob()])).expect("imports");
+    let (saved, _) = export_fig_with_kept_report(&doc).expect("saves");
+    let all = records(&saved);
+    let defs: Vec<(u32, u32)> = all.iter().flat_map(|r| ids_of(r, "componentPropDefs", "id")).collect();
+    assert_eq!(defs.iter().filter(|g| **g == (1, clash.1)).count(), 1, "Figma's id is written: {defs:?}");
+    assert!(all.iter().all(|r| guid_of(r) != (1, clash.1)), "no layer is written under the id of a property definition");
 }
