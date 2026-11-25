@@ -798,3 +798,68 @@ fn a_moved_layer_whose_key_is_the_guid_of_a_layer_with_no_key_gives_the_key_up()
     assert_eq!(override_key(&out, MAIN_TEXT), Some((u32::MAX, u32::MAX)), "the file's null key stays");
     assert_eq!(override_key(&out, (2, 9)), Some((2, 9)), "one layer is addressed by that guid");
 }
+
+/// A file with a deferred page: `Main` (4:70 Label) holds an instance `Nested` of `Button` (4:71 Label) that the file addresses by
+/// the key 7:88, and on the deferred page an instance of `Main` whose own overrides set `Button`'s Label through that key.
+fn deferred_file_with_a_nested_instance() -> Vec<u8> {
+    let plain = |extra: Vec<(&'static str, V)>| {
+        let mut f = vec![
+            ("visible", V::Bool(true)),
+            ("opacity", designos_fig::testkit::fl(1.0)),
+            ("phase", en("CREATED")),
+            ("size", vec2(100.0, 40.0)),
+            ("transform", designos_fig::testkit::matrix(0.0, 0.0)),
+            ("blendMode", en("PASS_THROUGH")),
+        ];
+        f.extend(extra);
+        f
+    };
+    let label = |id: (u32, u32)| {
+        (
+            "componentPropDefs",
+            V::Array(vec![msg(vec![("id", guid(id.0, id.1)), ("name", V::String("Label".into())), ("type", en("TEXT")), ("initialValue", text("x"))])]),
+        )
+    };
+    let overrides = msg(vec![
+        ("symbolID", guid(1, 10)),
+        (
+            "symbolOverrides",
+            V::Array(vec![msg(vec![
+                ("guidPath", msg(vec![("guids", V::Array(vec![guid(7, 88)]))])),
+                ("componentPropAssignments", V::Array(vec![msg(vec![("defID", guid(4, 71)), ("value", text("set on the button"))])])),
+            ])]),
+        ),
+    ]);
+    let mut changes = vec![
+        node((0, 0), (0, 0), "", "DOCUMENT", "Document", vec![]),
+        node((0, 1), (0, 0), "!", "CANVAS", "Cover", vec![]),
+        node((0, 2), (0, 0), "\"", "CANVAS", "Page 2", vec![]),
+        node((0, 3), (0, 0), "#", "CANVAS", "Deferred", vec![]),
+        node((1, 10), (0, 1), "!", "SYMBOL", "Main", plain(vec![label((4, 70))])),
+        node((1, 11), (0, 1), "\"", "SYMBOL", "Button", plain(vec![label((4, 71))])),
+        node((1, 12), (1, 10), "!", "INSTANCE", "Nested", plain(vec![("symbolData", msg(vec![("symbolID", guid(1, 11))])), ("overrideKey", guid(7, 88))])),
+        node((1, 21), (0, 3), "!", "INSTANCE", "Copy", plain(vec![("symbolData", overrides)])),
+    ];
+    changes.extend((0..25_000u32).map(|i| node((9, i + 1), (0, 1), "z", "ROUNDED_RECTANGLE", "F", plain(vec![]))));
+    fig_file(changes, vec![icon_blob()])
+}
+
+#[test]
+fn an_unopened_instance_keeps_the_id_of_a_nested_instances_property_when_the_path_names_the_layer_by_its_key() {
+    let doc = import_fig(&deferred_file_with_a_nested_instance()).expect("imports");
+    assert!(doc.has_pending_pages(), "the fixture defers a page");
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+    let out = records(&saved);
+    let entries =
+        record_of(&out, (1, 21)).get("symbolData").and_then(|s| s.get("symbolOverrides")).and_then(V::as_array).map(|a| a.to_vec()).unwrap_or_default();
+    let ids: Vec<(u32, u32)> = entries
+        .iter()
+        .flat_map(|e| {
+            e.get("componentPropAssignments")
+                .and_then(V::as_array)
+                .map(|a| a.iter().filter_map(|x| x.get("defID")).map(pair).collect::<Vec<_>>())
+                .unwrap_or_default()
+        })
+        .collect();
+    assert_eq!(ids, vec![(4, 71)], "the entry still names Button's Label, not Main's: {report:?}");
+}

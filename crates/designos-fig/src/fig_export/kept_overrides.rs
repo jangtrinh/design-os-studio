@@ -263,31 +263,46 @@ fn remap_geometry(cx: &mut ExportCtx<'_>, kept: &Kept, list: &mut V) {
     });
 }
 
-/// The node an entry's `guidPath` ends at, inside the main component: the one whose component properties the entry sets.
-fn entry_target(cx: &mut ExportCtx<'_>, entry: &V, inst_id: NodeId, main_guid: (u32, u32)) -> NodeId {
+/// The node an entry's `guidPath` ends at, inside the main component: the one whose component properties the entry sets. The path
+/// names it by its override key when the file gave it one, else by its guid. `None` when the path does not lead to a node of this
+/// file.
+fn entry_target(cx: &mut ExportCtx<'_>, entry: &V, inst_id: NodeId, main_guid: (u32, u32)) -> Option<NodeId> {
     let last = entry.get("guidPath").and_then(|p| p.get("guids")).and_then(V::as_array).and_then(|a| a.last()).and_then(field_guid);
     match last {
-        Some(g) if g != main_guid => cx.node_with_guid(g).unwrap_or(inst_id),
-        _ => inst_id,
+        Some(g) if g != main_guid => super::kept_fields::node_with_override_key(cx, g).or_else(|| cx.node_with_guid(g)),
+        _ => Some(inst_id),
     }
 }
 
-/// Points each component property an entry sets at the definition this file writes for that property.
+/// Checks the component properties an entry sets against what this save writes. The file keeps the id Figma gave a property, so an
+/// id stays as it was when the owner of the node the entry addresses still writes it (or is whole, or the file never defined it). An
+/// id the owner no longer writes is looked up again by the name the file gave it, inside that owner only, and left out, counted,
+/// when the owner has no property of that name. An entry whose target is not a layer of this file is left as the file had it.
 fn remap_prop_assignments(cx: &mut ExportCtx<'_>, kept: &Kept, entry: &mut V, inst_id: NodeId, main_guid: (u32, u32)) {
     if entry.get("componentPropAssignments").is_none() {
         return;
     }
-    let scope = entry_target(cx, entry, inst_id, main_guid);
+    let Some(target) = entry_target(cx, entry, inst_id, main_guid) else { return };
     let Some(V::Array(assigns)) = entry.get_mut("componentPropAssignments") else { return };
-    for a in assigns {
-        let Some(old) = a.get("defID").and_then(field_guid) else { continue };
-        let Some(name) = kept.props.get(&format!("{}:{}", old.0, old.1)) else { continue };
-        // a property no definition of this file has (a library's) keeps the id the file gave it
-        let Some(g) = cx.assignment_scope_guid(scope, name) else { continue };
-        if let Some(slot) = a.get_mut("defID") {
-            *slot = guid(g.0, g.1);
+    assigns.retain_mut(|a| {
+        let Some(old) = a.get("defID").and_then(field_guid) else { return true };
+        if cx.instance_prop_is_written(target, old) {
+            return true;
         }
-    }
+        let Some(name) = kept.props.get(&format!("{}:{}", old.0, old.1)) else { return true };
+        match cx.assignment_scope_guid(target, name) {
+            Some(g) => {
+                if let Some(slot) = a.get_mut("defID") {
+                    *slot = guid(g.0, g.1);
+                }
+                true
+            }
+            None => {
+                cx.count_dropped_prop_entry();
+                false
+            }
+        }
+    });
 }
 
 /// The `symbolOverrides` entries of the instance `inst_id` (of the main component `main`) as the file stated them, or

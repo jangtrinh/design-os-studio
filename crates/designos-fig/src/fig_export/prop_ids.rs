@@ -291,6 +291,25 @@ impl ExportCtx<'_> {
         }
     }
 
+    /// Whether an assignment of the property `g` on the instance `target` (a layer of a main, addressed by an override entry) may stay
+    /// as the file had it: the file never defined the id, or the group of the instance's main is whole or writes it.
+    pub(super) fn instance_prop_is_written(&mut self, target: NodeId, g: Guid) -> bool {
+        if !self.prop_ids.file_defs.contains(&g) {
+            return true;
+        }
+        let main = match self.doc.get(target).map(|n| &n.kind) {
+            Some(NodeKind::Instance { component, .. }) => *component,
+            _ => None,
+        };
+        let Some(owner) = self.assignment_owner(target) else { return true };
+        self.group_is_verbatim(owner) || self.group_writes_def(owner, main, g)
+    }
+
+    /// Counts an entry left out of the file for naming a property the save does not write (see [`kept_fields::fold_unresolved`]).
+    pub(super) fn count_dropped_prop_entry(&mut self) {
+        self.kept.pending[kept_fields::PENDING_DROPPED_ENTRY] += 1;
+    }
+
     /// The consumption entries Studio writes from the metadata a layer carried. An entry that binds to a component property is
     /// kept only if the property is one the save writes for the owner of the layer, or one the file never defined (a library's).
     /// An entry that fails is left out and counted.

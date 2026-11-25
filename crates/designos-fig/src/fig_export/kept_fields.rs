@@ -158,6 +158,8 @@ pub(crate) struct KeptState {
     pub(super) pending: [usize; 5],
     /// Whether each layer asked about still has the value its snapshot took.
     matches: HashMap<NodeId, bool>,
+    /// The layer each override key the file gave names (built when first asked).
+    by_key: Option<HashMap<(u32, u32), NodeId>>,
     /// Layers whose file key is not used because another layer of the same main has it already.
     rejected_keys: HashSet<NodeId>,
     pub(crate) report: KeptWriteReport,
@@ -714,4 +716,19 @@ pub(super) fn index_override_keys(cx: &mut ExportCtx<'_>) {
         rejected.extend(layers.iter().skip(1).filter(|(_, explicit)| *explicit).map(|(id, _)| *id));
     }
     cx.kept.rejected_keys = rejected;
+}
+
+/// The layer whose key in the overrides of its instances is `key`, among the layers that use the key the file gave them.
+pub(super) fn node_with_override_key(cx: &mut ExportCtx<'_>, key: (u32, u32)) -> Option<NodeId> {
+    if cx.kept.by_key.is_none() {
+        let doc = cx.doc;
+        let mut index: HashMap<(u32, u32), NodeId> = HashMap::new();
+        for &id in doc.nodes.keys() {
+            if let Some(k) = kept_override_key(cx, id).filter(|k| *k != (u32::MAX, u32::MAX)) {
+                index.entry(k).or_insert(id);
+            }
+        }
+        cx.kept.by_key = Some(index);
+    }
+    cx.kept.by_key.as_ref()?.get(&key).copied()
 }
