@@ -18,7 +18,7 @@ use designos_doc::{Document, KeptRecordKind, KeptRecordRef, NodeId};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
-/// Fields a save does not write from the store yet, so Studio's own value (or none) is written as before.
+/// Fields a save does not write from the store, so Studio's own value (or none) is written as it was before.
 ///
 /// - The component property ids and override keys: the exporter renumbers them, so a kept reference would name another
 ///   definition until the exporter keeps Figma's ids.
@@ -26,8 +26,11 @@ use std::sync::Arc;
 ///   the component it names, not on the instance alone.
 /// - Outlines and vector networks, which name blobs and which Studio re-encodes.
 /// - Prototype interactions, which name other layers and have no writer.
-/// - What Studio writes from outside the layer: guides (kept in the document) and plugin data (which also carries the
-///   in-progress badge and Studio's own carrier entries).
+/// - What Studio writes from outside the layer: guides (kept in the document), plugin data (which also carries the in-progress
+///   badge and Studio's own carrier entries), the effect style link of an instance (written from the main's link and the style's
+///   content), and the child layout keys that read the parent (the parent's direction, the ids of its grid tracks). A layer
+///   whose own value is unchanged can still be written differently after its parent or its style was edited.
+/// - Every field whose name starts with `derived`: a cache of the layer's content, its children or its main.
 pub(crate) const NOT_WRITTEN_FROM_THE_STORE: &[&str] = &[
     "componentPropDefs",
     "variantPropSpecs",
@@ -36,8 +39,6 @@ pub(crate) const NOT_WRITTEN_FROM_THE_STORE: &[&str] = &[
     "parameterConsumptionMap",
     "overrideKey",
     "symbolData",
-    "derivedSymbolData",
-    "derivedSymbolDataLayoutVersion",
     "fillGeometry",
     "strokeGeometry",
     "vectorData",
@@ -45,7 +46,19 @@ pub(crate) const NOT_WRITTEN_FROM_THE_STORE: &[&str] = &[
     "scrollBehavior",
     "guides",
     "pluginData",
+    "styleIdForEffect",
+    "stackChildPrimaryGrow",
+    "stackChildAlignSelf",
+    "gridChildHorizontalAlign",
+    "gridChildVerticalAlign",
+    "gridColumnAnchor",
+    "gridRowAnchor",
 ];
+
+/// Whether a field named `name` is written from the store.
+fn is_written_from_the_store(name: &str) -> bool {
+    !NOT_WRITTEN_FROM_THE_STORE.contains(&name) && !name.starts_with("derived")
+}
 
 /// A field that holds a number of the file's blob table.
 const BLOB_FIELDS: &[&str] = &["commandsBlob", "vectorNetworkBlob", "dataBlob"];
@@ -175,7 +188,7 @@ impl KeptState {
                             FieldType::Native(Native::Uint) => BLOB_FIELDS.contains(&&*f.name),
                             FieldType::Native(_) => false,
                         };
-                        (f.value, FieldPlan { name: f.name.clone(), written: !NOT_WRITTEN_FROM_THE_STORE.contains(&&*f.name), decode })
+                        (f.value, FieldPlan { name: f.name.clone(), written: is_written_from_the_store(&f.name), decode })
                     })
                     .collect()
             })

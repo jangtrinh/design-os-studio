@@ -378,3 +378,87 @@ fn a_guid_at_a_place_no_rule_names_drops_the_field_and_the_path_is_reported() {
     assert_eq!(report.fields_dropped_by_reason.get("id_at_an_unlisted_path"), Some(&1), "{report:?}");
     assert_eq!(report.unlisted_paths.get("fillPaints/#/sourceNodeId"), Some(&1), "{report:?}");
 }
+
+/// A file whose third page is deferred (25,000 filler layers on the first page and more than two pages): the main component
+/// `Main` (1:10) on the first page, and on the deferred page an instance of it (1:21) that holds its own copy of the fill.
+fn deferred_instance_file() -> Vec<u8> {
+    let plain = |extra: Vec<(&'static str, V)>| {
+        let mut fields = vec![
+            ("visible", V::Bool(true)),
+            ("opacity", fl(1.0)),
+            ("phase", en("CREATED")),
+            ("size", vec2(100.0, 40.0)),
+            ("transform", designos_fig::testkit::matrix(0.0, 0.0)),
+            ("blendMode", en("PASS_THROUGH")),
+        ];
+        fields.extend(extra);
+        fields
+    };
+    let red = || ("fillPaints", V::Array(vec![solid(1.0, 0.0, 0.0)]));
+    let mut changes = vec![
+        node((0, 0), (0, 0), "", "DOCUMENT", "Document", vec![]),
+        node((0, 1), (0, 0), "!", "CANVAS", "Cover", vec![]),
+        node((0, 2), (0, 0), "\"", "CANVAS", "Page 2", vec![]),
+        node((0, 3), (0, 0), "#", "CANVAS", "Deferred", vec![]),
+        node((1, 10), (0, 1), "!", "SYMBOL", "Main", plain(vec![red()])),
+        node((1, 21), (0, 3), "!", "INSTANCE", "Copy", plain(vec![red(), ("symbolData", msg(vec![("symbolID", guid(1, 10))]))])),
+    ];
+    changes.extend((0..25_000u32).map(|i| node((9, i + 1), (0, 1), "z", "ROUNDED_RECTANGLE", "F", plain(vec![]))));
+    fig_file(changes, vec![icon_blob()])
+}
+
+#[test]
+fn a_main_edited_before_a_deferred_page_loads_does_not_leave_the_instance_with_its_old_kept_fill() {
+    let bytes = deferred_instance_file();
+    let run = |keep_store: bool| {
+        let mut doc = import_fig(&bytes).expect("imports");
+        assert!(doc.has_pending_pages(), "the fixture defers a page");
+        if !keep_store {
+            doc.fig_kept = Default::default();
+        }
+        let main = by_name(&doc, "Main");
+        doc.get_mut(main).expect("the main").fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(0, 0, 255))];
+        let page = doc.pages.iter().copied().find(|p| doc.get(*p).is_some_and(|n| n.name == "Deferred")).expect("the deferred page");
+        assert!(doc.ensure_page_hydrated(page), "the page loads");
+        let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+        (records(&saved), report)
+    };
+    let (with, report) = run(true);
+    let (without, _) = run(false);
+    // what the loader does with an instance's own fill when its main changed is whatever a document with no store ends up with
+    // (here the instance keeps its own copy); the store must not write another colour
+    let colour = |all: &[V]| -> Option<V> {
+        record_of(all, (1, 21)).get("fillPaints").and_then(V::as_array).and_then(|a| a.first()).and_then(|p| p.get("color")).cloned()
+    };
+    assert!(colour(&without).is_some());
+    assert_eq!(colour(&with), colour(&without), "the instance's fill colour is the one a document with no store writes: {report:?}");
+}
+
+#[test]
+fn a_child_layout_key_that_reads_its_parent_is_written_as_studio_computes_it_after_the_parent_changed() {
+    let mut nodes = document_and_page();
+    nodes.push(node(
+        (2, 1),
+        (0, 1),
+        "a",
+        "FRAME",
+        "Grid",
+        vec![("size", vec2(100.0, 100.0)), ("stackMode", en("GRID")), ("stackPrimarySizing", en("FIXED")), ("stackCounterSizing", en("FIXED"))],
+    ));
+    // a start alignment in a grid is written because the parent is a grid, and not otherwise
+    nodes.push(node((2, 2), (2, 1), "a", "ROUNDED_RECTANGLE", "Child", vec![("size", vec2(10.0, 10.0)), ("gridChildHorizontalAlign", en("MIN"))]));
+    let bytes = small(nodes);
+    let run = |keep_store: bool| {
+        let mut doc = import_fig(&bytes).expect("imports");
+        if !keep_store {
+            doc.fig_kept = Default::default();
+        }
+        let parent = by_name(&doc, "Grid");
+        let al = doc.get_mut(parent).expect("the parent").kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()).expect("auto layout");
+        al.direction = designos_doc::LayoutDirection::Horizontal;
+        records(&export_fig(&doc).expect("saves"))
+    };
+    let (with, without) = (run(true), run(false));
+    assert!(record_of(&without, (2, 2)).get("gridChildHorizontalAlign").is_none(), "Studio writes no start alignment under a row");
+    assert_eq!(record_of(&with, (2, 2)).get("gridChildHorizontalAlign"), None, "the kept alignment of the grid is not written under a row");
+}
