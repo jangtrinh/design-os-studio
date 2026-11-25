@@ -11,6 +11,10 @@
 //! schema (see `derived_text_wire`), so the value tree it decoded is gone before the next text is read. Nothing is
 //! rejected after the decode: a kept text is a decoded text, and the allowance bounds both.
 //!
+//! The data Figma stored for a text inside an instance (`derivedTextData` in an entry of the instance's `derivedSymbolData`) is
+//! kept the same way, on an allowance of its own in a file import so it cannot use up what the texts themselves keep; a paste
+//! has one allowance for both. What is kept of it is only what draws (see `stored_text_import`).
+//!
 //! The allowance is charged in the kiwi decoder on wire bytes. Kept glyphs count toward the decode value cap and the
 //! zero-size cap like every other field, and nothing is given back.
 
@@ -27,6 +31,16 @@ pub(crate) use designos_doc::MAX_DRAWN_GLYPHS;
 /// opens. A text that does not fit is left out and counted in
 /// [`crate::rest_import::ImportReport::dropped_stored_glyphs`]; texts are taken in file order.
 pub(crate) const ALLOWANCE_FILE_WIRE_BYTES: usize = 64 * 1024 * 1024;
+
+/// How many wire bytes of the data Figma stored for the texts inside instances (`derivedTextData` in the entries of
+/// `derivedSymbolData`) a `.fig` file import keeps (128 MiB), on top of [`ALLOWANCE_FILE_WIRE_BYTES`], so that these can
+/// never use up what the texts themselves need. The design kit holds 66.2 MiB of it, because a component used again and
+/// again with an override has an entry for each use; the allowance is 1.9 times that. Equal spans are kept once
+/// (see `stored_text_import`), and only a span that lands on a copy the component's data does not fit is kept for good
+/// (the kit's 66.2 MiB of spans are 14.3 MiB of different ones), so what stays is far below the allowance. What
+/// does not fit is counted in [`crate::rest_import::ImportReport::dropped_stored_glyphs`] with the rest. A paste has
+/// no allowance of its own for them: they draw on its 4 MiB.
+pub(crate) const ALLOWANCE_FILE_NESTED_WIRE_BYTES: usize = 128 * 1024 * 1024;
 
 /// How many wire bytes a paste from Figma keeps (4 MiB). A paste is decoded on the UI thread and any page can plant
 /// one, so it keeps far less than a file: a full keep would add about 14% decoded values to a large paste.

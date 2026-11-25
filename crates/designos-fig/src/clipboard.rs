@@ -128,23 +128,28 @@ fn import_with_limits(clip: &FigClipboard, inflate_budget: u64, decoded_values: 
     adopt_orphan_roots(&mut message);
     // a text's stored data becomes wire bytes before the node changes become JSON, as in a `.fig` import
     let mut text_wires = std::collections::HashMap::new();
+    let mut nested = Default::default();
+    // the blobs are borrowed from the message, which keeps the node changes: take them out first
+    let blob_table: Vec<Vec<u8>> = message
+        .get("blobs")
+        .and_then(KiwiValue::as_array)
+        .map(|a| a.iter().map(|b| b.get("bytes").and_then(KiwiValue::as_bytes).unwrap_or(&[]).to_vec()).collect())
+        .unwrap_or_default();
+    let blobs: Vec<&[u8]> = blob_table.iter().map(Vec::as_slice).collect();
     if let Some(KiwiValue::Array(changes)) = message.get_mut("nodeChanges") {
+        // the data of the texts inside instances leaves their `derivedSymbolData` the same way
+        nested = crate::stored_text_import::take_nested_texts(changes, &blobs).0;
         for change in changes {
             crate::fig::take_text_derived(change, &mut text_wires);
         }
     }
-    let blobs: Vec<&[u8]> = message
-        .get("blobs")
-        .and_then(KiwiValue::as_array)
-        .map(|a| a.iter().map(|b| b.get("bytes").and_then(KiwiValue::as_bytes).unwrap_or(&[])).collect())
-        .unwrap_or_default();
     let rest = message_to_rest(&message, "Figma clipboard");
     let (mut doc, _) = rest_import::import_rest_value_with_text_wires(
         &rest,
         true,
         &blobs,
         None,
-        text_wires,
+        crate::stored_text_import::ImportedTexts { wires: text_wires, nested },
         rest_import::CLONE_BUDGET_TOTAL,
         rest_import::KEEP_UNKNOWN_KEYS_FROM_BINARY,
     )?;
