@@ -748,3 +748,53 @@ fn a_loose_variant_as_the_file_had_it_is_written_as_it_was_and_a_moved_or_edited
         assert!(report.prop_name_unresolved >= 1, "{edit}: the unresolved name is counted: {report:?}");
     }
 }
+
+/// `nodes()` and a copy of `Main` whose text carries `copy_key`, in the file before or after `Main`.
+fn mains_with_a_moved_layer(copy_first: bool, original_key: Option<(u32, u32)>, copy_key: (u32, u32)) -> Document {
+    let (copy_main, copy_text) = ((2, 8), (2, 9));
+    let mut all = nodes();
+    for n in &mut all {
+        if guid_of(n) == MAIN_TEXT {
+            let V::Message(fields) = n else { unreachable!() };
+            let key = original_key.unwrap_or((u32::MAX, u32::MAX));
+            fields.iter_mut().find(|(k, _)| &**k == "overrideKey").expect("the text has a key").1 = guid(key.0, key.1);
+        }
+    }
+    let copy = [
+        node(copy_main, (0, 1), "e", "SYMBOL", "Copy of Main", vec![("size", vec2(100.0, 40.0))]),
+        glyph_text(copy_text, copy_main, "a", "Moved caption", FAMILY, "\u{e900}", &[(0, 0.0)], vec![("overrideKey", guid(copy_key.0, copy_key.1))]),
+    ];
+    if copy_first {
+        let at = all.iter().position(|n| guid_of(n) == MAIN).unwrap();
+        for (i, n) in copy.into_iter().enumerate() {
+            all.insert(at + i, n);
+        }
+    } else {
+        all.extend(copy);
+    }
+    let mut doc = import_fig(&fig_file(all, vec![icon_blob()])).expect("imports");
+    let (main, moved) = (by_name(&doc, "Main"), by_name(&doc, "Moved caption"));
+    doc.reparent(moved, main, 0).expect("moves");
+    doc
+}
+
+#[test]
+fn the_layer_the_file_put_in_a_main_keeps_its_key_whichever_came_first_in_the_file() {
+    for copy_first in [false, true] {
+        let doc = mains_with_a_moved_layer(copy_first, Some(KEY), KEY);
+        let (saved, _) = export_fig_with_kept_report(&doc).expect("saves");
+        let out = records(&saved);
+        assert_eq!(override_key(&out, MAIN_TEXT), Some(KEY), "copy first: {copy_first}: the original's layer keeps the file's key");
+        assert_eq!(override_key(&out, (2, 9)), Some((2, 9)), "copy first: {copy_first}: the moved layer is addressed by its own guid");
+    }
+}
+
+#[test]
+fn a_moved_layer_whose_key_is_the_guid_of_a_layer_with_no_key_gives_the_key_up() {
+    // Figma gives a copy's layers the guid of the original's layer as their key; the original's layer has no key and is addressed by its guid
+    let doc = mains_with_a_moved_layer(false, None, MAIN_TEXT);
+    let (saved, _) = export_fig_with_kept_report(&doc).expect("saves");
+    let out = records(&saved);
+    assert_eq!(override_key(&out, MAIN_TEXT), Some((u32::MAX, u32::MAX)), "the file's null key stays");
+    assert_eq!(override_key(&out, (2, 9)), Some((2, 9)), "one layer is addressed by that guid");
+}

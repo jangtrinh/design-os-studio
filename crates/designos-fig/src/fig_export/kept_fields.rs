@@ -680,10 +680,12 @@ pub(super) fn index_override_keys(cx: &mut ExportCtx<'_>) {
         return;
     }
     let doc = cx.doc;
-    let mut seen: HashMap<(NodeId, (u32, u32)), NodeId> = HashMap::new();
-    let mut rejected: HashSet<NodeId> = HashSet::new();
+    // (main, key the layer is addressed by) -> the layers that hold it; a layer the file gave no key is addressed by its own guid
+    let mut held: HashMap<(NodeId, (u32, u32)), Vec<(NodeId, bool)>> = HashMap::new();
     for &id in doc.nodes.keys() {
-        let Some(key) = record_override_key(cx, id).filter(|k| *k != (u32::MAX, u32::MAX)) else { continue };
+        let Some(own) = cx.node_guids.get(&id).copied() else { continue };
+        let explicit = record_override_key(cx, id).filter(|k| *k != (u32::MAX, u32::MAX));
+        // only a layer of a main is addressed by a key in the overrides of an instance
         let mut cur = Some(id);
         let mut main = None;
         for _ in 0..=doc.nodes.len() {
@@ -696,10 +698,20 @@ pub(super) fn index_override_keys(cx: &mut ExportCtx<'_>) {
             cur = n.parent;
         }
         let Some(main) = main else { continue };
-        // nodes are visited by id: the first layer to hold a key keeps it
-        if *seen.entry((main, key)).or_insert(id) != id {
-            rejected.insert(id);
+        if explicit.is_none() && doc.fig_kept.record_of_node(id).is_none() {
+            continue;
         }
+        held.entry((main, explicit.unwrap_or(own))).or_default().push((id, explicit.is_some()));
+    }
+    let mut rejected: HashSet<NodeId> = HashSet::new();
+    for (_, mut layers) in held {
+        if layers.len() < 2 {
+            continue;
+        }
+        // the layer that sits where the file put it keeps the key; of two that do (or two that do not) the smaller guid does
+        layers.sort_by_key(|(id, _)| (doc.fig_kept_node_moved(*id) != Some(false), cx.node_guids.get(id).copied().unwrap_or((u32::MAX, u32::MAX))));
+        // a layer with no key of its own cannot be given another address: only a layer that holds the key explicitly gives it up
+        rejected.extend(layers.iter().skip(1).filter(|(_, explicit)| *explicit).map(|(id, _)| *id));
     }
     cx.kept.rejected_keys = rejected;
 }
