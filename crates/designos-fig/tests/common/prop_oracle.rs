@@ -21,6 +21,10 @@ pub enum Violation {
     WrongName { record: G, key: &'static str, id: G, name: String },
     /// A layer that sits in no component and under no instance names a property the saved file defines.
     Ownerless { record: G, key: &'static str, id: G },
+    /// An assignment in the overrides of an instance whose path the oracle cannot follow to a nested instance of the saved file
+    /// (the path names a layer by a key or guid the saved tree does not hold, or the instance has no children there). Counted apart:
+    /// it is no owner violation, only a reference the oracle cannot judge.
+    UnresolvedPath { record: G, key: &'static str, id: G },
 }
 
 impl Violation {
@@ -281,7 +285,11 @@ pub fn check(saved: &[V], was: &Original) -> Vec<Violation> {
     let mut judge = |out: &mut Vec<Violation>, at: G, key: &'static str, id: G, owner: Option<G>| {
         let Some(owner) = owner else {
             if defined_anywhere.contains(&id) {
-                out.push(Violation::Ownerless { record: at, key, id });
+                out.push(if key.starts_with("symbolOverrides") {
+                    Violation::UnresolvedPath { record: at, key, id }
+                } else {
+                    Violation::Ownerless { record: at, key, id }
+                });
             }
             return;
         };
@@ -332,6 +340,7 @@ pub fn counts(v: &[Violation]) -> BTreeMap<&'static str, usize> {
             Violation::Dangling { .. } => "Dangling",
             Violation::WrongName { .. } => "WrongName",
             Violation::Ownerless { .. } => "Ownerless",
+            Violation::UnresolvedPath { .. } => "UnresolvedPath",
         })
         .or_insert(0) += 1;
     }
