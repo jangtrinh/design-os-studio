@@ -93,6 +93,30 @@ fn differing_pixels(a: &Pixels, b: &Pixels, w: f32, h: f32, tolerance: u8) -> (u
     (bad, total)
 }
 
+/// Samples on a 2 px grid where the canvas and the page differ, split in two: where both draw pure white or the pure
+/// ink `(200, 30, 30)` they must agree to 12 (interior), and where either is partly covered they may differ by up to
+/// 60 (edge). Returns the interior misses, the edge misses and the sample count.
+fn differing_interior_and_edge(a: &Pixels, b: &Pixels, w: f32, h: f32) -> (usize, usize, usize) {
+    let pure = |c: [u8; 3]| c.iter().all(|v| *v >= 250) || spread(c, [200, 30, 30]) <= 6;
+    let (mut interior, mut edge, mut total) = (0, 0, 0);
+    let mut y = 1.0;
+    while y < h {
+        let mut x = 1.0;
+        while x < w {
+            total += 1;
+            let (ca, cb) = (a.at(x, y), b.at(x, y));
+            if pure(ca) && pure(cb) {
+                interior += usize::from(spread(ca, cb) > 12);
+            } else {
+                edge += usize::from(spread(ca, cb) > 60);
+            }
+            x += 2.0;
+        }
+        y += 2.0;
+    }
+    (interior, edge, total)
+}
+
 fn solid(r: u8, g: u8, b: u8) -> Paint {
     Paint::solid(Color::rgb(r, g, b))
 }
@@ -504,12 +528,13 @@ fn dashed_inside_and_outside_rectangle_strokes_match_the_canvas() {
         let out = export(&doc, frame);
         assert_eq!(out.kind, PageKind::Vector, "{label}");
         out.assert_canvas_shows(&label, first_dash, [200, 30, 30], 3);
-        // both draw the dashes as filled outlines, one under an anti-aliased mask and one under an exact clip, so an
-        // edge pixel can be covered by a different fraction (up to about a quarter of the ink); a dash in another
-        // place differs by far more
-        let (bad, total) = differing_pixels(&out.canvas, &out.page, 200.0, 120.0, 60);
-        if bad * 500 > total {
-            failures.push(format!("{label}: {bad} of {total} sampled pixels differ from the canvas"));
+        out.assert_agree_at(&label, &[first_dash], 12);
+        // both draw the dashes as filled outlines, one under an anti-aliased mask and one under an exact clip, so only
+        // an edge pixel (partly covered in either picture) may be covered by a different fraction; where both pictures
+        // draw pure ink or pure white they agree to the tolerance of every other PDF test
+        let (interior, edge, total) = differing_interior_and_edge(&out.canvas, &out.page, 200.0, 120.0);
+        if interior > 0 || edge * 500 > total {
+            failures.push(format!("{label}: {interior} interior and {edge} edge of {total} sampled pixels differ from the canvas"));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
