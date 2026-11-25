@@ -275,7 +275,7 @@ enum IdKind {
     VariableSet,
     Mode,
     Style,
-    /// An id the record defines, not one that points at something.
+    /// An id the record defines or remembers, not one that points at something that has to exist.
     Definition,
 }
 
@@ -297,11 +297,16 @@ fn classify(path: &[Arc<str>]) -> Option<IdKind> {
     }
     match names.as_slice() {
         ["variableModeBySetMap", "entries", "#", "variableModeID"] => Some(IdKind::Mode),
-        ["handoffStatusMap", "entries", "#", "guid"] | ["hyperlink", "guid"] | ["connectorStart" | "connectorEnd", "endpointNodeID"] => Some(IdKind::Node),
+        ["handoffStatusMap", "entries", "#", "guid"]
+        | ["hyperlink", "guid"]
+        | ["detachedSymbolId", "guid"]
+        | ["connectorStart" | "connectorEnd", "endpointNodeID"] => Some(IdKind::Node),
         ["variableSetModes", "#", "id"]
         | ["gridColumnsSizing" | "gridRowsSizing" | "gridColumns" | "gridRows", "entries", "#", "id"]
         | ["gridColumnAnchor" | "gridRowAnchor" | "publishID"]
-        | ["annotationCategories", "items", "#", "id"] => Some(IdKind::Definition),
+        | ["annotationCategories", "items", "#", "id"]
+        // the layers an ancestor path remembers were deleted: the field says what was there, and nothing is meant to resolve it
+        | ["ancestorPathBeforeDeletion", "#"] => Some(IdKind::Definition),
         _ => None,
     }
 }
