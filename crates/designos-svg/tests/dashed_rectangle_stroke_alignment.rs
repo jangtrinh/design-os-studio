@@ -106,13 +106,16 @@ fn dashed_inside_and_outside_rectangles_with_round_caps_draw_the_dash_its_cap_an
 /// With rounded corners the SVG still strokes the inset or outset outline with curves, inside or outside its shape.
 #[test]
 fn dashed_inside_and_outside_rectangles_with_rounded_corners_stay_on_their_side() {
-    for (align, cap) in [(StrokeAlign::Inside, StrokeCap::Square), (StrokeAlign::Outside, StrokeCap::Round)] {
+    // the dash array starts at the `M` of the inset or outset outline, (42, 33) or (42, 27) after the corner arc, and its
+    // first dash of 9 runs along the top side: the SVG must draw ink there
+    for (align, cap, first_dash) in [(StrokeAlign::Inside, StrokeCap::Square, (46.0, 33.0)), (StrokeAlign::Outside, StrokeCap::Round, (46.0, 27.0))] {
         let (doc, frame) = framed_rectangle(12.0, stroke(6.0, align, cap, &[9.0, 7.0]));
         let svg = svg_picture(&doc, frame);
         let ink = |x: f32, y: f32| at(&svg, x, y).iter().zip(INK).all(|(g, w)| g.abs_diff(w) <= 40);
         // the middle of the shape and the page beyond it carry no ink on this side
         let (inner, outer) = ((80.0, 60.0), (10.0, 10.0));
         assert!(!ink(inner.0, inner.1) && !ink(outer.0, outer.1), "{align:?} {cap:?}");
+        assert_ink(&format!("{align:?} {cap:?}: the first dash"), &svg, first_dash);
     }
 }
 
