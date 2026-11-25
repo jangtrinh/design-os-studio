@@ -62,6 +62,11 @@ fn sheet_fig(node_radius: Option<f32>, style_radius: Option<f32>) -> Vec<u8> {
 
 /// The sheet with the given extra fields on its record (`cornerRadius`, or the four per-corner radii).
 fn sheet_fig_with(node_fields: Vec<(&'static str, V)>, style_radius: Option<f32>) -> Vec<u8> {
+    sheet_fig_with_style(node_fields, style_radius.map(|r| ("cornerRadius", fl(r))).into_iter().collect())
+}
+
+/// The sheet with the given extra fields on its record and in its style entry for the dog-ear vertices.
+fn sheet_fig_with_style(node_fields: Vec<(&'static str, V)>, style_fields: Vec<(&'static str, V)>) -> Vec<u8> {
     let mut extra = vec![
         ("fillPaints", V::Array(vec![solid(0.0, 0.0, 0.0)])),
         ("fillGeometry", geometry(1)),
@@ -70,10 +75,7 @@ fn sheet_fig_with(node_fields: Vec<(&'static str, V)>, style_radius: Option<f32>
             msg(vec![
                 ("vectorNetworkBlob", V::Uint(0)),
                 ("normalizedSize", designos_fig::testkit::vec2(52.0, 71.72)),
-                (
-                    "styleOverrideTable",
-                    V::Array(vec![msg(vec![("styleID", V::Uint(1))].into_iter().chain(style_radius.map(|r| ("cornerRadius", fl(r)))).collect())]),
-                ),
+                ("styleOverrideTable", V::Array(vec![msg(vec![("styleID", V::Uint(1))].into_iter().chain(style_fields).collect())])),
             ]),
         ),
     ];
@@ -185,4 +187,62 @@ fn per_corner_radii_alone_do_not_round_the_vertices_and_a_save_keeps_it_so() {
     assert_eq!(radii(&doc, id), vec![0.0; 5], "Figma's outline of such a vector keeps its corners sharp");
     // the save writes a `cornerRadius` of its own for the layer, which the vertices must not pick up on reopen
     assert_eq!(radii_after_a_save(&doc), vec![0.0; 5]);
+}
+
+/// The `cornerRadius` entries of the saved record's style table.
+fn saved_table_radii(doc: &Document) -> Vec<f32> {
+    let saved = designos_fig::export_fig(doc).expect("export");
+    let raw = super::raw::decode(&saved);
+    let rec = raw.live().find(|r| super::raw::record_guid(r).as_deref() == Some("1:1")).expect("the vector is saved");
+    let table = rec.get("vectorData").and_then(|v| v.get("styleOverrideTable")).and_then(|t| t.as_array()).map(|t| t.to_vec()).unwrap_or_default();
+    table
+        .iter()
+        .filter_map(|e| match e.get("cornerRadius") {
+            Some(V::Float(r)) => Some(*r),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_save_keeps_a_vertex_whose_radius_is_the_per_corner_radius_when_the_record_carries_another_cornerradius() {
+    // cornerRadius 4 rounds the vertices; the per-corner radii are 8, and so is the dog-ear's own radius
+    let mut fields = vec![("cornerRadius", fl(4.0))];
+    fields.extend(per_corner_radii(8.0));
+    let (_, doc, keys) = load(&sheet_fig_with(fields, Some(8.0)));
+    let id = keys.by_source["1:1"];
+    assert_eq!(radii(&doc, id), vec![4.0, 4.0, 4.0, 8.0, 8.0]);
+    assert_eq!(radii_after_a_save(&doc), vec![4.0, 4.0, 4.0, 8.0, 8.0], "an untouched vector keeps Figma's cornerRadius");
+    assert_eq!(radii_after_a_save(&nudged(&doc, id)), vec![4.0, 4.0, 4.0, 8.0, 8.0], "an edited vector is written with the layer's own radius");
+}
+
+#[test]
+fn a_style_entry_with_other_fields_and_no_radius_inherits_the_node_radius() {
+    let (_, doc, keys) = load(&sheet_fig_with_style(vec![("cornerRadius", fl(4.0))], vec![("strokeCap", designos_fig::testkit::en("ROUND"))]));
+    let id = keys.by_source["1:1"];
+    assert_eq!(radii(&doc, id), vec![4.0; 5], "the entry sets a cap and no radius");
+    assert_eq!(radii_after_a_save(&doc), vec![4.0; 5]);
+    assert_eq!(radii_after_a_save(&nudged(&doc, id)), vec![4.0; 5]);
+}
+
+#[test]
+fn a_radius_a_hair_off_the_node_radius_is_not_pinned() {
+    let (_, mut doc, keys) = load(&sheet_fig(Some(4.0), None));
+    let id = keys.by_source["1:1"];
+    if let NodeKind::Vector { network: Some(net), .. } = &mut doc.get_mut(id).unwrap().kind {
+        net.vertices.iter_mut().for_each(|v| v.corner_radius = 4.0 + 4e-6);
+    }
+    assert_eq!(saved_table_radii(&doc), Vec::<f32>::new(), "every vertex inherits what the record carries");
+}
+
+#[test]
+fn a_radius_that_is_not_a_number_is_written_as_a_sharp_corner() {
+    let (_, mut doc, keys) = load(&sheet_fig(Some(4.0), None));
+    let id = keys.by_source["1:1"];
+    if let NodeKind::Vector { network: Some(net), .. } = &mut doc.get_mut(id).unwrap().kind {
+        net.vertices[3].corner_radius = f32::NAN;
+        net.vertices[4].corner_radius = f32::INFINITY;
+    }
+    assert_eq!(saved_table_radii(&doc), vec![0.0, 0.0], "neither NaN nor infinity reaches the file");
+    assert_eq!(radii_after_a_save(&doc), vec![4.0, 4.0, 4.0, 0.0, 0.0]);
 }
