@@ -163,10 +163,13 @@ impl Document {
         self.solve_auto_layout_node(root, 0, budget);
     }
 
-    fn relayout_top_down(&mut self, root: NodeId, hops: usize, budget: &mut usize) {
+    pub(crate) fn relayout_top_down(&mut self, root: NodeId, hops: usize, budget: &mut usize) {
         if hops > MAX_RELAYOUT_RESOLVE_DEPTH || *budget == 0 {
             if !self.pending_relayout.contains(&root) {
                 self.pending_relayout.push(root);
+                if self.loader_solving {
+                    self.loader_relayout_roots.insert(root);
+                }
             }
             return;
         }
@@ -181,6 +184,7 @@ impl Document {
         SOLVE_CALLS.with(|c| c.set(c.get() + 1));
         if !self.pending_relayout.is_empty() {
             self.pending_relayout.retain(|&id| id != root);
+            self.loader_relayout_roots.remove(&root);
         }
         let Some(root_node) = self.get(root) else { return };
         let resolved = crate::resolve_node(self, root_node);
@@ -328,11 +332,21 @@ impl Document {
                 if !self.pending_relayout.contains(&id) {
                     self.pending_relayout.push(id);
                 }
+            } else if self.loader_relayout_roots.remove(&id) {
+                self.solve_loader_root(id, &mut budget);
             } else {
                 self.relayout_top_down(id, 1, &mut budget);
             }
         }
         self.pending_relayout.len()
+    }
+
+    /// Solves a queued root the page loader put there. The nodes the solver writes under it move their kept snapshot
+    /// forward (the solver is rewriting what the file stored, which is not an edit; a node anyone edited keeps differing),
+    /// and a root it leaves queued is the loader's too.
+    fn solve_loader_root(&mut self, id: NodeId, budget: &mut usize) {
+        let (_, written) = self.record_fig_kept_writes(|d| d.relayout_top_down(id, 1, budget));
+        self.advance_fig_kept_snapshots(&written);
     }
 
     /// Finishes every queued subtree in bounded passes and returns the number of steps executed.

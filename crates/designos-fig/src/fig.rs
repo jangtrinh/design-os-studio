@@ -491,7 +491,7 @@ fn import_with_budgets(
         report.dropped_kept_records = counts.dropped_kept_records;
         report.kept_fields_over_decode_cap = counts.kept_fields_over_decode_cap;
         doc.fig_kept = Arc::new(store);
-        doc.take_fig_kept_snapshot_before_settle();
+        doc.take_fig_kept_snapshot();
     }
     if large {
         release_os_memory();

@@ -350,6 +350,13 @@ pub struct Document {
     /// after [`MAX_RELAYOUT_RESOLVES`] or [`MAX_RELAYOUT_RESOLVE_DEPTH`] was reached.
     #[serde(skip)]
     pub(crate) pending_relayout: Vec<NodeId>,
+    /// The queued roots a page loader put there (the open's own layout, a deferred page's), as opposed to the ones an edit
+    /// queued. Only a solve of such a root may move a kept snapshot forward (see `fig_kept`). Runtime only.
+    #[serde(skip)]
+    pub(crate) loader_relayout_roots: std::collections::BTreeSet<NodeId>,
+    /// Set while a page loader's run (or one of its queued roots) is being solved: a root queued then is the loader's.
+    #[serde(skip)]
+    pub(crate) loader_solving: bool,
     /// Count of layout writes made to this document outside any history step; see [`Self::layout_epoch`].
     #[serde(skip)]
     layout_epoch: u64,
@@ -867,6 +874,8 @@ impl Document {
             gap_cursor: self.gap_cursor,
             dirty: self.dirty.clone(),
             pending_relayout: self.pending_relayout.clone(),
+            loader_relayout_roots: self.loader_relayout_roots.clone(),
+            loader_solving: false,
             layout_epoch: self.layout_epoch,
             write_log: None,
             page_hydrator: self.page_hydrator.clone(),

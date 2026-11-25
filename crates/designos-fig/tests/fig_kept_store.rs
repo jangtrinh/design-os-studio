@@ -87,7 +87,6 @@ fn a_page_and_the_document_are_kept_whole_and_the_records_attach_to_nodes() {
     let keeper = doc.nodes.values().find(|n| n.name == "Keeper").expect("the frame");
     assert_eq!(doc.fig_kept.record_of_node(keeper.id).map(|r| r.guid()), Some((2, 1)));
     assert_eq!(doc.fig_kept_node_matches_snapshot(keeper.id), Some(true));
-    assert!(doc.fig_kept.snapshot_due_after_settle(), "the app takes the snapshot once more when the open-time layout is done");
 }
 
 #[test]

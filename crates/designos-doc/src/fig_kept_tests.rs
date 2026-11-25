@@ -185,17 +185,6 @@ fn a_loader_write_moves_the_snapshot_forward_only_from_the_value_the_snapshot_to
 }
 
 #[test]
-fn the_open_time_layout_settle_ends_once_and_the_store_is_shared_with_the_earlier_snapshot() {
-    let (mut doc, _) = document_with_store(2);
-    let before = doc.fig_kept.clone();
-    doc.take_fig_kept_snapshot_before_settle();
-    assert!(doc.fig_kept.snapshot_due_after_settle());
-    assert!(doc.fig_kept.shares_data_with(&before), "a snapshot shares the arena and the records");
-    doc.finish_fig_kept_settle();
-    assert!(!doc.fig_kept.snapshot_due_after_settle());
-}
-
-#[test]
 fn renumbering_the_ids_keeps_every_kept_entry_on_the_same_node() {
     let mut doc = Document::new("high ids");
     let page = doc.add_page("P");
@@ -259,57 +248,73 @@ fn a_spilled_arena_is_a_mapped_file_with_the_same_bytes_and_no_file_left_behind(
     assert_eq!(left, 0, "the spill file is removed with the arena");
 }
 
-/// An auto-layout column whose two children sit where the file stored them (both at the top), so the solver moves the second.
-fn column_with_store() -> (Document, NodeId, [NodeId; 2]) {
-    let arena: Vec<u8> = vec![0; 8];
-    let records: Vec<KeptRecord> = (1..=3).map(|i| KeptRecord::new((1, i), KeptRecordKind::Layer, i - 1, 1)).collect();
-    let fields: Vec<KeptField> = (0..3).map(|i| KeptField { no: 1, offset: i, len: 1 }).collect();
+/// `n` auto-layout columns, each with two children that sit where the file stored them (both at the top), so the solver moves
+/// the second one. Every column and child has a record. `queued_by_loader` columns are on the queue when the snapshot is
+/// taken, as the layout an import leaves is; the others are queued by the test as an edit would.
+fn columns_with_store(n: u32, queued_by_loader: &[usize]) -> (Document, Vec<NodeId>, Vec<[NodeId; 2]>) {
+    let total = n * 3;
+    let arena: Vec<u8> = vec![0; total as usize];
+    let records: Vec<KeptRecord> = (1..=total).map(|i| KeptRecord::new((1, i), KeptRecordKind::Layer, i - 1, 1)).collect();
+    let fields: Vec<KeptField> = (0..total).map(|i| KeptField { no: 1, offset: i, len: 1 }).collect();
     let data = KeptData::new(KeptArena::in_memory(arena), records, fields, Vec::new(), KeptCounts::default());
-    let mut doc = Document::new("column");
+    let mut doc = Document::new("columns");
     let page = doc.add_page("P");
-    let parent = doc.alloc_id();
-    let mut column = Node::frame(parent, Rect::new(0.0, 0.0, 100.0, 100.0));
-    if let NodeKind::Frame(fp) = &mut column.kind {
-        fp.auto_layout = Some(crate::AutoLayout {
-            direction: crate::LayoutDirection::Vertical,
-            primary_sizing: crate::Sizing::Fixed,
-            counter_sizing: crate::Sizing::Fixed,
-            ..Default::default()
-        });
-    }
-    column.source_id = Some("1:1".into());
-    doc.insert(page, column).unwrap();
-    let mut kids = [NodeId(0); 2];
-    for (i, kid) in kids.iter_mut().enumerate() {
-        let id = doc.alloc_id();
-        let mut r = Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0));
-        r.source_id = Some(format!("1:{}", i + 2));
-        doc.insert(parent, r).unwrap();
-        *kid = id;
+    let mut columns = Vec::new();
+    let mut kids = Vec::new();
+    for c in 0..n {
+        let parent = doc.alloc_id();
+        let mut column = Node::frame(parent, Rect::new(0.0, 0.0, 100.0, 100.0));
+        if let NodeKind::Frame(fp) = &mut column.kind {
+            fp.auto_layout = Some(crate::AutoLayout {
+                direction: crate::LayoutDirection::Vertical,
+                primary_sizing: crate::Sizing::Fixed,
+                counter_sizing: crate::Sizing::Fixed,
+                ..Default::default()
+            });
+        }
+        column.source_id = Some(format!("1:{}", c * 3 + 1));
+        doc.insert(page, column).unwrap();
+        let mut pair = [NodeId(0); 2];
+        for (i, kid) in pair.iter_mut().enumerate() {
+            let id = doc.alloc_id();
+            let mut r = Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0));
+            r.source_id = Some(format!("1:{}", c * 3 + i as u32 + 2));
+            doc.insert(parent, r).unwrap();
+            *kid = id;
+        }
+        columns.push(parent);
+        kids.push(pair);
     }
     doc.fig_kept = Arc::new(FigKeptStore::new(data));
-    doc.take_fig_kept_snapshot_before_settle();
-    (doc, parent, kids)
+    for &c in queued_by_loader {
+        doc.pending_relayout.push(columns[c]);
+    }
+    doc.take_fig_kept_snapshot();
+    (doc, columns, kids)
 }
 
-fn settle_on_open(doc: &mut Document, root: NodeId) {
-    doc.pending_relayout.push(root);
-    while doc.flush_pending_relayout_step_on_open() > 0 {}
+fn drain(doc: &mut Document) {
+    while doc.flush_pending_relayout_step() > 0 {}
+}
+
+fn column_with_store() -> (Document, NodeId, [NodeId; 2]) {
+    let (doc, columns, kids) = columns_with_store(1, &[0]);
+    (doc, columns[0], kids[0])
 }
 
 #[test]
-fn the_open_time_layout_is_not_an_edit_and_a_second_settle_changes_nothing() {
+fn the_layout_an_import_queued_is_not_an_edit_and_a_second_pass_changes_nothing() {
     let (mut doc, parent, kids) = column_with_store();
     let y0 = doc.get(kids[1]).unwrap().transform.ty;
-    settle_on_open(&mut doc, parent);
+    drain(&mut doc);
     assert_ne!(doc.get(kids[1]).unwrap().transform.ty, y0, "the solver moved the second child");
     for id in [parent, kids[0], kids[1]] {
         assert_eq!(doc.fig_kept_node_matches_snapshot(id), Some(true), "the solver's own write is not an edit");
     }
-    doc.finish_fig_kept_settle();
-    settle_on_open(&mut doc, parent);
+    doc.pending_relayout.push(parent);
+    drain(&mut doc);
     for id in [parent, kids[0], kids[1]] {
-        assert_eq!(doc.fig_kept_node_matches_snapshot(id), Some(true), "a second settle is the same");
+        assert_eq!(doc.fig_kept_node_matches_snapshot(id), Some(true), "a second pass is the same");
     }
     doc.get_mut(kids[0]).unwrap().name = "edited".into();
     assert_eq!(doc.fig_kept_node_matches_snapshot(kids[0]), Some(false), "an edit of one property changes it");
@@ -317,18 +322,77 @@ fn the_open_time_layout_is_not_an_edit_and_a_second_settle_changes_nothing() {
 }
 
 #[test]
-fn a_layout_after_an_edit_is_not_blessed_and_a_node_edited_before_the_settle_stays_edited() {
+fn a_node_edited_before_the_loader_layout_stays_edited() {
     let (mut doc, parent, kids) = column_with_store();
     doc.get_mut(kids[1]).unwrap().name = "edited before the layout".into();
-    settle_on_open(&mut doc, parent);
+    drain(&mut doc);
     assert_eq!(doc.fig_kept_node_matches_snapshot(kids[1]), Some(false), "the edited node did not move forward");
     assert_eq!(doc.fig_kept_node_matches_snapshot(kids[0]), Some(true));
-    // after the settle, the layout that an edit causes moves nothing
-    doc.finish_fig_kept_settle();
+    assert_eq!(doc.fig_kept_node_matches_snapshot(parent), Some(true));
+}
+
+#[test]
+fn the_layout_an_edit_queued_is_not_blessed_even_while_the_loader_layout_drains_beside_it() {
+    // column 0 is the loader's, column 1 is queued by an edit during the same drain
+    let (mut doc, columns, kids) = columns_with_store(2, &[0]);
+    doc.get_mut(kids[1][0]).unwrap().size.y = 40.0;
+    doc.pending_relayout.push(columns[1]);
+    drain(&mut doc);
+    assert_eq!(doc.fig_kept_node_matches_snapshot(kids[0][1]), Some(true), "the loader's layout moved its snapshots");
+    assert_eq!(doc.fig_kept_node_matches_snapshot(kids[1][0]), Some(false));
+    assert_eq!(doc.fig_kept_node_matches_snapshot(kids[1][1]), Some(false), "a node the edit's layout moved reads as edited");
+}
+
+#[test]
+fn an_edits_layout_after_the_open_has_settled_moves_nothing() {
+    let (mut doc, parent, kids) = column_with_store();
+    drain(&mut doc);
     doc.get_mut(kids[0]).unwrap().size.y = 40.0;
     doc.pending_relayout.push(parent);
-    while doc.flush_pending_relayout_step() > 0 {}
+    drain(&mut doc);
     assert_eq!(doc.fig_kept_node_matches_snapshot(kids[0]), Some(false));
+    assert_eq!(doc.fig_kept_node_matches_snapshot(kids[1]), Some(false), "the second child moved because of the edit");
+}
+
+#[test]
+fn edits_that_flush_through_any_entry_point_advance_no_snapshot() {
+    // MCP, CLI, a spec, a library import: each queues through a solve and drains with the plain flush
+    let (mut doc, columns, kids) = columns_with_store(1, &[]);
+    doc.get_mut(kids[0][0]).unwrap().size.y = 40.0;
+    doc.pending_relayout.push(columns[0]);
+    doc.flush_pending_relayout();
+    assert_eq!(doc.fig_kept_node_matches_snapshot(kids[0][1]), Some(false));
+    assert!(doc.loader_relayout_roots.is_empty());
+}
+
+#[test]
+fn the_leftovers_of_a_deferred_page_drained_after_the_open_still_advance_only_the_loaders_nodes() {
+    let (mut doc, columns, kids) = columns_with_store(2, &[]);
+    // a page load whose layout ran out of depth: the root it could not finish is queued by the loader
+    let depth = crate::layout_apply::MAX_RELAYOUT_RESOLVE_DEPTH;
+    let (_, written) = doc.record_fig_kept_writes(|d| {
+        let mut budget = 10;
+        d.relayout_top_down(columns[0], depth + 1, &mut budget);
+    });
+    doc.advance_fig_kept_snapshots(&written);
+    assert_eq!(doc.pending_relayout(), &[columns[0]]);
+    // an edit queued another root meanwhile
+    doc.get_mut(kids[1][0]).unwrap().size.y = 40.0;
+    doc.pending_relayout.push(columns[1]);
+    // ten frames later both drain
+    drain(&mut doc);
+    assert_eq!(doc.fig_kept_node_matches_snapshot(kids[0][1]), Some(true), "the loader's leftover advanced");
+    assert_eq!(doc.fig_kept_node_matches_snapshot(kids[1][1]), Some(false), "the edit's leftover did not");
+}
+
+#[test]
+fn a_root_the_loader_left_queued_while_solving_a_loader_root_is_the_loaders_too() {
+    let (mut doc, parent, _) = column_with_store();
+    let queued = doc.pending_relayout().to_vec();
+    assert_eq!(queued, vec![parent]);
+    assert!(doc.loader_relayout_roots.contains(&parent));
+    drain(&mut doc);
+    assert!(doc.loader_relayout_roots.is_empty(), "a solved root is no longer tagged");
 }
 
 #[test]
@@ -339,8 +403,6 @@ fn a_loader_step_moves_snapshots_in_place_and_a_shared_store_is_copied_only_for_
     doc.advance_fig_kept_snapshots(&written);
     assert_eq!(doc.fig_kept_node_matches_snapshot(ids[0]), Some(true));
     assert_eq!(Arc::as_ptr(&doc.fig_kept), at, "the store was written in place, not rebuilt");
-    doc.finish_fig_kept_settle();
-    assert_eq!(Arc::as_ptr(&doc.fig_kept), at, "ending the settle copies nothing either");
 
     // a clone shares the store; the document that writes gets its own copy, the other keeps what it had
     let mut other = doc.clone();
