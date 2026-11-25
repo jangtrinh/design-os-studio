@@ -1507,7 +1507,7 @@ fn face_probe(net: &VectorNetwork, face: &Face) -> Option<Vec2> {
         if l < 1e-4 {
             return None;
         }
-        let (mid, eps) = (lerp(a, b, 0.5), (l * 0.01).min(0.05).max(1e-3));
+        let (mid, eps) = (lerp(a, b, 0.5), (l * 0.01).clamp(1e-3, 0.05));
         let normal = Vec2::new(-d.y / l, d.x / l);
         [eps, -eps].into_iter().map(|e| add(mid, mul(normal, e))).find(|p| point_in_even_odd(*p, &contours))
     })
