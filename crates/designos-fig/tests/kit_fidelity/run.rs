@@ -194,7 +194,12 @@ pub fn run_bytes(bytes: &[u8], out: &std::path::Path, only: Option<&HashSet<Stri
 /// the save could not decode, fails the run: a field Figma added must be classified before it is written.
 fn kept_write_notes(doc: &designos_doc::Document, report: &designos_fig::KeptWriteReport) -> Vec<String> {
     for loud in ["id_at_an_unlisted_path", "hash_at_an_unlisted_path", "decode_refused", "field_unknown_to_the_schema"] {
-        assert!(!report.fields_dropped_by_reason.contains_key(loud), "the save met a kept field it cannot classify ({loud}): {report:?}");
+        assert!(
+            !report.fields_dropped_by_reason.contains_key(loud),
+            "the save met a kept field it cannot classify ({loud}): {:?} {:?}",
+            report.fields_dropped_by_reason,
+            report.unlisted_paths
+        );
     }
     let mut notes = vec![format!(
         "no-edit save wrote from the store: {} layers ({} records), {} fields; layers edited (snapshot mismatch, Studio's record written): {}; layers under another guid: {}; fields dropped: {} {:?}",

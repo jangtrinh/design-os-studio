@@ -70,9 +70,22 @@ pub struct KeptWriteReport {
     pub records_written: usize,
     /// The first edited layers, to tell a layer a person edited from one the open itself changed.
     pub edited_sample: Vec<NodeId>,
+    /// Where a field was refused for a guid or an image hash at a place the closed list does not name: the field and the path
+    /// below it (array positions as `#`), and how often. A new path here is a field Figma added and nothing classifies.
+    pub unlisted_paths: BTreeMap<String, usize>,
 }
 
+/// The paths [`KeptWriteReport::unlisted_paths`] keeps apart; a hostile file cannot grow the report past this.
+const MAX_UNLISTED_PATHS: usize = 256;
+
 impl KeptWriteReport {
+    fn note_unlisted(&mut self, path: &[Arc<str>]) {
+        let key = path.iter().map(|p| &**p).collect::<Vec<_>>().join("/");
+        if self.unlisted_paths.len() < MAX_UNLISTED_PATHS || self.unlisted_paths.contains_key(&key) {
+            *self.unlisted_paths.entry(key).or_insert(0) += 1;
+        }
+    }
+
     fn drop_field(&mut self, reason: &'static str) {
         *self.fields_dropped_by_reason.entry(reason).or_insert(0) += 1;
     }
@@ -357,7 +370,10 @@ fn walk(cx: &mut ExportCtx<'_>, maps: &IdMaps, value: &mut V, path: &mut Vec<Arc
     match value {
         V::Struct(fields) if guid_of(fields).is_some() => {
             let Some(g) = guid_of(fields) else { return Ok(()) };
-            let Some(kind) = classify(path) else { return Err("id_at_an_unlisted_path") };
+            let Some(kind) = classify(path) else {
+                cx.kept.report.note_unlisted(path);
+                return Err("id_at_an_unlisted_path");
+            };
             if is_null_guid(g) {
                 return Ok(());
             }
@@ -383,7 +399,14 @@ fn walk(cx: &mut ExportCtx<'_>, maps: &IdMaps, value: &mut V, path: &mut Vec<Arc
             for (name, v) in fields.iter_mut() {
                 match (&**name, &mut *v) {
                     (n, V::Uint(old)) if BLOB_FIELDS.contains(&n) => *old = add_kept_blob(cx, *old).ok_or("blob_missing")?,
-                    ("hash", V::Bytes(hash)) => check_image_hash(cx, path, hash)?,
+                    ("hash", V::Bytes(hash)) => {
+                        if let Err(reason) = check_image_hash(cx, path, hash) {
+                            if reason == "hash_at_an_unlisted_path" {
+                                cx.kept.report.note_unlisted(path);
+                            }
+                            return Err(reason);
+                        }
+                    }
                     _ => {}
                 }
                 path.push(name.clone());

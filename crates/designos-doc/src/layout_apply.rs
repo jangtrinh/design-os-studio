@@ -335,7 +335,10 @@ impl Document {
             } else if self.loader_relayout_roots.remove(&id) {
                 self.solve_loader_root(id, &mut budget);
             } else {
+                // a root an edit queued is solved as one even when a page load is running above this call
+                let was = std::mem::replace(&mut self.loader_solving, false);
                 self.relayout_top_down(id, 1, &mut budget);
+                self.loader_solving = was;
             }
         }
         self.pending_relayout.len()

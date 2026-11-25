@@ -310,8 +310,8 @@ fn a_no_edit_save_reopens_to_the_same_document_node_by_node() {
 #[test]
 fn a_kept_reference_to_a_deleted_node_drops_the_field_and_the_guid_is_not_given_to_a_new_node() {
     let mut nodes = document_and_page();
-    nodes.push(node((2, 1), (0, 1), "a", "FRAME", "Linked", vec![("size", vec2(10.0, 10.0)), ("hyperlink", msg(vec![("guid", guid(2, 2))]))]));
-    nodes.push(node((2, 2), (0, 1), "b", "FRAME", "Target", vec![("size", vec2(10.0, 10.0))]));
+    nodes.push(node((1, 1), (0, 1), "a", "FRAME", "Linked", vec![("size", vec2(10.0, 10.0)), ("hyperlink", msg(vec![("guid", guid(1, 2))]))]));
+    nodes.push(node((1, 2), (0, 1), "b", "FRAME", "Target", vec![("size", vec2(10.0, 10.0))]));
     let bytes = small(nodes);
 
     let doc = import_fig(&bytes).expect("imports");
@@ -327,7 +327,9 @@ fn a_kept_reference_to_a_deleted_node_drops_the_field_and_the_guid_is_not_given_
     let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
     assert_eq!(report.fields_dropped_by_reason.get("node_not_written"), Some(&1), "{report:?}");
     let now = records(&saved);
-    assert!(now.iter().all(|r| guid_of(r) != (2, 2)), "the deleted node's guid is spent: no layer is written under it");
+    assert!(now.iter().all(|r| guid_of(r) != (1, 2)), "the deleted node's guid is spent: no layer is written under it");
+    let new_guid = now.iter().map(guid_of).find(|g| g.0 == 1 && *g != (1, 1)).expect("the new frame is written");
+    assert!(new_guid.1 > 2, "{new_guid:?}");
 }
 
 #[test]
@@ -363,4 +365,16 @@ fn a_document_with_no_store_saves_with_an_empty_report() {
     doc.fig_kept = Default::default();
     let (_, report) = export_fig_with_kept_report(&doc).expect("saves");
     assert_eq!(report, Default::default());
+}
+
+#[test]
+fn a_guid_at_a_place_no_rule_names_drops_the_field_and_the_path_is_reported() {
+    let mut fill = solid(0.25, 0.5, 0.75);
+    set_field(&mut fill, "sourceNodeId", guid(1, 9));
+    let mut nodes = document_and_page();
+    nodes.push(node((2, 1), (0, 1), "a", "FRAME", "Frame", vec![("size", vec2(10.0, 10.0)), ("fillPaints", V::Array(vec![fill]))]));
+    let doc = import_fig(&small(nodes)).expect("imports");
+    let (_, report) = export_fig_with_kept_report(&doc).expect("saves");
+    assert_eq!(report.fields_dropped_by_reason.get("id_at_an_unlisted_path"), Some(&1), "{report:?}");
+    assert_eq!(report.unlisted_paths.get("fillPaints/#/sourceNodeId"), Some(&1), "{report:?}");
 }
