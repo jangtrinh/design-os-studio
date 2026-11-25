@@ -2473,7 +2473,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             }
         }
         NodeKind::Vector { network: Some(net), .. } if !net.vertices.is_empty() => {
-            let (blob_bytes, style_table) = encode_vector_network_blob(net, node.corner_radii[0]);
+            let (blob_bytes, style_table) = encode_vector_network_blob(net, carried_corner_radius(cx, kept_record, &node));
             let blob_idx = cx.add_blob(blob_bytes);
             let mut vd = vec![("vectorNetworkBlob", V::Uint(blob_idx)), ("normalizedSize", vec2(node.size.x, node.size.y))];
             if !style_table.is_empty() {
@@ -3838,6 +3838,19 @@ fn encode_geometry_blobs(cx: &mut ExportCtx, paths: &[Path]) -> Vec<V> {
         .collect()
 }
 
+/// The `cornerRadius` the record of a vector will carry, which is the radius a reopen gives the vertices that have none
+/// of their own: the value of the kept record when this save writes the layer from the store (Figma's own, which can differ
+/// from the layer's per-corner radii), else the layer's.
+fn carried_corner_radius(cx: &ExportCtx<'_>, kept: Option<KeptRecordRef<'_>>, node: &Node) -> f32 {
+    let own = node.corner_radii[0];
+    let field = cx.schema.defs.get(cx.nc_def).and_then(|d| d.fields.iter().find(|f| &*f.name == "cornerRadius")).map(|f| f.value);
+    let kept_bytes = kept.zip(field).and_then(|(rec, no)| rec.field(no).map(|b| (no, b)));
+    match kept_bytes.map(|(no, b)| cx.schema.decode_field_value_prepared(cx.nc_def, no, b, &[])) {
+        Some(Ok((_, V::Float(r)))) if r.is_finite() => r,
+        _ => own,
+    }
+}
+
 fn encode_vector_network_blob(net: &VectorNetwork, node_radius: f32) -> (Vec<u8>, Vec<V>) {
     let mut b = Vec::new();
     let mut style_table = Vec::new();
@@ -3847,10 +3860,11 @@ fn encode_vector_network_blob(net: &VectorNetwork, node_radius: f32) -> (Vec<u8>
         b.extend_from_slice(&(n as u32).to_le_bytes());
     }
     for (i, v) in net.vertices.iter().enumerate() {
-        // The importer gives every vertex the node's radius before the table; so a vertex is written only when its
-        // radius differs from it (a radius of 0 under a node radius included), or when it is above 0 with no node radius.
-        let own_radius =
-            if node_radius > 0.0 { (v.corner_radius != node_radius).then_some(v.corner_radius) } else { (v.corner_radius > 0.0).then_some(v.corner_radius) };
+        // The importer gives every vertex the radius the record carries before the table; so a vertex is written only when
+        // its radius differs from it (a radius of 0 under it included), or when it is above 0 with none. A radius that is not
+        // a finite number draws as a sharp corner and is written as 0.
+        let radius = if v.corner_radius.is_finite() { v.corner_radius.max(0.0) } else { 0.0 };
+        let own_radius = if node_radius > 0.0 { ((radius - node_radius).abs() > 1e-5).then_some(radius) } else { (radius > 0.0).then_some(radius) };
         let has_style = v.cap.is_some() || v.join.is_some() || own_radius.is_some() || v.mirror != HandleMirror::None;
         let sid = if has_style {
             let id = (style_table.len() + 1) as u32;
