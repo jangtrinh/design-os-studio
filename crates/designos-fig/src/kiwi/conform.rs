@@ -51,7 +51,7 @@ impl Schema {
         }
         let def = self.defs.get(idx)?;
         match (def.kind, v) {
-            (DefKind::Enum, KiwiValue::Enum(name)) => def.fields.iter().find(|f| f.name == *name).map(|f| KiwiValue::Enum(f.name.clone())),
+            (DefKind::Enum, KiwiValue::Enum(name)) => def.field_named(name).map(|f| KiwiValue::Enum(f.name.clone())),
             (DefKind::Enum, KiwiValue::EnumRaw(n)) => {
                 Some(def.fields.iter().find(|f| f.value == *n).map_or(KiwiValue::EnumRaw(*n), |f| KiwiValue::Enum(f.name.clone())))
             }
@@ -69,7 +69,7 @@ impl Schema {
             (DefKind::Message, KiwiValue::Message(have) | KiwiValue::Struct(have)) => {
                 let mut out = Vec::with_capacity(have.len());
                 for (name, fv) in have {
-                    let Some(f) = def.fields.iter().find(|f| f.name == *name) else { continue };
+                    let Some(f) = def.field_named(name) else { continue };
                     out.push((f.name.clone(), self.conform_field(f, fv, depth + 1)?));
                 }
                 Some(KiwiValue::Message(out))

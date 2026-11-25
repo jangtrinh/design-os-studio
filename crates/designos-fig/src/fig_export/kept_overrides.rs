@@ -8,10 +8,11 @@
 //! The entries are read-only data from the loader ([`Document::pending_instance_overrides`]). Two kinds of reference in
 //! them only mean something inside the file they came from, so they are mapped into the file being written: a geometry
 //! blob is added to this file's blob table, and a component property is named by this file's definition id. A field the
-//! writer's schema has no definition for (prototype interactions on an override, text layout versions: Studio reads none
-//! of them) is left out of the entry; the rest of the entry is written as it was.
+//! writer's schema holds but no writer gates yet (prototype interactions on an override, text layout versions: see
+//! `HELD_BACK_UNTIL_KEPT`) is left out of the entry, and so is one the schema has no definition for; the rest of the
+//! entry is written as it was.
 
-use super::{collect_instance_overrides_for, parse_guid_pair, ExportCtx};
+use super::{collect_instance_overrides_for, parse_guid_pair, strip_held_back, ExportCtx};
 use crate::instance_self_digest::edited_fields;
 use crate::kiwi::{decode_hex_bytes, FieldType, KiwiValue as V};
 use crate::own_entry_keys::field_removed_with;
@@ -303,6 +304,9 @@ pub(super) fn pending_symbol_overrides(cx: &mut ExportCtx<'_>, inst_id: NodeId, 
     // Every part of every entry must fit, or the entries are read again keeping what fits.
     let whole = schema.field_from_json_strict(field, &kept.entries, 0);
     let V::Array(mut entries) = whole.or_else(|| schema.field_from_json(field, &kept.entries, 0))? else { return None };
+    // The schema holds Figma's whole `NodeChange`, so an entry can now carry fields no writer gates yet (prototype
+    // interactions, text layout versions); they stay out of it, at every depth, exactly as before the schema knew them.
+    entries.retain_mut(|e| !strip_held_back(schema, cx.nc_def, cx.nc_def, e, 0));
     for e in &mut entries {
         for key in ["fillGeometry", "strokeGeometry"] {
             if let Some(list) = e.get_mut(key) {

@@ -48,7 +48,7 @@ pub use designos_doc::Document;
 pub use export::export_rest_json;
 pub use fig::{
     commands_blob_to_path, decode_fig_to_json, import_fig, import_fig_node_changes_with_report, import_fig_with_budget, import_fig_with_report,
-    import_fig_with_stored_glyph_allowance,
+    import_fig_with_stored_glyph_allowance, import_fig_with_stored_glyph_allowances,
 };
 #[doc(hidden)]
 pub use fig::{extract_fig_derived_symbol_data, import_fig_node_changes, FigDerivedSymbolEntry, FigInstanceDerivedData};

@@ -848,9 +848,10 @@ pub struct ImportReport {
     pub missing_variable_bindings: usize,
     /// How many texts lost the data Figma stored with them (`derivedTextData`: glyph outlines, decoration bars, lines)
     /// because it did not fit the import's allowance for such data, or could not be written in Studio's schema. A `.fig`
-    /// import keeps 64 MiB of the file's own bytes, a paste from Figma 4 MiB; a text over it is counted, and shapes with
-    /// its own font like any text that has no stored data. A payload under 2 MB is bounded by its own size and counts
-    /// nothing for the allowance.
+    /// import keeps 64 MiB of the file's own bytes, and 128 MiB more of the data Figma stored for the texts inside instances
+    /// (their `derivedTextData` in `derivedSymbolData`); a paste from Figma keeps 4 MiB of both together. A text over it is
+    /// counted, and shapes with its own font like any text that has no stored data. A payload under 2 MB is bounded by its own
+    /// size and counts nothing for the allowance.
     ///
     /// Kept data counts toward the decode value cap; the allowance bounds what is retained, at about two bytes per wire
     /// byte (the bytes, the glyph table and the snapshot of the text). Nothing is built into outlines when a file opens.
@@ -890,6 +891,9 @@ struct Ctx<'a> {
     /// The wire bytes of the `derivedTextData` of each text node change of a binary import, by the node's guid (`"s:l"`),
     /// until `stored_text_import::attach` gives them to the nodes.
     text_wires: HashMap<String, std::sync::Arc<[u8]>>,
+    /// The data Figma stored for the texts inside each instance of a binary import (`derivedSymbolData`), by the instance's
+    /// guid, until the instance's overrides are built.
+    nested_texts: crate::stored_text_import::NestedTexts,
     /// `.fig` `uniformScaleFactor` of instances made with the scale tool.
     scales: BTreeMap<NodeId, f32>,
     /// Library components and sets of `.fig` internal canvases: node ->
@@ -937,6 +941,9 @@ struct Overrides {
     set: Vec<OverrideEntry>,
     derived: Vec<OverrideEntry>,
     fast_derived: Vec<crate::fig::FastDerivedEntry>,
+    /// The data Figma stored for the texts inside the instance (`derivedTextData` in `derivedSymbolData`), by path. It is a
+    /// cache of the same kind as `fast_derived` and is refused with it when a main changed under an unopened page.
+    texts: Vec<crate::stored_text_import::NestedTextEntry>,
     /// The entries of `symbolOverrides` as the file states them (`_keptOverrides`, text only a `.fig` writer reads).
     /// Present only for files large enough to defer pages; it goes with the instance's overrides once they are applied.
     kept: Option<Box<str>>,
@@ -1062,12 +1069,12 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
     expand_instances: bool,
     blobs: &'a [&'a [u8]],
     fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
-    text_wires: HashMap<String, std::sync::Arc<[u8]>>,
+    texts: crate::stored_text_import::ImportedTexts,
     clone_budget_total: usize,
     keep_unknown_keys: bool,
 ) -> Result<(Document, ImportReport), FigError> {
     if crate::board::is_figjam(&v) {
-        return import_rest_value_with_text_wires(&v, expand_instances, blobs, fast_derived_map, text_wires, clone_budget_total, keep_unknown_keys);
+        return import_rest_value_with_text_wires(&v, expand_instances, blobs, fast_derived_map, texts, clone_budget_total, keep_unknown_keys);
     }
     let has_doc = v.get("document").is_some();
     if !has_doc && fstr(&v, "type").is_none() {
@@ -1097,7 +1104,8 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         grid_row_track_ids: HashMap::new(),
         no_auto_layout: HashSet::new(),
         text_run_sids: HashMap::new(),
-        text_wires,
+        text_wires: texts.wires,
+        nested_texts: texts.nested,
         scales: BTreeMap::new(),
         library_keys: BTreeMap::new(),
         pending_swaps: Vec::new(),
@@ -1234,7 +1242,7 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
     clone_budget_total: usize,
     keep_unknown_keys: bool,
 ) -> Result<(Document, ImportReport), FigError> {
-    import_rest_value_with_text_wires(v, expand_instances, blobs, fast_derived_map, HashMap::new(), clone_budget_total, keep_unknown_keys)
+    import_rest_value_with_text_wires(v, expand_instances, blobs, fast_derived_map, Default::default(), clone_budget_total, keep_unknown_keys)
 }
 
 /// [`import_rest_value_with_blobs_and_budget`] for a binary import that took the stored data of its texts out of the node
@@ -1244,7 +1252,7 @@ pub(crate) fn import_rest_value_with_text_wires<'a>(
     expand_instances: bool,
     blobs: &'a [&'a [u8]],
     fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
-    text_wires: HashMap<String, std::sync::Arc<[u8]>>,
+    texts: crate::stored_text_import::ImportedTexts,
     clone_budget_total: usize,
     keep_unknown_keys: bool,
 ) -> Result<(Document, ImportReport), FigError> {
@@ -1278,7 +1286,8 @@ pub(crate) fn import_rest_value_with_text_wires<'a>(
         grid_row_track_ids: HashMap::new(),
         no_auto_layout: HashSet::new(),
         text_run_sids: HashMap::new(),
-        text_wires,
+        text_wires: texts.wires,
+        nested_texts: texts.nested,
         scales: BTreeMap::new(),
         library_keys: BTreeMap::new(),
         pending_swaps: Vec::new(),
@@ -1469,6 +1478,7 @@ impl<'a> Ctx<'a> {
                 }
             }
             let fast_derived = fstr(&v, "id").and_then(|sid| self.fast_derived_map.as_deref_mut().and_then(|m| m.remove(sid))).unwrap_or_default();
+            let texts = fstr(&v, "id").and_then(|sid| self.nested_texts.remove(sid)).unwrap_or_default();
             let kept = match v.get_mut("_keptOverrides").map(std::mem::take) {
                 Some(Value::String(t)) if !t.is_empty() => Some(t.into_boxed_str()),
                 _ => None,
@@ -1478,10 +1488,11 @@ impl<'a> Ctx<'a> {
                 set: take_override_entries(v.get_mut("_overrides")),
                 derived: take_override_entries(v.get_mut("_derived")),
                 fast_derived,
+                texts,
                 kept,
                 own_keys,
             };
-            if !ov.set.is_empty() || !ov.derived.is_empty() || !ov.fast_derived.is_empty() || ov.kept.is_some() {
+            if !ov.set.is_empty() || !ov.derived.is_empty() || !ov.fast_derived.is_empty() || !ov.texts.is_empty() || ov.kept.is_some() {
                 self.overrides.insert(id, ov);
             }
         }
@@ -1588,16 +1599,18 @@ impl<'a> Ctx<'a> {
                 }
             }
             let fast_derived = fstr(v, "id").and_then(|sid| self.fast_derived_map.as_deref_mut().and_then(|m| m.remove(sid))).unwrap_or_default();
+            let texts = fstr(v, "id").and_then(|sid| self.nested_texts.remove(sid)).unwrap_or_default();
             let kept = v.get("_keptOverrides").and_then(Value::as_str).filter(|t| !t.is_empty()).map(Box::from);
             let own_keys = own_keys_of(v.get("_keptOwnKeys"));
             let ov = Overrides {
                 set: parse_override_entries(v.get("_overrides")),
                 derived: parse_override_entries(v.get("_derived")),
                 fast_derived,
+                texts,
                 kept,
                 own_keys,
             };
-            if !ov.set.is_empty() || !ov.derived.is_empty() || !ov.fast_derived.is_empty() || ov.kept.is_some() {
+            if !ov.set.is_empty() || !ov.derived.is_empty() || !ov.fast_derived.is_empty() || !ov.texts.is_empty() || ov.kept.is_some() {
                 self.overrides.insert(id, ov);
             }
         }
@@ -2342,7 +2355,8 @@ impl<'a> Ctx<'a> {
         let mut instance_roots = HashMap::new();
         let mut swap_mains_of: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
         for &inst in pending_by_page.values().flatten() {
-            if self.overrides.get(&inst).is_none_or(|o| o.fast_derived.is_empty()) {
+            // the stored texts are checked against the main too, also when the instance stores nothing else Studio reads
+            if self.overrides.get(&inst).is_none_or(|o| o.fast_derived.is_empty() && o.texts.is_empty()) {
                 continue;
             }
             if let Some(&main) = targets.get(&inst) {
@@ -3570,7 +3584,35 @@ impl<'a> Ctx<'a> {
                 self.apply_fast_derived(t, d, &mut explicitly_sized);
             }
         }
+        // Last, so each text is taken as the overrides, the scale and the derived sizes left it.
+        for e in &ov.texts {
+            if let Some(t) = self.resolve_path_cached(inst, &e.path(), &mut subtree_maps) {
+                self.attach_nested_text(t, &e.span);
+            }
+        }
         Ok(())
+    }
+
+    /// Gives the copy of a text inside an instance the data Figma stored for it in the instance's `derivedSymbolData`, so an
+    /// override, a swapped main or a scale that made the copy differ from the component's own text no longer shapes it.
+    ///
+    /// The geometry is built for the copy as it stands (the snapshot is the copy's own text and size), so it draws until the
+    /// copy is edited. A copy that already matches data it holds, the component's, keeps it and adds nothing; data that
+    /// the renderer must not draw for this copy (another size, another font, a truncation) leaves the copy as it is.
+    fn attach_nested_text(&mut self, id: NodeId, span: &std::sync::Arc<crate::stored_text_import::NestedSpan>) {
+        let Some(node) = self.doc.get_mut(id) else { return };
+        if !matches!(node.kind, NodeKind::Text(_)) {
+            return;
+        }
+        let held = node.fig_text_geometry.as_ref();
+        if held.is_some_and(|g| g.fallback.is_none() && g.matches(node)) {
+            return;
+        }
+        // the ids Figma gave the runs of the main's text are the ones of a copy that keeps the main's runs
+        let sids: &[u32] = held.map_or(&[], |g| &g.run_sids);
+        if let Some(geometry) = span.geometry_for(node, sids, self.blobs) {
+            node.fig_text_geometry = Some(geometry);
+        }
     }
 
     /// Requests a stored-geometry record (see [`designos_doc::record_imported_layouts`]) for instance `inst` when the
@@ -4418,8 +4460,10 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             let mains = crate::component_fingerprint::instance_mains(doc, inst, main, swaps);
             if !self.main_trust.holds(&mut fingerprints, doc, stored, &mains) {
                 if let Some(ov) = self.overrides.get_mut(&inst) {
-                    let taken = std::mem::take(&mut ov.fast_derived);
-                    if !taken.is_empty() {
+                    // the data Figma stored for the instance's texts goes with the rest of the derived data: it describes the
+                    // main as it was
+                    let taken = (std::mem::take(&mut ov.fast_derived), std::mem::take(&mut ov.texts));
+                    if !taken.0.is_empty() || !taken.1.is_empty() {
                         cleared_derived.insert(inst, taken);
                     }
                 }
@@ -4452,6 +4496,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             no_auto_layout: std::mem::take(&mut self.no_auto_layout),
             text_run_sids: HashMap::new(),
             text_wires: HashMap::new(),
+            nested_texts: HashMap::new(),
             scales: std::mem::take(&mut self.scales),
             pending_swaps: Vec::new(),
             component_keys: BTreeMap::new(),
@@ -4509,9 +4554,10 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             }
         }
         if let Some(err) = hydration_err {
-            for (inst, derived) in cleared_derived {
+            for (inst, (derived, texts)) in cleared_derived {
                 if let Some(ov) = cx.overrides.get_mut(&inst) {
                     ov.fast_derived = derived;
+                    ov.texts = texts;
                 }
             }
             cx.doc.nodes.retain(|&id, _| id.0 < next_clone);
@@ -4536,9 +4582,10 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             return false;
         }
         for &inst in &cx.unexpanded_instances {
-            if let Some(derived) = cleared_derived.remove(&inst) {
+            if let Some((derived, texts)) = cleared_derived.remove(&inst) {
                 if let Some(ov) = cx.overrides.get_mut(&inst) {
                     ov.fast_derived = derived;
+                    ov.texts = texts;
                 }
             }
             if cx.doc.get(inst).is_some_and(|n| n.children.is_empty()) {
@@ -4715,6 +4762,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
                 let mains = crate::component_fingerprint::instance_mains(doc, inst, main, swaps);
                 if !self.main_trust.holds(&mut fingerprints, doc, stored, &mains) {
                     ov.fast_derived.clear();
+                    ov.texts.clear();
                 }
             }
             scratch_overrides.insert(inst, ov);
@@ -4772,6 +4820,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             no_auto_layout: scratch_no_auto_layout,
             text_run_sids: HashMap::new(),
             text_wires: HashMap::new(),
+            nested_texts: HashMap::new(),
             scales: scratch_scales,
             pending_swaps: Vec::new(),
             component_keys: BTreeMap::new(),
@@ -6454,6 +6503,7 @@ mod expand_depth_tests {
             no_auto_layout: HashSet::new(),
             text_run_sids: HashMap::new(),
             text_wires: HashMap::new(),
+            nested_texts: HashMap::new(),
             scales: BTreeMap::new(),
             library_keys: BTreeMap::new(),
             pending_swaps: Vec::new(),
@@ -6502,6 +6552,7 @@ mod expand_depth_tests {
             no_auto_layout: HashSet::new(),
             text_run_sids: HashMap::new(),
             text_wires: HashMap::new(),
+            nested_texts: HashMap::new(),
             scales: BTreeMap::new(),
             library_keys: BTreeMap::new(),
             pending_swaps: Vec::new(),
@@ -6708,7 +6759,7 @@ mod keep_unknown_keys_tests {
     #[test]
     fn an_import_from_binary_records_keeps_no_unknown_keys() {
         let (doc, _) =
-            import_rest_value_owned_with_budget(payload(), true, &[], None, HashMap::new(), CLONE_BUDGET_TOTAL, KEEP_UNKNOWN_KEYS_FROM_BINARY).unwrap();
+            import_rest_value_owned_with_budget(payload(), true, &[], None, Default::default(), CLONE_BUDGET_TOTAL, KEEP_UNKNOWN_KEYS_FROM_BINARY).unwrap();
         assert_eq!(kept(&doc), 0, "the .fig, node-change and clipboard imports pass this value");
     }
 }
