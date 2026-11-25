@@ -3011,6 +3011,8 @@ impl<'a> Ctx<'a> {
                             t.content = s.clone();
                             t.runs.clear();
                             t.lists.clear();
+                            // the runs the copy had are gone, and so are their ids
+                            self.copy_run_sids.insert(d, Vec::new());
                         }
                     }
                     (OverrideField::MainComponent, Some(PropValue::Instance(target))) => self.swap_nested(d, *target, targets, done)?,

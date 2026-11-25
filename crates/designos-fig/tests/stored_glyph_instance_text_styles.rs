@@ -37,17 +37,21 @@ fn styled_main(main_ids: &[u32], main_table: Vec<V>, bars: Vec<V>) -> Vec<V> {
 
 /// An instance of [`styled_main`] whose override of the text sets `ids` and `table`, with the entry Figma stored for the copy.
 fn styled_copy(name: &str, ids: &[u32], table: Vec<V>, bars: Vec<V>) -> V {
-    let override_text = msg(vec![
-        ("guidPath", msg(vec![("guids", V::Array(vec![guid(SOURCE.0, SOURCE.1)]))])),
-        (
-            "textData",
-            msg(vec![
-                ("characters", V::String("abcd".into())),
-                ("characterStyleIDs", V::Array(ids.iter().map(|&i| V::Uint(i)).collect())),
-                ("styleOverrideTable", V::Array(table)),
-            ]),
-        ),
+    let text_data = msg(vec![
+        ("characters", V::String("abcd".into())),
+        ("characterStyleIDs", V::Array(ids.iter().map(|&i| V::Uint(i)).collect())),
+        ("styleOverrideTable", V::Array(table)),
     ]);
+    copy_with_override(name, text_data, bars)
+}
+
+/// An instance of [`styled_main`] whose override of the text changes only the characters, with the entry Figma stored for the copy.
+fn retyped_copy(name: &str, characters: &str) -> V {
+    copy_with_override(name, msg(vec![("characters", V::String(characters.into()))]), vec![])
+}
+
+fn copy_with_override(name: &str, text_data: V, bars: Vec<V>) -> V {
+    let override_text = msg(vec![("guidPath", msg(vec![("guids", V::Array(vec![guid(SOURCE.0, SOURCE.1)]))])), ("textData", text_data)]);
     let derived = msg(vec![
         ("layoutSize", vec2(40.0, 26.0)),
         ("fontMetaData", V::Array([FAMILY, SECOND_FAMILY].iter().map(|f| msg(vec![("key", font_key(f))])).collect())),
@@ -139,4 +143,18 @@ fn a_copy_that_keeps_the_components_runs_keeps_the_components_ids() {
     let copy = text_in(&doc, "Same copy");
     assert_eq!(stored_glyph_use(copy), StoredGlyphUse::Drawn);
     assert_eq!(*copy.fig_text_geometry.as_ref().unwrap().run_sids, [7]);
+}
+
+#[test]
+fn a_copy_whose_override_changes_only_the_characters_has_no_runs_and_no_ids() {
+    // the component has one run (id 7, `cd`, underlined) with stored data; the override replaces the characters and keeps no run
+    let copy = retyped_copy("Retyped copy", "wxyz");
+    let doc = file(copy, &[0, 0, 7, 7], vec![style_override(7, SECOND_FAMILY, (1.0, 0.0, 0.0), true)], vec![stored_decoration(7, &[(20.0, 22.0, 20.0, 2.0)])]);
+    let (main, copy) = (text_in(&doc, "Styled main"), text_in(&doc, "Retyped copy"));
+    let NodeKind::Text(text) = &copy.kind else { unreachable!() };
+    assert_eq!(text.content, "wxyz");
+    assert!(text.runs.is_empty(), "the characters changed, so the main's run no longer applies");
+    assert_eq!(*main.fig_text_geometry.as_ref().unwrap().run_sids, [7], "the component keeps its own id");
+    assert_eq!(stored_glyph_use(copy), StoredGlyphUse::Drawn, "the stored text for the copy is read against no runs");
+    assert!(copy.fig_text_geometry.as_ref().unwrap().run_sids.is_empty(), "the copy has no run, so no id");
 }

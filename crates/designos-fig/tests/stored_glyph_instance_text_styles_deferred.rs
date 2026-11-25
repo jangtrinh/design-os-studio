@@ -1,5 +1,5 @@
 //! The style ids of the runs an override built for a nested copy go with the copy when an instance on a page that opens later
-//! clones the component that holds it.
+//! clones the component that holds it, and a property that sets the text of such a copy drops the ids with the runs.
 mod common;
 
 use common::deferred_fig::*;
@@ -109,4 +109,69 @@ fn the_same_instance_draws_when_the_override_built_no_runs() {
     let NodeKind::Text(text) = &label.kind else { unreachable!() };
     assert!(text.runs.is_empty());
     assert_eq!(stored_glyph_use(label), StoredGlyphUse::Drawn, "the fixture itself draws: only the run ids differ");
+}
+
+const OUTER_PROP_DEF: (u64, u64) = (7, 3);
+const BUTTON_PROP_DEF: (u64, u64) = (7, 2);
+
+/// [`fixture_with_wrapper`] without the deferred page, where the button's label is bound to the property `Label` and the instance of
+/// the wrapper sets that property to "Hi": the label in the copy of the button then has the characters of the property and none
+/// of the runs the inner override built.
+fn fixture_with_text_property() -> Vec<u8> {
+    let defs = |id: (u64, u64)| json!([{"id": guid(id.0, id.1), "name": "Label", "type": "TEXT", "initialValue": {"textValue": {"characters": "Label"}}}]);
+    let label_override = json!({
+        "guidPath": {"guids": [guid(LABEL.0, LABEL.1)]},
+        "textData": {
+            "characters": "Go back!",
+            "characterStyleIDs": [0, 0, 5, 5, 5, 5, 5, 5],
+            "styleOverrideTable": [{"styleID": 5, "textDecoration": "UNDERLINE"}]
+        }
+    });
+    let stored = json!({
+        "guidPath": {"guids": [guid(INNER.0, INNER.1), guid(LABEL.0, LABEL.1)]},
+        "size": {"x": 90.0, "y": 20.0},
+        "derivedTextData": {
+            "layoutSize": {"x": 90.0, "y": 20.0},
+            "fontMetaData": [{"key": {"family": "Inter", "style": "Regular", "postscript": ""}}],
+            "glyphs": [{"commandsBlob": 0, "position": {"x": 0.0, "y": 20.0}, "fontSize": 14.0, "firstCharacter": 0}]
+        }
+    });
+    let changes = vec![
+        fig_node((0, 0), (0, 0), "DOCUMENT", "Document", json!({})),
+        fig_node((0, 1), (0, 0), "CANVAS", "Cover", json!({})),
+        fig_node(BUTTON, (0, 1), "SYMBOL", "Buttons/Button", json!({"componentPropDefs": defs(BUTTON_PROP_DEF)})),
+        fig_node(
+            LABEL,
+            BUTTON,
+            "TEXT",
+            "Text",
+            json!({"fontSize": 14.0, "textData": {"characters": "Button CTA"},
+                   "componentPropRefs": [{"componentPropNodeField": "TEXT_DATA", "defID": guid(BUTTON_PROP_DEF.0, BUTTON_PROP_DEF.1)}]}),
+        ),
+        fig_node(WRAP, (0, 1), "SYMBOL", "Wrapper", json!({"componentPropDefs": defs(OUTER_PROP_DEF)})),
+        fig_node(INNER, WRAP, "INSTANCE", "Inner button", json!({"symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1), "symbolOverrides": [label_override]}})),
+        fig_node(
+            OUTER,
+            (0, 1),
+            "INSTANCE",
+            "Outer wrapper",
+            json!({"symbolData": {"symbolID": guid(WRAP.0, WRAP.1)}, "derivedSymbolData": [stored],
+                   "componentPropAssignments": [{"defID": guid(OUTER_PROP_DEF.0, OUTER_PROP_DEF.1), "value": {"textValue": {"characters": "Hi"}}}]}),
+        ),
+    ];
+    fig_bytes(changes, vec![triangle()])
+}
+
+#[test]
+fn a_property_that_sets_the_text_of_a_copy_drops_the_ids_of_the_runs_it_had() {
+    let doc = designos_fig::import_fig(&fixture_with_text_property()).unwrap();
+    let label = doc
+        .nodes
+        .values()
+        .find(|n| matches!(&n.kind, NodeKind::Text(t) if t.content == "Hi") && in_outer(&doc, n))
+        .expect("the label inside the outer instance shows the property's text");
+    let NodeKind::Text(text) = &label.kind else { unreachable!() };
+    assert!(text.runs.is_empty(), "the property replaced the text and its runs");
+    assert_eq!(stored_glyph_use(label), StoredGlyphUse::Drawn, "the stored text is read against no runs");
+    assert!(label.fig_text_geometry.as_ref().unwrap().run_sids.is_empty());
 }
