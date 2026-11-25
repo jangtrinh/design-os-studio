@@ -117,10 +117,11 @@ impl KeptData {
             by_guid.entry(rec.guid).or_insert(kept.len() as u32);
             kept.push(rec);
         }
-        let blobs: Vec<BlobSlot> = blobs.into_iter().map(|b| if fits(b.offset, b.len) { b } else { BlobSlot { offset: 0, len: 0 } }).collect();
+        let mut blobs: Vec<BlobSlot> = blobs.into_iter().map(|b| if fits(b.offset, b.len) { b } else { BlobSlot { offset: 0, len: 0 } }).collect();
         // the vectors grew by doubling while the capture ran; what is kept for the life of the document holds no spare room
         fields.shrink_to_fit();
         kept.shrink_to_fit();
+        blobs.shrink_to_fit();
         by_guid.shrink_to_fit();
         Self { arena, records: kept, fields, blobs, by_guid, counts }
     }
