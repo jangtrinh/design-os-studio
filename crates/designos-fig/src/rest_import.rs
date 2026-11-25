@@ -2428,6 +2428,7 @@ impl<'a> Ctx<'a> {
             grid_col_track_ids: std::mem::take(&mut self.grid_col_track_ids),
             grid_row_track_ids: std::mem::take(&mut self.grid_row_track_ids),
             no_auto_layout: std::mem::take(&mut self.no_auto_layout),
+            copy_run_sids: std::mem::take(&mut self.copy_run_sids),
             scales: std::mem::take(&mut self.scales),
             path_cache: std::mem::take(&mut self.path_cache),
             blob_cache: std::mem::take(&mut self.blob_cache),
@@ -4394,6 +4395,7 @@ struct DeferredFigHydrator {
     grid_col_track_ids: HashMap<NodeId, Vec<String>>,
     grid_row_track_ids: HashMap<NodeId, Vec<String>>,
     no_auto_layout: HashSet<NodeId>,
+    copy_run_sids: HashMap<NodeId, Vec<u32>>,
     scales: BTreeMap<NodeId, f32>,
     path_cache: HashMap<String, Path>,
     blob_cache: HashMap<(usize, bool), Path>,
@@ -4446,6 +4448,7 @@ impl DeferredFigHydrator {
             self.grid_col_track_ids.clear();
             self.grid_row_track_ids.clear();
             self.no_auto_layout.clear();
+            self.copy_run_sids.clear();
             self.scales.clear();
             self.path_cache.clear();
             self.blob_cache.clear();
@@ -4522,7 +4525,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             grid_row_track_ids: std::mem::take(&mut self.grid_row_track_ids),
             no_auto_layout: std::mem::take(&mut self.no_auto_layout),
             text_run_sids: HashMap::new(),
-            copy_run_sids: HashMap::new(),
+            copy_run_sids: std::mem::take(&mut self.copy_run_sids),
             text_wires: HashMap::new(),
             nested_texts: HashMap::new(),
             scales: std::mem::take(&mut self.scales),
@@ -4603,6 +4606,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             self.grid_col_track_ids = cx.grid_col_track_ids;
             self.grid_row_track_ids = cx.grid_row_track_ids;
             self.no_auto_layout = cx.no_auto_layout;
+            self.copy_run_sids = cx.copy_run_sids;
             self.scales = cx.scales;
             self.path_cache = cx.path_cache;
             self.blob_cache = cx.blob_cache;
@@ -4662,6 +4666,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         self.grid_col_track_ids = cx.grid_col_track_ids;
         self.grid_row_track_ids = cx.grid_row_track_ids;
         self.no_auto_layout = cx.no_auto_layout;
+        self.copy_run_sids = cx.copy_run_sids;
         self.scales = cx.scales;
         self.path_cache = cx.path_cache;
         self.blob_cache = cx.blob_cache;
@@ -4803,6 +4808,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         let mut scratch_col_tracks = HashMap::new();
         let mut scratch_row_tracks = HashMap::new();
         let mut scratch_no_auto_layout = HashSet::new();
+        let mut scratch_copy_run_sids = HashMap::new();
         let mut scratch_scales = BTreeMap::new();
         for (&id, node) in &scratch_doc.nodes {
             if let Some(v) = self.override_keys.get(&id).cloned() {
@@ -4826,6 +4832,9 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             if self.no_auto_layout.contains(&id) {
                 scratch_no_auto_layout.insert(id);
             }
+            if let Some(v) = self.copy_run_sids.get(&id).cloned() {
+                scratch_copy_run_sids.insert(id, v);
+            }
             if let Some(&v) = self.scales.get(&id) {
                 scratch_scales.insert(id, v);
             }
@@ -4847,7 +4856,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             grid_row_track_ids: scratch_row_tracks,
             no_auto_layout: scratch_no_auto_layout,
             text_run_sids: HashMap::new(),
-            copy_run_sids: HashMap::new(),
+            copy_run_sids: scratch_copy_run_sids,
             text_wires: HashMap::new(),
             nested_texts: HashMap::new(),
             scales: scratch_scales,
