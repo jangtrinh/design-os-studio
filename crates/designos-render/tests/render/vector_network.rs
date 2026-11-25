@@ -43,20 +43,58 @@ fn px(pm: &Pixmap, x: u32, y: u32) -> [u8; 4] {
     [p.red(), p.green(), p.blue(), p.alpha()]
 }
 
+/// Unfills the face under `(x, y)` of the node's network, as the paint bucket does.
+fn bucket(d: &mut Document, id: NodeId, x: f32, y: f32) -> bool {
+    let NodeKind::Vector { network: Some(net), paths } = &mut d.get_mut(id).unwrap().kind else { panic!("a vector with a network") };
+    let face = net.face_at(v(x, y)).expect("a face under the pointer");
+    let filled = net.toggle_face(&face);
+    *paths = net.to_paths();
+    filled
+}
+
+fn vector_id(d: &Document, page: NodeId) -> NodeId {
+    d.get(page).unwrap().children[0]
+}
+
 #[test]
 fn unfilled_regions_are_not_painted_but_still_stroked() {
-    let mut net = VectorNetwork::from_paths(&[rect_path(10.0, 10.0, 40.0, 80.0), rect_path(60.0, 10.0, 30.0, 80.0)]);
+    // the only loop of a network: unfilling it leaves no fill, though the network then has no filled region
+    let net = VectorNetwork::from_paths(&[rect_path(10.0, 10.0, 80.0, 80.0)]);
     let red = Color::rgb(255, 0, 0);
-    let (d, page) = page_with(net.clone(), red, 4.0, StrokeCap::None);
+    let (mut d, page) = page_with(net, red, 4.0, StrokeCap::None);
+    assert_eq!(px(&render(&d, page), 50, 50), [255, 0, 0, 255], "filled");
+    let id = vector_id(&d, page);
+    assert!(!bucket(&mut d, id, 50.0, 50.0));
     let pm = render(&d, page);
-    assert_eq!(px(&pm, 30, 50), [255, 0, 0, 255], "filled");
-    // unfill the left loop: its region goes, the segments stay
+    assert_eq!(px(&pm, 50, 50), [255, 255, 255, 255], "inside the loop is not filled any more");
+    assert_eq!(px(&pm, 10, 50), [0, 0, 255, 255], "the outline remains");
+
+    // an unfilled loop next to a filled one
+    let mut net = VectorNetwork::from_paths(&[rect_path(10.0, 10.0, 40.0, 80.0), rect_path(60.0, 10.0, 30.0, 80.0)]);
+    let (d, page) = page_with(net.clone(), red, 4.0, StrokeCap::None);
+    assert_eq!(px(&render(&d, page), 30, 50), [255, 0, 0, 255], "filled");
     net.regions.remove(0);
     let (d, page) = page_with(net, red, 4.0, StrokeCap::None);
     let pm = render(&d, page);
     assert_eq!(px(&pm, 30, 50), [255, 255, 255, 255], "inside the unfilled loop is not painted");
     assert_eq!(px(&pm, 75, 50), [255, 0, 0, 255], "the other loop keeps its region");
     assert_eq!(px(&pm, 10, 50), [0, 0, 255, 255], "the outline remains");
+}
+
+/// A native save writes the unfilled loop and a load draws it unfilled; filling it again brings the fill back.
+#[test]
+fn an_unfilled_only_loop_stays_unfilled_through_a_save_and_fills_again() {
+    let net = VectorNetwork::from_paths(&[rect_path(10.0, 10.0, 80.0, 80.0)]);
+    let (mut d, page) = page_with(net, Color::rgb(255, 0, 0), 4.0, StrokeCap::None);
+    let id = vector_id(&d, page);
+    assert!(!bucket(&mut d, id, 50.0, 50.0));
+    let mut loaded = Document::from_json(&d.to_json().unwrap()).unwrap();
+    assert_eq!(px(&render(&loaded, page), 50, 50), [255, 255, 255, 255], "unfilled after a save and a load");
+    assert_eq!(px(&render(&loaded, page), 10, 50), [0, 0, 255, 255], "still stroked");
+    assert!(bucket(&mut loaded, id, 50.0, 50.0), "the bucket fills it again");
+    let pm = render(&loaded, page);
+    assert_eq!(px(&pm, 50, 50), [255, 0, 0, 255], "filled again");
+    assert_eq!(px(&pm, 10, 50), [0, 0, 255, 255]);
 }
 
 /// Figma stores a fill outline for the closed loops of a network that has no regions at all (a `.fig` holds a visible

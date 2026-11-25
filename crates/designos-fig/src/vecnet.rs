@@ -110,7 +110,7 @@ pub(crate) fn network_from_json(v: &Value) -> Option<VectorNetwork> {
             }
             loops.push(idx);
         }
-        net.regions.push(Region { rule, loops });
+        net.regions.push(Region { rule, loops, filled: true });
     }
     Some(net)
 }
@@ -141,8 +141,12 @@ pub(crate) fn network_to_json(net: &VectorNetwork) -> Value {
         })
         .collect();
     let segments: Vec<Value> = net.segments.iter().map(|s| json!({"start": s.a, "end": s.b, "tangentStart": p(s.ta), "tangentEnd": p(s.tb)})).collect();
-    let regions: Vec<Value> =
-        net.regions.iter().map(|r| json!({"windingRule": if r.rule == FillRule::EvenOdd { "EVENODD" } else { "NONZERO" }, "loops": r.loops})).collect();
+    let regions: Vec<Value> = net
+        .regions
+        .iter()
+        .filter(|r| r.filled)
+        .map(|r| json!({"windingRule": if r.rule == FillRule::EvenOdd { "EVENODD" } else { "NONZERO" }, "loops": r.loops}))
+        .collect();
     json!({"vertices": vertices, "segments": segments, "regions": regions})
 }
 
@@ -207,7 +211,7 @@ pub(crate) fn network_from_blob(b: &[u8], scale: (f32, f32)) -> Option<(VectorNe
             }
             loops.push(l);
         }
-        net.regions.push(Region { rule: if style_rule & 1 == 1 { FillRule::NonZero } else { FillRule::EvenOdd }, loops });
+        net.regions.push(Region { rule: if style_rule & 1 == 1 { FillRule::NonZero } else { FillRule::EvenOdd }, loops, filled: true });
     }
     Some((net, styles))
 }
@@ -328,7 +332,7 @@ mod tests {
         net.vertices[1].corner_radius = 6.0;
         net.vertices[2].cap = Some(StrokeCap::Square);
         net.vertices[0].mirror = HandleMirror::Angle;
-        net.regions.push(Region { rule: FillRule::EvenOdd, loops: vec![vec![0, 1, 2]] });
+        net.regions.push(Region { rule: FillRule::EvenOdd, loops: vec![vec![0, 1, 2]], filled: true });
         let j = network_to_json(&net);
         assert_eq!(j["vertices"][1]["cornerRadius"], 6.0);
         assert_eq!(j["vertices"][2]["strokeCap"], "SQUARE");
@@ -337,5 +341,21 @@ mod tests {
         assert_eq!(network_from_json(&j).unwrap(), net);
         // out-of-range indices are refused
         assert!(network_from_json(&json!({"vertices": [{"x": 0, "y": 0}], "segments": [{"start": 0, "end": 3}]})).is_none());
+    }
+
+    /// Figma's form of an unfilled region is not written: the region is left out of the JSON and of the blob.
+    #[test]
+    fn an_unfilled_region_is_left_out_of_the_json_and_the_blob() {
+        let mut net = VectorNetwork::default();
+        for p in [Vec2::new(0.0, 0.0), Vec2::new(50.0, 0.0), Vec2::new(50.0, 50.0)] {
+            net.add_vertex(p);
+        }
+        net.connect(0, 1);
+        net.connect(1, 2);
+        net.connect(2, 0);
+        net.regions.push(Region { rule: FillRule::NonZero, loops: vec![vec![0, 1, 2]], filled: false });
+        assert_eq!(network_to_json(&net)["regions"].as_array().map(Vec::len), Some(0));
+        net.regions[0].filled = true;
+        assert_eq!(network_to_json(&net)["regions"].as_array().map(Vec::len), Some(1));
     }
 }
