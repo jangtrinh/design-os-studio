@@ -76,6 +76,10 @@ fn assign(id: (u32, u32), value: &str) -> (&'static str, V) {
     ("componentPropAssignments", V::Array(vec![msg(vec![("defID", guid(id.0, id.1)), ("value", text(value))])]))
 }
 
+fn nested_overrides(v: &V) -> (&'static str, V) {
+    ("symbolOverrides", v.get("symbolOverrides").cloned().expect("overrides"))
+}
+
 fn instance(id: (u32, u32), parent: (u32, u32), pos: &str, name: &str, main: (u32, u32), extra: Vec<(&'static str, V)>) -> V {
     let mut f = vec![("symbolData", msg(vec![("symbolID", guid(main.0, main.1))]))];
     f.extend(extra);
@@ -90,6 +94,10 @@ const CAPTION: (u32, u32) = (2, 5);
 const USE: (u32, u32) = (2, 6);
 const SET_B: (u32, u32) = (2, 11);
 const OUTER: (u32, u32) = (2, 60);
+const CAPTION_C: (u32, u32) = (4, 52);
+const CARD: (u32, u32) = (2, 81);
+const BUTTON: (u32, u32) = (2, 82);
+const ICON: (u32, u32) = (2, 83);
 
 /// Every shape in one file: a set with two variants (one holds an instance of `Main`), a Figma copy of it that shares its property
 /// id, a set with a variant inside a frame, a variant loose in a plain frame, a lone main with a text bound to its property, an
@@ -122,7 +130,13 @@ fn matrix_file() -> Vec<u8> {
     all.push(set(SET_B, "e", "Set B", X, "Size"));
     all.push(variant((2, 12), SET_B, "a", "B sm", (4, 22), X, "sm"));
     all.push(variant((2, 13), SET_B, "b", "B lg", (4, 23), X, "lg"));
-    all.push(set((2, 40), "f", "Set C", SIZE_C, "Size C"));
+    let mut set_c = set((2, 40), "f", "Set C", SIZE_C, "Size C");
+    if let V::Message(fields) = &mut set_c {
+        if let Some((_, V::Array(list))) = fields.iter_mut().find(|(k, _)| &**k == "componentPropDefs") {
+            list.push(def(CAPTION_C, "Caption text", "TEXT"));
+        }
+    }
+    all.push(set_c);
     all.push(node((2, 41), (2, 40), "a", "FRAME", "Wrap", plain(vec![])));
     all.push(variant((2, 42), (2, 41), "a", "C variant", (4, 51), SIZE_C, "x"));
     all.push(node((2, 30), (0, 1), "g", "FRAME", "Country", plain(vec![])));
@@ -158,7 +172,27 @@ fn matrix_file() -> Vec<u8> {
     all.push(instance((2, 70), V_SM, "z", "Nested use", MAIN, vec![assign(LABEL, "In")]));
     all.push(node(OUTER, (0, 1), "h", "SYMBOL", "Outer", plain(vec![])));
     all.push(instance((2, 61), OUTER, "a", "Inner use", MAIN, vec![assign(LABEL, "Deep")]));
-    all.push(instance((2, 62), (0, 1), "i", "Outer use", OUTER, vec![]));
+    // an instance of `Outer` that sets `Label` on the instance of `Main` inside it, in its own overrides
+    let nested = msg(vec![(
+        "symbolOverrides",
+        V::Array(vec![msg(vec![
+            ("guidPath", msg(vec![("guids", V::Array(vec![guid(2, 61)]))])),
+            ("componentPropAssignments", V::Array(vec![msg(vec![("defID", guid(LABEL.0, LABEL.1)), ("value", text("Nested"))])])),
+        ])]),
+    )]);
+    all.push(node(
+        (2, 62),
+        (0, 1),
+        "i",
+        "INSTANCE",
+        "Outer use",
+        plain(vec![("symbolData", msg(vec![("symbolID", guid(OUTER.0, OUTER.1)), nested_overrides(&nested)]))]),
+    ));
+    all.push(instance((2, 80), (0, 1), "j", "Use C", (2, 42), vec![assign(CAPTION_C, "From the set")]));
+    all.push(node(CARD, (0, 1), "k", "SYMBOL", "Card", plain(vec![defs(vec![def((4, 70), "Label", "TEXT")])])));
+    all.push(node(BUTTON, (0, 1), "l", "SYMBOL", "Button", plain(vec![defs(vec![def((4, 71), "Label", "TEXT")])])));
+    all.push(node(ICON, (0, 1), "m", "SYMBOL", "Icon", plain(vec![])));
+    all.push(instance((2, 84), CARD, "a", "Swapped", BUTTON, vec![assign((4, 71), "Hi")]));
     fig_file(all, vec![icon_blob()])
 }
 
@@ -173,18 +207,124 @@ struct Shape {
     instance: Option<&'static str>,
     /// Make a Studio copy of the owner first and edit that.
     copy_first: bool,
+    /// The property the value edit sets on the instance, and the id its owner gives that property (when the owner defines it).
+    value_prop: &'static str,
+    value_id: Option<(u32, u32)>,
+    /// A node the instance is swapped to by the value edit.
+    swap_to: Option<&'static str>,
 }
 
-const SHAPES: [Shape; 9] = [
-    Shape { name: "variant_under_set", owner: "Set", prop: "Size", layer: "V lg", instance: Some("Use variant"), copy_first: false },
-    Shape { name: "variant_in_frame_in_set", owner: "Set C", prop: "Size C", layer: "C variant", instance: None, copy_first: false },
-    Shape { name: "loose_variant_in_frame", owner: "Set", prop: "Size", layer: "Loose", instance: None, copy_first: false },
-    Shape { name: "lone_main", owner: "Main", prop: "Label", layer: "Caption", instance: Some("Use"), copy_first: false },
-    Shape { name: "instance_of_a_set_variant", owner: "Set", prop: "Size", layer: "V lg", instance: Some("Use variant"), copy_first: false },
-    Shape { name: "instance_inside_a_variant", owner: "Set", prop: "Size", layer: "V sm", instance: Some("Nested use"), copy_first: false },
-    Shape { name: "instance_in_instance", owner: "Main", prop: "Label", layer: "Caption", instance: Some("Outer use"), copy_first: false },
-    Shape { name: "studio_copy_of_an_imported_main", owner: "Main", prop: "Label", layer: "Caption", instance: Some("Use"), copy_first: true },
-    Shape { name: "two_sets_sharing_ids", owner: "Set B", prop: "Size", layer: "B lg", instance: None, copy_first: false },
+const SHAPES: [Shape; 10] = [
+    Shape {
+        name: "variant_under_set",
+        owner: "Set",
+        prop: "Size",
+        layer: "V lg",
+        instance: Some("Use variant"),
+        copy_first: false,
+        value_prop: "Label",
+        value_id: None,
+        swap_to: None,
+    },
+    Shape {
+        name: "variant_in_frame_in_set",
+        owner: "Set C",
+        prop: "Size C",
+        layer: "C variant",
+        instance: Some("Use C"),
+        copy_first: false,
+        value_prop: "Caption text",
+        value_id: Some(CAPTION_C),
+        swap_to: None,
+    },
+    Shape {
+        name: "loose_variant_in_frame",
+        owner: "Set",
+        prop: "Size",
+        layer: "Loose",
+        instance: None,
+        copy_first: false,
+        value_prop: "Label",
+        value_id: None,
+        swap_to: None,
+    },
+    Shape {
+        name: "lone_main",
+        owner: "Main",
+        prop: "Label",
+        layer: "Caption",
+        instance: Some("Use"),
+        copy_first: false,
+        value_prop: "Label",
+        value_id: None,
+        swap_to: None,
+    },
+    Shape {
+        name: "instance_of_a_set_variant",
+        owner: "Set",
+        prop: "Size",
+        layer: "V lg",
+        instance: Some("Use variant"),
+        copy_first: false,
+        value_prop: "Label",
+        value_id: None,
+        swap_to: None,
+    },
+    Shape {
+        name: "instance_inside_a_variant",
+        owner: "Set",
+        prop: "Size",
+        layer: "V sm",
+        instance: Some("Nested use"),
+        copy_first: false,
+        value_prop: "Label",
+        value_id: None,
+        swap_to: None,
+    },
+    Shape {
+        name: "instance_in_instance",
+        owner: "Main",
+        prop: "Label",
+        layer: "Caption",
+        instance: Some("Outer use"),
+        copy_first: false,
+        value_prop: "Label",
+        value_id: None,
+        swap_to: None,
+    },
+    Shape {
+        name: "studio_copy_of_an_imported_main",
+        owner: "Main",
+        prop: "Label",
+        layer: "Caption",
+        instance: Some("Use"),
+        copy_first: true,
+        value_prop: "Label",
+        value_id: None,
+        swap_to: None,
+    },
+    Shape {
+        name: "swapped_instance_inside_a_main",
+        owner: "Card",
+        prop: "Label",
+        layer: "Swapped",
+        instance: Some("Swapped"),
+        copy_first: false,
+        value_prop: "Label",
+        value_id: None,
+        swap_to: Some("Icon"),
+    },
+    Shape {
+        name: "two_sets_sharing_ids",
+        owner: "Set B",
+        prop: "Size",
+        layer: "B lg",
+        instance: None,
+        copy_first: false,
+        value_prop: "Label",
+        value_id: None,
+        swap_to: None,
+    },
 ];
 
 const EDITS: [&str; 8] = [
@@ -250,7 +390,12 @@ fn run(shape: &Shape, edit: &str) -> (Vec<Violation>, Vec<u8>, designos_fig::Kep
         "value_edit_on_an_instance" => {
             if let Some(i) = shape.instance {
                 let id = by_name(&doc, i);
-                doc.get_mut(id).unwrap().component.values.insert("Label".into(), PropValue::Text("edited".into()));
+                let swap = shape.swap_to.map(|n| by_name(&doc, n));
+                let n = doc.get_mut(id).unwrap();
+                n.component.values.insert(shape.value_prop.into(), PropValue::Text("edited".into()));
+                if let (Some(to), designos_doc::NodeKind::Instance { component, .. }) = (swap, &mut n.kind) {
+                    *component = Some(to);
+                }
             }
         }
         other => panic!("{other}"),
@@ -266,9 +411,10 @@ fn run_shape(index: usize) {
     for edit in EDITS {
         let (violations, original, report, now) = run(shape, edit);
         let c = counts(&violations);
-        let bad = c.get("CrossOwner").copied().unwrap_or(0) + c.get("WrongName").copied().unwrap_or(0);
+        let bad = c.get("CrossOwner").copied().unwrap_or(0) + c.get("WrongName").copied().unwrap_or(0) + c.get("Ownerless").copied().unwrap_or(0);
         let dangling = c.get("Dangling").copied().unwrap_or(0);
-        let counted = report.prop_name_unresolved + report.prop_refs_dropped;
+        // a dropped consumption entry leaves nothing in the file that could dangle: only an id Studio could not resolve is counted
+        let counted = report.prop_name_unresolved;
         if bad > 0 || dangling > counted {
             failures.push(format!("{edit}: {violations:?} report {report:?}"));
         }
@@ -276,13 +422,32 @@ fn run_shape(index: usize) {
         if edit == "none" && !shape.copy_first && (report.fields_dropped() != 0 || report.prop_name_unresolved != 0 || report.prop_refs_dropped != 0) {
             failures.push(format!("{edit}: a save with no edit drops or counts something: {report:?}"));
         }
-        // a loose variant is a group of one: editing it leaves nothing else in its group to hand over
-        let alone = shape.name == "loose_variant_in_frame" && edit == "fill_edit_on_a_variant";
+        // a loose variant, and a main whose only other layer is an instance, are groups with nothing else to hand over
+        let alone = (shape.name == "loose_variant_in_frame" && edit == "fill_edit_on_a_variant") || shape.name == "swapped_instance_inside_a_main";
         if matches!(edit, "delete_prop" | "rename_prop" | "add_prop" | "fill_edit_on_a_variant") && !shape.copy_first && !alone {
             // an edit in a group hands every key of the group's definition side to Studio
             let g = report.fields_dropped_by_reason.get("group_not_verbatim").copied().unwrap_or(0);
             if g == 0 {
                 failures.push(format!("{edit}: no key of the edited group was handed to Studio: {report:?}"));
+            }
+        }
+        if edit == "value_edit_on_an_instance" {
+            if let (Some(i), Some(want)) = (shape.instance, shape.value_id) {
+                let rec = now.iter().find(|r| r.get("name") == Some(&V::String(i.into()))).expect("the instance is written");
+                let ids: Vec<(u32, u32)> = rec
+                    .get("componentPropAssignments")
+                    .and_then(V::as_array)
+                    .unwrap_or(&[])
+                    .iter()
+                    .filter_map(|a| a.get("defID"))
+                    .filter_map(|g| match (g.get("sessionID"), g.get("localID")) {
+                        (Some(V::Uint(s)), Some(V::Uint(l))) => Some((*s, *l)),
+                        _ => None,
+                    })
+                    .collect();
+                if !ids.contains(&want) {
+                    failures.push(format!("{edit}: the edited value of {i} does not name the property its main's owner defines ({want:?}): {ids:?}"));
+                }
             }
         }
         if edit == "fill_edit_on_a_variant" {
@@ -293,6 +458,8 @@ fn run_shape(index: usize) {
                     "Use" => USE,
                     "Nested use" => (2, 70),
                     "Outer use" => (2, 62),
+                    "Use C" => (2, 80),
+                    "Swapped" => (2, 84),
                     _ => unreachable!(),
                 };
                 if record_of(&now, g).get("componentPropAssignments") != record_of(&was, g).get("componentPropAssignments") {
@@ -337,6 +504,10 @@ fn shape_studio_copy_of_an_imported_main() {
     run_shape(7);
 }
 #[test]
-fn shape_two_sets_sharing_ids() {
+fn shape_swapped_instance_inside_a_main() {
     run_shape(8);
+}
+#[test]
+fn shape_two_sets_sharing_ids() {
+    run_shape(9);
 }

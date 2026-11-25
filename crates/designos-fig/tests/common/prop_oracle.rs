@@ -19,6 +19,8 @@ pub enum Violation {
     Dangling { record: G, key: &'static str, id: G },
     /// The owner defines the id under a name the original file never gave it.
     WrongName { record: G, key: &'static str, id: G, name: String },
+    /// A layer that sits in no component and under no instance names a property the saved file defines.
+    Ownerless { record: G, key: &'static str, id: G },
 }
 
 impl Violation {
@@ -38,6 +40,8 @@ fn pair(g: &V) -> Option<G> {
 struct Tree<'a> {
     rec: HashMap<G, &'a V>,
     parent: HashMap<G, G>,
+    /// The layer an override key addresses (a layer with no key is addressed by its guid).
+    by_key: HashMap<G, G>,
 }
 
 fn ty(r: &V) -> &str {
@@ -59,14 +63,18 @@ impl<'a> Tree<'a> {
     fn new(all: &'a [V]) -> Self {
         let mut rec = HashMap::new();
         let mut parent = HashMap::new();
+        let mut by_key = HashMap::new();
         for r in all {
             let Some(g) = r.get("guid").and_then(pair) else { continue };
             rec.insert(g, r);
+            if let Some(k) = r.get("overrideKey").and_then(pair).filter(|k| *k != (u32::MAX, u32::MAX)) {
+                by_key.entry(k).or_insert(g);
+            }
             if let Some(p) = r.get("parentIndex").and_then(|p| p.get("guid")).and_then(pair) {
                 parent.insert(g, p);
             }
         }
-        Tree { rec, parent }
+        Tree { rec, parent, by_key }
     }
 
     /// The root of the owner group of the component `g`: its nearest state group above (not through an instance), else itself.
@@ -109,6 +117,19 @@ impl<'a> Tree<'a> {
             cur = self.parent.get(&c).copied().filter(|p| *p != c);
         }
         None
+    }
+
+    /// The owner of an assignment in the overrides of the instance `at`: the group of the main of the instance the last step of the
+    /// entry's path addresses; an entry that is the instance's own (its path is its main's guid) belongs to the instance's main.
+    fn nested_owner(&self, at: G, path: &[G]) -> Option<G> {
+        let instance = self.rec.get(&at)?;
+        let last = *path.last()?;
+        if Some(last) == instance.get("symbolData").and_then(|s| s.get("symbolID")).and_then(pair) {
+            return self.main_of(instance).map(|m| self.root(m));
+        }
+        let target = self.by_key.get(&last).copied().or_else(|| self.rec.contains_key(&last).then_some(last))?;
+        let r = self.rec.get(&target)?;
+        (ty(r) == "INSTANCE").then(|| self.main_of(r).map(|m| self.root(m))).flatten()
     }
 
     fn assignment_owner(&self, g: G) -> Option<G> {
@@ -156,6 +177,20 @@ fn references(r: &V) -> Vec<(&'static str, G, bool)> {
     out
 }
 
+/// The assignments in the overrides of an instance record: the path of the entry and the id.
+fn nested_assignments(r: &V) -> Vec<(Vec<G>, G)> {
+    let mut out = Vec::new();
+    for e in r.get("symbolData").and_then(|s| s.get("symbolOverrides")).and_then(V::as_array).unwrap_or(&[]) {
+        let path: Vec<G> = e.get("guidPath").and_then(|p| p.get("guids")).and_then(V::as_array).unwrap_or(&[]).iter().filter_map(pair).collect();
+        for a in e.get("componentPropAssignments").and_then(V::as_array).unwrap_or(&[]) {
+            if let Some(g) = a.get("defID").and_then(pair).filter(|g| *g != (0, 0)) {
+                out.push((path.clone(), g));
+            }
+        }
+    }
+    out
+}
+
 /// What the original file said about its properties.
 pub struct Original {
     defined: HashSet<G>,
@@ -175,6 +210,7 @@ pub fn original(all: &[V]) -> Original {
             }
         }
         o.referenced.extend(references(r).into_iter().map(|(_, g, _)| g));
+        o.referenced.extend(nested_assignments(r).into_iter().map(|(_, g)| g));
     }
     o
 }
@@ -207,26 +243,37 @@ pub fn check(saved: &[V], was: &Original) -> Vec<Violation> {
         }
     }
     let mut out = Vec::new();
+    let mut judge = |out: &mut Vec<Violation>, at: G, key: &'static str, id: G, owner: Option<G>| {
+        let Some(owner) = owner else {
+            if defined_anywhere.contains(&id) {
+                out.push(Violation::Ownerless { record: at, key, id });
+            }
+            return;
+        };
+        match defined_by.get(&id) {
+            Some(owners) if owners.contains(&owner) => {
+                if let (Some(n), Some(orig)) = (name_in.get(&(owner, id)), was.names.get(&id)) {
+                    if !orig.contains(n) {
+                        out.push(Violation::WrongName { record: at, key, id, name: n.clone() });
+                    }
+                }
+            }
+            Some(_) => out.push(Violation::CrossOwner { record: at, key, id }),
+            None if defined_anywhere.contains(&id) => out.push(Violation::CrossOwner { record: at, key, id }),
+            None if was.defined.contains(&id) || !was.referenced.contains(&id) => out.push(Violation::Dangling { record: at, key, id }),
+            None => {}
+        }
+    };
     for r in saved {
         let Some(at) = r.get("guid").and_then(pair) else { continue };
         for (key, id, assignment) in references(r) {
             // the picks of an instance, like its assignments, name properties of the set of its main
             let is_instance = tree.rec.get(&at).is_some_and(|r| ty(r) == "INSTANCE");
             let owner = if assignment || (key == "variantPropSpecs" && is_instance) { tree.assignment_owner(at) } else { tree.binding_owner(at) };
-            let Some(owner) = owner else { continue };
-            match defined_by.get(&id) {
-                Some(owners) if owners.contains(&owner) => {
-                    if let (Some(n), Some(orig)) = (name_in.get(&(owner, id)), was.names.get(&id)) {
-                        if !orig.contains(n) {
-                            out.push(Violation::WrongName { record: at, key, id, name: n.clone() });
-                        }
-                    }
-                }
-                Some(_) => out.push(Violation::CrossOwner { record: at, key, id }),
-                None if defined_anywhere.contains(&id) => out.push(Violation::CrossOwner { record: at, key, id }),
-                None if was.defined.contains(&id) || !was.referenced.contains(&id) => out.push(Violation::Dangling { record: at, key, id }),
-                None => {}
-            }
+            judge(&mut out, at, key, id, owner);
+        }
+        for (path, id) in nested_assignments(r) {
+            judge(&mut out, at, "symbolOverrides.componentPropAssignments", id, tree.nested_owner(at, &path));
         }
     }
     out.sort();
@@ -249,6 +296,7 @@ pub fn counts(v: &[Violation]) -> BTreeMap<&'static str, usize> {
             Violation::CrossOwner { .. } => "CrossOwner",
             Violation::Dangling { .. } => "Dangling",
             Violation::WrongName { .. } => "WrongName",
+            Violation::Ownerless { .. } => "Ownerless",
         })
         .or_insert(0) += 1;
     }
@@ -257,7 +305,7 @@ pub fn counts(v: &[Violation]) -> BTreeMap<&'static str, usize> {
 
 /// How many references to a property id the records hold.
 pub fn reference_count(records: &[V]) -> usize {
-    records.iter().map(|r| references(r).len()).sum()
+    records.iter().map(|r| references(r).len() + nested_assignments(r).len()).sum()
 }
 
 /// What the original file said, and what the oracle found in it: the baseline a saved file is compared with.

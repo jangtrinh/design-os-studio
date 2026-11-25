@@ -7,7 +7,9 @@
 //!
 //! The entries are read-only data from the loader ([`Document::pending_instance_overrides`]). Two kinds of reference in
 //! them only mean something inside the file they came from, so they are mapped into the file being written: a geometry
-//! blob is added to this file's blob table, and a component property is named by this file's definition id. A field the
+//! blob is added to this file's blob table, and a component property is looked up again by the name the file gave it, inside the
+//! entry's own owner, because the file keeps the id Figma gave it and this file's definition may have gone. (That remap has no check
+//! of the owner's written definitions yet; it is a follow-up.) A field the
 //! writer's schema holds but no writer gates yet (prototype interactions on an override, text layout versions: see
 //! `HELD_BACK_UNTIL_KEPT`) is left out of the entry, and so is one the schema has no definition for; the rest of the
 //! entry is written as it was.

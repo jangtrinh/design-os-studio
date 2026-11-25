@@ -16,7 +16,7 @@
 //! - **An instance's assignments are checked against what its main's group writes.** They are Figma's when the instance is
 //!   written from the store and each id is a property that group writes (or the group is whole, or the id is a library's).
 //!
-//! No writer looks a property up by name outside the owner it names. A name nothing defines gets an id of Studio's session and
+//! No writer looks a property up by name outside the owner it names (see [`ExportCtx::scoped_guid`]). A name nothing defines gets an id of Studio's session and
 //! is counted in the save's report, so an unresolved reference is dangling, never bound to another component's property.
 
 use super::{kept_fields, ExportCtx};
@@ -253,7 +253,8 @@ impl ExportCtx<'_> {
         }
         match self.binding_owner(layer) {
             Some(root) => self.group_is_verbatim(root),
-            None => true,
+            // a layer that sits in no component: its bindings are the file's only while it is as the file had it
+            None => kept_fields::node_is_verbatim(self, layer),
         }
     }
 
@@ -316,6 +317,14 @@ impl ExportCtx<'_> {
         self.scoped_guid(scope, prop_name, true)
     }
 
+    /// The property `prop_name` as the owners above `scope` define it, by the same owner function the groups use and nothing else:
+    ///
+    /// - An assignment or pick (`own_main`): on an instance, the instance's own properties, then those of its main and of the root of
+    ///   its main's group. On a component, its own and its group's.
+    /// - A binding (`!own_main`), and any other layer: the layer's own properties; then the first owner above it, which is the
+    ///   component it sits in, or the main of the first instance on the way up (never the main of the layer itself).
+    ///
+    /// The first owner ends the search: a name that owner does not define is not looked up in the one around it.
     fn scoped_guid(&self, scope: NodeId, prop_name: &str, own_main: bool) -> Option<Guid> {
         if let Some(rest) = prop_name.strip_prefix("propDefId:") {
             if let Some(g) = super::parse_guid_pair(rest) {
@@ -326,24 +335,28 @@ impl ExportCtx<'_> {
             self.prop_guids
                 .get(&(node, prop_name.to_string()))
                 .or_else(|| (bare(prop_name) != prop_name).then(|| self.prop_guids.get(&(node, bare(prop_name).to_string()))).flatten())
+                .copied()
         };
-        let mut cur = Some(scope);
+        let in_group = |component: NodeId| own(component).or_else(|| own(self.owner_root(component)));
+        let n = self.doc.get(scope)?;
+        if let Some(g) = own(scope) {
+            return Some(g);
+        }
+        if own_main {
+            match n.kind {
+                NodeKind::Instance { component: Some(m), .. } => return in_group(m),
+                NodeKind::Component(_) | NodeKind::ComponentSet(_) => return in_group(scope),
+                _ => {}
+            }
+        }
+        let mut cur = n.parent;
         while let Some(c) = cur {
-            if let Some(&g) = own(c) {
-                return Some(g);
-            }
             let n = self.doc.get(c)?;
-            if let NodeKind::Instance { component: Some(master), .. } = n.kind {
-                if own_main || c != scope {
-                    if let Some(&g) = own(master) {
-                        return Some(g);
-                    }
-                    if let Some(&g) = self.doc.get(master).and_then(|m| m.parent).and_then(own) {
-                        return Some(g);
-                    }
-                }
+            match n.kind {
+                NodeKind::Component(_) | NodeKind::ComponentSet(_) => return in_group(c),
+                NodeKind::Instance { component, .. } => return component.and_then(in_group),
+                _ => cur = n.parent,
             }
-            cur = n.parent;
         }
         None
     }
