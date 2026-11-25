@@ -20,8 +20,7 @@ use std::sync::Arc;
 
 /// Fields a save does not write from the store, so Studio's own value (or none) is written as it was before.
 ///
-/// - The component property ids and override keys: the exporter renumbers them, so a kept reference would name another
-///   definition until the exporter keeps Figma's ids.
+/// - The override key: Studio's writer gives it from the record (see [`kept_override_key`]), edited layer or not.
 /// - What an instance carries (its overrides and the data Figma derived for it): it is gated on the instance's content and on
 ///   the component it names, not on the instance alone.
 /// - Outlines and vector networks, which name blobs and which Studio re-encodes.
@@ -34,11 +33,6 @@ use std::sync::Arc;
 ///   and writes the anchors of the children with them, so the definitions and the anchors have to come from the same writer.
 /// - Every field whose name starts with `derived`: a cache of the layer's content, its children or its main.
 pub(crate) const NOT_WRITTEN_FROM_THE_STORE: &[&str] = &[
-    "componentPropDefs",
-    "variantPropSpecs",
-    "componentPropRefs",
-    "componentPropAssignments",
-    "parameterConsumptionMap",
     "overrideKey",
     "symbolData",
     "fillGeometry",
@@ -88,6 +82,10 @@ pub struct KeptWriteReport {
     pub nodes_guid_mismatch: usize,
     /// Fields written in place of Studio's.
     pub fields_written: usize,
+    /// Property references Studio wrote under an id of its own session because no definition in scope has the name.
+    pub prop_name_unresolved: usize,
+    /// Consumption entries Studio left out because they bind to a property the save does not write for the layer's owner.
+    pub prop_refs_dropped: usize,
     /// Kept fields left out, by why. Studio's own field (if it writes one) is written instead.
     pub fields_dropped_by_reason: BTreeMap<&'static str, usize>,
     /// Layers written from the store with no kept field left out.
@@ -152,6 +150,16 @@ pub(crate) struct KeptState {
     maps: Option<Arc<IdMaps>>,
     /// The file's blob number -> the number it has in this save.
     blobs: HashMap<u32, u32>,
+    /// The field number of `overrideKey` in the file's schema.
+    override_key_no: Option<u32>,
+    /// The layer whose kept fields are being written.
+    pub(super) scope: Option<NodeId>,
+    /// What Studio wrote for the layer being written that counts against the report, by kind (see [`fold_unresolved`]).
+    pub(super) pending: [usize; 5],
+    /// Whether each layer asked about still has the value its snapshot took.
+    matches: HashMap<NodeId, bool>,
+    /// Layers whose file key is not used because another layer of the same main has it already.
+    rejected_keys: HashSet<NodeId>,
     pub(crate) report: KeptWriteReport,
 }
 
@@ -206,13 +214,83 @@ impl KeptState {
                     .collect()
             })
             .unwrap_or_default();
-        Self { plan: Some(Arc::new(Plan { fields, zero_wire: schema.zero_wire_table() })), ..Self::default() }
+        let override_key_no = schema.defs.get(nc_def).and_then(|d| d.field_named("overrideKey")).map(|f| f.value);
+        Self { plan: Some(Arc::new(Plan { fields, zero_wire: schema.zero_wire_table() })), override_key_no, ..Self::default() }
     }
 
     /// Whether any layer can be written from the store.
     pub(crate) fn is_active(&self) -> bool {
         self.plan.is_some()
     }
+
+    /// The field number the file's schema gives the `NodeChange` field `name`.
+    pub(super) fn field_number(&self, name: &str) -> Option<u32> {
+        self.plan.as_ref()?.fields.iter().find(|(_, f)| &*f.name == name).map(|(no, _)| *no)
+    }
+
+    /// Reads the kept bytes of one field as a value, with no check of the ids in it.
+    pub(super) fn decode_unchecked(&self, schema: &Schema, nc_def: usize, no: u32, bytes: &[u8]) -> Option<(Arc<str>, V)> {
+        let plan = self.plan.as_ref()?;
+        schema.decode_field_value_prepared(nc_def, no, bytes, &plan.zero_wire).ok()
+    }
+}
+
+/// The key the file's record for node `id` gives the layer in the overrides of its instances (`overrideKey`), when the record is the
+/// layer's own, whatever has become of the layer since: the key names the layer and is no value of it. Studio's writer names the layer
+/// by this key in the overrides it writes, and writes it as the layer's own key, so an override entry and the layer it names agree
+/// whichever of the two Studio wrote and whichever the file's bytes give back.
+pub(super) fn kept_override_key(cx: &ExportCtx<'_>, id: NodeId) -> Option<(u32, u32)> {
+    if cx.kept.rejected_keys.contains(&id) {
+        return None;
+    }
+    record_override_key(cx, id)
+}
+
+/// [`kept_override_key`] before the one-key-per-main rule.
+fn record_override_key(cx: &ExportCtx<'_>, id: NodeId) -> Option<(u32, u32)> {
+    let no = cx.kept.override_key_no.filter(|_| cx.kept.is_active())?;
+    let rec = cx.doc.fig_kept.record_of_node(id)?;
+    if rec.kind() != KeptRecordKind::Layer || cx.node_guids.get(&id) != Some(&rec.guid()) {
+        return None;
+    }
+    guid_struct(rec.field(no)?)
+}
+
+/// A `GUID` struct as the wire holds it: the session and the local id, one variable-length number each, and nothing after.
+fn guid_struct(bytes: &[u8]) -> Option<(u32, u32)> {
+    let mut at = 0;
+    let mut next = || -> Option<u32> {
+        let mut value = 0u64;
+        for shift in (0..35).step_by(7) {
+            let b = *bytes.get(at)?;
+            at += 1;
+            value |= u64::from(b & 0x7f) << shift;
+            if b & 0x80 == 0 {
+                return u32::try_from(value).ok();
+            }
+        }
+        None
+    };
+    let (session, local) = (next()?, next()?);
+    (at == bytes.len()).then_some((session, local))
+}
+
+/// Whether node `id` has the value its snapshot took (asked once per layer in a save).
+fn snapshot_matches(cx: &mut ExportCtx<'_>, id: NodeId) -> bool {
+    if let Some(&m) = cx.kept.matches.get(&id) {
+        return m;
+    }
+    let m = cx.doc.fig_kept_node_matches_snapshot(id) == Some(true);
+    cx.kept.matches.insert(id, m);
+    m
+}
+
+/// Whether the save writes node `id` as the file had it: it has a layer record under the guid the save writes it with, its value is
+/// still the one the file had, and it sits under the parent the file put it under.
+pub(super) fn node_is_verbatim(cx: &mut ExportCtx<'_>, id: NodeId) -> bool {
+    let doc = cx.doc;
+    let (Some(rec), Some(&guid)) = (doc.fig_kept.record_of_node(id), cx.node_guids.get(&id)) else { return false };
+    rec.kind() == KeptRecordKind::Layer && rec.guid() == guid && snapshot_matches(cx, id) && doc.fig_kept_node_moved(id) == Some(false)
 }
 
 /// The record to write for node `id` (exported under `guid`), or `None` for a layer that is written as Studio models it.
@@ -229,7 +307,7 @@ pub(crate) fn select<'a>(cx: &mut ExportCtx<'a>, doc: &'a Document, id: NodeId, 
         cx.kept.report.nodes_guid_mismatch += 1;
         return None;
     }
-    if doc.fig_kept_node_matches_snapshot(id) != Some(true) {
+    if !snapshot_matches(cx, id) {
         cx.kept.report.nodes_edited += 1;
         if cx.kept.report.edited_sample.len() < MAX_EDITED_SAMPLES {
             cx.kept.report.edited_sample.push(id);
@@ -239,16 +317,48 @@ pub(crate) fn select<'a>(cx: &mut ExportCtx<'a>, doc: &'a Document, id: NodeId, 
     Some(rec)
 }
 
+pub(super) const UNRESOLVED_ASSIGNMENT: usize = 0;
+pub(super) const UNRESOLVED_BINDING: usize = 1;
+pub(super) const UNRESOLVED_SPEC: usize = 2;
+pub(super) const UNRESOLVED_NESTED: usize = 3;
+pub(super) const PENDING_DROPPED_ENTRY: usize = 4;
+
+/// Starts counting what Studio writes for the next layer.
+pub(super) fn begin_layer(cx: &mut ExportCtx<'_>) {
+    cx.kept.pending = [0; 5];
+}
+
+/// Adds what Studio wrote for the layer to the report, except what the store then replaced: a reference Studio could not resolve
+/// by name is only counted when it is the one that ends up in the file.
+pub(super) fn fold_unresolved(cx: &mut ExportCtx<'_>, applied: Option<&Applied>) {
+    let replaced = applied.map(|a| a.replaced).unwrap_or([false; 5]);
+    let p = cx.kept.pending;
+    for (i, n) in p.iter().enumerate() {
+        if replaced[i] {
+            continue;
+        }
+        if i == PENDING_DROPPED_ENTRY {
+            cx.kept.report.prop_refs_dropped += n;
+        } else {
+            cx.kept.report.prop_name_unresolved += n;
+        }
+    }
+    cx.kept.pending = [0; 5];
+}
+
 /// What [`apply`] did that the rest of the node's record depends on.
 pub(crate) struct Applied {
+    /// Which of the counted kinds of reference the store wrote the field of (index: the `UNRESOLVED_*` and `PENDING_*` constants).
+    pub(super) replaced: [bool; 5],
     /// The kept `textData` is written, so the glyph style ids Figma stored are the ones its rows use.
     pub(crate) text_data: bool,
 }
 
 /// Writes the kept fields of `rec` into `fields`, each in place of the field of the same name Studio wrote.
-pub(crate) fn apply(cx: &mut ExportCtx<'_>, rec: KeptRecordRef<'_>, fields: &mut Vec<(Arc<str>, V)>) -> Applied {
-    let Some(plan) = cx.kept.plan.clone() else { return Applied { text_data: false } };
-    let mut applied = Applied { text_data: false };
+pub(crate) fn apply(cx: &mut ExportCtx<'_>, id: NodeId, rec: KeptRecordRef<'_>, fields: &mut Vec<(Arc<str>, V)>) -> Applied {
+    cx.kept.scope = Some(id);
+    let Some(plan) = cx.kept.plan.clone() else { return Applied { text_data: false, replaced: [false; 5] } };
+    let mut applied = Applied { text_data: false, replaced: [false; 5] };
     let (mut written_here, mut dropped_here) = (0usize, 0usize);
     for (no, bytes) in rec.fields() {
         let Some(fp) = plan.fields.get(&no) else {
@@ -257,6 +367,12 @@ pub(crate) fn apply(cx: &mut ExportCtx<'_>, rec: KeptRecordRef<'_>, fields: &mut
             continue;
         };
         if !fp.written {
+            continue;
+        }
+        // the definition side of a property group is the store's only while the whole group is as the file had it
+        if !cx.store_may_write_property_key(id, &fp.name) {
+            cx.kept.report.drop_field("group_not_verbatim");
+            dropped_here += 1;
             continue;
         }
         let value = if fp.decode {
@@ -277,6 +393,13 @@ pub(crate) fn apply(cx: &mut ExportCtx<'_>, rec: KeptRecordRef<'_>, fields: &mut
         }
         if &*fp.name == "textData" {
             applied.text_data = true;
+        }
+        match &*fp.name {
+            "componentPropAssignments" => applied.replaced[UNRESOLVED_ASSIGNMENT] = true,
+            "componentPropRefs" => applied.replaced[UNRESOLVED_BINDING] = true,
+            "variantPropSpecs" => applied.replaced[UNRESOLVED_SPEC] = true,
+            "parameterConsumptionMap" => applied.replaced[PENDING_DROPPED_ENTRY] = true,
+            _ => {}
         }
         cx.kept.report.fields_written += 1;
         written_here += 1;
@@ -311,6 +434,8 @@ enum IdKind {
     VariableSet,
     Mode,
     Style,
+    /// A component property definition: see `prop_ids` for who may write a reference to one.
+    PropDef,
     /// An id the record defines or remembers, not one that points at something that has to exist.
     Definition,
 }
@@ -331,7 +456,18 @@ fn classify(path: &[Arc<str>]) -> Option<IdKind> {
     if last == "guid" && before == Some("variableSetID") {
         return Some(IdKind::VariableSet);
     }
+    // the layer a component property value or a symbol id names
+    if (last == "guidValue" && matches!(names[0], "componentPropAssignments" | "componentPropDefs")) || (last == "guid" && before == Some("symbolIdValue")) {
+        return Some(IdKind::Node);
+    }
+    if last == "defId" && before == Some("propRefValue") {
+        return Some(IdKind::PropDef);
+    }
     match names.as_slice() {
+        ["componentPropAssignments" | "componentPropRefs", "#", "defID"] | ["variantPropSpecs", "#", "propDefId"] | ["componentPropDefs", "#", "parentPropDefId"] => {
+            Some(IdKind::PropDef)
+        }
+        ["componentPropDefs", "#", "id"] => Some(IdKind::Definition),
         ["variableModeBySetMap", "entries", "#", "variableModeID"] => Some(IdKind::Mode),
         ["handoffStatusMap", "entries", "#", "guid"]
         | ["hyperlink", "guid"]
@@ -438,6 +574,10 @@ fn walk(cx: &mut ExportCtx<'_>, maps: &IdMaps, value: &mut V, path: &mut Vec<Arc
                 IdKind::VariableSet => *maps.sets.get(&g).ok_or("variable_set_not_written")?,
                 IdKind::Mode => *maps.modes.get(&g).ok_or("mode_not_written")?,
                 IdKind::Style => *maps.styles.get(&g).ok_or("style_not_written")?,
+                IdKind::PropDef => {
+                    cx.kept_prop_ref_is_written(path.first().map(|p| &**p).unwrap_or(""), g)?;
+                    g
+                }
             };
             for (name, v) in fields.iter_mut() {
                 *v = V::Uint(if &**name == "sessionID" { mapped.0 } else { mapped.1 });
@@ -514,4 +654,64 @@ fn add_kept_blob(cx: &mut ExportCtx<'_>, old: u32) -> Option<u32> {
     let slot = cx.add_blob(bytes);
     cx.kept.blobs.insert(old, slot);
     Some(slot)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::guid_struct;
+
+    #[test]
+    fn a_guid_struct_reads_two_variable_length_numbers_and_nothing_else() {
+        assert_eq!(guid_struct(&[0x87, 0x01, 0x05]), Some((135, 5)));
+        assert_eq!(guid_struct(&[0x00, 0x00]), Some((0, 0)));
+        assert_eq!(guid_struct(&[0xff, 0xff, 0xff, 0xff, 0x0f, 0x01]), Some((u32::MAX, 1)));
+        assert_eq!(guid_struct(&[0x87, 0x01]), None, "the local id is missing");
+        assert_eq!(guid_struct(&[0x01, 0x02, 0x03]), None, "bytes are left over");
+        assert_eq!(guid_struct(&[0x80, 0x80, 0x80, 0x80, 0x80, 0x01, 0x01]), None, "a number past 32 bits");
+        assert_eq!(guid_struct(&[0x81]), None, "a number that does not end");
+    }
+}
+
+/// Works out which layers must not use the key the file gave them. The overrides of an instance name a layer of its main by key, so
+/// two layers of one main with the same key would be one layer to them. Figma gives a copy of a component the keys of the original,
+/// so a layer moved from the copy into the original can meet its own key there: the layer with the smaller id keeps it.
+pub(super) fn index_override_keys(cx: &mut ExportCtx<'_>) {
+    if !cx.kept.is_active() {
+        return;
+    }
+    let doc = cx.doc;
+    // (main, key the layer is addressed by) -> the layers that hold it; a layer the file gave no key is addressed by its own guid
+    let mut held: HashMap<(NodeId, (u32, u32)), Vec<(NodeId, bool)>> = HashMap::new();
+    for &id in doc.nodes.keys() {
+        let Some(own) = cx.node_guids.get(&id).copied() else { continue };
+        let explicit = record_override_key(cx, id).filter(|k| *k != (u32::MAX, u32::MAX));
+        // only a layer of a main is addressed by a key in the overrides of an instance
+        let mut cur = Some(id);
+        let mut main = None;
+        for _ in 0..=doc.nodes.len() {
+            let Some(c) = cur else { break };
+            let Some(n) = doc.get(c) else { break };
+            if matches!(n.kind, designos_doc::NodeKind::Component(_)) {
+                main = Some(c);
+                break;
+            }
+            cur = n.parent;
+        }
+        let Some(main) = main else { continue };
+        if explicit.is_none() && doc.fig_kept.record_of_node(id).is_none() {
+            continue;
+        }
+        held.entry((main, explicit.unwrap_or(own))).or_default().push((id, explicit.is_some()));
+    }
+    let mut rejected: HashSet<NodeId> = HashSet::new();
+    for (_, mut layers) in held {
+        if layers.len() < 2 {
+            continue;
+        }
+        // the layer that sits where the file put it keeps the key; of two that do (or two that do not) the smaller guid does
+        layers.sort_by_key(|(id, _)| (doc.fig_kept_node_moved(*id) != Some(false), cx.node_guids.get(id).copied().unwrap_or((u32::MAX, u32::MAX))));
+        // a layer with no key of its own cannot be given another address: only a layer that holds the key explicitly gives it up
+        rejected.extend(layers.iter().skip(1).filter(|(_, explicit)| *explicit).map(|(id, _)| *id));
+    }
+    cx.kept.rejected_keys = rejected;
 }
