@@ -1413,12 +1413,26 @@ impl Document {
 
     pub fn get_mut(&mut self, id: NodeId) -> Option<&mut Node> {
         if self.nodes.contains_key(&id) {
+            if !self.loader_relayout_roots.is_empty() && !self.loader_solving {
+                self.untag_loader_roots_above(id);
+            }
             self.mark_node_dirty(id);
             if let (Some(log), Some(node)) = (self.write_log.as_mut(), self.nodes.get(&id)) {
                 log.entry(id).or_insert_with(|| node.clone());
             }
         }
         self.nodes.get_mut(&id)
+    }
+
+    /// A write that is not a page load's reaches `id`: a queued root the loader tagged that holds `id` (or is `id`) is solved as
+    /// an edit's from now on, because its solve would also lay out what the write changed.
+    fn untag_loader_roots_above(&mut self, id: NodeId) {
+        let mut cur = Some(id);
+        for _ in 0..=self.nodes.len() {
+            let Some(c) = cur else { return };
+            self.loader_relayout_roots.remove(&c);
+            cur = self.nodes.get(&c).and_then(|n| n.parent);
+        }
     }
 
     /// Runs `f` and returns what it wrote to nodes through [`Self::get_mut`], each as it was before its first write

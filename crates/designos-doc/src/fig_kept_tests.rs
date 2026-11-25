@@ -156,6 +156,18 @@ fn vector_base(id: NodeId) -> Node {
     n
 }
 
+fn instance_base(id: NodeId) -> Node {
+    let mut n = Node::frame(id, Rect::new(0.0, 0.0, 10.0, 10.0));
+    n.kind = NodeKind::Instance { frame: Default::default(), component: Some(NodeId(98)), component_key: None };
+    n
+}
+
+fn connector_base(id: NodeId) -> Node {
+    let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0));
+    n.kind = NodeKind::Connector(Default::default());
+    n
+}
+
 fn with_text(n: &mut Node, f: impl FnOnce(&mut crate::TextProps)) {
     let NodeKind::Text(t) = &mut n.kind else { panic!("a text node") };
     f(t);
@@ -226,6 +238,26 @@ fn a_match_after_a_change_means_every_group_is_equal() {
         ("text size", text_base, |n| with_text(n, |t| t.style.font_size += 1.0)),
         ("text run", text_base, |n| with_text(n, |t| t.runs.push(crate::TextRun { start: 0, end: 1, style: t.style.clone() }))),
         ("text auto resize", text_base, |n| with_text(n, |t| t.max_lines = Some(2))),
+        ("mask type", rect, |n| n.mask_type = crate::MaskType::Vector),
+        ("stroke dashes", rect, |n| n.stroke.dashes.push(4.0)),
+        ("stroke side weights", rect, |n| n.stroke.side_weights = Some([1.0, 2.0, 3.0, 4.0])),
+        ("text paragraph", text_base, |n| with_text(n, |t| t.paragraph.indent = 12.0)),
+        ("text direction", text_base, |n| with_text(n, |t| t.direction = crate::TextDirection::Rtl)),
+        ("instance swap", instance_base, |n| {
+            if let NodeKind::Instance { component, .. } = &mut n.kind {
+                *component = Some(NodeId(99));
+            }
+        }),
+        ("instance key", instance_base, |n| {
+            if let NodeKind::Instance { component_key, .. } = &mut n.kind {
+                *component_key = Some("key".into());
+            }
+        }),
+        ("connector cap", connector_base, |n| {
+            if let NodeKind::Connector(c) = &mut n.kind {
+                c.end_cap = crate::ConnectorCap::Diamond;
+            }
+        }),
         ("vector paths", vector_base, |n| {
             if let NodeKind::Vector { paths, .. } = &mut n.kind {
                 paths.push(Default::default());
@@ -452,6 +484,39 @@ fn the_layout_an_edit_queued_is_not_blessed_even_while_the_loader_layout_drains_
     assert_eq!(doc.fig_kept_node_matches_snapshot(kids[0][1]), Some(true), "the loader's layout moved its snapshots");
     assert_eq!(doc.fig_kept_node_matches_snapshot(kids[1][0]), Some(false));
     assert_eq!(doc.fig_kept_node_matches_snapshot(kids[1][1]), Some(false), "a node the edit's layout moved reads as edited");
+}
+
+#[test]
+fn an_edit_inside_a_queued_loader_root_makes_its_layout_the_edits_and_blesses_nothing() {
+    let (mut doc, parent, kids) = column_with_store();
+    assert!(doc.loader_relayout_roots.contains(&parent));
+    // an edit changes a child before the loader's layout drains, and queues nothing itself
+    doc.get_mut(kids[0]).unwrap().size.y = 40.0;
+    assert!(doc.loader_relayout_roots.is_empty(), "the root is no longer the loader's");
+    drain(&mut doc);
+    assert_eq!(doc.fig_kept_node_matches_snapshot(kids[0]), Some(false));
+    assert_eq!(doc.fig_kept_node_matches_snapshot(kids[1]), Some(false), "the sibling the edit pushed down is not blessed");
+}
+
+#[test]
+fn an_edit_in_another_column_leaves_a_queued_loader_root_alone() {
+    let (mut doc, columns, kids) = columns_with_store(2, &[0]);
+    doc.get_mut(kids[1][0]).unwrap().name = "elsewhere".into();
+    assert!(doc.loader_relayout_roots.contains(&columns[0]));
+    drain(&mut doc);
+    assert_eq!(doc.fig_kept_node_matches_snapshot(kids[0][1]), Some(true));
+}
+
+#[test]
+fn renumbering_the_ids_follows_the_queued_roots_and_their_tags() {
+    let (mut doc, parent, _) = column_with_store();
+    doc.get_mut(NodeId(0)); // nothing at id 0; the queue is untouched
+    assert_eq!(doc.pending_relayout(), &[parent]);
+    let before = doc.loader_relayout_roots.clone();
+    assert_eq!(before.len(), 1);
+    // ids are small here: the renumber maps nothing, and both sets must still hold the same nodes
+    let _ = doc.renumber_ids_for_headroom();
+    assert_eq!(doc.loader_relayout_roots, before);
 }
 
 #[test]

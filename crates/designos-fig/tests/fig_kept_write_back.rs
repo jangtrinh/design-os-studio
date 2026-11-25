@@ -462,3 +462,100 @@ fn a_child_layout_key_that_reads_its_parent_is_written_as_studio_computes_it_aft
     assert!(record_of(&without, (2, 2)).get("gridChildHorizontalAlign").is_none(), "Studio writes no start alignment under a row");
     assert_eq!(record_of(&with, (2, 2)).get("gridChildHorizontalAlign"), None, "the kept alignment of the grid is not written under a row");
 }
+
+/// A grid frame with two columns and one row, each track named by a guid of the file, and a child anchored in the second column.
+fn anchored_grid_nodes() -> Vec<V> {
+    let map = |ids: &[(u32, u32)]| {
+        msg(vec![(
+            "entries",
+            V::Array(
+                ids.iter()
+                    .enumerate()
+                    .map(|(i, &(s, l))| msg(vec![("id", guid(s, l)), ("position", V::String(char::from(b'!' + i as u8).to_string()))]))
+                    .collect(),
+            ),
+        )])
+    };
+    let sizing = |ids: &[(u32, u32)]| {
+        let f = || msg(vec![("type", en("FLEX")), ("value", fl(1.0))]);
+        msg(vec![(
+            "entries",
+            V::Array(ids.iter().map(|&(s, l)| msg(vec![("id", guid(s, l)), ("trackSize", msg(vec![("minSizing", f()), ("maxSizing", f())]))])).collect()),
+        )])
+    };
+    let (cols, rows) = ([(3, 1), (3, 2)], [(3, 3)]);
+    let mut nodes = document_and_page();
+    nodes.push(node(
+        (2, 1),
+        (0, 1),
+        "a",
+        "FRAME",
+        "Grid",
+        vec![
+            ("size", vec2(100.0, 100.0)),
+            ("stackMode", en("GRID")),
+            ("gridColumns", map(&cols)),
+            ("gridColumnsSizing", sizing(&cols)),
+            ("gridRows", map(&rows)),
+            ("gridRowsSizing", sizing(&rows)),
+        ],
+    ));
+    nodes.push(node(
+        (2, 2),
+        (2, 1),
+        "a",
+        "ROUNDED_RECTANGLE",
+        "Cell",
+        vec![("size", vec2(10.0, 10.0)), ("gridColumnAnchor", guid(3, 2)), ("gridRowAnchor", guid(3, 3))],
+    ));
+    nodes
+}
+
+#[test]
+fn a_grid_child_anchored_in_a_cell_is_in_the_same_cell_after_a_no_edit_save() {
+    let doc = import_fig(&small(anchored_grid_nodes())).expect("imports");
+    let cell = by_name(&doc, "Cell");
+    assert_eq!(
+        (doc.get(cell).unwrap().layout_child.grid_column, doc.get(cell).unwrap().layout_child.grid_row),
+        (Some(1), Some(0)),
+        "the fixture places the child"
+    );
+    let saved = export_fig(&doc).expect("saves");
+    let now = records(&saved);
+    // the anchors name tracks the parent defines
+    let ids = |record: &V, key: &str| -> Vec<V> {
+        record
+            .get(key)
+            .and_then(|m| m.get("entries"))
+            .and_then(V::as_array)
+            .map(|e| e.iter().filter_map(|x| x.get("id").cloned()).collect())
+            .unwrap_or_default()
+    };
+    let parent = record_of(&now, (2, 1));
+    let column = record_of(&now, (2, 2)).get("gridColumnAnchor").cloned().expect("the child keeps a column anchor");
+    assert!(ids(parent, "gridColumns").contains(&column), "the anchor names a column of the parent: {column:?} in {:?}", ids(parent, "gridColumns"));
+    let row = record_of(&now, (2, 2)).get("gridRowAnchor").cloned().expect("the child keeps a row anchor");
+    assert!(ids(parent, "gridRows").contains(&row));
+    // and a reopen keeps the child in its cell
+    let reopened = import_fig(&saved).expect("reopens");
+    let cell = by_name(&reopened, "Cell");
+    assert_eq!((reopened.get(cell).unwrap().layout_child.grid_column, reopened.get(cell).unwrap().layout_child.grid_row), (Some(1), Some(0)));
+}
+
+#[test]
+fn media_a_string_hash_names_that_the_save_does_not_write_drops_the_field() {
+    let mut nodes = document_and_page();
+    nodes.push(node(
+        (2, 1),
+        (0, 1),
+        "a",
+        "FRAME",
+        "Media",
+        vec![("size", vec2(10.0, 10.0)), ("richMediaData", msg(vec![("mediaHash", V::String("deadbeef".into()))]))],
+    ));
+    let doc = import_fig(&small(nodes)).expect("imports");
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+    assert_eq!(report.fields_dropped_by_reason.get("image_not_written"), Some(&1), "{report:?}");
+    assert!(record_of(&records(&saved), (2, 1)).get("richMediaData").is_none());
+    assert_eq!((report.nodes_partial, report.records_written), (1, 0), "a layer with a dropped field is partial: {report:?}");
+}

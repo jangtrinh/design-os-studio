@@ -56,6 +56,8 @@ impl Document {
             self.nodes.insert(f(id), node);
         }
         self.pages.iter_mut().for_each(|p| *p = f(*p));
+        self.pending_relayout.iter_mut().for_each(|p| *p = f(*p));
+        self.loader_relayout_roots = std::mem::take(&mut self.loader_relayout_roots).into_iter().map(f).collect();
         self.library_page = self.library_page.map(f);
         for flow in &mut self.flows {
             flow.page = f(flow.page);
