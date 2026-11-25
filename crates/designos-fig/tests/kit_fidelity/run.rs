@@ -58,7 +58,12 @@ pub fn run_bytes(bytes: &[u8], out: &std::path::Path, only: Option<&HashSet<Stri
 
     let mut doc = designos_fig::import_fig(bytes).expect("import the kit");
     lap("import", &mut timings);
-    let saved = (want("save_loss") || want("save_class")).then(|| designos_fig::export_fig(&doc).expect("no-edit save"));
+    let (saved, kept_notes) = if want("save_loss") || want("save_class") {
+        let (bytes, report) = designos_fig::export_fig_with_kept_report(&doc).expect("no-edit save");
+        (Some(bytes), Some(kept_write_notes(&doc, &report)))
+    } else {
+        (None, None)
+    };
     if let Some(s) = &saved {
         eprintln!("NO-EDIT SAVE bytes: {}", s.len());
         lap("no-edit save", &mut timings);
@@ -153,6 +158,9 @@ pub fn run_bytes(bytes: &[u8], out: &std::path::Path, only: Option<&HashSet<Stri
                 ),
                 None => "raw rate beside it: not run (add save_loss to SCOREBOARD_PARTS)".to_string(),
             });
+            for n in kept_notes.iter().flatten() {
+                p.note(n.clone());
+            }
             parts.push(p);
             lap("save loss by class", &mut timings);
         }
@@ -180,4 +188,33 @@ pub fn run_bytes(bytes: &[u8], out: &std::path::Path, only: Option<&HashSet<Stri
         "parts_run": PARTS.iter().filter(|id| want(id)).collect::<Vec<_>>(),
     });
     report::write(out, &parts, meta, regressions.as_ref(), &deltas);
+}
+
+/// What the no-edit save wrote from the records the open kept, as scoreboard notes. A guid at a place no rule lists, or a field
+/// the save could not decode, fails the run: a field Figma added must be classified before it is written.
+fn kept_write_notes(doc: &designos_doc::Document, report: &designos_fig::KeptWriteReport) -> Vec<String> {
+    for loud in ["id_at_an_unlisted_path", "hash_at_an_unlisted_path", "decode_refused", "field_unknown_to_the_schema"] {
+        assert!(
+            !report.fields_dropped_by_reason.contains_key(loud),
+            "the save met a kept field it cannot classify ({loud}): {:?} {:?}",
+            report.fields_dropped_by_reason,
+            report.unlisted_paths
+        );
+    }
+    let mut notes = vec![format!(
+        "no-edit save wrote from the store: {} layers ({} records), {} fields; layers edited (snapshot mismatch, Studio's record written): {}; layers under another guid: {}; fields dropped: {} {:?}",
+        board::thousands(report.nodes_written as u64),
+        board::thousands(report.records_written as u64),
+        board::thousands(report.fields_written as u64),
+        report.nodes_edited,
+        report.nodes_guid_mismatch,
+        report.fields_dropped(),
+        report.fields_dropped_by_reason,
+    )];
+    for id in &report.edited_sample {
+        if let Some(n) = doc.get(*id) {
+            notes.push(format!("false edit: {:?} {:?} {:?}", n.source_id, n.name, std::mem::discriminant(&n.kind)));
+        }
+    }
+    notes
 }

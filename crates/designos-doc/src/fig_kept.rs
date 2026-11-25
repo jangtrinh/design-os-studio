@@ -156,9 +156,6 @@ struct KeptNode {
 pub struct FigKeptStore {
     data: Arc<KeptData>,
     nodes: HashMap<NodeId, KeptNode>,
-    /// The snapshot was taken at the end of the import, before the open-time layout settled: the app takes it once more
-    /// when that is done (see [`Document::settle_fig_kept_snapshot_if_due`]).
-    snapshot_due_after_settle: bool,
 }
 
 /// A kept record and the arena it points into.
@@ -215,7 +212,7 @@ impl RetainedBytes {
 
 impl FigKeptStore {
     pub fn new(data: KeptData) -> Self {
-        Self { data: Arc::new(data), nodes: HashMap::new(), snapshot_due_after_settle: false }
+        Self { data: Arc::new(data), nodes: HashMap::new() }
     }
 
     /// Whether the store keeps no record.
@@ -282,17 +279,6 @@ impl FigKeptStore {
         self.nodes.len()
     }
 
-    /// Whether the snapshot was taken before the open-time layout settled.
-    pub fn snapshot_due_after_settle(&self) -> bool {
-        self.snapshot_due_after_settle
-    }
-
-    /// Marks that the snapshot taken at the end of the import is to be taken again once the open-time layout settles.
-    pub fn with_snapshot_due_after_settle(mut self, due: bool) -> Self {
-        self.snapshot_due_after_settle = due;
-        self
-    }
-
     /// The memory the store holds, counted by part.
     pub fn retained_bytes(&self) -> RetainedBytes {
         let d = &self.data;
@@ -311,14 +297,22 @@ impl FigKeptStore {
         }
     }
 
-    /// The same store with every node key `f` maps; the records and the arena are shared.
-    pub fn remapped(&self, f: impl Fn(NodeId) -> NodeId) -> FigKeptStore {
-        let nodes = self.nodes.iter().map(|(id, n)| (f(*id), *n)).collect();
-        FigKeptStore { data: self.data.clone(), nodes, snapshot_due_after_settle: self.snapshot_due_after_settle }
+    /// The same store with every node key `f` maps; the records and the arena are shared. `snapshot_of(old, new)` gives a node a
+    /// new snapshot where its renumbering changed what the snapshot hashes (a node that names other nodes by id).
+    pub fn remapped(&self, f: impl Fn(NodeId) -> NodeId, snapshot_of: impl Fn(NodeId, NodeId) -> Option<NodeSnapshot>) -> FigKeptStore {
+        let nodes = self
+            .nodes
+            .iter()
+            .map(|(id, n)| {
+                let new = f(*id);
+                (new, KeptNode { snapshot: snapshot_of(*id, new).unwrap_or(n.snapshot), ..*n })
+            })
+            .collect();
+        FigKeptStore { data: self.data.clone(), nodes }
     }
 
-    fn with_nodes(&self, nodes: HashMap<NodeId, KeptNode>, snapshot_due_after_settle: bool) -> FigKeptStore {
-        FigKeptStore { data: self.data.clone(), nodes, snapshot_due_after_settle }
+    fn with_nodes(&self, nodes: HashMap<NodeId, KeptNode>) -> FigKeptStore {
+        FigKeptStore { data: self.data.clone(), nodes }
     }
 }
 
@@ -331,24 +325,17 @@ fn guid_of(node: &Node) -> Option<(u32, u32)> {
 }
 
 impl Document {
-    /// Takes the value of every node a record was kept for, replacing the snapshots there were. The direct import calls it
-    /// at its end; the app calls it once more after the open-time layout settled (the layout solver rewrites sizes and
-    /// transforms on open, and those writes are Studio's own, not an edit). A node reads as the file's own only through its
-    /// source id, and a guid two nodes share goes to the one with the smaller id.
+    /// Takes the value of every node a record was kept for, replacing the snapshots there were. The import calls it at its
+    /// end. The layout it left queued is the loader's, not an edit's: those roots are tagged, so when they are solved later
+    /// (see [`Self::flush_pending_relayout_step`]) the nodes the solver writes move their snapshot forward, and a layout an
+    /// edit queued does not. A node reads as the file's own only through its source id, and a guid two nodes share goes to
+    /// the one with the smaller id.
     pub fn take_fig_kept_snapshot(&mut self) {
-        self.snapshot_fig_kept(false);
-    }
-
-    /// [`Self::take_fig_kept_snapshot`] for the end of an import whose open-time layout has not settled yet: the snapshot is
-    /// marked so the app moves it forward over that layout's writes (see [`Self::flush_pending_relayout_step_on_open`]).
-    pub fn take_fig_kept_snapshot_before_settle(&mut self) {
-        self.snapshot_fig_kept(true);
-    }
-
-    fn snapshot_fig_kept(&mut self, due_after_settle: bool) {
         if self.fig_kept.is_empty() {
             return;
         }
+        let queued = self.pending_relayout.clone();
+        self.loader_relayout_roots.extend(queued);
         let store = self.fig_kept.clone();
         let mut seen = std::collections::HashSet::new();
         let mut wanted: Vec<(NodeId, u32, &Node)> = Vec::new();
@@ -360,34 +347,7 @@ impl Document {
             }
         }
         let nodes = snapshot_nodes(&wanted);
-        self.fig_kept = Arc::new(store.with_nodes(nodes, due_after_settle));
-    }
-
-    /// One step of the layout the open of a `.fig` left to settle (see [`Self::flush_pending_relayout_step`]). The nodes the
-    /// solver writes move their snapshot forward, but only those that still had the snapshot's value just before: the solver
-    /// is rewriting what the file stored, which is not an edit, and a node edited by anyone is left different from its
-    /// snapshot whatever the solver does to it afterwards. Once the queue is empty the settle is over
-    /// ([`Self::finish_fig_kept_settle`]); a later layout is the result of an edit and moves nothing.
-    pub fn flush_pending_relayout_step_on_open(&mut self) -> usize {
-        let (remaining, written) = self.record_fig_kept_writes(|d| d.flush_pending_relayout_step());
-        self.advance_fig_kept_snapshots(&written);
-        remaining
-    }
-
-    /// Finishes every deferred layout of the open, as [`Self::flush_pending_relayout_step_on_open`] does step by step, and ends
-    /// the settle.
-    pub fn flush_pending_relayout_on_open(&mut self) -> usize {
-        let (steps, written) = self.record_fig_kept_writes(|d| d.flush_pending_relayout());
-        self.advance_fig_kept_snapshots(&written);
-        self.finish_fig_kept_settle();
-        steps
-    }
-
-    /// Ends the open-time settle: the snapshot is the file's own value from here on, and nothing moves it but a page load.
-    pub fn finish_fig_kept_settle(&mut self) {
-        if self.fig_kept.snapshot_due_after_settle() {
-            Arc::make_mut(&mut self.fig_kept).snapshot_due_after_settle = false;
-        }
+        self.fig_kept = Arc::new(store.with_nodes(nodes));
     }
 
     /// Whether node `id` still has the value its snapshot took: `Some(true)` for an unedited node, `Some(false)` for an edited
@@ -429,11 +389,12 @@ impl Document {
 
     /// Runs a page load `f`, and returns the nodes it wrote as they were before: those are the nodes whose snapshot may move
     /// forward. With no snapshot to move, nothing is recorded and the load costs what it did.
+    /// A layout `f` queues is the loader's: its roots are tagged (see [`Self::take_fig_kept_snapshot`]).
     pub(crate) fn record_fig_kept_writes<R>(&mut self, f: impl FnOnce(&mut Document) -> R) -> (R, BTreeMap<NodeId, Node>) {
-        if self.fig_kept.snapshot_count() == 0 {
-            return (f(self), BTreeMap::new());
-        }
-        self.record_node_writes(f)
+        let was = std::mem::replace(&mut self.loader_solving, true);
+        let out = if self.fig_kept.snapshot_count() == 0 { (f(self), BTreeMap::new()) } else { self.record_node_writes(f) };
+        self.loader_solving = was;
+        out
     }
 }
 

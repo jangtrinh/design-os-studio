@@ -177,9 +177,15 @@ fn a_stored_id_no_run_has_is_written_as_the_text_s_own_style_unless_the_text_has
         vec![("decorations", V::Array(vec![stored_decoration(1, &[(0.0, 22.0, 20.0, 2.0)])]))],
         vec![("textDecoration", en("UNDERLINE"))],
     ));
-    let doc = import_fig(&fig_file(nodes, vec![icon_blob()])).unwrap();
+    let bytes = fig_file(nodes, vec![icon_blob()]);
+    // the mapping is Studio's own when the record of the file is not the one written (a document with no store)
+    let (doc, _) = designos_fig::import_fig_with_kept_options(&bytes, None).unwrap();
     let derived = saved_derived(&export_fig(&doc).unwrap(), "Whole text").expect("written back");
     assert_eq!(derived_style_ids(&derived), vec![0], "an id no run has belongs to the text's own style");
+    // with the file's own text data written, its glyphs keep the ids Figma wrote
+    let kept = import_fig(&bytes).unwrap();
+    let derived = saved_derived(&export_fig(&kept).unwrap(), "Whole text").expect("written back");
+    assert_eq!(derived_style_ids(&derived), vec![1], "the kept text data and the glyphs agree on Figma's numbering");
 
     // a layer linked to a text style that stores an override gets a row for its own characters: no single id names them
     let mut linked = doc.clone();

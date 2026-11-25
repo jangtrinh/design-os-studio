@@ -288,6 +288,14 @@ pub fn sweep_stale_sessions(root: &Path, now: SystemTime, is_alive: impl Fn(u32,
     removed
 }
 
+/// Points the spill file of a large `.fig` open (the arena of Figma's kept records, see `designos_fig::set_kept_spill_dir`) at a
+/// folder of the sessions folder, which only Studio can write. The sweep above never removes a folder that is not a session's.
+pub fn route_kept_spill_to_sessions_root() {
+    if let Some(root) = ephemeral_sessions_root() {
+        designos_fig::set_kept_spill_dir(root.join("kept-spill"));
+    }
+}
+
 /// Spawns the one-shot background startup sweep of [`ephemeral_sessions_root`].
 pub fn spawn_startup_sweep() {
     let Some(root) = ephemeral_sessions_root() else {
