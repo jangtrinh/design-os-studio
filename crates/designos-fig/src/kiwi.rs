@@ -269,6 +269,14 @@ impl KiwiValue {
 
 // ---------------------------------------------------------------- reader
 
+/// Where the value of one field of a message sits in the payload: after its field number, up to the next one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RawSpan {
+    pub id: u32,
+    pub start: u32,
+    pub end: u32,
+}
+
 pub struct Reader<'a> {
     data: &'a [u8],
     pos: usize,
@@ -291,6 +299,14 @@ pub struct Reader<'a> {
     /// Whether the definition of `derivedTextData` (by index in the schema being read) is the one Studio writes, so a kept
     /// span can be copied as it is. Worked out once per decode.
     derived_verbatim: Option<(usize, bool)>,
+    /// A capture of the records of `nodeChanges` and the entries of `blobs` (see `kept_capture`), for a decode that keeps them.
+    capture: Option<crate::kept_capture::Capture>,
+    /// What keeping the heavy fields (`editInfo`, `derivedImmutableFrameData`) of the records would charge on top of what a decode
+    /// without a capture charges: values and zero-size instances. The capture settles it when the decode is done.
+    kept_extra_values: usize,
+    kept_extra_zero_wire: usize,
+    /// The numbers of the heavy fields kept in the record being read.
+    kept_heavy_ids: Vec<u32>,
 }
 
 impl<'a> Reader<'a> {
@@ -309,6 +325,10 @@ impl<'a> Reader<'a> {
             tally_values: 0,
             tally_zero_wire: 0,
             derived_verbatim: None,
+            capture: None,
+            kept_extra_values: 0,
+            kept_extra_zero_wire: 0,
+            kept_heavy_ids: Vec::new(),
         }
     }
     pub fn remaining(&self) -> usize {
@@ -537,15 +557,65 @@ impl Schema {
         stored_glyph_allowance: usize,
         nested_allowance: Option<usize>,
     ) -> Result<(KiwiValue, usize)> {
+        let (message, dropped, _) =
+            self.decode_message_capturing_with(root, data, values, zero_wire_instances, skip_heavy, stored_glyph_allowance, nested_allowance, None)?;
+        Ok((message, dropped))
+    }
+
+    /// [`Self::decode_message_counting`] that also reports, when `capture` is given, where the fields of every record of the
+    /// root's `nodeChanges` and the bytes of every entry of its `blobs` sit in `data`.
+    #[allow(clippy::too_many_arguments)]
+    fn decode_message_capturing_with(
+        &self,
+        root: usize,
+        data: &[u8],
+        values: usize,
+        zero_wire_instances: usize,
+        skip_heavy: bool,
+        stored_glyph_allowance: usize,
+        nested_allowance: Option<usize>,
+        capture: Option<crate::kept_capture::Capture>,
+    ) -> Result<(KiwiValue, usize, Option<crate::kept_capture::Capture>)> {
         let mut r = Reader::new(data);
         r.values_left = values;
         r.zero_wire = self.zero_wire_defs();
         r.zero_wire_left = zero_wire_instances;
         r.stored_glyphs_left = stored_glyph_allowance;
         r.nested_glyphs_left = nested_allowance;
+        r.capture = capture;
         r.charge()?;
         let message = self.decode_def(root, &mut r, 0, skip_heavy)?;
-        Ok((message, r.stored_glyphs_dropped))
+        if let Some(c) = r.capture.as_mut() {
+            c.decode_finished(r.values_left, r.zero_wire_left, r.kept_extra_values, r.kept_extra_zero_wire);
+        }
+        Ok((message, r.stored_glyphs_dropped, r.capture.take()))
+    }
+
+    /// [`Self::decode_message_for_import_counting_nested`] that also keeps where the fields of the file's records sit (see
+    /// `kept_capture`). What it charges against the decode caps is what the decode charges, plus the extra a kept heavy
+    /// field costs when it fits.
+    pub(crate) fn decode_message_for_import_capturing(
+        &self,
+        root: usize,
+        data: &[u8],
+        values: usize,
+        stored_glyph_allowance: usize,
+        nested_allowance: Option<usize>,
+        capture: crate::kept_capture::Capture,
+    ) -> Result<(KiwiValue, usize, crate::kept_capture::Capture)> {
+        let skip_heavy = data.len() > HEAVY_PAYLOAD_BYTES;
+        let (message, dropped, capture) = self.decode_message_capturing_with(
+            root,
+            data,
+            values,
+            zero_wire_budget(data.len()),
+            skip_heavy,
+            stored_glyph_allowance,
+            nested_allowance,
+            Some(capture),
+        )?;
+        let capture = capture.ok_or_else(|| KiwiError::Bad("capture lost".into()))?;
+        Ok((message, dropped, capture))
     }
 
     /// Decodes a root message for `.fig` import, dropping unused multi-gigabyte
@@ -676,47 +746,131 @@ impl Schema {
                 }
                 Ok(KiwiValue::Struct(out))
             }
-            DefKind::Message => {
-                let mut out: Vec<(Arc<str>, KiwiValue)> = Vec::new();
-                loop {
-                    let id = r.var_u32()?;
-                    if id == 0 {
-                        break;
-                    }
-                    let f = def
-                        .field_by_value
-                        .get(id as usize)
-                        .and_then(|&x| x)
-                        .map(|i| &def.fields[i])
-                        .or_else(|| def.fields.iter().find(|f| f.value == id))
-                        .ok_or_else(|| KiwiError::Bad(format!("unknown field id {id} in {}", def.name)))?;
-                    if skip_heavy && &*f.name == "derivedTextData" {
-                        if let Some(kept) = self.keep_stored_glyphs(f, r, depth, &out)? {
-                            out.push((f.name.clone(), kept));
-                        }
-                        continue;
-                    }
-                    if skip_heavy && matches!(&*f.name, "editInfo" | "derivedImmutableFrameData") {
-                        self.skip_field(f, r, depth)?;
-                        continue;
-                    }
-                    let val = if skip_heavy && &*f.name == "derivedSymbolData" {
-                        // what its entries hold under `derivedTextData` is the data of a text in an instance
-                        r.nested_depth += 1;
-                        let val = self.decode_field(f, r, depth, skip_heavy);
-                        r.nested_depth -= 1;
-                        val?
-                    } else {
-                        self.decode_field(f, r, depth, skip_heavy)?
-                    };
-                    out.push((f.name.clone(), val));
-                }
-                if skip_heavy && out.capacity() > out.len() + 4 {
-                    out.shrink_to_fit();
-                }
-                Ok(KiwiValue::Message(out))
-            }
+            DefKind::Message => self.decode_message_fields(idx, r, depth, skip_heavy, None),
         }
+    }
+
+    /// Decodes the fields of a message of definition `idx`. With `spans`, also notes where each field's value sits: after its
+    /// number, up to the number of the next field (or the terminator).
+    fn decode_message_fields(&self, idx: usize, r: &mut Reader, depth: usize, skip_heavy: bool, mut spans: Option<&mut Vec<RawSpan>>) -> Result<KiwiValue> {
+        let def = &self.defs[idx];
+        let mut out: Vec<(Arc<str>, KiwiValue)> = Vec::new();
+        loop {
+            if let Some(last) = spans.as_deref_mut().and_then(|s| s.last_mut()) {
+                if last.end == u32::MAX {
+                    last.end = r.pos as u32;
+                }
+            }
+            let id = r.var_u32()?;
+            if id == 0 {
+                break;
+            }
+            let f = def
+                .field_by_value
+                .get(id as usize)
+                .and_then(|&x| x.map(|i| &def.fields[i]))
+                .or_else(|| def.fields.iter().find(|f| f.value == id))
+                .ok_or_else(|| KiwiError::Bad(format!("unknown field id {id} in {}", def.name)))?;
+            let span_at = spans.as_deref().map(|s| s.len());
+            if let Some(s) = spans.as_deref_mut() {
+                s.push(RawSpan { id, start: r.pos as u32, end: u32::MAX });
+            }
+            // the records of the root's `nodeChanges` and the entries of its `blobs`: the one place a capture is read
+            if depth == 0 && r.capture.is_some() && f.is_array {
+                if let (Some(role), FieldType::Def(element)) = (crate::kept_capture::Capture::role(&f.name), f.ty) {
+                    let val = self.decode_captured_array(element, role, r, depth, skip_heavy)?;
+                    out.push((f.name.clone(), val));
+                    continue;
+                }
+            }
+            if skip_heavy && &*f.name == "derivedTextData" {
+                // never kept as a range: the stored glyphs have a place of their own
+                if let (Some(s), Some(at)) = (spans.as_deref_mut(), span_at) {
+                    s.truncate(at);
+                }
+                if let Some(kept) = self.keep_stored_glyphs(f, r, depth, &out)? {
+                    out.push((f.name.clone(), kept));
+                }
+                continue;
+            }
+            if skip_heavy && matches!(&*f.name, "editInfo" | "derivedImmutableFrameData") {
+                if spans.is_some() {
+                    // a skipped field is free for the decode; keeping its range costs what decoding it would
+                    self.skip_tallying_for_capture(f, r, depth)?;
+                    r.kept_heavy_ids.push(id);
+                } else {
+                    self.skip_field(f, r, depth)?;
+                }
+                continue;
+            }
+            let val = if skip_heavy && &*f.name == "derivedSymbolData" {
+                // what its entries hold under `derivedTextData` is the data of a text in an instance
+                r.nested_depth += 1;
+                let val = self.decode_field(f, r, depth, skip_heavy);
+                r.nested_depth -= 1;
+                val?
+            } else {
+                self.decode_field(f, r, depth, skip_heavy)?
+            };
+            out.push((f.name.clone(), val));
+        }
+        if skip_heavy && out.capacity() > out.len() + 4 {
+            out.shrink_to_fit();
+        }
+        Ok(KiwiValue::Message(out))
+    }
+
+    /// Skips field `f` and adds to the reader what decoding it would charge. It is not charged here: a record later in the file
+    /// may need the room, and a file that opens without a capture must open with one. The capture settles the sum when the
+    /// decode is done (see `Capture::decode_finished`).
+    fn skip_tallying_for_capture(&self, f: &Field, r: &mut Reader, depth: usize) -> Result<()> {
+        r.tallying = true;
+        r.tally_values = 0;
+        r.tally_zero_wire = 0;
+        let walked = self.skip_field(f, r, depth);
+        r.tallying = false;
+        walked?;
+        r.kept_extra_values = r.kept_extra_values.saturating_add(r.tally_values);
+        r.kept_extra_zero_wire = r.kept_extra_zero_wire.saturating_add(r.tally_zero_wire);
+        Ok(())
+    }
+
+    /// The array `f` of the root message, whose elements are messages of definition `element`, decoded as
+    /// [`Self::decode_field`] does, with each element reported to the capture.
+    fn decode_captured_array(&self, element: usize, role: crate::kept_capture::Role, r: &mut Reader, depth: usize, skip_heavy: bool) -> Result<KiwiValue> {
+        let n = r.var_u32()? as usize;
+        if n > r.remaining() {
+            return Err(KiwiError::Bad(format!("array length {n} exceeds data")));
+        }
+        // the elements are decoded by this reader without the capture in it, so only the root reports to it
+        let mut capture = r.capture.take();
+        let mut v = Vec::with_capacity(bounded_capacity(n));
+        let mut spans: Vec<RawSpan> = Vec::new();
+        let is_message = self.defs[element].kind == DefKind::Message;
+        for _ in 0..n {
+            // what `decode_type` charges for an element
+            r.charge()?;
+            if r.zero_wire.get(element) == Some(&true) {
+                r.charge_zero_wire()?;
+            }
+            spans.clear();
+            r.kept_heavy_ids.clear();
+            let value = if is_message {
+                self.decode_message_fields(element, r, depth + 1, skip_heavy, Some(&mut spans))?
+            } else {
+                self.decode_def(element, r, depth + 1, skip_heavy)?
+            };
+            if let Some(c) = capture.as_mut() {
+                match role {
+                    crate::kept_capture::Role::NodeChanges if is_message => c.node_change(self, element, &value, &spans, &r.kept_heavy_ids),
+                    crate::kept_capture::Role::NodeChanges => {}
+                    crate::kept_capture::Role::Blobs => c.blob(self, element, &value, &spans, r.pos),
+                }
+            }
+            v.push(value);
+        }
+        r.capture = capture;
+        Ok(KiwiValue::Array(v))
     }
 
     /// Reads or skips the `derivedTextData` field `f` of the message whose fields so far are `out`, in a heavy decode.
@@ -1801,6 +1955,106 @@ mod tests {
                     assert!(pos.windows(2).all(|w| w[0] < w[1]), "definition order: {pos:?}");
                 }
             }
+        }
+    }
+
+    /// A heavy payload (over 2 MB by padding) of three records, the middle one holding an `editInfo` the heavy decode skips.
+    fn heavy_payload_with_edit_info() -> (Schema, usize, Vec<u8>) {
+        use crate::testkit::{en, guid, msg, st};
+        let schema = crate::testkit::figma_like_schema();
+        let root = schema.root_message().unwrap();
+        let rec = |l: u32, extra: Vec<(&str, KiwiValue)>| {
+            let mut f = vec![("guid", guid(1, l)), ("type", en("FRAME")), ("name", KiwiValue::String("n".into()))];
+            f.extend(extra);
+            msg(f)
+        };
+        let edit = msg(vec![("userId", KiwiValue::String("u".into())), ("createdAt", KiwiValue::Uint(7))]);
+        let nodes = vec![rec(1, vec![]), rec(2, vec![("editInfo", edit)]), rec(3, vec![])];
+        let blobs = vec![st(vec![("bytes", KiwiValue::Bytes(vec![0u8; 2_100_000]))])];
+        let body = schema.encode_message(root, &msg(vec![("nodeChanges", KiwiValue::Array(nodes)), ("blobs", KiwiValue::Array(blobs))])).unwrap();
+        (schema, root, body)
+    }
+
+    fn edit_info_no(schema: &Schema) -> u32 {
+        schema.defs[schema.find("NodeChange").unwrap()].field_named("editInfo").unwrap().value
+    }
+
+    #[test]
+    fn a_kept_heavy_field_is_charged_after_the_rest_and_left_out_when_the_caps_cannot_take_it() {
+        let (schema, root, body) = heavy_payload_with_edit_info();
+        let plain = |values: usize| schema.decode_message_for_import_counting_nested(root, &body, values, 0, None).is_ok();
+        // the least a decode without a capture needs
+        let (mut lo, mut hi) = (1usize, 1usize << 20);
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if plain(mid) {
+                hi = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        let least = lo;
+        let capturing = |values: usize| {
+            let (_, _, c) = schema
+                .decode_message_for_import_capturing(root, &body, values, 0, None, crate::kept_capture::Capture::new(body.len()))
+                .expect("a capture never makes a decode fail that passes without one");
+            c.finish()
+        };
+        let no = edit_info_no(&schema);
+        let held = |c: &crate::kept_capture::KeptCapture| c.fields.iter().filter(|f| f.no == no).count();
+
+        let roomy = capturing(least + 1_000_000);
+        assert_eq!(held(&roomy), 1, "with room the skipped field is kept");
+        assert!(roomy.counts.kept_extra_values_charged > 0, "and it was charged what a decode of it costs");
+        assert_eq!(roomy.counts.kept_fields_over_decode_cap, 0);
+        let exact = capturing(least + roomy.counts.kept_extra_values_charged);
+        assert_eq!(held(&exact), 1, "the sum fits to the value");
+
+        let tight = capturing(least + roomy.counts.kept_extra_values_charged - 1);
+        assert_eq!(held(&tight), 0, "one value short, nothing is kept for it");
+        assert_eq!(tight.counts.kept_fields_over_decode_cap, 1);
+        assert_eq!(tight.records.len(), 4 - 1, "the three records are all kept; only the field went");
+        let at_least = capturing(least);
+        assert!(at_least.counts.records_seen == 3 && held(&at_least) == 0, "at the least a plain decode needs, the decode still passes");
+        // the ranges of the records after the withdrawn field still read the right bytes
+        for rec in &tight.records {
+            for f in &tight.fields[rec.first_index()..rec.first_index() + rec.field_count()] {
+                assert!(f.offset as usize + f.len as usize <= body.len());
+            }
+        }
+    }
+
+    #[test]
+    fn only_the_records_of_the_root_are_reported_not_the_node_changes_inside_them() {
+        use crate::testkit::{en, guid, msg};
+        let schema = crate::testkit::figma_like_schema();
+        let root = schema.root_message().unwrap();
+        let entry = msg(vec![("guidPath", msg(vec![("guids", KiwiValue::Array(vec![guid(1, 2)]))])), ("visible", KiwiValue::Bool(false))]);
+        let symbol = msg(vec![("symbolID", guid(1, 2)), ("symbolOverrides", KiwiValue::Array(vec![entry.clone(), entry]))]);
+        let node = msg(vec![("guid", guid(1, 1)), ("type", en("INSTANCE")), ("symbolData", symbol)]);
+        let body = schema.encode_message(root, &msg(vec![("nodeChanges", KiwiValue::Array(vec![node])), ("blobs", KiwiValue::Array(vec![]))])).unwrap();
+        let (_, _, c) =
+            schema.decode_message_for_import_capturing(root, &body, MAX_DECODED_VALUES, 0, None, crate::kept_capture::Capture::new(body.len())).unwrap();
+        assert_eq!(c.finish().counts.records_seen, 1);
+    }
+
+    #[test]
+    fn a_truncated_payload_is_refused_by_the_capturing_decode_without_a_panic() {
+        let (schema, root, body) = heavy_payload_with_edit_info();
+        for cut in [1usize, 5, 40, body.len() / 2, body.len() - 1] {
+            let data = &body[..cut];
+            let r = schema.decode_message_for_import_capturing(root, data, MAX_DECODED_VALUES, 0, None, crate::kept_capture::Capture::new(data.len()));
+            assert!(r.is_err(), "cut at {cut}");
+        }
+    }
+
+    #[test]
+    fn a_self_nesting_payload_is_bounded_by_the_decode_caps_with_a_capture_too() {
+        let (schema, root, body) = hostile_chain_payload(60, 20_000);
+        let r = schema.decode_message_for_import_capturing(root, &body, 1 << 16, 1 << 20, None, crate::kept_capture::Capture::new(body.len()));
+        if let Ok((_, _, c)) = r {
+            let c = c.finish();
+            assert!(c.fields.len() <= body.len() / 8 + 1, "the ranges are bounded by the payload");
         }
     }
 

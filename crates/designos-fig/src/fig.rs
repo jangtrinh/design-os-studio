@@ -9,6 +9,7 @@ use crate::container::{self, Archive};
 use crate::fig_export::{
     CARRIED_FIELDS, CARRIER_KEY_PREFIX, STUDIO_AUTHOR_VISIBLE_KEY, STUDIO_PLUGIN_ID, STUDIO_SLOT_CONTENT_ID_KEY, STUDIO_TEXT_UNIFORM_SCALE_KEY,
 };
+use crate::kept_capture::{self, KeptOptions};
 use crate::kiwi::{self, KiwiValue, Schema};
 use crate::rest_import::{self, fnum, fstr};
 use crate::stored_glyphs;
@@ -29,6 +30,8 @@ struct Decoded {
     studio_connector_caps: bool,
     /// Texts whose stored glyphs fit no allowance of the decoder (always 0 for a decode that keeps nothing).
     dropped_stored_glyphs: usize,
+    /// The inflated message payload and the ranges captured in it, for a decode that keeps them (a file import).
+    kept: Option<(Vec<u8>, kept_capture::KeptCapture)>,
 }
 
 /// Studio's own export used to write a circle cap as `ROUND` and a diamond cap as `SQUARE`. Figma's `ROUND` and
@@ -65,10 +68,10 @@ pub(crate) fn release_os_memory() {
 }
 
 fn decode_inner(bytes: &[u8], for_import: bool) -> Result<Decoded, FigError> {
-    decode_with_allowance(bytes, for_import, stored_glyphs::ALLOWANCE_FILE_WIRE_BYTES, stored_glyphs::ALLOWANCE_FILE_NESTED_WIRE_BYTES)
+    decode_with_allowance(bytes, for_import, stored_glyphs::ALLOWANCE_FILE_WIRE_BYTES, stored_glyphs::ALLOWANCE_FILE_NESTED_WIRE_BYTES, false)
 }
 
-fn decode_with_allowance(bytes: &[u8], for_import: bool, stored_glyph_allowance: usize, nested_allowance: usize) -> Result<Decoded, FigError> {
+fn decode_with_allowance(bytes: &[u8], for_import: bool, stored_glyph_allowance: usize, nested_allowance: usize, keep: bool) -> Result<Decoded, FigError> {
     let mut archive = container::open(bytes)?;
     let is_figjam = archive.canvas.starts_with(container::MAGIC_JAM);
     let (schema_bin, msg_bin) = container::read_archive_chunks(&archive)?;
@@ -76,16 +79,32 @@ fn decode_with_allowance(bytes: &[u8], for_import: bool, stored_glyph_allowance:
     let schema = Schema::decode(&schema_bin).map_err(|e| FigError::Format(format!("kiwi schema: {e}")))?;
     drop(schema_bin);
     let root = schema.root_message().ok_or_else(|| FigError::Format("schema has no message definition".into()))?;
-    let (message, dropped_stored_glyphs) = if for_import {
+    let mut kept = None;
+    let (message, dropped_stored_glyphs) = if for_import && keep {
+        schema
+            .decode_message_for_import_capturing(
+                root,
+                &msg_bin,
+                kiwi::MAX_DECODED_VALUES,
+                stored_glyph_allowance,
+                Some(nested_allowance),
+                kept_capture::Capture::new(msg_bin.len()),
+            )
+            .map(|(message, dropped, capture)| {
+                kept = Some(capture.finish());
+                (message, dropped)
+            })
+    } else if for_import {
         schema.decode_message_for_import_counting_nested(root, &msg_bin, kiwi::MAX_DECODED_VALUES, stored_glyph_allowance, Some(nested_allowance))
     } else {
         schema.decode_message(root, &msg_bin).map(|message| (message, 0))
     }
     .map_err(|e| FigError::Format(format!("kiwi message: {e}")))?;
-    drop(msg_bin);
+    // the payload is the arena of what the open keeps; it is dropped at once when nothing is kept
+    let kept = kept.map(|capture| (msg_bin, capture));
     let old_numbering = schema.defs[root].fields.iter().any(|f| &*f.name == "nodeChanges" && f.value == 1);
     let studio_connector_caps = old_numbering && schema.find("StrokeCap").is_some() && !schema.has_enum_variant("StrokeCap", "CIRCLE_FILLED");
-    Ok(Decoded { archive, message, is_figjam, studio_connector_caps, dropped_stored_glyphs })
+    Ok(Decoded { archive, message, is_figjam, studio_connector_caps, dropped_stored_glyphs, kept })
 }
 
 fn decode(bytes: &[u8]) -> Result<Decoded, FigError> {
@@ -122,7 +141,7 @@ pub struct FigInstanceDerivedData {
 /// Extracts `derivedSymbolData` entries and `uniformScaleFactor` keyed by `INSTANCE` guid (`"s:l"`).
 pub fn extract_fig_derived_symbol_data(bytes: &[u8]) -> Result<HashMap<String, FigInstanceDerivedData>, FigError> {
     // it reads instances only, so it takes no stored glyphs
-    let mut d = decode_with_allowance(bytes, true, 0, 0)?;
+    let mut d = decode_with_allowance(bytes, true, 0, 0, false)?;
     let raw_changes: Vec<KiwiValue> = match d.message.take_field("nodeChanges") {
         Some(KiwiValue::Array(arr)) => arr,
         _ => Vec::new(),
@@ -320,14 +339,27 @@ pub fn import_fig_with_report(bytes: &[u8]) -> Result<(Document, rest_import::Im
 
 /// [`import_fig_with_report`] with a caller-specified global clone budget (used by tests to exercise budget exhaustion).
 pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result<(Document, rest_import::ImportReport), FigError> {
-    import_with_budgets(bytes, clone_budget_total, stored_glyphs::ALLOWANCE_FILE_WIRE_BYTES, stored_glyphs::ALLOWANCE_FILE_NESTED_WIRE_BYTES)
+    import_with_budgets(
+        bytes,
+        clone_budget_total,
+        stored_glyphs::ALLOWANCE_FILE_WIRE_BYTES,
+        stored_glyphs::ALLOWANCE_FILE_NESTED_WIRE_BYTES,
+        Some(&KeptOptions::default()),
+    )
+}
+
+/// [`import_fig_with_report`] with the options of the store of Figma's records the open keeps (where and from which size its
+/// arena spills to a file), or `None` to keep none, as an open without a store (used by tests and by timing).
+#[doc(hidden)]
+pub fn import_fig_with_kept_options(bytes: &[u8], keep: Option<&KeptOptions>) -> Result<(Document, rest_import::ImportReport), FigError> {
+    import_with_budgets(bytes, rest_import::CLONE_BUDGET_TOTAL, stored_glyphs::ALLOWANCE_FILE_WIRE_BYTES, stored_glyphs::ALLOWANCE_FILE_NESTED_WIRE_BYTES, keep)
 }
 
 /// [`import_fig_with_report`] with a caller-specified allowance of wire bytes for the stored glyphs a heavy import keeps
 /// (used by tests to exercise the allowance running out; see [`rest_import::ImportReport::dropped_stored_glyphs`]).
 #[doc(hidden)]
 pub fn import_fig_with_stored_glyph_allowance(bytes: &[u8], allowance: usize) -> Result<(Document, rest_import::ImportReport), FigError> {
-    import_with_budgets(bytes, rest_import::CLONE_BUDGET_TOTAL, allowance, stored_glyphs::ALLOWANCE_FILE_NESTED_WIRE_BYTES)
+    import_with_budgets(bytes, rest_import::CLONE_BUDGET_TOTAL, allowance, stored_glyphs::ALLOWANCE_FILE_NESTED_WIRE_BYTES, Some(&KeptOptions::default()))
 }
 
 /// [`import_fig_with_stored_glyph_allowance`] that also names the allowance for the data of the texts inside instances.
@@ -337,7 +369,7 @@ pub fn import_fig_with_stored_glyph_allowances(
     allowance: usize,
     nested_allowance: usize,
 ) -> Result<(Document, rest_import::ImportReport), FigError> {
-    import_with_budgets(bytes, rest_import::CLONE_BUDGET_TOTAL, allowance, nested_allowance)
+    import_with_budgets(bytes, rest_import::CLONE_BUDGET_TOTAL, allowance, nested_allowance, Some(&KeptOptions::default()))
 }
 
 fn import_with_budgets(
@@ -345,8 +377,14 @@ fn import_with_budgets(
     clone_budget_total: usize,
     stored_glyph_allowance: usize,
     nested_allowance: usize,
+    keep: Option<&KeptOptions>,
 ) -> Result<(Document, rest_import::ImportReport), FigError> {
-    let mut d = decode_with_allowance(bytes, true, stored_glyph_allowance, nested_allowance)?;
+    let mut d = decode_with_allowance(bytes, true, stored_glyph_allowance, nested_allowance, keep.is_some())?;
+    // the payload is written to a file now, when it is that large, so a big file does not carry it through the import
+    let kept_store = match (d.kept.take(), keep) {
+        (Some((payload, capture)), Some(opts)) => Some(kept_capture::build_store(payload, capture, opts)),
+        _ => None,
+    };
     // FigJam's binary container has its own magic. Unlike a REST export, it does
     // not carry an `editorType` field in the decoded node changes, so preserve
     // that file-level board marker while handing the data to the REST importer.
@@ -446,6 +484,15 @@ fn import_with_budgets(
     drop(blob_refs);
     drop(owned_blobs);
     doc.images = d.archive.images;
+    if let Some(store) = kept_store {
+        let counts = store.counts();
+        report.kept_records = counts.records_kept;
+        report.kept_fields_not_conformed = counts.kept_fields_not_conformed;
+        report.dropped_kept_records = counts.dropped_kept_records;
+        report.kept_fields_over_decode_cap = counts.kept_fields_over_decode_cap;
+        doc.fig_kept = Arc::new(store);
+        doc.take_fig_kept_snapshot_before_settle();
+    }
     if large {
         release_os_memory();
     }

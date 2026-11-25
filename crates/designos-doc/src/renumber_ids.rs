@@ -63,6 +63,9 @@ impl Document {
                 (f(page), guides)
             })
             .collect();
+        if !self.fig_kept.is_empty() {
+            self.fig_kept = std::sync::Arc::new(self.fig_kept.remapped(f));
+        }
         for thread in &mut self.comments {
             thread.anchor.page = f(thread.anchor.page);
             thread.anchor.node = thread.anchor.node.map(f);
