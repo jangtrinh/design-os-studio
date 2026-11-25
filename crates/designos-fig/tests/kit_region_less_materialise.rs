@@ -62,7 +62,8 @@ fn materialising_every_region_less_kit_vector_draws_the_fallback_picture() {
         if after_net.fills_closed_loops_without_regions {
             // nothing could be decided with room to spare: the fallback stays, and the picture is the same by construction
             kept += 1;
-            differing.push(format!("{key}: kept the fallback (undecidable)"));
+            let b = designos_doc::vector::paths_bounds(&before);
+            differing.push(format!("{key}: kept the fallback (undecidable); fill box {:.4} x {:.4}, {} faces", b.w, b.h, net.faces().len()));
             continue;
         }
         let after = after_net.fill_paths();

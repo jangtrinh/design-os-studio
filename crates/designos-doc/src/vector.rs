@@ -1577,8 +1577,14 @@ fn face_probes(contours: &[Vec<Vec2>]) -> Option<Vec<Vec2>> {
             continue;
         }
         let (mid, normal) = (lerp(*a, *b, 0.5), Vec2::new(-d.y / l, d.x / l));
+        // doubling steps from twice the margin, and fractions of the face's own size for a face too small for those
+        let mut steps: Vec<f32> = [0.5, 0.25, 0.1].iter().map(|f| size * f).filter(|st| *st >= PROBE_MARGIN * 0.5).collect();
         let mut step = 2.0 * PROBE_MARGIN;
         while step <= size {
+            steps.push(step);
+            step *= 2.0;
+        }
+        for step in steps {
             for side in [step, -step] {
                 let p = add(mid, mul(normal, side));
                 if point_in_even_odd(p, contours) {
@@ -1588,7 +1594,6 @@ fn face_probes(contours: &[Vec<Vec2>]) -> Option<Vec<Vec2>> {
                     }
                 }
             }
-            step *= 2.0;
         }
     }
     found.sort_by(|x, y| y.0.total_cmp(&x.0));
