@@ -69,6 +69,14 @@ const LABEL: (u32, u32) = (4, 30);
 
 /// A component set with a variant property and two variants, a main with a text property that a text of it shows, and an instance
 /// of that main that sets the property.
+/// A consumption entry that binds the opacity of a layer to the component property `id`.
+fn bound_to(id: (u32, u32)) -> V {
+    msg(vec![
+        ("variableField", en("OPACITY")),
+        ("variableData", msg(vec![("value", msg(vec![("propRefValue", msg(vec![("defId", guid(id.0, id.1))]))])), ("dataType", en("FLOAT"))])),
+    ])
+}
+
 fn nodes() -> Vec<V> {
     nodes_with_label(LABEL)
 }
@@ -145,6 +153,7 @@ fn nodes_with_label(label: (u32, u32)) -> Vec<V> {
         vec![
             ("componentPropRefs", V::Array(vec![msg(vec![("defID", guid(label.0, label.1)), ("componentPropNodeField", en("TEXT_DATA"))])])),
             ("overrideKey", guid(KEY.0, KEY.1)),
+            ("parameterConsumptionMap", msg(vec![("entries", V::Array(vec![bound_to(label)]))])),
         ],
     ));
     nodes.push(node(
@@ -338,8 +347,6 @@ fn a_main_studio_writes_leaves_the_kept_instance_and_variants_naming_its_ids() {
         doc.get_mut(id).unwrap().opacity = 0.5;
     }
     let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
-    let (was, now) = (records(&saved), records(&original));
-    let _ = (&was, &now);
     let now = records(&saved);
     let was = records(&original);
     assert_eq!(ids_of(record_of(&now, MAIN), "componentPropDefs", "id"), vec![LABEL]);
@@ -529,4 +536,171 @@ fn a_property_id_that_two_components_share_is_written_for_both() {
             assert_eq!(ids_of(record_of(&out, at), "componentPropDefs", "id"), vec![LABEL], "edit: {edit}, record {at:?}");
         }
     }
+}
+
+const SET_B: (u32, u32) = (2, 11);
+const B_SMALL: (u32, u32) = (2, 12);
+const B_LARGE: (u32, u32) = (2, 13);
+
+/// `nodes()` and a second component set that is a Figma copy of the first: it defines the same property id and its variants carry
+/// aliases of it.
+fn two_sets_sharing_a_property() -> Vec<u8> {
+    let mut all = nodes();
+    let set = all.iter().find(|n| guid_of(n) == SET).expect("the set").clone();
+    let mut b = set.clone();
+    let V::Message(fields) = &mut b else { unreachable!() };
+    for (k, v) in fields.iter_mut() {
+        match &**k {
+            "guid" => *v = guid(SET_B.0, SET_B.1),
+            "name" => *v = V::String("Set B".into()),
+            "parentIndex" => {
+                if let V::Struct(f) | V::Message(f) = v {
+                    for (pk, pv) in f.iter_mut() {
+                        if &**pk == "position" {
+                            *pv = V::String("e".into());
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    all.push(b);
+    for (id, alias, pos, value) in [(B_SMALL, (4, 22), "a", "sm"), (B_LARGE, (4, 23), "b", "lg")] {
+        let mut v = all.iter().find(|n| guid_of(n) == if value == "sm" { SMALL } else { LARGE }).expect("a variant").clone();
+        let V::Message(fields) = &mut v else { unreachable!() };
+        for (k, x) in fields.iter_mut() {
+            match &**k {
+                "guid" => *x = guid(id.0, id.1),
+                "parentIndex" => {
+                    if let V::Struct(f) | V::Message(f) = x {
+                        for (pk, pv) in f.iter_mut() {
+                            match &**pk {
+                                "guid" => *pv = guid(SET_B.0, SET_B.1),
+                                "position" => *pv = V::String(pos.into()),
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                "componentPropDefs" => *x = V::Array(vec![msg(vec![("id", guid(alias.0, alias.1)), ("parentPropDefId", guid(SIZE.0, SIZE.1))])]),
+                _ => {}
+            }
+        }
+        all.push(v);
+    }
+    fig_file(all, vec![icon_blob()])
+}
+
+/// Whether any property record of `record` holds the guid `id` anywhere.
+fn names(record: &V, id: (u32, u32)) -> bool {
+    fn has(v: &V, id: (u32, u32)) -> bool {
+        match v {
+            V::Message(f) | V::Struct(f) => {
+                let own = matches!((v.get("sessionID"), v.get("localID")), (Some(V::Uint(s)), Some(V::Uint(l))) if (*s, *l) == id);
+                own || f.iter().any(|(_, x)| has(x, id))
+            }
+            V::Array(a) => a.iter().any(|x| has(x, id)),
+            _ => false,
+        }
+    }
+    ["componentPropDefs", "componentPropAssignments", "componentPropRefs", "variantPropSpecs", "parameterConsumptionMap"]
+        .iter()
+        .any(|k| record.get(k).is_some_and(|v| has(v, id)))
+}
+
+fn naming(all: &[V], id: (u32, u32), records: &[(u32, u32)]) -> Vec<(u32, u32)> {
+    records.iter().copied().filter(|at| names(record_of(all, *at), id)).collect()
+}
+
+fn the_other_set_is_as_it_was(was: &[V], now: &[V]) {
+    for at in [SET_B, B_SMALL, B_LARGE] {
+        for key in ["componentPropDefs", "variantPropSpecs"] {
+            assert_eq!(record_of(now, at).get(key), record_of(was, at).get(key), "{at:?} {key} is Figma's");
+        }
+    }
+}
+
+#[test]
+fn deleting_a_property_of_a_set_that_shares_its_id_leaves_no_reference_to_it_under_that_set() {
+    let original = two_sets_sharing_a_property();
+    let mut doc = import_fig(&original).expect("imports");
+    let set = by_name(&doc, "Set");
+    designos_doc::delete_prop(&mut doc, set, "Size").apply(&mut doc).expect("deletes");
+    let (saved, _) = export_fig_with_kept_report(&doc).expect("saves");
+    let (was, now) = (records(&original), records(&saved));
+    assert_eq!(naming(&now, SIZE, &[SET, SMALL, LARGE]), Vec::<(u32, u32)>::new(), "the set no longer defines the property");
+    for alias in [SIZE_ON_SMALL, SIZE_ON_LARGE] {
+        assert_eq!(naming(&now, alias, &[SET, SMALL, LARGE]), Vec::<(u32, u32)>::new(), "nor does its variants' alias");
+    }
+    the_other_set_is_as_it_was(&was, &now);
+}
+
+#[test]
+fn renaming_a_property_of_a_set_that_shares_its_id_leaves_no_reference_to_the_old_id_under_that_set() {
+    let original = two_sets_sharing_a_property();
+    let mut doc = import_fig(&original).expect("imports");
+    let set = by_name(&doc, "Set");
+    designos_doc::rename_prop(&mut doc, set, "Size", "Dimension").apply(&mut doc).expect("renames");
+    let (saved, _) = export_fig_with_kept_report(&doc).expect("saves");
+    let (was, now) = (records(&original), records(&saved));
+    assert_eq!(naming(&now, SIZE, &[SET, SMALL, LARGE]), Vec::<(u32, u32)>::new(), "the renamed property is not the other set's");
+    let defs = ids_of(record_of(&now, SET), "componentPropDefs", "id");
+    assert_eq!(defs.len(), 1, "the set still defines its property");
+    assert!(!session_of_file().contains(&defs[0].0) || defs[0] != SIZE);
+    the_other_set_is_as_it_was(&was, &now);
+}
+
+#[test]
+fn a_reference_in_a_main_to_a_deleted_property_is_not_written_from_metadata() {
+    let original = file();
+    let mut doc = import_fig(&original).expect("imports");
+    let main = by_name(&doc, "Main");
+    designos_doc::delete_prop(&mut doc, main, "Label").apply(&mut doc).expect("deletes");
+    let (saved, _) = export_fig_with_kept_report(&doc).expect("saves");
+    let now = records(&saved);
+    assert_eq!(naming(&now, LABEL, &[MAIN, MAIN_TEXT]), Vec::<(u32, u32)>::new(), "no consumption entry names the deleted property");
+}
+
+#[test]
+fn a_copy_of_a_main_binds_its_layers_to_its_own_property_and_not_the_originals() {
+    let original = file();
+    let mut doc = import_fig(&original).expect("imports");
+    let main = by_name(&doc, "Main");
+    let page = doc.get(main).unwrap().parent.unwrap();
+    let nodes = designos_doc::duplicate_subtree(&mut doc, main);
+    let copy = nodes[0].id;
+    designos_doc::Command::Insert { parent: page, index: 99, nodes }.apply(&mut doc).expect("pastes");
+    let (saved, _) = export_fig_with_kept_report(&doc).expect("saves");
+    let now = records(&saved);
+    assert!(doc.get(copy).and_then(|n| n.source_id.clone()).is_none(), "a copy has no record of its own");
+    // the copy's own record is the SYMBOL that is neither the original nor the instance's; its children name it as their parent
+    let copy_record = now
+        .iter()
+        .find(|r| matches!(r.get("type"), Some(V::Enum(t)) if &**t == "SYMBOL") && ![MAIN, SMALL, LARGE].contains(&guid_of(r)) && guid_of(r).0 == 1)
+        .expect("the copy is written");
+    let copy_guid = guid_of(copy_record);
+    let under_copy: Vec<&V> = now.iter().filter(|r| r.get("parentIndex").and_then(|p| p.get("guid")).map(pair) == Some(copy_guid)).collect();
+    assert!(under_copy.iter().any(|r| r.get("parameterConsumptionMap").is_some()), "the copy's text keeps its binding");
+    assert!(under_copy.iter().all(|r| !names(r, LABEL)), "none of the copy's layers binds to the original's property");
+    assert!(!names(copy_record, LABEL), "nor does the copy's definition");
+}
+
+#[test]
+fn a_key_two_layers_of_one_main_would_share_is_kept_for_the_first_only() {
+    // Figma gives a copy of a component the keys of the original; a layer moved from the copy into the original would share one
+    let (copy_main, copy_text) = ((2, 8), (2, 9));
+    let mut all = nodes();
+    all.push(node(copy_main, (0, 1), "e", "SYMBOL", "Copy of Main", vec![("size", vec2(100.0, 40.0))]));
+    all.push(glyph_text(copy_text, copy_main, "a", "Moved caption", FAMILY, "\u{e900}", &[(0, 0.0)], vec![("overrideKey", guid(KEY.0, KEY.1))]));
+    let mut doc = import_fig(&fig_file(all, vec![icon_blob()])).expect("imports");
+    let (main, moved) = (by_name(&doc, "Main"), by_name(&doc, "Moved caption"));
+    doc.reparent(moved, main, 0).expect("moves");
+    let (saved, _) = export_fig_with_kept_report(&doc).expect("saves");
+    let out = records(&saved);
+    let keys = [override_key(&out, MAIN_TEXT), override_key(&out, copy_text)];
+    assert_eq!(keys.iter().filter(|k| **k == Some(KEY)).count(), 1, "one layer of the main keeps the file's key: {keys:?}");
+    let other = if keys[0] == Some(KEY) { copy_text } else { MAIN_TEXT };
+    let own = if keys[0] == Some(KEY) { keys[1] } else { keys[0] };
+    assert_eq!(own, Some(other), "the other is addressed by its own guid");
 }

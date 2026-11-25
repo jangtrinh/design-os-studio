@@ -831,6 +831,7 @@ impl<'a> ExportCtx<'a> {
             }
         }
         prop_ids::assign(&mut cx, kept_prop_defs);
+        kept_fields::index_override_keys(&mut cx);
         for (ext_key, asset) in &doc.library.external {
             if let Some(nid) = asset.node {
                 let prefix = format!("{}:", asset.library_id);
@@ -2340,7 +2341,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         let mut legacy = Vec::new();
         let mut name_lost = false;
         for (prop_name, val) in &node.component.variant_props {
-            let def_g = cx.resolve_prop_guid(id, prop_name);
+            // a variant of a set that no longer defines the property says nothing about it
+            let Some(def_g) = cx.resolve_variant_spec_guid(id, prop_name) else { continue };
             let bare_name =
                 prop_name.strip_prefix("propDefId:").map(|_| String::new()).unwrap_or_else(|| prop_name.split('#').next().unwrap_or(prop_name).to_string());
             vspecs.push(msg(vec![("propDefId", guid(def_g.0, def_g.1)), ("value", V::String(val.clone()))]));
@@ -2354,7 +2356,9 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         if name_lost {
             carried.push(("variantPropSpecs", serde_json::Value::Array(legacy)));
         }
-        fields.push(("variantPropSpecs", V::Array(vspecs)));
+        if !vspecs.is_empty() {
+            fields.push(("variantPropSpecs", V::Array(vspecs)));
+        }
     }
 
     // Geometry blobs.
@@ -2658,7 +2662,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     if let Some(existing_pcm) = node.fig_metadata.get("parameterConsumptionMap") {
         if let Ok(existing_val) = serde_json::from_str::<serde_json::Value>(existing_pcm) {
             if let Some(arr) = existing_val.get("entries").and_then(serde_json::Value::as_array) {
-                pcm_entries.extend(arr.iter().cloned());
+                pcm_entries.extend(cx.route_metadata_prop_refs(id, arr.to_vec()));
             }
         }
     }
@@ -2671,7 +2675,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     // The original `commandsBlob` numbers refer to the imported file's blob table. Re-index them into this
     // export's table before writing derived text. An edited text layer must not export its stale glyph cache.
     // Only a layer that carries derived text pays for a copy of its metadata.
-    let applied = kept_record.map(|rec| kept_fields::apply(cx, rec, &mut msg_fields));
+    let applied = kept_record.map(|rec| kept_fields::apply(cx, id, rec, &mut msg_fields));
     let figma_style_ids = applied.as_ref().is_some_and(|a| a.text_data);
     let derived_text_meta =
         (matches!(&node.kind, NodeKind::Text(_)) && (node.fig_text_geometry.is_some() || node.fig_metadata.contains_key("derivedTextData"))).then(|| {
@@ -2682,7 +2686,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             meta.remove("derivedTextData");
             meta
         });
-    append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, derived_text_meta.as_ref().unwrap_or(&node.fig_metadata));
+    // the consumption map was written above from the same metadata, entry by entry: what it left out stays out
+    append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, derived_text_meta.as_ref().unwrap_or(&node.fig_metadata), &["parameterConsumptionMap"]);
     cx.changes.push(V::Message(msg_fields));
 
     if let Some((lc, carrier_val)) = lowered_conn {
@@ -2815,7 +2820,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             }
             if let Some(meta_obj) = meta_obj {
                 let meta_btree: BTreeMap<String, String> = meta_obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect();
-                append_fig_metadata(cx.schema, cx.nc_def, &mut t_msg_fields, &meta_btree);
+                append_fig_metadata(cx.schema, cx.nc_def, &mut t_msg_fields, &meta_btree, &[]);
             }
             cx.changes.push(V::Message(t_msg_fields));
 
@@ -2856,7 +2861,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 if let Some(kf_meta_obj) = kf_meta_obj {
                     let k_meta_btree: BTreeMap<String, String> =
                         kf_meta_obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect();
-                    append_fig_metadata(cx.schema, cx.nc_def, &mut k_msg_fields, &k_meta_btree);
+                    append_fig_metadata(cx.schema, cx.nc_def, &mut k_msg_fields, &k_meta_btree, &[]);
                 }
                 cx.changes.push(V::Message(k_msg_fields));
             }
@@ -4335,12 +4340,18 @@ fn encode_slot_prop_config(cfg: &designos_doc::SlotPropConfig) -> V {
     msg(f)
 }
 
-fn append_fig_metadata(schema: &crate::kiwi::Schema, nc_def: usize, fields: &mut Vec<(std::sync::Arc<str>, V)>, meta: &BTreeMap<String, String>) {
+fn append_fig_metadata(
+    schema: &crate::kiwi::Schema,
+    nc_def: usize,
+    fields: &mut Vec<(std::sync::Arc<str>, V)>,
+    meta: &BTreeMap<String, String>,
+    skip: &[&str],
+) {
     if meta.is_empty() {
         return;
     }
     for (k, v) in meta {
-        if v.is_empty() || fields.iter().any(|(existing, _)| &**existing == k.as_str()) {
+        if v.is_empty() || skip.contains(&k.as_str()) || fields.iter().any(|(existing, _)| &**existing == k.as_str()) {
             continue;
         }
         if let Some(pair) = nc_field_from_metadata(schema, nc_def, k, v) {
@@ -5083,7 +5094,7 @@ mod held_back_tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         let mut fields = Vec::new();
-        append_fig_metadata(schema, nc, &mut fields, &meta);
+        append_fig_metadata(schema, nc, &mut fields, &meta, &[]);
         let names: Vec<&str> = fields.iter().map(|(k, _)| &**k).collect();
         assert_eq!(names, ["key"]);
     }

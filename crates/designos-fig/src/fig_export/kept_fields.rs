@@ -148,6 +148,10 @@ pub(crate) struct KeptState {
     blobs: HashMap<u32, u32>,
     /// The field number of `overrideKey` in the file's schema.
     override_key_no: Option<u32>,
+    /// The layer whose kept fields are being written.
+    pub(super) scope: Option<NodeId>,
+    /// Layers whose file key is not used because another layer of the same main has it already.
+    rejected_keys: HashSet<NodeId>,
     pub(crate) report: KeptWriteReport,
 }
 
@@ -228,6 +232,14 @@ impl KeptState {
 /// by this key in the overrides it writes, and writes it as the layer's own key, so an override entry and the layer it names agree
 /// whichever of the two Studio wrote and whichever the file's bytes give back.
 pub(super) fn kept_override_key(cx: &ExportCtx<'_>, id: NodeId) -> Option<(u32, u32)> {
+    if cx.kept.rejected_keys.contains(&id) {
+        return None;
+    }
+    record_override_key(cx, id)
+}
+
+/// [`kept_override_key`] before the one-key-per-main rule.
+fn record_override_key(cx: &ExportCtx<'_>, id: NodeId) -> Option<(u32, u32)> {
     let no = cx.kept.override_key_no.filter(|_| cx.kept.is_active())?;
     let rec = cx.doc.fig_kept.record_of_node(id)?;
     if rec.kind() != KeptRecordKind::Layer || cx.node_guids.get(&id) != Some(&rec.guid()) {
@@ -294,7 +306,8 @@ pub(crate) struct Applied {
 }
 
 /// Writes the kept fields of `rec` into `fields`, each in place of the field of the same name Studio wrote.
-pub(crate) fn apply(cx: &mut ExportCtx<'_>, rec: KeptRecordRef<'_>, fields: &mut Vec<(Arc<str>, V)>) -> Applied {
+pub(crate) fn apply(cx: &mut ExportCtx<'_>, id: NodeId, rec: KeptRecordRef<'_>, fields: &mut Vec<(Arc<str>, V)>) -> Applied {
+    cx.kept.scope = Some(id);
     let Some(plan) = cx.kept.plan.clone() else { return Applied { text_data: false } };
     let mut applied = Applied { text_data: false };
     let (mut written_here, mut dropped_here) = (0usize, 0usize);
@@ -500,7 +513,7 @@ fn walk(cx: &mut ExportCtx<'_>, maps: &IdMaps, value: &mut V, path: &mut Vec<Arc
                 IdKind::Mode => *maps.modes.get(&g).ok_or("mode_not_written")?,
                 IdKind::Style => *maps.styles.get(&g).ok_or("style_not_written")?,
                 IdKind::PropDef => {
-                    cx.prop_ids.check_reference(g)?;
+                    cx.check_prop_reference(cx.kept.scope.ok_or("prop_def_without_a_layer")?, g)?;
                     g
                 }
             };
@@ -595,4 +608,36 @@ mod tests {
         assert_eq!(guid_struct(&[0x80, 0x80, 0x80, 0x80, 0x80, 0x01, 0x01]), None, "a number past 32 bits");
         assert_eq!(guid_struct(&[0x81]), None, "a number that does not end");
     }
+}
+
+/// Works out which layers must not use the key the file gave them. The overrides of an instance name a layer of its main by key, so
+/// two layers of one main with the same key would be one layer to them. Figma gives a copy of a component the keys of the original,
+/// so a layer moved from the copy into the original can meet its own key there: the layer with the smaller id keeps it.
+pub(super) fn index_override_keys(cx: &mut ExportCtx<'_>) {
+    if !cx.kept.is_active() {
+        return;
+    }
+    let doc = cx.doc;
+    let mut seen: HashMap<(NodeId, (u32, u32)), NodeId> = HashMap::new();
+    let mut rejected: HashSet<NodeId> = HashSet::new();
+    for &id in doc.nodes.keys() {
+        let Some(key) = record_override_key(cx, id).filter(|k| *k != (u32::MAX, u32::MAX)) else { continue };
+        let mut cur = Some(id);
+        let mut main = None;
+        for _ in 0..=doc.nodes.len() {
+            let Some(c) = cur else { break };
+            let Some(n) = doc.get(c) else { break };
+            if matches!(n.kind, designos_doc::NodeKind::Component(_)) {
+                main = Some(c);
+                break;
+            }
+            cur = n.parent;
+        }
+        let Some(main) = main else { continue };
+        // nodes are visited by id: the first layer to hold a key keeps it
+        if *seen.entry((main, key)).or_insert(id) != id {
+            rejected.insert(id);
+        }
+    }
+    cx.kept.rejected_keys = rejected;
 }

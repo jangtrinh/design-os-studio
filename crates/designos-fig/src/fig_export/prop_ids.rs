@@ -6,9 +6,11 @@
 //! defines it. A property Studio made has no such id and takes one from a session of its own, one no id of the file uses.
 //!
 //! Both sides of a definition are written by the same rule: a layer the save writes from the store carries Figma's bytes, which
-//! name Figma's ids; a layer Studio writes names the same ids through [`ExportCtx::resolve_prop_guid`]. A kept reference whose
-//! definition this save no longer writes is dropped (see [`PropIds::check_reference`]), so a definition deleted in Studio never
-//! leaves a kept assignment pointing at nothing.
+//! name Figma's ids; a layer Studio writes names the same ids through [`ExportCtx::resolve_prop_guid`], and the consumption entries
+//! it writes from a layer's metadata are routed through the same definitions ([`ExportCtx::route_metadata_prop_refs`]). A reference
+//! is kept only if the layer can name the definition: one its own main or set (or an ancestor) defines in this save. An id is a
+//! definition of a layer, not of the file, so after a delete or rename on one set the references under it stop naming an id a Figma
+//! copy of the set still defines.
 
 use super::{kept_fields, ExportCtx};
 use crate::kiwi::KiwiValue as V;
@@ -37,8 +39,11 @@ pub(super) struct KeptDefs {
 pub(crate) struct PropIds {
     /// Every id a record of the file defines, named or not, deleted or not.
     file_defs: HashSet<Guid>,
-    /// The ids this save defines: those of the properties the model holds, and the aliases a variant writes from the store.
-    live: HashSet<Guid>,
+    /// The ids each layer defines in this save: those of the properties the model holds on it, and the aliases a variant writes from
+    /// the store. An id is a definition of a layer, not of the file: a Figma copy of a set defines the ids of the set it was made from.
+    live_by_owner: HashMap<NodeId, HashSet<Guid>>,
+    /// The name the file gave a definition, by id.
+    file_def_names: HashMap<Guid, String>,
     /// The session Studio-made ids come from.
     session: u32,
     /// A name no definition in scope has: the id given to it, once.
@@ -87,6 +92,9 @@ pub(super) fn reserve_file_defs(cx: &mut ExportCtx<'_>) -> Vec<KeptDefs> {
         }
         let Some(found) = decode_defs(cx, rec) else { continue };
         for d in &found.defs {
+            if let Some(name) = &d.name {
+                cx.prop_ids.file_def_names.entry(d.id).or_insert_with(|| name.clone());
+            }
             for g in std::iter::once(d.id).chain(d.parent) {
                 cx.prop_ids.file_defs.insert(g);
                 cx.reserve_guid(g);
@@ -125,7 +133,6 @@ pub(super) fn assign(cx: &mut ExportCtx<'_>, kept: Vec<KeptDefs>) {
     }
     // Figma gives one id to a property that many components share (a copy of a component set keeps its properties' ids), so the same
     // id may define a property on several layers; on one layer each definition has an id of its own.
-    let mut live: HashSet<Guid> = HashSet::new();
     for (&id, n) in &doc.nodes {
         let mut taken: Vec<Guid> = Vec::new();
         for p in &n.component.props {
@@ -138,44 +145,99 @@ pub(super) fn assign(cx: &mut ExportCtx<'_>, kept: Vec<KeptDefs>) {
                 None => cx.alloc_guid(session),
             };
             taken.push(g);
-            live.insert(g);
             cx.prop_guids.insert((id, p.name.clone()), g);
         }
+        if !taken.is_empty() {
+            cx.prop_ids.live_by_owner.insert(id, taken.into_iter().collect());
+        }
     }
-    cx.prop_ids.live.extend(live);
 
     // A variant's copy of a set property is written only from the store, whole, so it is a definition of this save only when that
-    // is certain: the layer is written from the store, every entry of the field is a plain alias, and every parent is defined.
+    // is certain: the layer is written from the store, every entry of the field is a plain alias, and every parent is defined by the
+    // variant's own set.
     for (nid, k) in &by_node {
         let aliases_only = !k.defs.is_empty() && k.defs.iter().all(|d| d.plain_alias);
-        if aliases_only
-            && k.defs.iter().all(|d| d.parent.is_some_and(|p| cx.prop_ids.live.contains(&p)))
-            && kept_fields::layer_is_written_from_the_store(cx, *nid)
-        {
-            cx.prop_ids.live.extend(k.defs.iter().map(|d| d.id));
+        if !aliases_only {
+            continue;
+        }
+        let set = doc.get(*nid).and_then(|n| n.parent);
+        let parents_defined = k.defs.iter().all(|d| d.parent.is_some_and(|p| set.is_some_and(|s| cx.prop_ids.defines(s, p))));
+        if parents_defined && kept_fields::layer_is_written_from_the_store(cx, *nid) {
+            cx.prop_ids.live_by_owner.entry(*nid).or_default().extend(k.defs.iter().map(|d| d.id));
         }
     }
 }
 
 impl PropIds {
-    /// Whether a kept reference to the definition `g` may be written: a definition this save defines, or one the file's own records
-    /// never defined (a library's). One the file defined and this save does not is a reference to nothing.
-    pub(super) fn check_reference(&self, g: Guid) -> Result<(), &'static str> {
-        if self.live.contains(&g) || !self.file_defs.contains(&g) {
+    /// Whether the layer `owner` defines the property `g` in this save.
+    fn defines(&self, owner: NodeId, g: Guid) -> bool {
+        self.live_by_owner.get(&owner).is_some_and(|ids| ids.contains(&g))
+    }
+}
+
+impl ExportCtx<'_> {
+    /// Whether the definition `g` is one the layer `scope` can name: a definition this save gives the layer, the component it is an
+    /// instance of, that component's set, or a layer above it. An id the file's own records never defined (a library's) is not
+    /// this save's to judge.
+    pub(super) fn prop_def_is_in_scope(&self, scope: NodeId, g: Guid) -> bool {
+        if !self.prop_ids.file_defs.contains(&g) {
+            return true;
+        }
+        let mut cur = Some(scope);
+        while let Some(c) = cur {
+            if self.prop_ids.defines(c, g) {
+                return true;
+            }
+            let Some(n) = self.doc.get(c) else { return false };
+            if let designos_doc::NodeKind::Instance { component: Some(master), .. } = n.kind {
+                if self.prop_ids.defines(master, g) || self.doc.get(master).and_then(|m| m.parent).is_some_and(|set| self.prop_ids.defines(set, g)) {
+                    return true;
+                }
+            }
+            cur = n.parent;
+        }
+        false
+    }
+
+    /// A kept reference to the definition `g`, written on the layer `scope`: it has to be one that layer can name.
+    pub(super) fn check_prop_reference(&self, scope: NodeId, g: Guid) -> Result<(), &'static str> {
+        if self.prop_def_is_in_scope(scope, g) {
             Ok(())
         } else {
             Err("prop_def_not_written")
         }
     }
 
-    /// Whether a definition the file made is among the ones this save writes.
-    #[cfg(test)]
-    pub(super) fn is_live(&self, g: Guid) -> bool {
-        self.live.contains(&g)
+    /// The consumption entries Studio writes from the metadata a layer carried: an entry that binds to a component property keeps
+    /// the id only if the layer can name that definition. A property the file defined and the layer cannot name any more is looked
+    /// up again by the name the file gave it (a copy of a component binds to its own property), and an entry with no such property is
+    /// left out.
+    pub(super) fn route_metadata_prop_refs(&self, scope: NodeId, entries: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+        entries.into_iter().filter_map(|mut e| self.route_prop_ref(scope, &mut e).then_some(e)).collect()
     }
-}
 
-impl ExportCtx<'_> {
+    fn route_prop_ref(&self, scope: NodeId, v: &mut serde_json::Value) -> bool {
+        use serde_json::Value;
+        match v {
+            Value::Object(m) => {
+                if let Some(Value::Object(d)) = m.get_mut("propRefValue").and_then(|p| p.get_mut("defId")) {
+                    let g = match (d.get("sessionID").and_then(Value::as_u64), d.get("localID").and_then(Value::as_u64)) {
+                        (Some(s), Some(l)) => u32::try_from(s).ok().zip(u32::try_from(l).ok()),
+                        _ => None,
+                    };
+                    if let Some(g) = g.filter(|g| !self.prop_def_is_in_scope(scope, *g)) {
+                        let Some(now) = self.prop_ids.file_def_names.get(&g).and_then(|name| self.prop_guid_in_scope(scope, name)) else { return false };
+                        d.insert("sessionID".into(), now.0.into());
+                        d.insert("localID".into(), now.1.into());
+                    }
+                }
+                m.values_mut().all(|x| self.route_prop_ref(scope, x))
+            }
+            Value::Array(a) => a.iter_mut().all(|x| self.route_prop_ref(scope, x)),
+            _ => true,
+        }
+    }
+
     /// The id of the definition `prop_name` names for the layer `scope`: the one of the layer's own properties, or of the
     /// component it is an instance of, or of that component's set, going up through the layer's parents. `None` when no
     /// definition in that chain has the name.
@@ -220,6 +282,44 @@ impl ExportCtx<'_> {
         if let Some((_, &g)) = self.prop_guids.iter().find(|((_, name), _)| name == key) {
             return g;
         }
+        self.studio_prop_guid(prop_name)
+    }
+
+    /// The id a variant spec names for the property `prop_name` of `scope`. A variant of a component set that does not define the
+    /// property (deleted or renamed there) gets `None`: a spec of it would name another component's definition. An instance of
+    /// such a variant keeps the pick under an id of Studio's own (the name travels beside it), and any other layer resolves as
+    /// [`Self::resolve_prop_guid`] does.
+    pub(super) fn resolve_variant_spec_guid(&mut self, scope: NodeId, prop_name: &str) -> Option<Guid> {
+        use designos_doc::NodeKind;
+        if let Some(g) = self.prop_guid_in_scope(scope, prop_name) {
+            return Some(g);
+        }
+        let mut cur = Some(scope);
+        let mut through_instance = false;
+        while let Some(c) = cur {
+            let n = self.doc.get(c)?;
+            if matches!(n.kind, NodeKind::ComponentSet(_)) {
+                break;
+            }
+            if let NodeKind::Instance { component: Some(master), .. } = n.kind {
+                if self.doc.get(master).and_then(|m| m.parent).and_then(|p| self.doc.get(p)).is_some_and(|p| matches!(p.kind, NodeKind::ComponentSet(_))) {
+                    through_instance = true;
+                    break;
+                }
+            }
+            cur = n.parent;
+            if cur.is_none() {
+                return Some(self.resolve_prop_guid(scope, prop_name));
+            }
+        }
+        if !through_instance {
+            return None;
+        }
+        Some(self.studio_prop_guid(prop_name))
+    }
+
+    /// The one id of Studio's own session for a property name nothing defines.
+    fn studio_prop_guid(&mut self, prop_name: &str) -> Guid {
         if let Some(&g) = self.prop_ids.unresolved.get(prop_name) {
             return g;
         }
