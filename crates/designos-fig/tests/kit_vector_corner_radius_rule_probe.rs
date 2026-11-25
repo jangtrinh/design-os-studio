@@ -262,3 +262,62 @@ fn kit_vector_corner_radius_rules() {
     }
     std::fs::write(out, log).unwrap();
 }
+
+/// Which kit vectors the save's radius pin can treat differently by the `cornerRadius` the record carries: those whose
+/// record has a `cornerRadius` that differs from the layer's per-corner radii, and those with a vertex radius within 1e-5
+/// of the carried radius but not equal to it. Writes one line per vector and a summary to `PROBE_OUT`.
+#[test]
+#[ignore = "reads KIT_CLONE, writes PROBE_OUT"]
+fn kit_vector_radius_fields_disagree() {
+    let kit = std::env::var_os("KIT_CLONE").or_else(|| std::env::var_os("DESIGNOS_KIT_PATH")).expect("KIT_CLONE");
+    let out = std::env::var("PROBE_OUT").expect("PROBE_OUT");
+    let dump: Vec<String> = std::env::var("PROBE_DUMP").map(|s| s.split(',').map(String::from).collect()).unwrap_or_default();
+    let bytes = std::fs::read(&kit).unwrap();
+    let r = raw::decode(&bytes);
+    let mut recs: Vec<(String, Option<f32>, Vec<f32>)> = Vec::new();
+    for rec in r.live() {
+        let Some(g) = raw::record_guid(rec) else { continue };
+        if rec.get("vectorData").is_none() {
+            continue;
+        }
+        let per_corner: Vec<f32> =
+            ["rectangleTopLeftCornerRadius", "rectangleTopRightCornerRadius", "rectangleBottomRightCornerRadius", "rectangleBottomLeftCornerRadius"]
+                .iter()
+                .filter_map(|k| f32_of(rec, k))
+                .collect();
+        recs.push((g, f32_of(rec, "cornerRadius"), per_corner));
+    }
+    drop(r);
+    let mut doc = designos_fig::import_fig(&bytes).unwrap();
+    doc.hydrate_all_pages();
+    let keys = NodeKeys::build(&doc);
+    let mut log = String::new();
+    let (mut vectors, mut disagree, mut affected, mut near) = (0, 0, 0, 0);
+    for (g, field, per_corner) in recs {
+        let Some(&id) = keys.by_source.get(&g) else { continue };
+        let Some(n) = doc.get(id) else { continue };
+        let NodeKind::Vector { network: Some(net), .. } = &n.kind else { continue };
+        vectors += 1;
+        let own = n.corner_radii[0];
+        let carried = field.unwrap_or(own);
+        let radii: Vec<f32> = net.vertices.iter().map(|v| v.corner_radius).collect();
+        let differs = field.is_some() && (own - carried).abs() > 1e-5;
+        // a vertex the old comparison against the layer's radius treated differently from the new one
+        let moved = differs && radii.iter().any(|v| (v - own).abs() <= 1e-5 || (v - carried).abs() <= 1e-5);
+        let hair = carried > 0.0 && radii.iter().any(|v| *v != carried && (v - carried).abs() <= 1e-5);
+        disagree += usize::from(differs);
+        affected += usize::from(moved);
+        near += usize::from(hair);
+        if differs || hair || dump.contains(&g) {
+            let _ = writeln!(
+                log,
+                "VEC {g} cornerRadius={field:?} layer_radius={own} per_corner={per_corner:?} vertex_radii={radii:?} record_radius_differs={differs} vertex_at_either_radius={moved} vertex_a_hair_off={hair}"
+            );
+        }
+    }
+    let _ = writeln!(
+        log,
+        "\nvectors with a network: {vectors}; cornerRadius differs from the layer radius: {disagree}; of those with a vertex at either radius (output can differ from the old comparison): {affected}; vectors with a vertex a hair off the carried radius: {near}"
+    );
+    std::fs::write(out, log).unwrap();
+}
