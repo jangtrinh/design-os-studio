@@ -3,7 +3,6 @@
 //! is clipped by, so the outline must never be taken for the fill: an outside stroke stays, an inside stroke is not
 //! doubled, and a fill added later covers the inside of the loop.
 
-use designos_doc::*;
 use designos_fig::import_rest_json;
 use designos_render::tiny_skia::Pixmap;
 use designos_render::{render_page, Viewport};
