@@ -196,12 +196,25 @@ fn a_spill_that_cannot_be_written_keeps_nothing_and_counts_the_records() {
 }
 
 #[test]
-fn a_no_edit_save_is_the_same_with_and_without_the_store() {
+fn a_no_edit_save_writes_what_the_store_holds_and_a_document_without_one_saves_as_it_always_did() {
     let bytes = heavy(framed(vec![("editInfo", edit_info()), ("fontVersion", V::String("1.2.3".into()))]));
     let (with, _) = import_fig_with_kept_options(&bytes, Some(&KeptOptions::default())).unwrap();
     let (without, _) = import_fig_with_kept_options(&bytes, None).unwrap();
     assert!(!with.fig_kept.is_empty());
-    assert_eq!(designos_fig::export_fig(&with).unwrap(), designos_fig::export_fig(&without).unwrap());
+    let keeper = |saved: &[u8]| -> serde_json::Value {
+        let json = designos_fig::decode_fig_to_json(saved).expect("decodes");
+        json["message"]["nodeChanges"]
+            .as_array()
+            .expect("records")
+            .iter()
+            .find(|r| r["guid"]["localID"] == 1 && r["guid"]["sessionID"] == 2)
+            .expect("the frame")
+            .clone()
+    };
+    let (kept, plain) = (keeper(&designos_fig::export_fig(&with).unwrap()), keeper(&designos_fig::export_fig(&without).unwrap()));
+    assert_eq!(kept["fontVersion"], "1.2.3", "the kept field is written back");
+    assert_eq!(kept["editInfo"]["userId"], "user-1");
+    assert!(plain.get("fontVersion").is_none() && plain.get("editInfo").is_none(), "a document with no store writes neither");
 }
 
 #[test]
