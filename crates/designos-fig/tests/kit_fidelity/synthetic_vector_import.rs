@@ -124,3 +124,44 @@ fn a_sheet_with_square_corners_does_not_fill_like_the_rounded_outline() {
     let v = fill_after_a_nudge(&sheet_fig(None, Some(0.0)));
     assert!(matches!(v, Verdict::Mismatch(_)), "the comparison tells a 4 px corner radius from none");
 }
+
+/// Radii of the vertices after the document is saved as a `.fig` and opened again.
+fn radii_after_a_save(doc: &Document) -> Vec<f32> {
+    let saved = designos_fig::export_fig(doc).expect("export");
+    let (_, reopened, keys) = load(&saved);
+    radii(&reopened, keys.by_source["1:1"])
+}
+
+fn nudged(doc: &Document, id: NodeId) -> Document {
+    let mut edited = doc.clone();
+    if let NodeKind::Vector { network: Some(net), .. } = &mut edited.get_mut(id).unwrap().kind {
+        net.vertices[0].pos.x += 0.25;
+    }
+    edited
+}
+
+#[test]
+fn a_save_keeps_the_dog_ear_the_style_table_sets_to_zero() {
+    let (_, doc, keys) = load(&sheet_fig(Some(4.0), Some(0.0)));
+    let id = keys.by_source["1:1"];
+    assert_eq!(radii(&doc, id), vec![4.0, 4.0, 4.0, 0.0, 0.0]);
+    assert_eq!(radii_after_a_save(&doc), vec![4.0, 4.0, 4.0, 0.0, 0.0], "an untouched vector");
+    assert_eq!(radii_after_a_save(&nudged(&doc, id)), vec![4.0, 4.0, 4.0, 0.0, 0.0], "an edited vector");
+}
+
+#[test]
+fn a_save_keeps_a_style_table_radius_that_differs_from_the_node_radius() {
+    let (_, doc, keys) = load(&sheet_fig(Some(4.0), Some(2.0)));
+    let id = keys.by_source["1:1"];
+    assert_eq!(radii_after_a_save(&doc), vec![4.0, 4.0, 4.0, 2.0, 2.0]);
+    assert_eq!(radii_after_a_save(&nudged(&doc, id)), vec![4.0, 4.0, 4.0, 2.0, 2.0]);
+}
+
+#[test]
+fn a_save_keeps_per_vertex_radii_of_a_vector_without_a_node_radius() {
+    let (_, doc, keys) = load(&sheet_fig(None, Some(2.0)));
+    let id = keys.by_source["1:1"];
+    assert_eq!(radii(&doc, id), vec![0.0, 0.0, 0.0, 2.0, 2.0]);
+    assert_eq!(radii_after_a_save(&doc), vec![0.0, 0.0, 0.0, 2.0, 2.0]);
+    assert_eq!(radii_after_a_save(&nudged(&doc, id)), vec![0.0, 0.0, 0.0, 2.0, 2.0]);
+}
