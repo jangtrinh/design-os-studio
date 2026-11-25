@@ -8,7 +8,7 @@ use crate::common;
 use common::*;
 use designos_doc::*;
 use designos_render::Viewport;
-use missing_font_fig::{golden_fixture, two_run_fixture};
+use missing_font_fig::{golden_fixture, instance_nested_fixture, two_run_fixture};
 
 #[test]
 fn stored_glyph_texts_match_the_cpu() {
@@ -59,4 +59,23 @@ fn a_two_run_text_keeps_each_runs_fill_on_the_gpu() {
         .filter(|&(x, y)| c.cpu.pixel(x, y).unwrap() != s.cpu.pixel(x, y).unwrap())
         .count();
     assert!(differing > 400, "the stored glyphs draw differently from shaping: {differing} pixels differ");
+}
+
+#[test]
+fn an_instance_text_with_its_own_stored_glyphs_matches_the_cpu() {
+    let Some(mut g) = gpu() else { return };
+    let doc = designos_fig::import_fig(&instance_nested_fixture()).unwrap();
+    let page = doc.pages.first().copied().expect("the fixture has a page");
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 4.0, dpr: 1.0 };
+    let c = compare(&mut g, "stored_glyph_instance_texts", &doc, page, vp, (192, 112), 8);
+    assert!(c.report_aa.ratio < 0.002, "{:?}", c.report_aa);
+    // the page holds the component (triangle, x 0..20) and the instance (curve, x 28..44) side by side, and both renderers draw ink in
+    // the instance's column range: the stored curve of the copy, not the triangle of the component, which has none there
+    let ink_in = |pm: &designos_render::tiny_skia::Pixmap, from: u32, to: u32| {
+        (from..to).flat_map(|x| (0..pm.height()).map(move |y| (x, y))).filter(|&(x, y)| pm.pixel(x, y).unwrap().alpha() > 0).count()
+    };
+    for (what, pm) in [("cpu", &c.cpu), ("gpu", &c.gpu)] {
+        assert!(ink_in(pm, 0, 80) > 300, "{what} draws the component's glyph");
+        assert!(ink_in(pm, 104, 176) > 150, "{what} draws the instance's own glyph");
+    }
 }

@@ -237,6 +237,70 @@ pub fn instance_override_fixture() -> Vec<u8> {
     fig_file(nodes, vec![icon_blob()])
 }
 
+/// An entry of an instance's `derivedSymbolData`: what Figma stored for the node at `path` below the instance, a text's own
+/// `derivedTextData` among it. The data holds a `size` x `size` layout and one glyph at `(x, size)` in `family`, drawn from
+/// blob `blob` at `font_size`.
+pub fn nested_text_entry(path: &[(u32, u32)], family: &str, size: f32, font_size: f32, blob: u32, x: f32) -> V {
+    nested_text_entry_laid_out(path, family, size, size, font_size, blob, x)
+}
+
+/// [`nested_text_entry`] whose stored layout is `layout` square where the entry's own `size` is `size`.
+pub fn nested_text_entry_laid_out(path: &[(u32, u32)], family: &str, size: f32, layout: f32, font_size: f32, blob: u32, x: f32) -> V {
+    let glyph = msg(vec![("commandsBlob", V::Uint(blob)), ("position", vec2(x, size)), ("fontSize", fl(font_size)), ("firstCharacter", V::Uint(0))]);
+    let derived = msg(vec![
+        ("layoutSize", vec2(layout, layout)),
+        ("fontMetaData", V::Array(vec![msg(vec![("key", font_key(family))])])),
+        ("glyphs", V::Array(vec![glyph])),
+    ]);
+    msg(vec![
+        ("guidPath", msg(vec![("guids", V::Array(path.iter().map(|&(s, l)| guid(s, l)).collect()))])),
+        ("size", vec2(size, size)),
+        ("derivedTextData", derived),
+    ])
+}
+
+/// The main component `Icon main` (20 x 20) with its text `Glyph source`, which draws the triangle (blob 0), as the parts of
+/// a file with instances of it.
+pub fn icon_main() -> Vec<V> {
+    vec![
+        node((1, 10), (0, 1), "a", "SYMBOL", "Icon main", vec![("size", vec2(20.0, 20.0))]),
+        glyph_text((1, 11), (1, 10), "a", "Glyph source", FAMILY, "\u{e900}", &[(0, 0.0)], vec![]),
+    ]
+}
+
+/// An instance of [`icon_main`] named `name`: it overrides the characters of the text when `characters` is given, is made with the
+/// scale tool when `scale` is, and carries `derived` as its `derivedSymbolData`.
+pub fn icon_instance(id: (u32, u32), pos: &str, name: &str, characters: Option<&str>, scale: Option<f32>, size: f32, derived: Vec<V>) -> V {
+    let mut symbol = vec![("symbolID", guid(1, 10))];
+    if let Some(chars) = characters {
+        symbol.push((
+            "symbolOverrides",
+            V::Array(vec![msg(vec![
+                ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 11)]))])),
+                ("textData", msg(vec![("characters", V::String(chars.into()))])),
+            ])]),
+        ));
+    }
+    if let Some(scale) = scale {
+        symbol.push(("uniformScaleFactor", fl(scale)));
+    }
+    // beside the component, so a page shows both
+    let mut fields = vec![("size", vec2(size, size)), ("transform", designos_fig::testkit::matrix(26.0, 0.0)), ("symbolData", msg(symbol))];
+    if !derived.is_empty() {
+        fields.push(("derivedSymbolData", V::Array(derived)));
+    }
+    node(id, (0, 1), pos, "INSTANCE", name, fields)
+}
+
+/// [`icon_main`] and the instance `Icon instance`, which overrides the characters and carries the data Figma stored for its own
+/// copy of the text: one curve glyph (blob 1) where the main draws the triangle (blob 0).
+pub fn instance_nested_fixture() -> Vec<u8> {
+    let mut nodes = document_and_page();
+    nodes.extend(icon_main());
+    nodes.push(icon_instance((1, 20), "b", "Icon instance", Some("\u{e901}"), None, 20.0, vec![nested_text_entry(&[(1, 11)], FAMILY, 20.0, 20.0, 1, 0.0)]));
+    fig_file(nodes, vec![icon_blob(), curve_blob()])
+}
+
 /// A vector that writes a blob of its own before a two-glyph text whose glyphs share one blob. The glyph blob is
 /// number 0 in the file and lands behind the vector's blob in a saved file.
 pub fn shared_blob_fixture() -> Vec<u8> {

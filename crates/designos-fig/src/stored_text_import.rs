@@ -12,11 +12,13 @@ use crate::rest_import;
 use crate::stored_glyphs::MAX_DRAWN_GLYPHS;
 use designos_doc::{Document, FigTextGeometry, GlyphBlobExtent, Node, NodeId, NodeKind, StoredDecoration, StoredFallback, StoredGlyph};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// A glyph blob of the file, held once for every text that names it, with what the importer learned about it.
 pub(crate) struct SharedBlob {
     bytes: Arc<[u8]>,
+    /// The blob's number in the file.
+    file: u32,
     /// `None` when a coordinate of the blob is not finite: no text can draw it.
     extent: Option<GlyphBlobExtent>,
 }
@@ -89,6 +91,238 @@ pub(crate) fn attach(doc: &mut Document, blobs: &[&[u8]], run_sids: &HashMap<Nod
     }
 }
 
+/// The data Figma stored for a text inside an instance (`derivedTextData` in an entry of `derivedSymbolData`), as wire bytes,
+/// with what is needed to build the geometry of any copy it fits.
+///
+/// Spans that are equal byte for byte are one `NestedSpan` (see [`SpanTable`]), so a component used five hundred times with the
+/// same override keeps one copy of the bytes, one decode of the blobs, and, for copies whose text is alike, one geometry.
+pub(crate) struct NestedSpan {
+    wire: Arc<[u8]>,
+    /// The blobs the glyphs name, collected while the blobs of the file were at hand; `None` inside when the bytes cannot be
+    /// read. A page that is hydrated later has no blobs, so the importer prepares the span before it is kept.
+    prepared: OnceLock<Option<TextBlobs>>,
+    /// The geometries built from this span, for a copy to share when its text is alike (see [`FigTextGeometry::matches`]).
+    built: Mutex<Vec<Arc<FigTextGeometry>>>,
+}
+
+impl std::fmt::Debug for NestedSpan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NestedSpan").field("wire_bytes", &self.wire.len()).finish_non_exhaustive()
+    }
+}
+
+thread_local! {
+    /// Each thread decodes with a schema of its own (see [`Decoder`]).
+    static DECODER: Option<Decoder> = Decoder::new();
+}
+
+impl NestedSpan {
+    fn new(wire: Vec<u8>) -> Arc<Self> {
+        Arc::new(Self { wire: Arc::from(wire), prepared: OnceLock::new(), built: Mutex::new(Vec::new()) })
+    }
+
+    /// Collects the blobs the glyphs name, once. `blobs` is the file's blob table.
+    fn prepare(&self, blobs: &[&[u8]], cache: &mut BlobCache) {
+        self.prepared.get_or_init(|| {
+            DECODER.with(|decoder| {
+                let derived = decoder.as_ref()?.decode(&self.wire)?;
+                Some(collect_blobs(array(&derived, "glyphs"), blobs, cache))
+            })
+        });
+    }
+
+    /// The geometry of `node` from this span, or `None` when the renderer must not draw the data for this text (the data is
+    /// of another size, another font, truncated, and so on; see [`StoredFallback`]). The snapshot is taken from `node`, so
+    /// the geometry matches the text as it stands; `run_sids` are the style ids Figma gave its runs (empty for a text without).
+    /// A copy whose text is alike (same size and glyph-deciding settings) gets the geometry an earlier copy got.
+    pub(crate) fn geometry_for(&self, node: &Node, run_sids: &[u32], blobs: &[&[u8]]) -> Option<Arc<FigTextGeometry>> {
+        if self.prepared.get().is_none() {
+            self.prepare(blobs, &mut BlobCache { shared: &Mutex::new(HashMap::new()), local: &mut HashMap::new() });
+        }
+        let used = self.prepared.get()?.as_ref()?;
+        let mut built = self.built.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(hit) = built.iter().find(|g| g.matches(node) && *g.run_sids == *run_sids) {
+            return Some(Arc::clone(hit));
+        }
+        let derived = DECODER.with(|decoder| decoder.as_ref()?.decode(&self.wire))?;
+        let geometry = build_geometry(node, Arc::clone(&self.wire), &derived, used, run_sids)?;
+        if geometry.fallback.is_some() {
+            return None;
+        }
+        let geometry = Arc::new(geometry);
+        built.push(Arc::clone(&geometry));
+        Some(geometry)
+    }
+}
+
+/// What a binary import took out of its node changes for the importer: the wire bytes of each text's own `derivedTextData`, by the
+/// node's guid, and the data of the texts inside instances.
+#[derive(Default)]
+pub(crate) struct ImportedTexts {
+    pub wires: HashMap<String, Arc<[u8]>>,
+    pub nested: NestedTexts,
+}
+
+/// The text data of an import that sits in instances: for each instance (by guid), the entries of its `derivedSymbolData`
+/// that carry some, each with the path of the node it is for.
+pub(crate) type NestedTexts = HashMap<String, Vec<NestedTextEntry>>;
+
+/// One entry: the path of the node the data is for, as the guids below the instance joined by `;` (one allocation for the path;
+/// the entries of an unopened page are held until it opens), and the data.
+#[derive(Clone, Debug)]
+pub(crate) struct NestedTextEntry {
+    pub path: Box<str>,
+    pub span: Arc<NestedSpan>,
+}
+
+impl NestedTextEntry {
+    /// The guids of the path, outermost first.
+    pub(crate) fn path(&self) -> Vec<&str> {
+        self.path.split(';').collect()
+    }
+}
+
+/// Spans by content: equal bytes are one span.
+#[derive(Default)]
+struct SpanTable {
+    by_hash: HashMap<u64, Vec<Arc<NestedSpan>>>,
+    unique: Vec<Arc<NestedSpan>>,
+}
+
+impl SpanTable {
+    fn intern(&mut self, bytes: Vec<u8>) -> Arc<NestedSpan> {
+        let bucket = self.by_hash.entry(hash_bytes(&bytes)).or_default();
+        if let Some(hit) = bucket.iter().find(|s| *s.wire == bytes[..]) {
+            return Arc::clone(hit);
+        }
+        let span = NestedSpan::new(bytes);
+        bucket.push(Arc::clone(&span));
+        self.unique.push(Arc::clone(&span));
+        span
+    }
+}
+
+/// A fast hash of a span; spans of one hash are compared byte for byte, so a collision costs a comparison and nothing else. Four
+/// independent lanes keep the multiplies from waiting on each other: the spans of a kit add up to tens of megabytes.
+fn hash_bytes(bytes: &[u8]) -> u64 {
+    const K: u64 = 0x9E37_79B9_7F4A_7C15;
+    let word = |w: &[u8]| u64::from_le_bytes(w.try_into().unwrap_or([0; 8]));
+    let mut lanes = [K ^ bytes.len() as u64, K.rotate_left(13), K.rotate_left(29), K.rotate_left(47)];
+    let mut blocks = bytes.chunks_exact(32);
+    for block in &mut blocks {
+        for (lane, w) in lanes.iter_mut().zip(block.chunks_exact(8)) {
+            *lane = (*lane ^ word(w)).wrapping_mul(K);
+            *lane ^= *lane >> 29;
+        }
+    }
+    let mut h = lanes[0] ^ lanes[1].rotate_left(16) ^ lanes[2].rotate_left(32) ^ lanes[3].rotate_left(48);
+    let mut words = blocks.remainder().chunks_exact(8);
+    for w in &mut words {
+        h = (h ^ word(w)).wrapping_mul(K);
+        h ^= h >> 29;
+    }
+    for &b in words.remainder() {
+        h = (h ^ u64::from(b)).wrapping_mul(K);
+    }
+    h ^ (h >> 32)
+}
+
+/// What one instance's `derivedSymbolData` held: its guid, and for each entry with text data the path of its node and the wire bytes.
+type RawEntries = (String, Vec<(Box<str>, Vec<u8>)>);
+
+/// Takes the `derivedTextData` out of the entries of every instance's `derivedSymbolData` among `changes`, as the wire bytes
+/// of Studio's schema, equal spans shared. A heavy decode has already written the bytes (see `stored_glyphs`); a payload
+/// under 2 MB still holds the decoded value, which is written here, and is bounded by its own size. The second value holds
+/// the distinct spans, which the caller prepares with [`prepare_all`] while the blobs of the file are at hand, because a page that is
+/// hydrated after the import has none. The third is how many spans hold a value that cannot be written in Studio's schema (they are left
+/// out and counted like a text that did not fit).
+///
+/// The records are read on several threads when there are many: reading an entry and writing its path cost more than the
+/// comparison of spans that follows, which is done once, in record order, so the result does not depend on the thread count.
+pub(crate) fn take_nested_texts(changes: &mut [K]) -> (NestedTexts, Vec<Arc<NestedSpan>>, usize) {
+    let threads = if changes.len() < 20_000 { 1 } else { std::thread::available_parallelism().map_or(1, |n| n.get()).min(8) };
+    let chunk = changes.len().div_ceil(threads).max(1);
+    let parts: Vec<(Vec<RawEntries>, usize)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = changes.chunks_mut(chunk).map(|part| scope.spawn(move || read_nested(part))).collect();
+        handles.into_iter().map(|h| h.join().expect("the entries of an import are read without panicking")).collect()
+    });
+    let mut table = SpanTable::default();
+    let mut out: NestedTexts = HashMap::new();
+    let mut unreadable = 0usize;
+    for (instances, bad) in parts {
+        unreadable += bad;
+        for (guid, raw) in instances {
+            let mut entries: Vec<NestedTextEntry> = raw.into_iter().map(|(path, bytes)| NestedTextEntry { path, span: table.intern(bytes) }).collect();
+            entries.shrink_to_fit();
+            out.insert(guid, entries);
+        }
+    }
+    (out, table.unique, unreadable)
+}
+
+/// The entries of `changes` that carry text data, by instance (see [`take_nested_texts`]).
+fn read_nested(changes: &mut [K]) -> (Vec<RawEntries>, usize) {
+    let mut out: Vec<RawEntries> = Vec::new();
+    let mut unreadable = 0usize;
+    for change in changes.iter_mut() {
+        if !matches!(change.get("type"), Some(K::Enum(t)) if &**t == "INSTANCE") {
+            continue;
+        }
+        let Some(guid) = change.get("guid").and_then(crate::fig::kiwi_guid_str) else { continue };
+        let mut entries: Vec<(Box<str>, Vec<u8>)> = Vec::new();
+        let mut take = |holder: Option<&mut K>| {
+            let Some(K::Array(list)) = holder else { return };
+            for entry in list.iter_mut() {
+                let Some(derived) = entry.take_field("derivedTextData") else { continue };
+                let bytes = match derived {
+                    K::Bytes(bytes) => Some(bytes),
+                    value => crate::derived_text_wire::wire_from_kiwi(&value),
+                };
+                let Some(bytes) = bytes else {
+                    unreadable += 1;
+                    continue;
+                };
+                // the guids below the instance, outermost first, joined by `;`: one allocation for the path
+                let path = entry.get("guidPath");
+                let ids = path.and_then(|p| p.get("guids")).or(path).and_then(K::as_array).unwrap_or(&[]);
+                let mut joined = String::with_capacity(ids.len() * 12);
+                for (s, l) in ids.iter().filter_map(crate::fig::kiwi_guid_parts) {
+                    use std::fmt::Write;
+                    let _ = write!(joined, "{}{s}:{l}", if joined.is_empty() { "" } else { ";" });
+                }
+                if !joined.is_empty() {
+                    entries.push((joined.into_boxed_str(), bytes));
+                }
+            }
+        };
+        take(change.get_mut("derivedSymbolData"));
+        take(change.get_mut("symbolData").and_then(|sd| sd.get_mut("derivedSymbolData")));
+        if !entries.is_empty() {
+            entries.shrink_to_fit();
+            out.push((guid, entries));
+        }
+    }
+    (out, unreadable)
+}
+
+/// Prepares every span of `spans` (see [`NestedSpan::prepare`]), on up to 8 threads that share one map of the file's blobs.
+pub(crate) fn prepare_all(spans: &[Arc<NestedSpan>], blobs: &[&[u8]]) {
+    let shared: Mutex<HashMap<usize, Arc<SharedBlob>>> = Mutex::new(HashMap::new());
+    let threads = if spans.len() < 512 { 1 } else { std::thread::available_parallelism().map_or(1, |n| n.get()).min(8) };
+    let chunk = spans.len().div_ceil(threads).max(1);
+    std::thread::scope(|scope| {
+        for part in spans.chunks(chunk) {
+            let shared = &shared;
+            scope.spawn(move || {
+                let mut local: HashMap<usize, Arc<SharedBlob>> = HashMap::new();
+                for span in part {
+                    span.prepare(blobs, &mut BlobCache { shared, local: &mut local });
+                }
+            });
+        }
+    });
+}
+
 /// The blobs of the file one thread has met, in front of the map every thread shares.
 struct BlobCache<'a> {
     shared: &'a Mutex<HashMap<usize, Arc<SharedBlob>>>,
@@ -103,7 +337,9 @@ impl BlobCache<'_> {
         }
         let made = {
             let mut shared = self.shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            Arc::clone(shared.entry(index).or_insert_with(|| Arc::new(SharedBlob { bytes: Arc::from(blob), extent: designos_doc::glyph_blob_extent(blob) })))
+            Arc::clone(shared.entry(index).or_insert_with(|| {
+                Arc::new(SharedBlob { bytes: Arc::from(blob), file: u32::try_from(index).unwrap_or(u32::MAX), extent: designos_doc::glyph_blob_extent(blob) })
+            }))
         };
         self.local.insert(index, Arc::clone(&made));
         made
@@ -133,55 +369,68 @@ fn array<'a>(v: &'a K, key: &str) -> &'a [K] {
     v.get(key).and_then(K::as_array).unwrap_or(&[])
 }
 
-/// The blobs the glyphs of one text name, in first-use order, and what the importer saw about them.
-struct TextBlobs {
+/// The blobs the glyphs of one text name, in first-use order, and what the importer saw about them. Each blob is held through the
+/// file-wide [`SharedBlob`], so a text that names it costs one pointer and not a copy of what is known about it.
+pub(crate) struct TextBlobs {
     /// Each distinct blob once, in first-use order.
-    unique: Vec<Arc<[u8]>>,
-    /// The number of each of [`unique`](Self::unique) in the file.
-    files: Vec<u32>,
-    /// The extent of each of [`unique`](Self::unique).
-    extents: Vec<Option<GlyphBlobExtent>>,
-    /// The slot of each glyph's blob, `None` for a glyph with none or whose blob the file does not have.
-    slots: Vec<Option<u32>>,
+    blobs: Vec<Arc<SharedBlob>>,
+    /// The slot in [`blobs`](Self::blobs) of each glyph's blob, [`NO_SLOT`] for a glyph with none or whose blob the file does not have.
+    slots: Vec<u32>,
     /// Blob bytes, counted once per glyph that names a blob: a shared blob costs its bytes for every glyph that draws it.
     bytes: usize,
     /// A glyph names a blob the file does not have.
     missing: bool,
 }
 
+const NO_SLOT: u32 = u32::MAX;
+
+impl TextBlobs {
+    fn unique(&self) -> Vec<Arc<[u8]>> {
+        self.blobs.iter().map(|b| Arc::clone(&b.bytes)).collect()
+    }
+
+    fn files(&self) -> Arc<[u32]> {
+        self.blobs.iter().map(|b| b.file).collect()
+    }
+
+    /// The slot of glyph `i`'s blob.
+    fn slot(&self, i: usize) -> Option<u32> {
+        self.slots.get(i).copied().filter(|&slot| slot != NO_SLOT)
+    }
+}
+
 fn collect_blobs(glyphs: &[K], blobs: &[&[u8]], shared: &mut BlobCache) -> TextBlobs {
-    let mut out = TextBlobs { unique: Vec::new(), files: Vec::new(), extents: Vec::new(), slots: Vec::with_capacity(glyphs.len()), bytes: 0, missing: false };
+    let mut out = TextBlobs { blobs: Vec::new(), slots: Vec::with_capacity(glyphs.len()), bytes: 0, missing: false };
     let mut slot_of: HashMap<usize, u32> = HashMap::new();
     for glyph in glyphs {
         let Some(index) = uint(glyph, "commandsBlob") else {
-            out.slots.push(None);
+            out.slots.push(NO_SLOT);
             continue;
         };
         let Some((index, blob)) = usize::try_from(index).ok().and_then(|i| blobs.get(i).copied().map(|b| (i, b))) else {
             out.missing = true;
-            out.slots.push(None);
+            out.slots.push(NO_SLOT);
             continue;
         };
         out.bytes = out.bytes.saturating_add(blob.len());
         let entry = shared.get(index, blob);
         let slot = match slot_of.get(&index) {
-            Some(&slot) => Some(slot),
-            None => match (u32::try_from(out.unique.len()), u32::try_from(index)) {
-                (Ok(slot), Ok(file)) => {
-                    out.unique.push(Arc::clone(&entry.bytes));
-                    out.files.push(file);
-                    out.extents.push(entry.extent);
+            Some(&slot) => slot,
+            None => match (u32::try_from(out.blobs.len()), u32::try_from(index)) {
+                (Ok(slot), Ok(_)) => {
+                    out.blobs.push(entry);
                     slot_of.insert(index, slot);
-                    Some(slot)
+                    slot
                 }
                 _ => {
                     out.missing = true;
-                    None
+                    NO_SLOT
                 }
             },
         };
         out.slots.push(slot);
     }
+    out.blobs.shrink_to_fit();
     out
 }
 
@@ -190,17 +439,23 @@ fn collect_blobs(glyphs: &[K], blobs: &[&[u8]], shared: &mut BlobCache) -> TextB
 /// this program wrote. `shared` holds each file blob once for the whole import (Figma shares one blob between every
 /// occurrence of a glyph, and so do the geometries built from it).
 fn geometry(node: &Node, wire: Arc<[u8]>, blobs: &[&[u8]], shared: &mut BlobCache, decoder: &Decoder, run_sids: &[u32]) -> Option<FigTextGeometry> {
-    let NodeKind::Text(text) = &node.kind else { return None };
     let derived = decoder.decode(&wire)?;
-    let glyphs = array(&derived, "glyphs");
-    let used = collect_blobs(glyphs, blobs, shared);
+    let used = collect_blobs(array(&derived, "glyphs"), blobs, shared);
+    build_geometry(node, wire, &derived, &used, run_sids)
+}
+
+/// [`geometry`] once the wire bytes are decoded and the blobs of their glyphs are collected: the part that depends on the text
+/// the data is for.
+fn build_geometry(node: &Node, wire: Arc<[u8]>, derived: &K, used: &TextBlobs, run_sids: &[u32]) -> Option<FigTextGeometry> {
+    let NodeKind::Text(text) = &node.kind else { return None };
+    let glyphs = array(derived, "glyphs");
     let refused = |why: StoredFallback| {
         Some(FigTextGeometry {
             text: text.clone(),
             size: node.size,
             fallback: Some(why),
-            blobs: used.unique.clone(),
-            blob_files: used.files.clone().into(),
+            blobs: used.unique(),
+            blob_files: used.files(),
             wire: Arc::clone(&wire),
             ..Default::default()
         })
@@ -223,7 +478,7 @@ fn geometry(node: &Node, wire: Arc<[u8]>, blobs: &[&[u8]], shared: &mut BlobCach
         Some(K::String(family)) => Some(family.to_lowercase()),
         _ => None,
     };
-    if !array(&derived, "fontMetaData").iter().filter_map(stored_family).any(|family| own_fonts.contains(&family)) {
+    if !array(derived, "fontMetaData").iter().filter_map(stored_family).any(|family| own_fonts.contains(&family)) {
         return refused(StoredFallback::Fonts);
     }
     if run_sids.len() != text.runs.len() {
@@ -251,7 +506,7 @@ fn geometry(node: &Node, wire: Arc<[u8]>, blobs: &[&[u8]], shared: &mut BlobCach
     let mut drawn_commands = 0usize;
     let mut emoji = false;
     let mut outside = 0usize;
-    for (glyph, slot) in glyphs.iter().zip(&used.slots) {
+    for (i, glyph) in glyphs.iter().enumerate() {
         let (Some(scale), Some(pos)) = (num(glyph, "fontSize"), glyph.get("position")) else { return refused(StoredFallback::Malformed) };
         let (Some(x), Some(y)) = (num(pos, "x"), num(pos, "y")) else { return refused(StoredFallback::Malformed) };
         if !scale.is_finite() || scale <= 0.0 || !x.is_finite() || !y.is_finite() {
@@ -268,9 +523,9 @@ fn geometry(node: &Node, wire: Arc<[u8]>, blobs: &[&[u8]], shared: &mut BlobCach
         let style = if inside { style_of(first_char as usize) } else { 0 };
         let flags = if is_emoji { StoredGlyph::EMOJI } else { 0 };
         let mut stored = StoredGlyph { x, y, font_size: scale, blob: StoredGlyph::NO_BLOB, first_char, style, flags };
-        if let Some(slot) = *slot {
+        if let Some(slot) = used.slot(i) {
             stored.blob = slot;
-            let Some(extent) = used.extents[slot as usize] else { return refused(StoredFallback::Malformed) };
+            let Some(extent) = used.blobs[slot as usize].extent else { return refused(StoredFallback::Malformed) };
             // A glyph is drawn at `x + p.x * scale`, `y - p.y * scale`. Both maps are monotonic per axis, so the corners of
             // the blob's box bound every point: when they are finite so is each outline point.
             if extent.commands > 0 {
@@ -288,7 +543,7 @@ fn geometry(node: &Node, wire: Arc<[u8]>, blobs: &[&[u8]], shared: &mut BlobCach
         u32::try_from(sid).ok().and_then(|sid| run_sids.iter().position(|&r| r == sid)).and_then(|i| u16::try_from(i + 1).ok()).unwrap_or(0)
     };
     let mut decorations = Vec::new();
-    for deco in array(&derived, "decorations") {
+    for deco in array(derived, "decorations") {
         let style = style_of_id(uint(deco, "styleID").unwrap_or(0));
         for rect in array(deco, "rects") {
             let (Some(x), Some(y), Some(w), Some(h)) = (num(rect, "x"), num(rect, "y"), num(rect, "w"), num(rect, "h")) else {
@@ -303,7 +558,7 @@ fn geometry(node: &Node, wire: Arc<[u8]>, blobs: &[&[u8]], shared: &mut BlobCach
     if drawn_commands == 0 && !emoji && decorations.is_empty() {
         return refused(StoredFallback::NothingDrawn);
     }
-    let non_empty = |key: &str| !array(&derived, key).is_empty();
+    let non_empty = |key: &str| !array(derived, key).is_empty();
     // A list's markers are glyphs of no character of the text, one for each list paragraph (every list text of the design
     // kit stores them so, to the left of its first character). Any other glyph of no character is a data problem.
     let list_paragraphs = if text.lists.is_empty() { 0 } else { text.paragraph_lists().iter().flatten().count() };
@@ -319,8 +574,8 @@ fn geometry(node: &Node, wire: Arc<[u8]>, blobs: &[&[u8]], shared: &mut BlobCach
     Some(FigTextGeometry {
         text: text.clone(),
         size: node.size,
-        blobs: used.unique,
-        blob_files: used.files.into(),
+        blobs: used.unique(),
+        blob_files: used.files(),
         glyphs: table.into(),
         decorations: decorations.into(),
         run_sids: run_sids.into(),

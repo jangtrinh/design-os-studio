@@ -12,6 +12,7 @@ use crate::fig_export::{
 use crate::kiwi::{self, KiwiValue, Schema};
 use crate::rest_import::{self, fnum, fstr};
 use crate::stored_glyphs;
+use crate::stored_text_import;
 use crate::svgpath::write_path;
 use crate::FigError;
 use designos_doc::{Affine, Document, FillRule, Path, Vec2};
@@ -64,10 +65,10 @@ pub(crate) fn release_os_memory() {
 }
 
 fn decode_inner(bytes: &[u8], for_import: bool) -> Result<Decoded, FigError> {
-    decode_with_allowance(bytes, for_import, stored_glyphs::ALLOWANCE_FILE_WIRE_BYTES)
+    decode_with_allowance(bytes, for_import, stored_glyphs::ALLOWANCE_FILE_WIRE_BYTES, stored_glyphs::ALLOWANCE_FILE_NESTED_WIRE_BYTES)
 }
 
-fn decode_with_allowance(bytes: &[u8], for_import: bool, stored_glyph_allowance: usize) -> Result<Decoded, FigError> {
+fn decode_with_allowance(bytes: &[u8], for_import: bool, stored_glyph_allowance: usize, nested_allowance: usize) -> Result<Decoded, FigError> {
     let mut archive = container::open(bytes)?;
     let is_figjam = archive.canvas.starts_with(container::MAGIC_JAM);
     let (schema_bin, msg_bin) = container::read_archive_chunks(&archive)?;
@@ -76,7 +77,7 @@ fn decode_with_allowance(bytes: &[u8], for_import: bool, stored_glyph_allowance:
     drop(schema_bin);
     let root = schema.root_message().ok_or_else(|| FigError::Format("schema has no message definition".into()))?;
     let (message, dropped_stored_glyphs) = if for_import {
-        schema.decode_message_for_import_counting(root, &msg_bin, kiwi::MAX_DECODED_VALUES, stored_glyph_allowance)
+        schema.decode_message_for_import_counting_nested(root, &msg_bin, kiwi::MAX_DECODED_VALUES, stored_glyph_allowance, Some(nested_allowance))
     } else {
         schema.decode_message(root, &msg_bin).map(|message| (message, 0))
     }
@@ -121,7 +122,7 @@ pub struct FigInstanceDerivedData {
 /// Extracts `derivedSymbolData` entries and `uniformScaleFactor` keyed by `INSTANCE` guid (`"s:l"`).
 pub fn extract_fig_derived_symbol_data(bytes: &[u8]) -> Result<HashMap<String, FigInstanceDerivedData>, FigError> {
     // it reads instances only, so it takes no stored glyphs
-    let mut d = decode_with_allowance(bytes, true, 0)?;
+    let mut d = decode_with_allowance(bytes, true, 0, 0)?;
     let raw_changes: Vec<KiwiValue> = match d.message.take_field("nodeChanges") {
         Some(KiwiValue::Array(arr)) => arr,
         _ => Vec::new(),
@@ -171,7 +172,12 @@ pub(crate) struct FastDerivedEntry {
     pub stroke_geometry: Option<Vec<(usize, bool)>>,
 }
 
-fn kiwi_guid_str(g: &KiwiValue) -> Option<String> {
+pub(crate) fn kiwi_guid_str(g: &KiwiValue) -> Option<String> {
+    kiwi_guid_parts(g).map(|(s, l)| format!("{s}:{l}"))
+}
+
+/// The session and local id of a guid value; `None` for the null guid and for anything that is not one.
+pub(crate) fn kiwi_guid_parts(g: &KiwiValue) -> Option<(u64, u64)> {
     let u64_of = |v: &KiwiValue| match v {
         KiwiValue::Uint(u) => Some(*u as u64),
         KiwiValue::Uint64(u) => Some(*u),
@@ -184,7 +190,7 @@ fn kiwi_guid_str(g: &KiwiValue) -> Option<String> {
     if s == u64::from(u32::MAX) && l == u64::from(u32::MAX) {
         return None;
     }
-    Some(format!("{s}:{l}"))
+    Some((s, l))
 }
 
 /// A kiwi float field as `f32`. A NaN or infinity is treated as absent, the way the JSON path does
@@ -314,18 +320,33 @@ pub fn import_fig_with_report(bytes: &[u8]) -> Result<(Document, rest_import::Im
 
 /// [`import_fig_with_report`] with a caller-specified global clone budget (used by tests to exercise budget exhaustion).
 pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result<(Document, rest_import::ImportReport), FigError> {
-    import_with_budgets(bytes, clone_budget_total, stored_glyphs::ALLOWANCE_FILE_WIRE_BYTES)
+    import_with_budgets(bytes, clone_budget_total, stored_glyphs::ALLOWANCE_FILE_WIRE_BYTES, stored_glyphs::ALLOWANCE_FILE_NESTED_WIRE_BYTES)
 }
 
 /// [`import_fig_with_report`] with a caller-specified allowance of wire bytes for the stored glyphs a heavy import keeps
 /// (used by tests to exercise the allowance running out; see [`rest_import::ImportReport::dropped_stored_glyphs`]).
 #[doc(hidden)]
 pub fn import_fig_with_stored_glyph_allowance(bytes: &[u8], allowance: usize) -> Result<(Document, rest_import::ImportReport), FigError> {
-    import_with_budgets(bytes, rest_import::CLONE_BUDGET_TOTAL, allowance)
+    import_with_budgets(bytes, rest_import::CLONE_BUDGET_TOTAL, allowance, stored_glyphs::ALLOWANCE_FILE_NESTED_WIRE_BYTES)
 }
 
-fn import_with_budgets(bytes: &[u8], clone_budget_total: usize, stored_glyph_allowance: usize) -> Result<(Document, rest_import::ImportReport), FigError> {
-    let mut d = decode_with_allowance(bytes, true, stored_glyph_allowance)?;
+/// [`import_fig_with_stored_glyph_allowance`] that also names the allowance for the data of the texts inside instances.
+#[doc(hidden)]
+pub fn import_fig_with_stored_glyph_allowances(
+    bytes: &[u8],
+    allowance: usize,
+    nested_allowance: usize,
+) -> Result<(Document, rest_import::ImportReport), FigError> {
+    import_with_budgets(bytes, rest_import::CLONE_BUDGET_TOTAL, allowance, nested_allowance)
+}
+
+fn import_with_budgets(
+    bytes: &[u8],
+    clone_budget_total: usize,
+    stored_glyph_allowance: usize,
+    nested_allowance: usize,
+) -> Result<(Document, rest_import::ImportReport), FigError> {
+    let mut d = decode_with_allowance(bytes, true, stored_glyph_allowance, nested_allowance)?;
     // FigJam's binary container has its own magic. Unlike a REST export, it does
     // not carry an `editorType` field in the decoded node changes, so preserve
     // that file-level board marker while handing the data to the REST importer.
@@ -348,6 +369,10 @@ fn import_with_budgets(bytes: &[u8], clone_budget_total: usize, stored_glyph_all
     };
     drop(d.message);
 
+    let blob_refs: Vec<&[u8]> = owned_blobs.iter().map(Vec::as_slice).collect();
+    // the data Figma stored for the texts inside instances leaves the entries of `derivedSymbolData` as wire bytes first: the
+    // entries are read for their sizes and transforms below, and no JSON carries it
+    let (nested_texts, nested_spans, unreadable_nested_text) = stored_text_import::take_nested_texts(&mut raw_changes);
     let large = raw_changes.len() > 5_000;
     let mut fast_derived = large.then(|| extract_fast_derived(&mut raw_changes, owned_blobs.len()));
     if large {
@@ -356,7 +381,7 @@ fn import_with_budgets(bytes: &[u8], clone_budget_total: usize, stored_glyph_all
     let into_j: fn(KiwiValue) -> Value = if large { kiwi::into_json_fast } else { kiwi::into_json };
     let mut entries: Vec<Entry> = Vec::with_capacity(raw_changes.len());
     let mut text_wires: HashMap<String, Arc<[u8]>> = HashMap::new();
-    let mut unreadable_stored_text = 0usize;
+    let mut unreadable_stored_text = unreadable_nested_text;
     for mut kc in raw_changes {
         if d.studio_connector_caps {
             remap_studio_connector_caps(&mut kc);
@@ -381,7 +406,6 @@ fn import_with_budgets(bytes: &[u8], clone_budget_total: usize, stored_glyph_all
             Some((e.id.clone(), sp))
         })
         .collect();
-    let blob_refs: Vec<&[u8]> = owned_blobs.iter().map(Vec::as_slice).collect();
     let dropped_variable_bindings = dropped_effect_variable_bindings(&entries);
     let dropped_variable_overrides = count_variable_override_nodes(&entries);
     let mut rest = entries_to_rest(entries, &blob_refs, &name);
@@ -391,15 +415,25 @@ fn import_with_budgets(bytes: &[u8], clone_budget_total: usize, stored_glyph_all
     if large {
         release_os_memory();
     }
-    let (mut doc, mut report) = rest_import::import_rest_value_owned_with_budget(
-        rest,
-        true,
-        &blob_refs,
-        fast_derived.as_mut(),
-        text_wires,
-        clone_budget_total,
-        rest_import::KEEP_UNKNOWN_KEYS_FROM_BINARY,
-    )?;
+    // The blobs the glyphs of the texts inside instances name are collected while the import runs: a page that opens later has no blob
+    // table, and a span a page needs before that is done is prepared by the page (see `NestedSpan::geometry_for`), so nothing waits.
+    let imported = std::thread::scope(|scope| {
+        if !nested_spans.is_empty() {
+            let (spans, blobs) = (&nested_spans, &blob_refs);
+            scope.spawn(move || stored_text_import::prepare_all(spans, blobs));
+        }
+        rest_import::import_rest_value_owned_with_budget(
+            rest,
+            true,
+            &blob_refs,
+            fast_derived.as_mut(),
+            stored_text_import::ImportedTexts { wires: text_wires, nested: nested_texts },
+            clone_budget_total,
+            rest_import::KEEP_UNKNOWN_KEYS_FROM_BINARY,
+        )
+    });
+    drop(nested_spans);
+    let (mut doc, mut report) = imported?;
     report.dropped_variable_bindings += dropped_variable_bindings;
     report.dropped_variable_overrides += dropped_variable_overrides;
     report.dropped_stored_glyphs += dropped_stored_glyphs + unreadable_stored_text;

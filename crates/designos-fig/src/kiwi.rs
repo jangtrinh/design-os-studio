@@ -215,8 +215,15 @@ pub struct Reader<'a> {
     /// Wire bytes of `derivedTextData` an import may still keep (see `stored_glyphs`), and how many texts it had to leave out.
     stored_glyphs_left: usize,
     stored_glyphs_dropped: usize,
-    /// While set, skipping a value charges the budgets exactly as decoding it would (see [`Schema::keep_stored_glyphs`]).
-    charge_skipped: bool,
+    /// Wire bytes of the `derivedTextData` inside `derivedSymbolData` entries (the data of a text in an instance) an import may
+    /// still keep. `None`: those draw on the same allowance as the texts themselves (a paste has one).
+    nested_glyphs_left: Option<usize>,
+    /// How many `derivedSymbolData` fields the decoder is inside of; above 0, a `derivedTextData` is an instance's.
+    nested_depth: usize,
+    /// While set, skipping a value counts what decoding it would charge instead of charging it (see [`Schema::keep_stored_glyphs`]).
+    tallying: bool,
+    tally_values: usize,
+    tally_zero_wire: usize,
     /// Whether the definition of `derivedTextData` (by index in the schema being read) is the one Studio writes, so a kept
     /// span can be copied as it is. Worked out once per decode.
     derived_verbatim: Option<(usize, bool)>,
@@ -232,7 +239,11 @@ impl<'a> Reader<'a> {
             zero_wire_left: usize::MAX,
             stored_glyphs_left: 0,
             stored_glyphs_dropped: 0,
-            charge_skipped: false,
+            nested_glyphs_left: None,
+            nested_depth: 0,
+            tallying: false,
+            tally_values: 0,
+            tally_zero_wire: 0,
             derived_verbatim: None,
         }
     }
@@ -245,6 +256,13 @@ impl<'a> Reader<'a> {
     }
     fn charge_zero_wire(&mut self) -> Result<()> {
         self.zero_wire_left = self.zero_wire_left.checked_sub(1).ok_or_else(|| KiwiError::Bad("zero-size struct count exceeds budget".into()))?;
+        Ok(())
+    }
+    /// Charges what a walk counted while `tallying`, as the same number of single charges would.
+    fn charge_tally(&mut self) -> Result<()> {
+        self.values_left = self.values_left.checked_sub(self.tally_values).ok_or_else(|| KiwiError::Bad("decoded value count exceeds budget".into()))?;
+        self.zero_wire_left =
+            self.zero_wire_left.checked_sub(self.tally_zero_wire).ok_or_else(|| KiwiError::Bad("zero-size struct count exceeds budget".into()))?;
         Ok(())
     }
     pub fn at_end(&self) -> bool {
@@ -413,11 +431,14 @@ impl Schema {
     }
 
     fn decode_message_with_limits(&self, root: usize, data: &[u8], values: usize, zero_wire_instances: usize, skip_heavy: bool) -> Result<KiwiValue> {
-        self.decode_message_counting(root, data, values, zero_wire_instances, skip_heavy, 0).map(|(message, _)| message)
+        self.decode_message_counting(root, data, values, zero_wire_instances, skip_heavy, 0, None).map(|(message, _)| message)
     }
 
     /// The decoder every entry point shares. `stored_glyph_allowance` is how many wire bytes of kept `derivedTextData`
-    /// a `skip_heavy` decode may take; the second value is how many texts it left out because they did not fit.
+    /// a `skip_heavy` decode may take; `nested_allowance` is the same for the `derivedTextData` of the entries of
+    /// `derivedSymbolData` (the data of a text in an instance), or `None` when those draw on the allowance of the texts. The second
+    /// value is how many texts it left out because they did not fit.
+    #[allow(clippy::too_many_arguments)]
     fn decode_message_counting(
         &self,
         root: usize,
@@ -426,12 +447,14 @@ impl Schema {
         zero_wire_instances: usize,
         skip_heavy: bool,
         stored_glyph_allowance: usize,
+        nested_allowance: Option<usize>,
     ) -> Result<(KiwiValue, usize)> {
         let mut r = Reader::new(data);
         r.values_left = values;
         r.zero_wire = self.zero_wire_defs();
         r.zero_wire_left = zero_wire_instances;
         r.stored_glyphs_left = stored_glyph_allowance;
+        r.nested_glyphs_left = nested_allowance;
         r.charge()?;
         let message = self.decode_def(root, &mut r, 0, skip_heavy)?;
         Ok((message, r.stored_glyphs_dropped))
@@ -459,8 +482,22 @@ impl Schema {
     /// [`Self::decode_message_for_import_with_values`] with a caller-chosen allowance for kept `derivedTextData`, which also
     /// returns how many texts that could have drawn their stored glyphs were left out because they did not fit.
     pub fn decode_message_for_import_counting(&self, root: usize, data: &[u8], values: usize, stored_glyph_allowance: usize) -> Result<(KiwiValue, usize)> {
+        self.decode_message_for_import_counting_nested(root, data, values, stored_glyph_allowance, None)
+    }
+
+    /// [`Self::decode_message_for_import_counting`] with an allowance of its own for the `derivedTextData` of the entries
+    /// of `derivedSymbolData`, which hold the data Figma stored for a text in an instance. With `None` those texts draw on
+    /// `stored_glyph_allowance` with the rest.
+    pub fn decode_message_for_import_counting_nested(
+        &self,
+        root: usize,
+        data: &[u8],
+        values: usize,
+        stored_glyph_allowance: usize,
+        nested_allowance: Option<usize>,
+    ) -> Result<(KiwiValue, usize)> {
         let skip_heavy = data.len() > HEAVY_PAYLOAD_BYTES;
-        self.decode_message_counting(root, data, values, zero_wire_budget(data.len()), skip_heavy, stored_glyph_allowance)
+        self.decode_message_counting(root, data, values, zero_wire_budget(data.len()), skip_heavy, stored_glyph_allowance, nested_allowance)
     }
 
     /// A copy of this schema whose field names are allocations of its own. A decoded value holds a clone of the name of each field
@@ -574,7 +611,15 @@ impl Schema {
                         self.skip_field(f, r, depth)?;
                         continue;
                     }
-                    let val = self.decode_field(f, r, depth, skip_heavy)?;
+                    let val = if skip_heavy && &*f.name == "derivedSymbolData" {
+                        // what its entries hold under `derivedTextData` is the data of a text in an instance
+                        r.nested_depth += 1;
+                        let val = self.decode_field(f, r, depth, skip_heavy);
+                        r.nested_depth -= 1;
+                        val?
+                    } else {
+                        self.decode_field(f, r, depth, skip_heavy)?
+                    };
                     out.push((f.name.clone(), val));
                 }
                 if skip_heavy && out.capacity() > out.len() + 4 {
@@ -588,9 +633,11 @@ impl Schema {
     /// Reads or skips the `derivedTextData` field `f` of the message whose fields so far are `out`, in a heavy decode.
     ///
     /// It is kept for a text (`stored_glyphs::is_text_node`: its `type` precedes this field on the wire, and a message
-    /// that does not show it by then is skipped, as every other node's is) and only while the allowance lasts. The wire
+    /// that does not show it by then is skipped, as every other node's is) and for the entry of a `derivedSymbolData`
+    /// (the data Figma stored for a text in an instance; the entry names its node by path and carries no `type`), and only
+    /// while the allowance lasts: the one of the texts, or the one of the instances' texts when the import has one. The wire
     /// size is learned by skipping first, so a text that does not fit is never decoded. The span counts toward the decode
-    /// value cap and the zero-size cap like any other field, whether or not the text is kept, and nothing is given back.
+    /// value cap and the zero-size cap like any other field once it is kept, and nothing is given back.
     ///
     /// What is kept is the wire bytes of the export schema's `DerivedTextData` (see `derived_text_wire`), returned as
     /// [`KiwiValue::Bytes`], so the decoded tree is dropped here, before the next text is read. A value that cannot be
@@ -598,20 +645,13 @@ impl Schema {
     /// cap; the allowance bounds what is retained.
     fn keep_stored_glyphs(&self, f: &Field, r: &mut Reader, depth: usize, out: &[(Arc<str>, KiwiValue)]) -> Result<Option<KiwiValue>> {
         let start = r.pos;
-        self.skip_field(f, r, depth)?;
-        if !stored_glyphs::is_text_node(out) {
+        let nested = r.nested_depth > 0;
+        if !nested && !stored_glyphs::is_text_node(out) {
+            self.skip_field(f, r, depth)?;
             return Ok(None);
         }
-        let wire = r.pos - start;
-        // the allowance never wraps: a charge that does not fit means the field is not kept
-        let Some(left_after) = r.stored_glyphs_left.checked_sub(wire) else {
-            r.stored_glyphs_dropped = r.stored_glyphs_dropped.saturating_add(1);
-            return Ok(None);
-        };
-        let end = r.pos;
-        r.pos = start;
-        // A file written by a Figma whose `DerivedTextData` is Studio's own definition keeps the span as it is: it is walked
-        // again with the budgets charged exactly as a decode would charge them, and no value tree is built.
+        // A file written by a Figma whose `DerivedTextData` is Studio's own definition keeps the span as it is: its walk counts
+        // what a decode would charge, and no value tree is built.
         let verbatim = match r.derived_verbatim {
             Some((def, verbatim)) if matches!(f.ty, FieldType::Def(i) if i == def) => verbatim,
             _ => {
@@ -625,17 +665,36 @@ impl Schema {
                 verbatim
             }
         };
+        r.tallying = verbatim;
+        r.tally_values = 0;
+        r.tally_zero_wire = 0;
+        let walked = self.skip_field(f, r, depth);
+        r.tallying = false;
+        walked?;
+        let end = r.pos;
+        let wire = end - start;
+        // the allowance never wraps: a charge that does not fit means the field is not kept
+        let shared = nested && r.nested_glyphs_left.is_none();
+        let left = match (nested, r.nested_glyphs_left) {
+            (true, Some(left)) => left,
+            _ => r.stored_glyphs_left,
+        };
+        let Some(left_after) = left.checked_sub(wire) else {
+            r.stored_glyphs_dropped = r.stored_glyphs_dropped.saturating_add(1);
+            return Ok(None);
+        };
+        let keep = |r: &mut Reader| match (nested && !shared, &mut r.nested_glyphs_left) {
+            (true, Some(nested_left)) => *nested_left = left_after,
+            _ => r.stored_glyphs_left = left_after,
+        };
         if verbatim {
-            r.charge_skipped = true;
-            let walked = self.skip_field(f, r, depth);
-            r.charge_skipped = false;
-            walked?;
-            debug_assert_eq!(r.pos, end, "skipping twice read different spans");
-            r.stored_glyphs_left = left_after;
+            r.charge_tally()?;
+            keep(r);
             return Ok(Some(KiwiValue::Bytes(r.data[start..end].to_vec())));
         }
         // Decoded without the heavy rules, so nothing inside it is kept or charged again. It draws on the same value and
         // zero-size budgets as every other field, and nothing is given back if the text is then left out.
+        r.pos = start;
         let field = self.decode_field(f, r, depth, false)?;
         debug_assert_eq!(r.pos, end, "skipping and decoding a field read different spans");
         r.pos = end;
@@ -643,7 +702,7 @@ impl Schema {
             r.stored_glyphs_dropped = r.stored_glyphs_dropped.saturating_add(1);
             return Ok(None);
         };
-        r.stored_glyphs_left = left_after;
+        keep(r);
         Ok(Some(KiwiValue::Bytes(bytes)))
     }
 
@@ -702,11 +761,11 @@ impl Schema {
     }
 
     fn skip_type(&self, ty: FieldType, r: &mut Reader, depth: usize) -> Result<()> {
-        if r.charge_skipped {
-            // the same charges `decode_type` makes for this value
-            r.charge()?;
+        if r.tallying {
+            // what `decode_type` would charge for this value
+            r.tally_values += 1;
             if matches!(ty, FieldType::Def(i) if r.zero_wire.get(i) == Some(&true)) {
-                r.charge_zero_wire()?;
+                r.tally_zero_wire += 1;
             }
         }
         match ty {
@@ -1997,6 +2056,134 @@ mod tests {
         let message = KiwiValue::Message(vec![("nodeChanges".into(), KiwiValue::Array(changes)), ("pad".into(), KiwiValue::Bytes(vec![0; 2_100_000]))]);
         let bytes = schema.encode_message(root, &message).unwrap();
         (schema, root, bytes)
+    }
+
+    /// A heavy payload with an instance whose `derivedSymbolData` holds one entry for each of `entries` (the glyph count of the
+    /// entry's derived text), followed by a text of `own` glyphs, each followed by a `name` that a desynchronised stream would misread.
+    fn nested_payload(entries: &[usize], own: usize) -> (Schema, usize, Vec<u8>) {
+        let mut b = SchemaBuilder::new();
+        let node_type = b.define("NodeType", DefKind::Enum);
+        b.variant(node_type, "FRAME", 0);
+        b.variant(node_type, "TEXT", 1);
+        b.variant(node_type, "INSTANCE", 2);
+        let font_name = b.define("FontName", DefKind::Struct);
+        b.field(font_name, "family", FieldType::Native(Native::String), false, 1);
+        let font_meta = b.define("FontMeta", DefKind::Message);
+        b.field(font_meta, "key", FieldType::Def(font_name), false, 1);
+        let glyph = b.define("Glyph", DefKind::Message);
+        b.field(glyph, "commandsBlob", FieldType::Native(Native::Uint), false, 1);
+        let vector = b.define("Vector", DefKind::Struct);
+        b.field(vector, "x", FieldType::Native(Native::Float), false, 1);
+        b.field(vector, "y", FieldType::Native(Native::Float), false, 2);
+        let derived = b.define("DerivedTextData", DefKind::Message);
+        b.field(derived, "fontMetaData", FieldType::Def(font_meta), true, 1);
+        b.field(derived, "glyphs", FieldType::Def(glyph), true, 2);
+        b.field(derived, "layoutSize", FieldType::Def(vector), false, 3);
+        let node_change = b.define("NodeChange", DefKind::Message);
+        b.field(node_change, "type", FieldType::Def(node_type), false, 1);
+        b.field(node_change, "derivedTextData", FieldType::Def(derived), false, 3);
+        b.field(node_change, "name", FieldType::Native(Native::String), false, 4);
+        b.field(node_change, "derivedSymbolData", FieldType::Def(node_change), true, 5);
+        let root = b.define("Message", DefKind::Message);
+        b.field(root, "nodeChanges", FieldType::Def(node_change), true, 1);
+        b.field(root, "pad", FieldType::Native(Native::Byte), true, 2);
+        let schema = b.build();
+        let derived_value = |glyphs: usize| {
+            let key = KiwiValue::Struct(vec![("family".into(), KiwiValue::String("Some Icon Font".into()))]);
+            KiwiValue::Message(vec![
+                ("layoutSize".into(), KiwiValue::Struct(vec![("x".into(), KiwiValue::Float(20.0)), ("y".into(), KiwiValue::Float(20.0))])),
+                ("fontMetaData".into(), KiwiValue::Array(vec![KiwiValue::Message(vec![("key".into(), key)])])),
+                ("glyphs".into(), KiwiValue::Array(vec![KiwiValue::Message(vec![("commandsBlob".into(), KiwiValue::Uint(7))]); glyphs])),
+            ])
+        };
+        let entry = |glyphs: usize, i: usize| {
+            KiwiValue::Message(vec![("derivedTextData".into(), derived_value(glyphs)), ("name".into(), KiwiValue::String(format!("entry {i}")))])
+        };
+        let instance = KiwiValue::Message(vec![
+            ("type".into(), KiwiValue::Enum("INSTANCE".into())),
+            ("derivedSymbolData".into(), KiwiValue::Array(entries.iter().enumerate().map(|(i, &g)| entry(g, i)).collect())),
+            ("name".into(), KiwiValue::String("after the instance".into())),
+        ]);
+        let text = KiwiValue::Message(vec![
+            ("type".into(), KiwiValue::Enum("TEXT".into())),
+            ("derivedTextData".into(), derived_value(own)),
+            ("name".into(), KiwiValue::String("after the text".into())),
+        ]);
+        let message =
+            KiwiValue::Message(vec![("nodeChanges".into(), KiwiValue::Array(vec![instance, text])), ("pad".into(), KiwiValue::Bytes(vec![0; 2_100_000]))]);
+        let bytes = schema.encode_message(root, &message).unwrap();
+        (schema, root, bytes)
+    }
+
+    /// How many entries of the instance (the first change) kept their derived text, and whether the text (the second) kept its own.
+    fn kept_nested(message: &KiwiValue) -> (usize, bool) {
+        let changes = message.get("nodeChanges").unwrap().as_array().unwrap();
+        let entries = changes[0].get("derivedSymbolData").unwrap().as_array().unwrap();
+        for e in entries {
+            assert!(e.get("derivedTextData").is_none_or(|d| matches!(d, KiwiValue::Bytes(_))), "a kept entry holds wire bytes");
+        }
+        (entries.iter().filter(|e| e.get("derivedTextData").is_some()).count(), changes[1].get("derivedTextData").is_some())
+    }
+
+    #[test]
+    fn the_texts_of_instances_have_an_allowance_of_their_own() {
+        let (s, root, bytes) = nested_payload(&[30, 30, 30], 30);
+        let decode = |text: usize, nested: Option<usize>| s.decode_message_for_import_counting_nested(root, &bytes, MAX_DECODED_VALUES, text, nested).unwrap();
+        let big = 1 << 30;
+        let (message, dropped) = decode(big, Some(big));
+        assert_eq!((kept_nested(&message), dropped), ((3, true), 0), "everything fits");
+        // with none for the instances' texts, all three are counted and the text keeps its own
+        let (message, dropped) = decode(big, Some(0));
+        assert_eq!((kept_nested(&message), dropped), ((0, true), 3));
+        // with none for the texts, the instances' texts are not affected and the text is the one counted
+        let (message, dropped) = decode(0, Some(big));
+        assert_eq!((kept_nested(&message), dropped), ((3, false), 1));
+        // the allowance is on wire bytes, first come first kept, and one byte less leaves the last one out
+        let three = (0..4000).find(|&a| kept_nested(&decode(big, Some(a)).0).0 == 3).expect("three entries fit some allowance");
+        assert_eq!(kept_nested(&decode(big, Some(three - 1)).0).0, 2, "the third does not fit");
+        let (message, dropped) = decode(big, Some(three - 1));
+        assert_eq!(dropped, 1);
+        let changes = message.get("nodeChanges").unwrap().as_array().unwrap();
+        assert_eq!(changes[0].get("name"), Some(&KiwiValue::String("after the instance".into())), "the stream stays in step past a skipped entry");
+        assert_eq!(changes[1].get("name"), Some(&KiwiValue::String("after the text".into())));
+    }
+
+    #[test]
+    fn without_an_allowance_of_their_own_the_texts_of_instances_draw_on_the_texts() {
+        let (s, root, bytes) = nested_payload(&[30, 30], 30);
+        let decode = |text: usize| s.decode_message_for_import_counting_nested(root, &bytes, MAX_DECODED_VALUES, text, None).unwrap();
+        let (message, dropped) = decode(1 << 30);
+        assert_eq!((kept_nested(&message), dropped), ((2, true), 0));
+        // the entries come first in the file and take what they need; the text, last, is the one that no longer fits
+        let all = (0..8000).find(|&a| kept_nested(&decode(a).0) == (2, true)).expect("everything fits some allowance");
+        let (message, dropped) = decode(all - 1);
+        assert_eq!((kept_nested(&message), dropped), ((2, false), 1), "one byte short of the sum: the text is left out, not the entries");
+        let (message, dropped) = decode(0);
+        assert_eq!((kept_nested(&message), dropped), ((0, false), 3), "no allowance keeps none of them");
+    }
+
+    #[test]
+    fn a_paste_keeps_the_texts_of_its_instances_on_its_one_allowance() {
+        let (s, root, bytes) = nested_payload(&[30], 30);
+        let (message, _) = s.decode_message_for_import_counting(root, &bytes, MAX_DECODED_VALUES, stored_glyphs::ALLOWANCE_PASTE_WIRE_BYTES).unwrap();
+        assert_eq!(kept_nested(&message), (1, true));
+        let (message, dropped) = s.decode_message_for_import_counting(root, &bytes, MAX_DECODED_VALUES, 0).unwrap();
+        assert_eq!((kept_nested(&message), dropped), ((0, false), 2), "the texts of instances are not kept on top of the 4 MiB");
+    }
+
+    #[test]
+    fn kept_nested_spans_count_toward_the_value_cap_and_a_light_decode_keeps_its_entries_whole() {
+        let (s, root, bytes) = nested_payload(&[400, 400], 1);
+        let with_nested = |cap: usize| s.decode_message_for_import_counting_nested(root, &bytes, cap, 1 << 30, Some(1 << 30));
+        let skipping = fewest_values(|cap| s.decode_message_for_import_counting_nested(root, &bytes, cap, 1 << 30, Some(0)));
+        let needed = fewest_values(with_nested);
+        assert!(needed > skipping, "{needed} values with the entries' texts kept, {skipping} without");
+        assert!(matches!(with_nested(skipping), Err(e) if e.to_string().contains("decoded value count exceeds budget")));
+        // under 2 MB the decode is not heavy: the entries' texts stay the decoded values they are
+        let mut small = s.decode_message(root, &bytes).unwrap();
+        let KiwiValue::Array(changes) = small.get_mut("nodeChanges").unwrap() else { unreachable!() };
+        let entries = changes[0].get("derivedSymbolData").unwrap().as_array().unwrap();
+        assert!(entries.iter().all(|e| matches!(e.get("derivedTextData"), Some(KiwiValue::Message(_)))));
     }
 
     #[test]
