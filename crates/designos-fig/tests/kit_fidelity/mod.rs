@@ -30,3 +30,5 @@ mod missing_font_fig;
 mod synthetic;
 #[cfg(test)]
 mod synthetic_stored_data;
+#[cfg(test)]
+mod synthetic_vector_import;

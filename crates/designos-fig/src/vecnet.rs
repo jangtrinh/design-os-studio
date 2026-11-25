@@ -219,6 +219,15 @@ pub(crate) fn network_from_blob(b: &[u8], scale: (f32, f32)) -> Option<(VectorNe
     Some((net, styles))
 }
 
+/// Gives every vertex the node's `cornerRadius`: the radius a vertex has until the style table sets its own.
+/// Figma's stored outline of a vector with a node radius is rounded at the vertices the table does not mention
+/// and sharp at the ones it sets to 0 (the dog-ear corner of a document icon).
+pub(crate) fn apply_node_corner_radius(net: &mut VectorNetwork, radius: f32) {
+    if radius > 0.0 {
+        net.vertices.iter_mut().for_each(|v| v.corner_radius = radius);
+    }
+}
+
 /// Applies a `.fig` style override table (`styleID`, `strokeCap`, `strokeJoin`,
 /// `cornerRadius`, `handleMirroring`) to the vertices that use each style.
 pub(crate) fn apply_style_table(net: &mut VectorNetwork, styles: &[u32], table: &[Value]) {
