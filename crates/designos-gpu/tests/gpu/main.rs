@@ -5,6 +5,7 @@
 mod common;
 
 mod adapter;
+mod board_dashes;
 mod command_buffer_limit;
 mod dashed_endpoint_caps;
 mod display_p3_parity;

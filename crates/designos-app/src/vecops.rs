@@ -1833,8 +1833,10 @@ mod tests {
             let p = pm.pixel((x * 2.0) as u32, (y * 2.0) as u32).unwrap();
             [p.red(), p.green(), p.blue()]
         };
-        assert_eq!(pixel(&after, 39.0, 34.0), [200, 30, 30], "a dash");
-        assert_eq!(pixel(&after, 51.0, 34.0), [255, 255, 255], "the gap after it stays open");
+        // the inset top edge is 92 long: four periods of 24 stretched by 0.958, so the second dash is centred on x = 57
+        // and ends at 61.8, and the gap after its round cap is open from x = 65.8 to 71.2
+        assert_eq!(pixel(&after, 57.0, 34.0), [200, 30, 30], "a dash");
+        assert_eq!(pixel(&after, 68.5, 34.0), [255, 255, 255], "the gap after it stays open");
     }
 
     fn assert_text_scenario_pixels(label: &str, make: impl FnOnce(&mut Document, NodeId) -> Vec<NodeId>) {

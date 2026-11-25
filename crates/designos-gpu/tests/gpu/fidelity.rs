@@ -713,15 +713,17 @@ fn dashed_rect_round_dash_cap_renders_round_dash_ends_gpu() {
     let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
     let c = compare(&mut g, "dashed_rect_round_cap", &t.doc, t.page, vp, (100, 80), 8);
     assert!(c.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
-    let mid = c.gpu.pixel(46, 24).unwrap();
-    assert_eq!([mid.red(), mid.green(), mid.blue(), mid.alpha()], [255, 0, 0, 255], "GPU round dash cap painted on midline (46, 24)");
-    let corner = c.gpu.pixel(47, 20).unwrap();
-    assert_eq!([corner.red(), corner.green(), corner.blue(), corner.alpha()], [255, 255, 255, 255], "GPU round dash cap leaves outer corner (47, 20) white");
+    // a capped dash runs along the inset centerline, x = 24..76: one period of 52, so the first dash, half of 26, ends at x = 37
+    let mid = c.gpu.pixel(39, 24).unwrap();
+    assert_eq!([mid.red(), mid.green(), mid.blue(), mid.alpha()], [255, 0, 0, 255], "GPU round dash cap painted on midline (39, 24)");
+    let corner = c.gpu.pixel(40, 20).unwrap();
+    assert_eq!([corner.red(), corner.green(), corner.blue(), corner.alpha()], [255, 255, 255, 255], "GPU round dash cap leaves outer corner (40, 20) white");
 
     t.node(r).stroke.cap = StrokeCap::None;
     g.compiler.geom.clear();
     let c_none = compare(&mut g, "dashed_rect_butt_cap", &t.doc, t.page, vp, (100, 80), 8);
-    let mid_none = c_none.gpu.pixel(46, 24).unwrap();
+    // a butt dash is cut along the boundary, x = 20..80: two periods of 30, the first dash, half of 15, ends at x = 27.5
+    let mid_none = c_none.gpu.pixel(35, 24).unwrap();
     assert_eq!([mid_none.red(), mid_none.green(), mid_none.blue(), mid_none.alpha()], [255, 255, 255, 255]);
 
     t.node(r).stroke.align = StrokeAlign::Outside;
@@ -729,14 +731,14 @@ fn dashed_rect_round_dash_cap_renders_round_dash_ends_gpu() {
     g.compiler.geom.clear();
     let c_outside = compare(&mut g, "dashed_rect_outside_round_cap", &t.doc, t.page, vp, (120, 100), 8);
     assert!(c_outside.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c_outside.report.ratio * 100.0);
-    let out_mid = c_outside.gpu.pixel(38, 16).unwrap();
-    assert_eq!([out_mid.red(), out_mid.green(), out_mid.blue(), out_mid.alpha()], [255, 0, 0, 255], "GPU outside round dash cap painted at (38, 16)");
-    let out_gap = c_outside.gpu.pixel(46, 16).unwrap();
-    assert_eq!([out_gap.red(), out_gap.green(), out_gap.blue(), out_gap.alpha()], [255, 255, 255, 255], "GPU outside dash gap unpainted at (46, 16)");
+    let out_mid = c_outside.gpu.pixel(26, 16).unwrap();
+    assert_eq!([out_mid.red(), out_mid.green(), out_mid.blue(), out_mid.alpha()], [255, 0, 0, 255], "GPU outside round dash cap painted at (26, 16)");
+    let out_gap = c_outside.gpu.pixel(34, 16).unwrap();
+    assert_eq!([out_gap.red(), out_gap.green(), out_gap.blue(), out_gap.alpha()], [255, 255, 255, 255], "GPU outside dash gap unpainted at (34, 16)");
 }
 
-/// An open vector line from (20, 20) to (100, 20) with dashes `[20, 20]` (dashes at x = 20..40 and 60..80, the path ends in the
-/// gap after the second one), weight 8, `Stroke::cap` Round, whose end vertices carry `vertex_caps`.
+/// An open vector line from (20, 20) to (100, 20) with dashes `[20, 20]` (two periods of 40: dashes at x = 20..30, 50..70 and
+/// 90..100, half a dash at both ends of the path), weight 8, `Stroke::cap` Round, whose end vertices carry `vertex_caps`.
 fn dashed_round_line_with_end_caps(t: &mut T, vertex_caps: (Option<StrokeCap>, Option<StrokeCap>)) {
     let red = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
     t.add(None, |id| {
@@ -753,6 +755,7 @@ fn dashed_round_line_with_end_caps(t: &mut T, vertex_caps: (Option<StrokeCap>, O
                     vertices: vec![v0, v1],
                     segments: vec![vector::Segment { a: 0, b: 1, ta: Vec2::ZERO, tb: Vec2::ZERO }],
                     regions: Vec::new(),
+                    ..Default::default()
                 }),
             },
         );
@@ -778,8 +781,8 @@ fn dashed_open_line_uses_stroke_cap_on_every_dash_that_reaches_no_end_point_gpu(
     let c = compare(&mut g, "dashed_open_line_round_cap", &t.doc, t.page, vp, (120, 40), 8);
     assert!(c.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
     assert_eq!(px(&c.gpu, 18, 20), [255, 0, 0, 255]);
-    assert_eq!(px(&c.gpu, 42, 20), [255, 0, 0, 255]);
-    assert_eq!(px(&c.gpu, 43, 16), [255, 255, 255, 255]);
+    assert_eq!(px(&c.gpu, 32, 20), [255, 0, 0, 255]);
+    assert_eq!(px(&c.gpu, 33, 16), [255, 255, 255, 255]);
 }
 
 #[test]
@@ -792,9 +795,9 @@ fn an_explicit_butt_end_vertex_cap_leaves_only_the_start_of_a_dashed_round_line_
     assert!(c.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
     assert_eq!(px(&c.gpu, 18, 20), [255, 255, 255, 255], "the start of the path takes the butt cap of its vertex");
     assert_eq!(px(&c.gpu, 22, 20), [255, 0, 0, 255], "the first dash is painted from the start of the path");
-    assert_eq!(px(&c.gpu, 42, 20), [255, 0, 0, 255], "the inner end of the first dash keeps the round Stroke::cap");
-    assert_eq!(px(&c.gpu, 43, 16), [255, 255, 255, 255]);
-    assert_eq!(px(&c.gpu, 58, 20), [255, 0, 0, 255], "the inner start of the second dash keeps the round Stroke::cap");
+    assert_eq!(px(&c.gpu, 32, 20), [255, 0, 0, 255], "the inner end of the first dash keeps the round Stroke::cap");
+    assert_eq!(px(&c.gpu, 33, 16), [255, 255, 255, 255]);
+    assert_eq!(px(&c.gpu, 48, 20), [255, 0, 0, 255], "the inner start of the second dash keeps the round Stroke::cap");
 }
 
 #[test]
@@ -815,6 +818,7 @@ fn solid_open_line_round_vertex_cap_renders_round_gpu() {
                     vertices: vec![v0, v1],
                     segments: vec![vector::Segment { a: 0, b: 1, ta: Vec2::ZERO, tb: Vec2::ZERO }],
                     regions: Vec::new(),
+                    ..Default::default()
                 }),
             },
         );
@@ -858,17 +862,17 @@ fn thin_inside_dashed_rect_keeps_stroke_gpu() {
     let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
     let c = compare(&mut g, "thin_inside_dashed_rect", &t.doc, t.page, vp, (220, 24), 8);
     assert!(c.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
-    let dash_px = c.gpu.pixel(14, 12).unwrap();
+    let dash_px = c.gpu.pixel(12, 12).unwrap();
     assert_eq!(
         [dash_px.red(), dash_px.green(), dash_px.blue(), dash_px.alpha()],
         [255, 0, 0, 255],
-        "GPU thin inside dashed rectangle paints the first dash at (14, 12)"
+        "GPU thin inside dashed rectangle paints the first dash at (12, 12)"
     );
-    let cap_px = c.gpu.pixel(19, 11).unwrap();
+    let cap_px = c.gpu.pixel(16, 11).unwrap();
     assert_eq!(
         [cap_px.red(), cap_px.green(), cap_px.blue(), cap_px.alpha()],
         [255, 0, 0, 255],
-        "GPU thin inside dashed rectangle paints the round cap just past the dash end at (19, 11)"
+        "GPU thin inside dashed rectangle paints the round cap just past the dash end at (16, 11)"
     );
     let gap_px = c.gpu.pixel(40, 12).unwrap();
     assert_eq!(

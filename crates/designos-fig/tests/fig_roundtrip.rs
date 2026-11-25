@@ -329,6 +329,7 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
         dashes: Vec::new(),
         miter_limit: 4.0,
         side_weights: Some([1.0, 2.0, 3.0, 4.0]),
+        ..Default::default()
     };
     bg_rect.layout_child = LayoutChild { horizontal: Sizing::Fill, vertical: Sizing::Fill, grow: 1.0, ..LayoutChild::default() };
     bg_rect.variables.bindings.insert("fills/0".into(), "VariableID:10:10".into());

@@ -119,6 +119,7 @@ fn regionless_loop_with_inside_stroke() -> T {
             ],
             segments: (0..4).map(|i| Segment { a: i, b: (i + 1) % 4, ta: Vec2::new(0.0, 0.0), tb: Vec2::new(0.0, 0.0) }).collect(),
             regions: vec![],
+            ..Default::default()
         };
         n.kind = NodeKind::Vector { paths: vec![Path { cmds: sq(0.0, 100.0), fill_rule: FillRule::NonZero }], network: Some(net) };
         n.fills.clear();

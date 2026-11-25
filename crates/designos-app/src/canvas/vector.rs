@@ -798,10 +798,19 @@ fn bucket_click(app: &mut App, rect: ERect, pos: Pos2) {
     let world = app.doc.world_transform(v.id);
     let Some(local) = world.invert().map(|i| i.apply(app.view.to_page(rect.min, pos))) else { return };
     let Some(face) = v.net.face_at(local) else { return };
+    // an imported network that cannot be given its regions keeps the fill it has: say so instead of changing it
+    let mut refused = false;
     edit(app, |net, _| {
+        if !net.materialize_closed_loop_fill() {
+            refused = true;
+            return false;
+        }
         net.toggle_face(&face);
         true
     });
+    if refused {
+        app.show_toast("Fill editing is not available for this shape", false);
+    }
 }
 
 // ------------------------------------------------------------ commands

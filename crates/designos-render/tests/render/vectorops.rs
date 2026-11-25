@@ -70,9 +70,10 @@ fn dashes_split_the_outline() {
     let l = [line(v(0.0, 0.0), v(100.0, 0.0))];
     let st = Stroke { dashes: vec![10.0, 10.0], ..stroke(4.0) };
     let out = outline_stroke(&l, &st, None);
-    close(area(&out), 5.0 * 10.0 * 4.0, 1.0);
+    // 100 is five periods of 20: dashes of 10 centred on 0, 20 ... 100, so the first and the last are half dashes
+    close(area(&out), (4.0 * 10.0 + 2.0 * 5.0) * 4.0, 1.0);
     let dashes = out.iter().flat_map(|p| &p.cmds).filter(|c| matches!(c, PathCmd::MoveTo(_))).count();
-    assert_eq!(dashes, 5, "five separate dashes");
+    assert_eq!(dashes, 6, "six separate dashes");
 }
 
 #[test]

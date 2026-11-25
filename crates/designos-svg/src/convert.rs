@@ -416,6 +416,7 @@ impl Conv<'_> {
             },
             miter_limit: s.miterlimit().get(),
             dashes: s.dasharray().map(|d| d.to_vec()).unwrap_or_default(),
+            ..Default::default()
         }
     }
 

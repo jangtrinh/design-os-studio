@@ -70,6 +70,9 @@ fn add_vector(h: &mut StableHasher, paths: &[Path], network: &Option<VectorNetwo
     }
     h.word(net.regions.len() as u64);
     for r in &net.regions {
+        if !r.filled {
+            h.word(2);
+        }
         h.word(match r.rule {
             FillRule::NonZero => 0,
             FillRule::EvenOdd => 1,

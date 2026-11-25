@@ -96,8 +96,8 @@ fn a_square_end_on_a_dashed_round_line_squares_only_the_last_dash_on_cpu_and_gpu
         "dashed_round_square_end",
         &t,
         &[
-            ("inner dash end keeps its round cap", 21, 19, MOSTLY),
-            ("inner dash end keeps its round cap, fifth dash", 85, 19, MOSTLY),
+            ("inner dash end keeps its round cap", 16, 19, MOSTLY),
+            ("inner dash end keeps its round cap, fifth dash", 83, 19, MOSTLY),
             ("end terminal is square: upper corner", 95, 18, SOLID),
             ("end terminal is square: lower corner", 95, 21, SOLID),
             ("start terminal stays round", 8, 18, ROUNDED_CORNER),
@@ -112,7 +112,7 @@ fn a_none_end_on_a_dashed_round_line_leaves_the_last_dash_butt_on_cpu_and_gpu() 
         "dashed_round_none_end",
         &t,
         &[
-            ("inner dash end keeps its round cap", 21, 19, MOSTLY),
+            ("inner dash end keeps its round cap", 16, 19, MOSTLY),
             ("the last dash reaches the end of the path", 93, 19, SOLID),
             ("end terminal is butt", 94, 19, BARE),
         ],

@@ -235,6 +235,11 @@ pub fn lower(doc: &Document, n: &Node) -> Option<Node> {
     if !matches!(n.kind, NodeKind::Table(_)) {
         body.children = extras.iter().map(|e| e.id).collect();
     }
+    // every renderer strokes a board item through its body and synthetic children, which keep the continuous dash
+    body.stroke.continuous_dashes = true;
+    for e in &mut extras {
+        e.stroke.continuous_dashes = true;
+    }
     let is_cell = matches!(n.kind, NodeKind::TableCell(_));
     SYNTH.with(|s| {
         let mut s = s.borrow_mut();

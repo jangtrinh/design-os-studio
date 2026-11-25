@@ -657,7 +657,12 @@ fn fig_import_without_carrier_keeps_a_vector() {
     v0.cap = Some(StrokeCap::CircleFilled);
     let mut v1 = Vertex::new(Vec2::new(80.0, 0.0));
     v1.cap = Some(StrokeCap::ArrowEquilateral);
-    let net = VectorNetwork { vertices: vec![v0, v1], segments: vec![Segment { a: 0, b: 1, ta: Vec2::ZERO, tb: Vec2::ZERO }], regions: Vec::new() };
+    let net = VectorNetwork {
+        vertices: vec![v0, v1],
+        segments: vec![Segment { a: 0, b: 1, ta: Vec2::ZERO, tb: Vec2::ZERO }],
+        regions: Vec::new(),
+        ..Default::default()
+    };
     let mut v = Node::new(vid, NodeKind::Vector { network: Some(net), paths: Vec::new() });
     v.name = "Plain Arrow Vector".into();
     v.size = Vec2::new(80.0, 1.0);
