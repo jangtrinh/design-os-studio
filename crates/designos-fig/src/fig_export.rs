@@ -124,6 +124,142 @@ pub(crate) fn export_schema() -> &'static crate::kiwi::Schema {
     SCHEMA.get_or_init(figma_like_schema)
 }
 
+/// The `NodeChange` fields the export schema defines but no writer produces yet, sorted. The schema holds Figma's whole
+/// `NodeChange` so that a kept value can be written back whole; until a field is written from a kept value that is
+/// gated on the layer being unedited, the writers that read from the schema (the metadata writer, the override writer
+/// of an unopened instance and the JSON-to-kiwi conversions of the export) skip it, so they never write an old copy of
+/// it beside an edit. A field leaves this list only when its writer is gated.
+#[rustfmt::skip]
+pub(crate) const HELD_BACK_UNTIL_KEPT: &[&str] = &[
+    "accessibleHTMLTag", "accessibleLabel", "agendaMetadataMap", "agendaPositionMap", "aiCanvasPrompt", "aiChatThread", "aiEditScopeLabel",
+    "aiEditedNodeChangeFieldNumbers", "annotations", "areSlidesManuallyIndented", "ariaAttributes", "ariaRole", "attachedCodeSources", "audioBeatAnalyses",
+    "audioFills", "audioTracks", "autoForkCode", "autoRenameTag", "backgroundColorTag", "backgroundEnabledTag", "backgroundOpacityTag", "backgroundPaints",
+    "backingAnimationPresetId", "backingCodeComponentId", "backingNodeId", "backingVariableId", "backingVariableSetId", "behaviorAttachments", "behaviors",
+    "belongsToCodeLibraryId", "blendModeTag", "blobRef", "booleanOperationTag", "borderBottomHidden", "borderLeftHidden", "borderRightHidden",
+    "borderTopHidden", "breakpointMinWidth", "buzzApprovalNodeStatusInfo", "buzzApprovalRequests", "chatCompressionState", "chatMessages",
+    "childReadingDirection", "clipId", "cmsConsumptionMap", "cmsRichTextStyleMap", "cmsSelector", "codeBehaviorData", "codeBlockLanguage", "codeBlockTheme",
+    "codeChatMessagesKey", "codeComponentDescription", "codeCreatedFromDesign", "codeCreatedFromDesignNodeId", "codeEmbedInfo", "codeExamples",
+    "codeFileCanvasNodeId", "codeFilePath", "codeLibraryFormat", "codePreviewSettings", "codePreviewState", "codeSnapshot", "codeSnapshotInvalidatedAt",
+    "codeSnapshotLayers", "codeSnapshotState", "collaborativeSourceCode", "colorProfile", "componentOrStateGroupKey", "componentOrStateGroupVersion",
+    "connectionType", "connectionURL", "connectorBezierControlPoints", "containerSupportsFillStrokeAndCorners", "containersSupportFillStrokeAndCorners",
+    "contractedSize", "cooperRevertData", "cooperTemplateData", "cornerRadiusTag", "countTag", "customEffects", "customToolArtifactRef", "dashPatternTag",
+    "defaultResponsiveSetId", "derivedBreakpointData", "derivedImmutableFrameDataVersion", "derivedJsxData", "derivedSymbolDataLayoutVersion",
+    "destinationIsOverlay", "detachOpticalSizeFromFontSize", "developerRelatedLinks", "diagramLayoutPaused", "diagramLayoutRuleType", "diagramParentId",
+    "diagramParentIndex", "disableJitDst", "editScopeInfo", "effectsTag", "embedData", "emojiImageSet", "exportBackgroundDisabled", "exportContentsOnly",
+    "exportContentsOnlyTag", "exportSettingsTag", "exportTextAsSVGText", "exportedFromCodeFileId", "fallbackGlyphs", "fileAssetIds", "fillGeometryTag",
+    "fillPaintsTag", "firstDraftData", "firstDraftKitElementData", "fixedChildrenDivider", "flappType", "fontNameTag", "fontSizeTag",
+    "fontVariantDiscretionaryLigatures", "fontVariantHistoricalLigatures", "fontVariantOrdinal", "fontVariantSlashedZero", "fontVersion",
+    "forceUnflatteningMappings", "frameMaskDisabledTag", "guidPathTag", "guidTag", "handleMirroringTag", "hasBeenManuallyRenamed", "hasHadRTLText",
+    "horizontalConstraintTag", "hubFileAttribution", "imageImports", "importedCodeFiles", "inheritExportStyleID", "inheritFillStyleID",
+    "inheritFillStyleIDForBackground", "inheritFillStyleIDForStroke", "inheritStrokeStyleID", "inheritTextStyleID", "inheritedVariableIds",
+    "interactionDuration", "interactionMaintained", "interactionType", "interactiveSlideConfigData", "interactiveSlideParticipantData",
+    "internalDataForTest", "internalEnumForTest", "interpolationHueMethod", "isBreakpointInFocus", "isC2", "isClip", "isCodeBehavior",
+    "isCodePreviewPlayingOnCanvas", "isDecorativeImage", "isEmbedCodeLayer", "isEmbeddedPrototype", "isEntrypointCodeFile", "isFillStyle",
+    "isMainCodeComponent", "isMakeKit", "isNonUpdateable", "isPrimaryBreakpoint", "isResponsiveSet", "isSnakeGameBoard", "isStrokePaintDerived",
+    "isStrokeStyle", "jsxData", "jsxProps", "keyTrigger", "keyframeValueRef", "layoutGridsTag", "layoutPosition", "layoutRoot", "libraryMoveHistory",
+    "libraryMoveInfo", "lineHeightTag", "linkMotionScaleAspectRatio", "linkPreviewData", "lockedTag", "makeLibraryComponentId", "managedStringData",
+    "maskIsOutline", "maskIsOutlineTag", "maskTag", "measurements", "mention", "migrationStatus", "mimeType", "miterLimitTag", "moduleType",
+    "motionPathBezierHandles", "motionTransform", "multiEditGlueId", "nameTag", "nativeCodeSlotId", "navigationType", "nestedInstanceResizeEnabled",
+    "offsetFillMaskGeometry", "ojansSuperSecretNodeField", "opacityTag", "originComponentKey", "overlayBackgroundAppearance",
+    "overlayBackgroundInteraction", "overlayPositionType", "overlayRelativePosition", "overriddenVariableId", "overrideStash", "overrideStashV2",
+    "pageStatus", "pageType", "paragraphIndentTag", "paragraphSpacingTag", "parentIndexTag", "partialPasteAnnotation", "pasteSource", "phaseTag",
+    "placeholder", "placeholderClientLifecycleId", "placeholderInvalidateAt", "platformShapeDefinition", "playbackStyle", "presentationOutlines",
+    "previewRasterSnapshot", "primaryResponsiveNodeId", "prototypeBackgroundColor", "prototypeDevice", "prototypeInteractions", "prototypeStartNodeID",
+    "publishFile", "quantizeTimelinePlayback", "readingIndex", "rectangleCornerToolIndependent", "repeaterCmsOverrideData", "repeaterOverrideData",
+    "repeaterSymbolId", "repeaterSymbolOverrideData", "resizeToFitTag", "responsiveSetSettings", "responsiveTextStyleVariants", "richMediaData",
+    "rootVariableKey", "rotationOrigin", "scene3d", "scrollBehavior", "scrollContractedState", "scrollOffset", "sectionContentsHidden", "sectionPresetInfo",
+    "sectionStatus", "sevMoonlitLilyData", "sharedComponentMasterData", "sharedStyleMasterData", "sharedStyleReference", "sharedSymbolMappings",
+    "sharedSymbolReference", "shouldHidePreviewForMakeKitCreation", "simplifyInstancePanels", "sizeTag", "slideActiveThemeLibKey", "slideTemplateFileKey",
+    "slideThemeData", "slideThemeMap", "slideThumbnailHash", "sortedMovingChildIndices", "sourceCode", "sourceCodeCollaborativeTextVersion",
+    "sourceCodeLibraryKey", "sourceCodeLibraryKeys", "specBlockContent", "specBlockIndentLevel", "specBlockTableAlignment", "specBlockTableColumnWidths",
+    "specBlockTableRowHeights", "specBlockType", "specCanvasScrollEnabled", "specCodeBlockLanguage", "specEmbedUrl", "specHeight", "specImageHash",
+    "specWidth", "stableKey", "stackAlign", "stackCounterAlign", "stackHeight", "stackJustify", "stackModeTag", "stackPaddingTag", "stackSpacingTag",
+    "stackWidth", "stampData", "starInnerScaleTag", "strokeAlignTag", "strokeCapSize", "strokeCapTag", "strokeGeometryTag", "strokeJoinTag",
+    "strokePaintsTag", "strokeWeightTag", "styleAnimations", "styleIDTag", "symbolDataTag", "textAlignHorizontalTag", "textAlignVerticalTag",
+    "textAutoResizeTag", "textBidiVersion", "textCaseTag", "textDataTag", "textDecorationFillPaints", "textDecorationStyle", "textDecorationTag",
+    "textDecorationThickness", "textExplicitLayoutVersion", "textListData", "textTrackingTag", "textUnderlineOffset", "textUserLayoutVersion", "themeID",
+    "thumbnailInfo", "timelineKeyframeSnappingFps", "timelinePositionType", "timingDisplayUnit", "tools", "transform3d", "transformOrigin", "transformTag",
+    "transitionDuration", "transitionInfo", "transitionNodeID", "transitionOverrides", "transitionPreserveScroll", "transitionShouldSmartAnimate",
+    "transitionTimeout", "transitionType", "typeTag", "unflatteningMappings", "useAbsoluteBounds", "useLegacySmartAnimate", "usedMakeLibraries",
+    "variableData", "variableTokenName", "vectorDataTag", "verticalConstraintTag", "videoPlayback", "visibleTag", "voiceEventPhrase", "weaveConnection",
+    "weaveLayerConnections", "weaveLayerId", "widgetDerivedSubtreeCursor", "widgetInputTextNodeType", "widgetSyncCursor", "widgetTooltip",
+];
+
+/// Whether `name` is a `NodeChange` field the writers must not produce yet.
+pub(crate) fn is_held_back(name: &str) -> bool {
+    HELD_BACK_UNTIL_KEPT.binary_search(&name).is_ok()
+}
+
+/// Deeper than any value the schema converts (96 levels), so the strip below never meets the limit.
+const STRIP_MAX_DEPTH: usize = 128;
+
+/// Removes every held-back key from `value`, a value of the definition `def`, at each `NodeChange` inside it, however
+/// deep. Returns whether the value is now a message with nothing in it that held something before, which a conversion
+/// by the schema of an earlier version (one that did not know those keys) left out as it left out a message of unknown
+/// keys; the caller drops it the same way, so a part that was not written before stays unwritten.
+///
+/// Only messages are walked: no struct holds a value that reaches a `NodeChange` (a test checks it).
+fn strip_held_back(schema: &crate::kiwi::Schema, nc_def: usize, def: usize, value: &mut V, depth: usize) -> bool {
+    use crate::kiwi::{DefKind, FieldType};
+    if depth > STRIP_MAX_DEPTH {
+        return false;
+    }
+    let (V::Message(fields), Some(d)) = (value, schema.defs.get(def)) else { return false };
+    if d.kind != DefKind::Message {
+        return false;
+    }
+    let had = fields.len();
+    if def == nc_def {
+        fields.retain(|(k, _)| !is_held_back(k));
+    }
+    fields.retain_mut(|(k, v)| {
+        let Some(FieldType::Def(child)) = d.fields.iter().find(|f| f.name == *k).map(|f| f.ty) else { return true };
+        match v {
+            V::Array(items) => {
+                let had_items = items.len();
+                items.retain_mut(|item| !strip_held_back(schema, nc_def, child, item, depth + 1));
+                had_items == 0 || !items.is_empty()
+            }
+            single => !strip_held_back(schema, nc_def, child, single, depth + 1),
+        }
+    });
+    had > 0 && fields.is_empty()
+}
+
+/// `field` (a field name of the message `parent` and its value), or `None` when it is held back or holds only held-back
+/// keys. Held-back names apply to the fields of `NodeChange` alone; `parent` is `NodeChange` for its own fields, or the
+/// message a nested value hangs from (a paint, an effect).
+fn without_held_back(schema: &crate::kiwi::Schema, nc_def: usize, parent: usize, field: Option<(Arc<str>, V)>) -> Option<(Arc<str>, V)> {
+    let (name, value) = field?;
+    if parent == nc_def && is_held_back(&name) {
+        return None;
+    }
+    // The field is a one-field message of `parent` for the walk, which then reads its type from the definition.
+    let mut holder = V::Message(vec![(name.clone(), value)]);
+    if strip_held_back(schema, nc_def, parent, &mut holder, 0) {
+        return None;
+    }
+    let V::Message(mut fields) = holder else { return None };
+    Some((name, fields.pop()?.1))
+}
+
+/// The `NodeChange` field `name` of `schema` read from the JSON `v`, as `Schema::def_field_from_json` does, minus what is
+/// held back.
+fn nc_field_from_json(schema: &crate::kiwi::Schema, nc_def: usize, name: &str, v: &serde_json::Value) -> Option<(Arc<str>, V)> {
+    if is_held_back(name) {
+        return None;
+    }
+    without_held_back(schema, nc_def, nc_def, schema.def_field_from_json(nc_def, name, v))
+}
+
+/// The same for a value kept as text in `Node::fig_metadata`.
+fn nc_field_from_metadata(schema: &crate::kiwi::Schema, nc_def: usize, name: &str, raw: &str) -> Option<(Arc<str>, V)> {
+    if is_held_back(name) {
+        return None;
+    }
+    without_held_back(schema, nc_def, nc_def, schema.def_field_from_metadata(nc_def, name, raw))
+}
+
 /// What a shader message that cannot be written whole tells the person saving: the layer, what is wrong, what to do.
 fn shader_refusal(owner_name: &str, problem: String) -> FigError {
     FigError::Format(format!("layer {owner_name:?}: {problem}; save as .designos to keep it, or remove the shader"))
@@ -143,6 +279,7 @@ fn decode_shader_ref(
     };
     let def_idx = schema.find(def_name).ok_or_else(|| FigError::Format(format!("missing {def_name} in schema")))?;
     let def = &schema.defs[def_idx];
+    let nc_def = schema.find("NodeChange").ok_or_else(|| FigError::Format("missing NodeChange in schema".into()))?;
     let mut out = Vec::new();
     for (k, v) in obj {
         if skip.contains(&k.as_str()) || v.is_null() {
@@ -162,7 +299,8 @@ fn decode_shader_ref(
                 return Err(shader_refusal(owner_name, format!("invalid shader field {k:?} on {def_name}")));
             }
         }
-        out.push((sf.name.clone(), kv));
+        // A `NodeChange` field held back, nested under the paint or effect, is left out as it was before the schema knew it.
+        out.extend(without_held_back(schema, nc_def, def_idx, Some((sf.name.clone(), kv))));
     }
     Ok(out)
 }
@@ -1415,7 +1553,7 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
             Style::Animation(timelines) => {
                 if !timelines.is_empty() {
                     let tl_json = crate::motion::timelines_to_kiwi_with(timelines, |tid| cx.timeline_guid_or_alloc(tid));
-                    if let Some((_, val)) = cx.schema.def_field_from_json(cx.nc_def, "timelineDefinitions", &tl_json) {
+                    if let Some((_, val)) = nc_field_from_json(cx.schema, cx.nc_def, "timelineDefinitions", &tl_json) {
                         fields.push(("timelineDefinitions", val));
                     }
                 }
@@ -1556,7 +1694,7 @@ fn reindexed_legacy_derived_text(cx: &mut ExportCtx, node: &Node, saved: &design
             }
         }
     }
-    cx.schema.def_field_from_json(cx.nc_def, "derivedTextData", &derived)
+    nc_field_from_json(cx.schema, cx.nc_def, "derivedTextData", &derived)
 }
 
 fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibling_idx: usize, parent_dir: Option<LayoutDirection>, in_component: bool) {
@@ -2421,7 +2559,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     }
                 }
             }
-            if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, "timelineDefinitions", &tl_json) {
+            if let Some(pair) = nc_field_from_json(cx.schema, cx.nc_def, "timelineDefinitions", &tl_json) {
                 msg_fields.push(pair);
             }
         }
@@ -2437,7 +2575,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     }
                 }
             }
-            if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, "timelineAssignments", &as_json) {
+            if let Some(pair) = nc_field_from_json(cx.schema, cx.nc_def, "timelineAssignments", &as_json) {
                 msg_fields.push(pair);
             }
         }
@@ -2476,7 +2614,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 entry.insert("sortPosition".into(), serde_json::json!("!"));
                 serde_json::Value::Array(vec![serde_json::Value::Object(entry)])
             };
-            if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, "styleIdsForAnimation", &val) {
+            if let Some(pair) = nc_field_from_json(cx.schema, cx.nc_def, "styleIdsForAnimation", &val) {
                 msg_fields.push(pair);
             }
         }
@@ -2508,7 +2646,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
     if !pcm_entries.is_empty() {
         let pcm_json = json!({"entries": pcm_entries});
-        if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, "parameterConsumptionMap", &pcm_json) {
+        if let Some(pair) = nc_field_from_json(cx.schema, cx.nc_def, "parameterConsumptionMap", &pcm_json) {
             msg_fields.push(pair);
         }
     }
@@ -2651,7 +2789,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 ("transform".into(), encode_matrix(&Affine::IDENTITY)),
             ];
             for (k, v) in &t_json {
-                if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, k, v) {
+                if let Some(pair) = nc_field_from_json(cx.schema, cx.nc_def, k, v) {
                     t_msg_fields.push(pair);
                 }
             }
@@ -2691,7 +2829,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     ("transform".into(), encode_matrix(&Affine::IDENTITY)),
                 ];
                 for (k, v) in &k_json {
-                    if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, k, v) {
+                    if let Some(pair) = nc_field_from_json(cx.schema, cx.nc_def, k, v) {
                         k_msg_fields.push(pair);
                     }
                 }
@@ -2714,7 +2852,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                             }
                             let mut p_msg_fields: Vec<(std::sync::Arc<str>, V)> = Vec::new();
                             for (k, v) in child_obj.iter() {
-                                if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, k, v) {
+                                if let Some(pair) = nc_field_from_json(cx.schema, cx.nc_def, k, v) {
                                     p_msg_fields.push(pair);
                                 }
                             }
@@ -4179,7 +4317,7 @@ fn append_fig_metadata(schema: &crate::kiwi::Schema, nc_def: usize, fields: &mut
         if v.is_empty() || fields.iter().any(|(existing, _)| &**existing == k.as_str()) {
             continue;
         }
-        if let Some(pair) = schema.def_field_from_metadata(nc_def, k, v) {
+        if let Some(pair) = nc_field_from_metadata(schema, nc_def, k, v) {
             fields.push(pair);
         }
     }
@@ -4693,5 +4831,208 @@ mod parked_override_export_tests {
 
         let native_json = d.to_json().unwrap();
         assert!(native_json.contains("parked_overrides"), "native file writes parked_overrides");
+    }
+}
+
+#[cfg(test)]
+mod held_back_tests {
+    use super::*;
+    use crate::kiwi::Schema;
+    use crate::testkit::parse_schema_text;
+    use serde_json::json;
+
+    const REAL_SCHEMA: &str = include_str!("../tests/data/figma-real-schema.txt");
+
+    /// The `NodeChange` fields the export schema held before it held Figma's whole `NodeChange`: the ones the importer and
+    /// exporter handle. A field leaves `HELD_BACK_UNTIL_KEPT` for this list only when its writer is gated on the layer
+    /// being unedited, so moving one is a decision, and this test names it.
+    #[rustfmt::skip]
+    const WRITTEN_BEFORE: [&str; 266] = [
+        "ancestorPathBeforeDeletion", "animationPresets", "annotationCategories", "arcData", "autoRename", "backgroundColor", "backgroundEnabled",
+        "backgroundOpacity", "bezierHandles", "blendMode", "booleanOperation", "borderBottomWeight", "borderLeftWeight", "borderRightWeight",
+        "borderStrokeWeightsIndependent", "borderTopWeight", "bordersTakeSpace", "brushType", "codeExportName", "codeObjectType", "codeSourceInfo",
+        "codeSyntax", "componentKey", "componentPropAssignments", "componentPropDefs", "componentPropRefs", "connectorControlPoints", "connectorEnd",
+        "connectorEndCap", "connectorLineStyle", "connectorStart", "connectorStartCap", "connectorTextMidpoint", "connectorType", "connectorVersion",
+        "cornerRadius", "cornerSmoothing", "count", "dashPattern", "derivedImmutableFrameData", "derivedSymbolData", "derivedTextData", "description",
+        "detachedSymbolId", "documentColorProfile", "dynamicStrokeSettings", "easingData", "easingType", "editInfo", "effects", "exportSettings",
+        "fillGeometry", "fillPaints", "fontName", "fontSize", "fontVariantCaps", "fontVariantCommonLigatures", "fontVariantContextualLigatures",
+        "fontVariantNumericFigure", "fontVariantNumericFraction", "fontVariantNumericSpacing", "fontVariantPosition", "fontVariations", "frameMaskDisabled",
+        "gridAutoTracks", "gridChildHorizontalAlign", "gridChildVerticalAlign", "gridColumnAnchor", "gridColumnGap", "gridColumnSpan", "gridColumns",
+        "gridColumnsSizing", "gridReflowEnabled", "gridRowAnchor", "gridRowGap", "gridRowSpan", "gridRows", "gridRowsSizing", "guid", "guidPath", "guides",
+        "handleMirroring", "handoffStatusMap", "hangingList", "hangingPunctuation", "horizontalConstraint", "hyperlink", "inheritEffectStyleID",
+        "inheritGridStyleID", "internalOnly", "interpolationColorSpace", "interpolationType", "isCollectionExtendable", "isOverrideOverTextStyle",
+        "isPageDivider", "isPublishable", "isSkippedSlide", "isSlot", "isSlotContent", "isSoftDeleted", "isSoftDeletedStyle", "isStateGroup",
+        "isSymbolPublishable", "isWidgetStickable", "key", "keyframeOperation", "keyframeValue", "layoutGrids", "leadingTrim", "letterSpacing",
+        "lineHeight", "listSpacing", "lockMode", "locked", "makeContentState", "mask", "maskType", "maxLines", "maxSize", "minSize", "miterLimit", "name",
+        "nodeGenerationData", "objectAnimations", "opacity", "overriddenSymbolID", "overrideKey", "overrideLevel", "paragraphIndent", "paragraphSpacing",
+        "parameterConsumptionMap", "parentIndex", "pathTrim", "phase", "pluginData", "pluginRelaunchData", "proportionsConstrained", "propsAreBubbled",
+        "prototypeStartingPoint", "publishID", "publishedVersion", "rectangleBottomLeftCornerRadius", "rectangleBottomRightCornerRadius",
+        "rectangleCornerRadiiIndependent", "rectangleTopLeftCornerRadius", "rectangleTopRightCornerRadius", "renderedSyncedState", "resizeToFit",
+        "scatterBrushTransforms", "scatterStrokeSettings", "scrollDirection", "sectionStatusInfo", "semanticItalic", "semanticWeight", "shapeTruncates",
+        "shapeUserHeight", "shapeWithTextType", "sharedSymbolVersion", "shouldHideCursorsOnWidgetHover", "size", "slideNumber", "slideNumberSeparator",
+        "slideSpeakerNotes", "sortPosition", "sourceControlConfig", "sourceLibraryKey", "stackChildAlignSelf", "stackChildMarginBottom",
+        "stackChildMarginLeft", "stackChildMarginRight", "stackChildMarginTop", "stackChildPrimaryGrow", "stackCounterAlignContent",
+        "stackCounterAlignItems", "stackCounterSizing", "stackCounterSpacing", "stackHorizontalPadding", "stackLayoutVersion", "stackMode", "stackPadding",
+        "stackPaddingBottom", "stackPaddingRight", "stackPositioning", "stackPrimaryAlignItems", "stackPrimarySizing", "stackReverseZIndex", "stackSpacing",
+        "stackVerticalPadding", "stackWrap", "starInnerScale", "stateGroupPropertyValueOrders", "stretchStrokeSettings", "strokeAlign", "strokeBrushGuid",
+        "strokeCap", "strokeData", "strokeGeometry", "strokeJoin", "strokeOffset", "strokePaints", "strokeSeed", "strokeWeight", "styleDescription",
+        "styleID", "styleIdForEffect", "styleIdForFill", "styleIdForGrid", "styleIdForStrokeFill", "styleIdForText", "styleIdsForAnimation", "styleType",
+        "symbolData", "symbolDescription", "symbolLinks", "tableColumnPositions", "tableColumnWidths", "tableMergedCells", "tableRowHeights",
+        "tableRowPositions", "targetAspectRatio", "textAlignHorizontal", "textAlignVertical", "textAutoResize", "textCase", "textData", "textDecoration",
+        "textDecorationSkipInk", "textElementDelayBehaviour", "textPathStart", "textTracking", "textTruncation", "textWrapStyle", "timelineAssignments",
+        "timelineDefinitions", "timelineDisabled", "timelineDuration", "timelineOffset", "timelinePosition", "toggledOffOTFeatures", "toggledOnOTFeatures",
+        "trackLoopMode", "transform", "transformModifiers", "type", "userFacingVersion", "variableConsumptionMap", "variableDataValues",
+        "variableModeBySetMap", "variableResolvedType", "variableScopes", "variableSetID", "variableSetModes", "variableWidthPoints", "variantPropSpecs",
+        "vectorData", "vectorOperationVersion", "version", "verticalConstraint", "visible", "widgetCachedAncestor", "widgetEvents", "widgetHoverStyle",
+        "widgetInputBehavior", "widgetMetadata", "widgetPropertyMenuItems", "widgetSyncedState",
+    ];
+
+    fn node_change_fields(schema: &Schema) -> BTreeSet<String> {
+        let nc = schema.find("NodeChange").expect("NodeChange");
+        schema.defs[nc].fields.iter().map(|f| f.name.to_string()).collect()
+    }
+
+    #[test]
+    fn the_held_back_list_is_sorted_and_names_no_field_twice() {
+        assert!(HELD_BACK_UNTIL_KEPT.windows(2).all(|w| w[0] < w[1]), "the list is sorted, so the lookup by search finds every name");
+    }
+
+    #[test]
+    fn the_held_back_list_is_exactly_the_node_change_fields_the_export_schema_gained() {
+        let (ours, figma) = (node_change_fields(export_schema()), node_change_fields(&parse_schema_text(REAL_SCHEMA)));
+        let before: BTreeSet<String> = WRITTEN_BEFORE.iter().map(|s| s.to_string()).collect();
+        let held: BTreeSet<String> = HELD_BACK_UNTIL_KEPT.iter().map(|s| s.to_string()).collect();
+        assert_eq!(before.len(), 266, "the fields written before are listed once each");
+        assert!(before.is_disjoint(&held), "a field is either written or held back: {:?}", before.intersection(&held).collect::<Vec<_>>());
+        assert!(before.is_subset(&figma), "every field written before is a field of Figma's NodeChange");
+        assert_eq!(&before | &held, ours, "the export schema holds the fields written before and the ones held back, and no other");
+        assert_eq!(ours, figma, "and that is Figma's whole NodeChange");
+    }
+
+    #[test]
+    fn the_export_schema_holds_figmas_node_change_tree_field_for_field() {
+        let (ours, figma) = (export_schema(), parse_schema_text(REAL_SCHEMA));
+        let (own_nc, figma_nc) = (ours.find("NodeChange").unwrap(), figma.find("NodeChange").unwrap());
+        assert!(ours.same_definition(own_nc, &figma, figma_nc), "every definition NodeChange reaches is Figma's, in Figma's order");
+    }
+
+    #[test]
+    fn a_tree_that_differs_from_figmas_in_one_nested_field_is_not_the_same_definition() {
+        let figma = parse_schema_text(REAL_SCHEMA);
+        let mut tampered = figma_like_schema();
+        let paint = tampered.find("Paint").unwrap();
+        tampered.defs[paint].fields.pop();
+        let (nc, figma_nc) = (tampered.find("NodeChange").unwrap(), figma.find("NodeChange").unwrap());
+        assert!(!tampered.same_definition(nc, &figma, figma_nc));
+    }
+
+    #[test]
+    fn no_struct_reaches_a_node_change_so_the_strip_needs_to_walk_messages_only() {
+        use crate::kiwi::{DefKind, FieldType};
+        let schema = export_schema();
+        let nc = schema.find("NodeChange").unwrap();
+        let reaches = |start: usize| {
+            let (mut seen, mut stack) = (BTreeSet::new(), vec![start]);
+            while let Some(def) = stack.pop() {
+                for f in &schema.defs[def].fields {
+                    if let FieldType::Def(child) = f.ty {
+                        if child == nc {
+                            return true;
+                        }
+                        if schema.defs[child].kind != DefKind::Enum && seen.insert(child) {
+                            stack.push(child);
+                        }
+                    }
+                }
+            }
+            false
+        };
+        let reaching: Vec<&str> =
+            (0..schema.defs.len()).filter(|&i| schema.defs[i].kind == DefKind::Struct && reaches(i)).map(|i| &*schema.defs[i].name).collect();
+        assert!(reaching.is_empty(), "the strip does not walk these structs: {reaching:?}");
+    }
+
+    #[test]
+    fn a_nested_held_back_key_is_removed_wherever_a_node_change_sits() {
+        let schema = export_schema();
+        let nc = schema.find("NodeChange").unwrap();
+        let entry = |extra: serde_json::Value| {
+            let mut e = json!({"guidPath": {"guids": [{"sessionID": 1, "localID": 2}]}, "visible": false});
+            for (k, v) in extra.as_object().unwrap() {
+                e[k] = v.clone();
+            }
+            e
+        };
+        let json = json!({
+            "symbolID": {"sessionID": 1, "localID": 1},
+            "symbolOverrides": [entry(json!({"textUserLayoutVersion": 5, "scrollBehavior": "SCROLLS"}))],
+        });
+        let (name, value) = nc_field_from_json(schema, nc, "symbolData", &json).expect("symbol data is written");
+        assert_eq!(&*name, "symbolData");
+        let kept = value.get("symbolOverrides").and_then(V::as_array).unwrap()[0].clone();
+        assert!(kept.get("visible").is_some() && kept.get("guidPath").is_some(), "what is not held back stays");
+        assert!(kept.get("textUserLayoutVersion").is_none() && kept.get("scrollBehavior").is_none(), "what is held back goes: {kept:?}");
+    }
+
+    #[test]
+    fn an_entry_of_only_held_back_keys_is_dropped_as_one_of_unknown_keys_was() {
+        let schema = export_schema();
+        let nc = schema.find("NodeChange").unwrap();
+        // `styleOverrideTable` entries are NodeChange values; one with nothing else in it is left out, and so is the table
+        let only_held = json!({"characters": "x", "styleOverrideTable": [{"fontVersion": "1"}]});
+        let (_, text_data) = nc_field_from_json(schema, nc, "textData", &only_held).expect("the text data stays");
+        assert!(text_data.get("styleOverrideTable").is_none(), "{text_data:?}");
+        assert_eq!(text_data.get("characters"), Some(&V::String("x".into())));
+        let kept_one = json!({"characters": "x", "styleOverrideTable": [{"fontVersion": "1"}, {"styleID": 1, "fontVersion": "1"}]});
+        let (_, text_data) = nc_field_from_json(schema, nc, "textData", &kept_one).expect("the text data stays");
+        assert_eq!(text_data.get("styleOverrideTable").and_then(V::as_array).map(<[V]>::len), Some(1), "{text_data:?}");
+        let table = text_data.get("styleOverrideTable").and_then(V::as_array).unwrap();
+        assert!(table[0].get("styleID").is_some() && table[0].get("fontVersion").is_none());
+    }
+
+    #[test]
+    fn a_field_of_another_message_that_shares_a_held_back_name_is_kept() {
+        // `variableData` is a held-back NodeChange field and also a field of every variable map entry
+        let schema = export_schema();
+        let nc = schema.find("NodeChange").unwrap();
+        assert!(is_held_back("variableData"));
+        let map = json!({"entries": [{"variableField": "VISIBLE", "variableData": {"dataType": "BOOLEAN", "value": {"boolValue": true}}}]});
+        let (_, value) = nc_field_from_json(schema, nc, "variableConsumptionMap", &map).expect("the map is written");
+        let entry = &value.get("entries").and_then(V::as_array).unwrap()[0];
+        assert!(entry.get("variableData").is_some(), "{entry:?}");
+    }
+
+    #[test]
+    fn a_held_back_key_nested_under_a_shader_paint_is_dropped_not_written() {
+        let schema = export_schema();
+        let shader = ShaderRef {
+            raw: json!({"opacityVar": {"value": {"textDataValue": {"characters": "x", "styleOverrideTable": [{"styleID": 1, "fontSize": 12.0, "fontVersion": "1"}]}}}}),
+        };
+        let fields = decode_shader_ref(schema, "Paint", "layer", &shader, &[]).expect("the shader converts");
+        let (name, var) = &fields[0];
+        assert_eq!(&**name, "opacityVar");
+        let row = &var
+            .get("value")
+            .and_then(|v| v.get("textDataValue"))
+            .and_then(|t| t.get("styleOverrideTable"))
+            .and_then(V::as_array)
+            .expect("the table is written")[0];
+        assert!(row.get("styleID").is_some() && row.get("fontSize").is_some(), "what is not held back stays: {row:?}");
+        assert!(row.get("fontVersion").is_none(), "the held-back key is left out: {row:?}");
+    }
+
+    #[test]
+    fn the_metadata_writer_skips_held_back_keys_and_writes_the_rest() {
+        let schema = export_schema();
+        let nc = schema.find("NodeChange").unwrap();
+        assert!(WRITTEN_BEFORE.contains(&"key") && !is_held_back("key"));
+        let meta: BTreeMap<String, String> = [("key", "abc"), ("fontVersion", "1"), ("derivedSymbolDataLayoutVersion", "3"), ("prototypeInteractions", "[]")]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        let mut fields = Vec::new();
+        append_fig_metadata(schema, nc, &mut fields, &meta);
+        let names: Vec<&str> = fields.iter().map(|(k, _)| &**k).collect();
+        assert_eq!(names, ["key"]);
     }
 }

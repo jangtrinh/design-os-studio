@@ -337,7 +337,8 @@ mod tests {
 
     #[test]
     fn every_key_of_the_writer_schema_is_named_by_the_table() {
-        let unnamed: Vec<String> = node_change_keys().into_iter().filter(|k| named_class(k).is_none()).collect();
+        // A key held back from every writer (`HELD_BACK_UNTIL_KEPT`) is classified when it leaves that list.
+        let unnamed: Vec<String> = node_change_keys().into_iter().filter(|k| named_class(k).is_none() && !crate::fig_export::is_held_back(k)).collect();
         assert!(unnamed.is_empty(), "classify these NodeChange keys in own_entry_keys.rs: {unnamed:?}");
     }
 
