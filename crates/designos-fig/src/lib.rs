@@ -23,6 +23,7 @@ mod export;
 mod fig;
 mod fig_export;
 mod instance_self_digest;
+mod kept_capture;
 pub mod kiwi;
 pub mod motion;
 mod own_entry_keys;
@@ -46,6 +47,8 @@ pub use clipboard::{import_figma_clipboard, looks_like_figma_clipboard, parse_fi
 pub use design_system_scan::{scan_design_system, DesignSystemScan, ScanError};
 pub use designos_doc::Document;
 pub use export::export_rest_json;
+#[doc(hidden)]
+pub use fig::import_fig_with_kept_options;
 pub use fig::{
     commands_blob_to_path, decode_fig_to_json, import_fig, import_fig_node_changes_with_report, import_fig_with_budget, import_fig_with_report,
     import_fig_with_stored_glyph_allowance, import_fig_with_stored_glyph_allowances,
@@ -53,6 +56,9 @@ pub use fig::{
 #[doc(hidden)]
 pub use fig::{extract_fig_derived_symbol_data, import_fig_node_changes, FigDerivedSymbolEntry, FigInstanceDerivedData};
 pub use fig_export::{export_fig, export_fig_with_report, path_to_commands_blob};
+pub use kept_capture::{
+    set_kept_spill_dir, KeptOptions, KEPT_CAPTURE_ENABLED, MAX_KEPT_ARENA_BYTES, MAX_KEPT_FIELDS_PER_RECORD, MAX_KEPT_RECORD_BYTES, SPILL_THRESHOLD_BYTES,
+};
 pub use pen::{
     export_pen_json, export_pen_json_with_report, import_pen_json, import_pen_json_report, import_pen_json_with_warnings, PenExportReport, PenImport,
     PenImportOptions, PenWarning,

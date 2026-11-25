@@ -856,6 +856,16 @@ pub struct ImportReport {
     /// Kept data counts toward the decode value cap; the allowance bounds what is retained, at about two bytes per wire
     /// byte (the bytes, the glyph table and the snapshot of the text). Nothing is built into outlines when a file opens.
     pub dropped_stored_glyphs: usize,
+    /// How many records of the file a `.fig` open keeps ranges of (see [`designos_doc::FigKeptStore`]); 0 for any other import.
+    pub kept_records: usize,
+    /// How many fields the open left out of the store because the file's definition of them is not the one Studio writes with.
+    pub kept_fields_not_conformed: usize,
+    /// How many records the open left out of the store because they passed a bound: their size, their field count, the arena's
+    /// size, or the disk the arena could not be spilled to.
+    pub dropped_kept_records: usize,
+    /// How many heavy fields (`editInfo`, `derivedImmutableFrameData`) the open left out because keeping them would have taken
+    /// the decoder past its value or zero-size cap.
+    pub kept_fields_over_decode_cap: usize,
 }
 
 struct Ctx<'a> {
@@ -1193,6 +1203,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         dropped_variable_overrides: 0,
         missing_variable_bindings,
         dropped_stored_glyphs: 0,
+        ..Default::default()
     };
     cx.install_deferred_hydrator();
     let mut doc = cx.doc;
@@ -1363,6 +1374,7 @@ pub(crate) fn import_rest_value_with_text_wires<'a>(
         dropped_variable_overrides: 0,
         missing_variable_bindings,
         dropped_stored_glyphs: 0,
+        ..Default::default()
     };
     cx.install_deferred_hydrator();
     let mut doc = cx.doc;

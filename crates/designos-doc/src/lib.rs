@@ -52,6 +52,11 @@ mod copy_layer_links;
 mod cycle_refusal;
 mod dev;
 pub mod diff;
+mod fig_kept;
+mod fig_kept_arena;
+mod fig_kept_snapshot;
+#[cfg(test)]
+mod fig_kept_tests;
 pub mod find;
 pub mod finite_json;
 #[cfg(test)]
@@ -151,6 +156,9 @@ pub use copy_layer_links::{authored_layer, relink_copy_layers};
 pub use cycle_refusal::*;
 pub use dev::*;
 pub use diff::*;
+pub use fig_kept::{BlobSlot, FigKeptStore, KeptCounts, KeptData, KeptField, KeptRecord, KeptRecordKind, KeptRecordRef, RetainedBytes};
+pub use fig_kept_arena::KeptArena;
+pub use fig_kept_snapshot::NodeSnapshot;
 pub use geom::*;
 pub use history::*;
 pub use layout_apply::RELAYOUT_NOTICE_PREFIX;
@@ -359,6 +367,10 @@ pub struct Document {
     /// Fresh per-instance and per-clone identifier used to key derived caches.
     #[serde(skip)]
     derived_id: DerivedId,
+    /// Figma's own records of the `.fig` this document was opened from (see [`FigKeptStore`]). Runtime only: no save
+    /// reads it yet, and a clone shares it.
+    #[serde(skip)]
+    pub fig_kept: Arc<FigKeptStore>,
 }
 
 /// Default staleness threshold for [`InProgress`] flags in minutes (`agent.in_progress_stale_minutes`, E15-7 §3.3).
@@ -860,6 +872,7 @@ impl Document {
             page_hydrator: self.page_hydrator.clone(),
             deferred: self.deferred.clone(),
             derived_id: DerivedId::default(),
+            fig_kept: self.fig_kept.clone(),
         }
     }
 
@@ -874,7 +887,8 @@ impl Document {
         }
         // Take the list of empty pages before this load changes what the loader says.
         drop(self.unloaded_pages(loader_at, &*guard));
-        let changed = guard.hydrate_page(self, page);
+        let (changed, written) = self.record_fig_kept_writes(|doc| guard.hydrate_page(doc, page));
+        self.advance_fig_kept_snapshots(&written);
         self.forget_loaded_pages(loader_at, &*guard, [page]);
         drop(guard);
         if changed {
@@ -911,7 +925,8 @@ impl Document {
         let loader_at = Arc::as_ptr(&h) as *const () as usize;
         let Ok(mut guard) = h.lock() else { return false };
         let waiting: Vec<NodeId> = self.unloaded_pages(loader_at, &*guard).into_iter().filter(|page| !guard.is_hydrated(*page)).collect();
-        let changed = guard.hydrate_all(self);
+        let (changed, written) = self.record_fig_kept_writes(|doc| guard.hydrate_all(doc));
+        self.advance_fig_kept_snapshots(&written);
         self.forget_loaded_pages(loader_at, &*guard, waiting);
         if guard.unexpanded_instances() == 0 && guard.last_error().is_none() && self.unloaded_pages(loader_at, &*guard).is_empty() {
             self.page_hydrator = None;
