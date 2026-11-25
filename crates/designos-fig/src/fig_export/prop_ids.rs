@@ -316,12 +316,6 @@ impl ExportCtx<'_> {
         self.scoped_guid(scope, prop_name, true)
     }
 
-    /// The same for a binding (`componentPropRefs`): the layer is bound to a property of the component it sits in, never of the
-    /// component an instance layer is made from. An instance among the ancestors is entered through its main.
-    pub(super) fn binding_scope_guid(&self, scope: NodeId, prop_name: &str) -> Option<Guid> {
-        self.scoped_guid(scope, prop_name, false)
-    }
-
     fn scoped_guid(&self, scope: NodeId, prop_name: &str, own_main: bool) -> Option<Guid> {
         if let Some(rest) = prop_name.strip_prefix("propDefId:") {
             if let Some(g) = super::parse_guid_pair(rest) {
