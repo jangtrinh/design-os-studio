@@ -1960,7 +1960,10 @@ mod tests {
 
     /// An imported network (marked, no regions) from `loops`: each a closed chain of `(a, b, ta, tb)` segments over
     /// vertices of its own, starting at the vertex index given.
-    fn imported(loops: &[&[(f32, f32)]], curves: &[&[((f32, f32), (f32, f32))]]) -> VectorNetwork {
+    type Pt = (f32, f32);
+    type Handles = ((f32, f32), (f32, f32));
+
+    fn imported(loops: &[&[Pt]], curves: &[&[Handles]]) -> VectorNetwork {
         let mut n = VectorNetwork::default();
         for (pts, handles) in loops.iter().zip(curves) {
             let first = n.vertices.len();
@@ -1976,7 +1979,7 @@ mod tests {
         n
     }
 
-    fn circle(cx: f32, cy: f32, r: f32, clockwise: bool) -> (Vec<(f32, f32)>, Vec<((f32, f32), (f32, f32))>) {
+    fn circle(cx: f32, cy: f32, r: f32, clockwise: bool) -> (Vec<Pt>, Vec<Handles>) {
         let k = 0.552_284_8 * r;
         let pts = vec![(cx + r, cy), (cx, cy + r), (cx - r, cy), (cx, cy - r)];
         let h = vec![((0.0, k), (k, 0.0)), ((-k, 0.0), (0.0, k)), ((0.0, -k), (-k, 0.0)), ((k, 0.0), (0.0, -k))];
@@ -2011,10 +2014,16 @@ mod tests {
         let (c0, h0) = circle(60.3, 60.7, 40.0, true);
         let (c1, h1) = circle(60.3, 60.7, 15.0, true);
         let (c1o, h1o) = circle(60.3, 60.7, 15.0, false);
-        let star: Vec<(f32, f32)> =
-            (0..5).map(|k| (60.3 + 50.0 * (-1.5708f32 + k as f32 * 1.256_637).cos(), 60.7 + 50.0 * (-1.5708f32 + k as f32 * 1.256_637).sin())).collect();
+        let star: Vec<(f32, f32)> = (0..5)
+            .map(|k| {
+                (
+                    60.3 + 50.0 * (-std::f32::consts::FRAC_PI_2 + k as f32 * 1.256_637).cos(),
+                    60.7 + 50.0 * (-std::f32::consts::FRAC_PI_2 + k as f32 * 1.256_637).sin(),
+                )
+            })
+            .collect();
         let star_chain: Vec<(f32, f32)> = (0..5).map(|k| star[(k * 2) % 5]).collect();
-        let none: &[((f32, f32), (f32, f32))] = &[];
+        let none: &[Handles] = &[];
         let shapes: Vec<(&str, VectorNetwork)> = vec![
             // the inward arc is segment 0, the outward arc closes the loop
             ("crescent", imported(&[&[(10.3, 60.7), (90.9, 62.1)]], &[&[((25.0, -20.0), (-25.0, -20.0)), ((-30.0, -70.0), (30.0, -70.0))]])),
