@@ -946,6 +946,9 @@ struct Ctx<'a> {
     deferred_pending: Option<DeferredHydration>,
     /// The mains a deferred page's hydration is about to write into (see [`crate::component_fingerprint::MainTrust`]).
     loader_writes: Option<crate::component_fingerprint::LoaderWrites>,
+    /// Ids of the text styles the file holds (the `styles` map entries of type TEXT). A text link to any other id names a
+    /// style that is not in the file.
+    text_style_ids: std::sync::Arc<HashSet<String>>,
 }
 
 /// Overrides carried on `.fig` instance JSON as `_overrides` / `_derived`:
@@ -1132,6 +1135,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         path_cache: HashMap::new(),
         blob_cache: HashMap::with_capacity(blobs.len()),
         expanded_comps: HashSet::new(),
+        text_style_ids: text_style_ids_of(v.get("styles")),
         has_instance_swap_values: false,
         has_connectors: false,
         keep_unknown_keys,
@@ -1316,6 +1320,7 @@ pub(crate) fn import_rest_value_with_text_wires<'a>(
         path_cache: HashMap::new(),
         blob_cache: HashMap::with_capacity(blobs.len()),
         expanded_comps: HashSet::new(),
+        text_style_ids: text_style_ids_of(v.get("styles")),
         has_instance_swap_values: false,
         has_connectors: false,
         keep_unknown_keys,
@@ -2433,6 +2438,7 @@ impl<'a> Ctx<'a> {
             path_cache: std::mem::take(&mut self.path_cache),
             blob_cache: std::mem::take(&mut self.blob_cache),
             expanded_comps: std::mem::take(&mut self.expanded_comps),
+            text_style_ids: self.text_style_ids.clone(),
             next_clone: self.next_clone,
             clone_budget_total: self.clone_budget_total,
             cloned_nodes: self.cloned_nodes,
@@ -4241,6 +4247,9 @@ impl<'a> Ctx<'a> {
         apply_paint_style_links(n, set);
         apply_effect_style_link(n, set);
         apply_text_style_link(n, set);
+        // The link this copy has after the entry, from the entry itself or from its main.
+        let decoration_if_unlinked = set.get("style").and_then(|st| fstr(st, "_decorationIfUnlinked")).map(str::to_string);
+        let keeps_layer_decoration = decoration_if_unlinked.is_some() && !n.style_refs.get("text").is_some_and(|id| self.text_style_ids.contains(id));
         if let NodeKind::Text(t) = &mut n.kind {
             if let Some(ar) = fbool(set, "autoRename") {
                 t.auto_rename = ar;
@@ -4250,6 +4259,9 @@ impl<'a> Ctx<'a> {
             }
             if let Some(st) = set.get("style") {
                 apply_type_style(&mut t.style, st);
+                if let Some(d) = decoration_if_unlinked.as_deref().filter(|_| keeps_layer_decoration) {
+                    apply_type_style(&mut t.style, &serde_json::json!({ "textDecoration": d }));
+                }
                 crate::textfmt::apply_paragraph(t, st);
                 if let Some(a) = fstr(st, "textAutoResize") {
                     t.auto_resize = auto_resize(a);
@@ -4402,6 +4414,8 @@ struct DeferredFigHydrator {
     path_cache: HashMap<String, Path>,
     blob_cache: HashMap<(usize, bool), Path>,
     expanded_comps: HashSet<NodeId>,
+    /// The ids of the text styles the file holds (see `Ctx::text_style_ids`).
+    text_style_ids: std::sync::Arc<HashSet<String>>,
     next_clone: u64,
     clone_budget_total: usize,
     cloned_nodes: usize,
@@ -4554,6 +4568,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             connectors: Vec::new(),
             deferred_pending: None,
             loader_writes: Some(crate::component_fingerprint::LoaderWrites::new(&self.main_trust)),
+            text_style_ids: self.text_style_ids.clone(),
         };
         let mut hydration_err: Option<FigError> = None;
         // An instance that sits inside a main component of this page changes that main when it is filled.
@@ -4874,6 +4889,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             fast_derived_map: None,
             large_file: true,
             expanded_comps: self.expanded_comps.clone(),
+            text_style_ids: self.text_style_ids.clone(),
             next_clone,
             clone_budget_total: self.clone_budget_total,
             cloned_nodes: self.cloned_nodes,
@@ -5255,6 +5271,12 @@ fn count_missing_variable_bindings(doc: &Document) -> usize {
     let style_bindings = doc.style_meta.values().flat_map(|meta| meta.bindings.values());
     let missing: BTreeSet<&str> = layer_bindings.chain(style_bindings).filter(|id| !doc.variables.contains_key(*id)).map(String::as_str).collect();
     missing.len()
+}
+
+/// The ids of the text styles in the top-level REST `styles` map: the styles a text link can resolve to.
+fn text_style_ids_of(styles: Option<&Value>) -> std::sync::Arc<HashSet<String>> {
+    let ids = styles.and_then(Value::as_object).map(|m| m.iter().filter(|(_, s)| fstr(s, "styleType") == Some("TEXT")).map(|(id, _)| id.clone()).collect());
+    std::sync::Arc::new(ids.unwrap_or_default())
 }
 
 /// Library style metadata from the top-level REST `styles` map. A FILL style
@@ -6259,6 +6281,7 @@ mod expand_depth_tests {
             path_cache: HashMap::new(),
             blob_cache: HashMap::new(),
             expanded_comps: HashSet::new(),
+            text_style_ids: Default::default(),
             next_clone: u64::MAX - 1,
             clone_budget_total: MAX_IMPORT_CLONES,
             cloned_nodes: 0,
@@ -6313,6 +6336,7 @@ mod expand_depth_tests {
             path_cache: HashMap::new(),
             blob_cache: HashMap::new(),
             expanded_comps: HashSet::new(),
+            text_style_ids: Default::default(),
             next_clone: 100,
             clone_budget_total: 1,
             cloned_nodes: 0,
@@ -6416,6 +6440,7 @@ mod expand_depth_tests {
             path_cache: HashMap::new(),
             blob_cache: HashMap::new(),
             expanded_comps,
+            text_style_ids: Default::default(),
             next_clone,
             clone_budget_total,
             cloned_nodes: 0,
@@ -6554,6 +6579,7 @@ mod expand_depth_tests {
             path_cache: HashMap::new(),
             blob_cache: HashMap::new(),
             expanded_comps: HashSet::new(),
+            text_style_ids: Default::default(),
             has_instance_swap_values: false,
             has_connectors: false,
             keep_unknown_keys: true,
@@ -6604,6 +6630,7 @@ mod expand_depth_tests {
             path_cache: HashMap::new(),
             blob_cache: HashMap::new(),
             expanded_comps: HashSet::new(),
+            text_style_ids: Default::default(),
             has_instance_swap_values: false,
             has_connectors: false,
             keep_unknown_keys: true,
