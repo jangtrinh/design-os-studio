@@ -138,7 +138,9 @@ fn import_with_limits(clip: &FigClipboard, inflate_budget: u64, decoded_values: 
     let blobs: Vec<&[u8]> = blob_table.iter().map(Vec::as_slice).collect();
     if let Some(KiwiValue::Array(changes)) = message.get_mut("nodeChanges") {
         // the data of the texts inside instances leaves their `derivedSymbolData` the same way
-        nested = crate::stored_text_import::take_nested_texts(changes, &blobs).0;
+        let (texts, spans, _) = crate::stored_text_import::take_nested_texts(changes);
+        crate::stored_text_import::prepare_all(&spans, &blobs);
+        nested = texts;
         for change in changes {
             crate::fig::take_text_derived(change, &mut text_wires);
         }

@@ -173,6 +173,11 @@ pub(crate) struct FastDerivedEntry {
 }
 
 pub(crate) fn kiwi_guid_str(g: &KiwiValue) -> Option<String> {
+    kiwi_guid_parts(g).map(|(s, l)| format!("{s}:{l}"))
+}
+
+/// The session and local id of a guid value; `None` for the null guid and for anything that is not one.
+pub(crate) fn kiwi_guid_parts(g: &KiwiValue) -> Option<(u64, u64)> {
     let u64_of = |v: &KiwiValue| match v {
         KiwiValue::Uint(u) => Some(*u as u64),
         KiwiValue::Uint64(u) => Some(*u),
@@ -185,7 +190,7 @@ pub(crate) fn kiwi_guid_str(g: &KiwiValue) -> Option<String> {
     if s == u64::from(u32::MAX) && l == u64::from(u32::MAX) {
         return None;
     }
-    Some(format!("{s}:{l}"))
+    Some((s, l))
 }
 
 /// A kiwi float field as `f32`. A NaN or infinity is treated as absent, the way the JSON path does
@@ -367,7 +372,7 @@ fn import_with_budgets(
     let blob_refs: Vec<&[u8]> = owned_blobs.iter().map(Vec::as_slice).collect();
     // the data Figma stored for the texts inside instances leaves the entries of `derivedSymbolData` as wire bytes first: the
     // entries are read for their sizes and transforms below, and no JSON carries it
-    let (nested_texts, unreadable_nested_text) = stored_text_import::take_nested_texts(&mut raw_changes, &blob_refs);
+    let (nested_texts, nested_spans, unreadable_nested_text) = stored_text_import::take_nested_texts(&mut raw_changes);
     let large = raw_changes.len() > 5_000;
     let mut fast_derived = large.then(|| extract_fast_derived(&mut raw_changes, owned_blobs.len()));
     if large {
@@ -410,15 +415,25 @@ fn import_with_budgets(
     if large {
         release_os_memory();
     }
-    let (mut doc, mut report) = rest_import::import_rest_value_owned_with_budget(
-        rest,
-        true,
-        &blob_refs,
-        fast_derived.as_mut(),
-        stored_text_import::ImportedTexts { wires: text_wires, nested: nested_texts },
-        clone_budget_total,
-        rest_import::KEEP_UNKNOWN_KEYS_FROM_BINARY,
-    )?;
+    // The blobs the glyphs of the texts inside instances name are collected while the import runs: a page that opens later has no blob
+    // table, and a span a page needs before that is done is prepared by the page (see `NestedSpan::geometry_for`), so nothing waits.
+    let imported = std::thread::scope(|scope| {
+        if !nested_spans.is_empty() {
+            let (spans, blobs) = (&nested_spans, &blob_refs);
+            scope.spawn(move || stored_text_import::prepare_all(spans, blobs));
+        }
+        rest_import::import_rest_value_owned_with_budget(
+            rest,
+            true,
+            &blob_refs,
+            fast_derived.as_mut(),
+            stored_text_import::ImportedTexts { wires: text_wires, nested: nested_texts },
+            clone_budget_total,
+            rest_import::KEEP_UNKNOWN_KEYS_FROM_BINARY,
+        )
+    });
+    drop(nested_spans);
+    let (mut doc, mut report) = imported?;
     report.dropped_variable_bindings += dropped_variable_bindings;
     report.dropped_variable_overrides += dropped_variable_overrides;
     report.dropped_stored_glyphs += dropped_stored_glyphs + unreadable_stored_text;

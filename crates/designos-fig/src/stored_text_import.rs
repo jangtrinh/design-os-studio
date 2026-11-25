@@ -202,13 +202,23 @@ impl SpanTable {
     }
 }
 
-/// A fast hash of a span; spans of one hash are compared byte for byte, so a collision costs a comparison and nothing else.
+/// A fast hash of a span; spans of one hash are compared byte for byte, so a collision costs a comparison and nothing else. Four
+/// independent lanes keep the multiplies from waiting on each other: the spans of a kit add up to tens of megabytes.
 fn hash_bytes(bytes: &[u8]) -> u64 {
     const K: u64 = 0x9E37_79B9_7F4A_7C15;
-    let mut h = K ^ bytes.len() as u64;
-    let mut words = bytes.chunks_exact(8);
-    for word in &mut words {
-        h = (h ^ u64::from_le_bytes(word.try_into().unwrap_or([0; 8]))).wrapping_mul(K);
+    let word = |w: &[u8]| u64::from_le_bytes(w.try_into().unwrap_or([0; 8]));
+    let mut lanes = [K ^ bytes.len() as u64, K.rotate_left(13), K.rotate_left(29), K.rotate_left(47)];
+    let mut blocks = bytes.chunks_exact(32);
+    for block in &mut blocks {
+        for (lane, w) in lanes.iter_mut().zip(block.chunks_exact(8)) {
+            *lane = (*lane ^ word(w)).wrapping_mul(K);
+            *lane ^= *lane >> 29;
+        }
+    }
+    let mut h = lanes[0] ^ lanes[1].rotate_left(16) ^ lanes[2].rotate_left(32) ^ lanes[3].rotate_left(48);
+    let mut words = blocks.remainder().chunks_exact(8);
+    for w in &mut words {
+        h = (h ^ word(w)).wrapping_mul(K);
         h ^= h >> 29;
     }
     for &b in words.remainder() {
@@ -217,38 +227,71 @@ fn hash_bytes(bytes: &[u8]) -> u64 {
     h ^ (h >> 32)
 }
 
+/// What one instance's `derivedSymbolData` held: its guid, and for each entry with text data the path of its node and the wire bytes.
+type RawEntries = (String, Vec<(Box<str>, Vec<u8>)>);
+
 /// Takes the `derivedTextData` out of the entries of every instance's `derivedSymbolData` among `changes`, as the wire bytes
 /// of Studio's schema, equal spans shared. A heavy decode has already written the bytes (see `stored_glyphs`); a payload
-/// under 2 MB still holds the decoded value, which is written here, and is bounded by its own size. The blobs of the glyphs are
-/// collected from `blobs`, because a page that is hydrated after the import has none. The second value is how many spans hold a
-/// value that cannot be written in Studio's schema (they are left out and counted like a text that did not fit).
-pub(crate) fn take_nested_texts(changes: &mut [K], blobs: &[&[u8]]) -> (NestedTexts, usize) {
+/// under 2 MB still holds the decoded value, which is written here, and is bounded by its own size. The second value holds
+/// the distinct spans, which the caller prepares with [`prepare_all`] while the blobs of the file are at hand, because a page that is
+/// hydrated after the import has none. The third is how many spans hold a value that cannot be written in Studio's schema (they are left
+/// out and counted like a text that did not fit).
+///
+/// The records are read on several threads when there are many: reading an entry and writing its path cost more than the
+/// comparison of spans that follows, which is done once, in record order, so the result does not depend on the thread count.
+pub(crate) fn take_nested_texts(changes: &mut [K]) -> (NestedTexts, Vec<Arc<NestedSpan>>, usize) {
+    let threads = if changes.len() < 20_000 { 1 } else { std::thread::available_parallelism().map_or(1, |n| n.get()).min(8) };
+    let chunk = changes.len().div_ceil(threads).max(1);
+    let parts: Vec<(Vec<RawEntries>, usize)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = changes.chunks_mut(chunk).map(|part| scope.spawn(move || read_nested(part))).collect();
+        handles.into_iter().map(|h| h.join().expect("the entries of an import are read without panicking")).collect()
+    });
     let mut table = SpanTable::default();
     let mut out: NestedTexts = HashMap::new();
+    let mut unreadable = 0usize;
+    for (instances, bad) in parts {
+        unreadable += bad;
+        for (guid, raw) in instances {
+            let mut entries: Vec<NestedTextEntry> = raw.into_iter().map(|(path, bytes)| NestedTextEntry { path, span: table.intern(bytes) }).collect();
+            entries.shrink_to_fit();
+            out.insert(guid, entries);
+        }
+    }
+    (out, table.unique, unreadable)
+}
+
+/// The entries of `changes` that carry text data, by instance (see [`take_nested_texts`]).
+fn read_nested(changes: &mut [K]) -> (Vec<RawEntries>, usize) {
+    let mut out: Vec<RawEntries> = Vec::new();
     let mut unreadable = 0usize;
     for change in changes.iter_mut() {
         if !matches!(change.get("type"), Some(K::Enum(t)) if &**t == "INSTANCE") {
             continue;
         }
         let Some(guid) = change.get("guid").and_then(crate::fig::kiwi_guid_str) else { continue };
-        let mut entries: Vec<NestedTextEntry> = Vec::new();
+        let mut entries: Vec<(Box<str>, Vec<u8>)> = Vec::new();
         let mut take = |holder: Option<&mut K>| {
             let Some(K::Array(list)) = holder else { return };
             for entry in list.iter_mut() {
                 let Some(derived) = entry.take_field("derivedTextData") else { continue };
-                let path: Vec<String> = {
-                    let p = entry.get("guidPath");
-                    let ids = p.and_then(|p| p.get("guids")).or(p).and_then(K::as_array);
-                    ids.map(|a| a.iter().filter_map(crate::fig::kiwi_guid_str).collect()).unwrap_or_default()
-                };
                 let bytes = match derived {
                     K::Bytes(bytes) => Some(bytes),
                     value => crate::derived_text_wire::wire_from_kiwi(&value),
                 };
-                match bytes {
-                    Some(bytes) if !path.is_empty() => entries.push(NestedTextEntry { path: path.join(";").into(), span: table.intern(bytes) }),
-                    Some(_) => {}
-                    None => unreadable += 1,
+                let Some(bytes) = bytes else {
+                    unreadable += 1;
+                    continue;
+                };
+                // the guids below the instance, outermost first, joined by `;`: one allocation for the path
+                let path = entry.get("guidPath");
+                let ids = path.and_then(|p| p.get("guids")).or(path).and_then(K::as_array).unwrap_or(&[]);
+                let mut joined = String::with_capacity(ids.len() * 12);
+                for (s, l) in ids.iter().filter_map(crate::fig::kiwi_guid_parts) {
+                    use std::fmt::Write;
+                    let _ = write!(joined, "{}{s}:{l}", if joined.is_empty() { "" } else { ";" });
+                }
+                if !joined.is_empty() {
+                    entries.push((joined.into_boxed_str(), bytes));
                 }
             }
         };
@@ -256,15 +299,14 @@ pub(crate) fn take_nested_texts(changes: &mut [K], blobs: &[&[u8]]) -> (NestedTe
         take(change.get_mut("symbolData").and_then(|sd| sd.get_mut("derivedSymbolData")));
         if !entries.is_empty() {
             entries.shrink_to_fit();
-            out.insert(guid, entries);
+            out.push((guid, entries));
         }
     }
-    prepare_all(&table.unique, blobs);
     (out, unreadable)
 }
 
 /// Prepares every span of `spans` (see [`NestedSpan::prepare`]), on up to 8 threads that share one map of the file's blobs.
-fn prepare_all(spans: &[Arc<NestedSpan>], blobs: &[&[u8]]) {
+pub(crate) fn prepare_all(spans: &[Arc<NestedSpan>], blobs: &[&[u8]]) {
     let shared: Mutex<HashMap<usize, Arc<SharedBlob>>> = Mutex::new(HashMap::new());
     let threads = if spans.len() < 512 { 1 } else { std::thread::available_parallelism().map_or(1, |n| n.get()).min(8) };
     let chunk = spans.len().div_ceil(threads).max(1);
