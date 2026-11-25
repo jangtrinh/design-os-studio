@@ -2375,14 +2375,18 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             _ => None,
         });
         if let Some(paths) = fill_paths {
+            let first = cx.blobs.len();
             let fgs = encode_geometry_blobs(cx, paths);
+            kept_fields::note_studio_blobs(cx, "fillGeometry", first);
             if !fgs.is_empty() {
                 fields.push(("fillGeometry", V::Array(fgs)));
             }
         }
         // Only an outline that still matches the layer's size and stroke: a stale one would be read back as its stroke.
         if let Some(paths) = node.live_stroke_outline() {
+            let first = cx.blobs.len();
             let sgs = encode_geometry_blobs(cx, paths);
+            kept_fields::note_studio_blobs(cx, "strokeGeometry", first);
             if !sgs.is_empty() {
                 fields.push(("strokeGeometry", V::Array(sgs)));
             }
@@ -2441,7 +2445,9 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         }
         NodeKind::Vector { network: Some(net), .. } if !net.vertices.is_empty() => {
             let (blob_bytes, style_table) = encode_vector_network_blob(net, carried_corner_radius(cx, kept_record, &node));
+            let first = cx.blobs.len();
             let blob_idx = cx.add_blob(blob_bytes);
+            kept_fields::note_studio_blobs(cx, "vectorData", first);
             let mut vd = vec![("vectorNetworkBlob", V::Uint(blob_idx)), ("normalizedSize", vec2(node.size.x, node.size.y))];
             if !style_table.is_empty() {
                 vd.push(("styleOverrideTable", V::Array(style_table)));

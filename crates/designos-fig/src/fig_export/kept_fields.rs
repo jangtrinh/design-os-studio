@@ -23,7 +23,6 @@ use std::sync::Arc;
 /// - The override key: Studio's writer gives it from the record (see [`kept_override_key`]), edited layer or not.
 /// - What an instance carries (its overrides and the data Figma derived for it): it is gated on the instance's content and on
 ///   the component it names, not on the instance alone.
-/// - Outlines and vector networks, which name blobs and which Studio re-encodes.
 /// - Prototype interactions, which name other layers and have no writer.
 /// - What Studio writes from outside the layer: guides (kept in the document), plugin data (which also carries the in-progress
 ///   badge and Studio's own carrier entries), the effect style link of an instance (written from the main's link and the style's
@@ -35,9 +34,6 @@ use std::sync::Arc;
 pub(crate) const NOT_WRITTEN_FROM_THE_STORE: &[&str] = &[
     "overrideKey",
     "symbolData",
-    "fillGeometry",
-    "strokeGeometry",
-    "vectorData",
     "prototypeInteractions",
     "scrollBehavior",
     "guides",
@@ -54,6 +50,11 @@ pub(crate) const NOT_WRITTEN_FROM_THE_STORE: &[&str] = &[
     "gridColumnsSizing",
     "gridRowsSizing",
 ];
+
+/// The fields that are one layer's stored outline and its vector network. A layer written from the store has them exactly as the
+/// file had them: the ones the record holds are Figma's, and the ones it does not hold are not written, so a reopen reads the layer
+/// as the open did (an outline Studio worked out for a layer the file stored none for would be read back as the file's own).
+const OUTLINE_FIELDS: &[&str] = &["fillGeometry", "strokeGeometry", "vectorData"];
 
 /// Whether a field named `name` is written from the store.
 fn is_written_from_the_store(name: &str) -> bool {
@@ -90,6 +91,10 @@ pub struct KeptWriteReport {
     pub fields_dropped_by_reason: BTreeMap<&'static str, usize>,
     /// Layers written from the store with no kept field left out.
     pub records_written: usize,
+    /// Fields Studio had worked out for a layer written from the store that its record does not hold and that would contradict
+    /// what the store wrote (an outline or network the file stored none of; the node radius of a vector whose network the file
+    /// stored without one): not written.
+    pub studio_fields_not_in_the_file: usize,
     /// The first edited layers, to tell a layer a person edited from one the open itself changed.
     pub edited_sample: Vec<NodeId>,
     /// Where a field was refused for a guid or an image hash at a place the closed list does not name: the field and the path
@@ -156,6 +161,8 @@ pub(crate) struct KeptState {
     pub(super) scope: Option<NodeId>,
     /// What Studio wrote for the layer being written that counts against the report, by kind (see [`fold_unresolved`]).
     pub(super) pending: [usize; 5],
+    /// The blobs Studio added for the layer being written, by the outline field they belong to: `(field, first, past the last)`.
+    studio_blobs: Vec<(&'static str, usize, usize)>,
     /// Whether each layer asked about still has the value its snapshot took.
     matches: HashMap<NodeId, bool>,
     /// Layers whose file key is not used because another layer of the same main has it already.
@@ -326,6 +333,27 @@ pub(super) const PENDING_DROPPED_ENTRY: usize = 4;
 /// Starts counting what Studio writes for the next layer.
 pub(super) fn begin_layer(cx: &mut ExportCtx<'_>) {
     cx.kept.pending = [0; 5];
+    cx.kept.studio_blobs.clear();
+}
+
+/// Notes that the blobs from number `first` on were added for Studio's own outline field `field` of the layer being written, so
+/// that they can be emptied if the store writes the field instead.
+pub(super) fn note_studio_blobs(cx: &mut ExportCtx<'_>, field: &'static str, first: usize) {
+    if cx.kept.is_active() {
+        let end = cx.blobs.len();
+        cx.kept.studio_blobs.push((field, first, end));
+    }
+}
+
+/// Empties the blobs Studio added for its own `field`, which the file does not reference now: the numbers stay as they are, so that
+/// nothing that was added after them moves.
+fn release_studio_blobs(cx: &mut ExportCtx<'_>, field: &str) {
+    for i in 0..cx.kept.studio_blobs.len() {
+        let (name, first, end) = cx.kept.studio_blobs[i];
+        if name == field {
+            cx.blobs[first..end].iter_mut().for_each(|b| *b = Vec::new());
+        }
+    }
 }
 
 /// Adds what Studio wrote for the layer to the report, except what the store then replaced: a reference Studio could not resolve
@@ -360,12 +388,19 @@ pub(crate) fn apply(cx: &mut ExportCtx<'_>, id: NodeId, rec: KeptRecordRef<'_>, 
     let Some(plan) = cx.kept.plan.clone() else { return Applied { text_data: false, replaced: [false; 5] } };
     let mut applied = Applied { text_data: false, replaced: [false; 5] };
     let (mut written_here, mut dropped_here) = (0usize, 0usize);
+    let mut held_outline = [false; OUTLINE_FIELDS.len()];
+    let mut holds_corner_radius = false;
+    let mut network_written = false;
     for (no, bytes) in rec.fields() {
         let Some(fp) = plan.fields.get(&no) else {
             cx.kept.report.drop_field("field_unknown_to_the_schema");
             dropped_here += 1;
             continue;
         };
+        if let Some(at) = OUTLINE_FIELDS.iter().position(|f| **f == *fp.name) {
+            held_outline[at] = true;
+        }
+        holds_corner_radius |= &*fp.name == "cornerRadius";
         if !fp.written {
             continue;
         }
@@ -391,6 +426,10 @@ pub(crate) fn apply(cx: &mut ExportCtx<'_>, id: NodeId, rec: KeptRecordRef<'_>, 
             Some(slot) => slot.1 = value,
             None => fields.push((fp.name.clone(), value)),
         }
+        if OUTLINE_FIELDS.contains(&&*fp.name) {
+            release_studio_blobs(cx, &fp.name);
+        }
+        network_written |= &*fp.name == "vectorData";
         if &*fp.name == "textData" {
             applied.text_data = true;
         }
@@ -403,6 +442,21 @@ pub(crate) fn apply(cx: &mut ExportCtx<'_>, id: NodeId, rec: KeptRecordRef<'_>, 
         }
         cx.kept.report.fields_written += 1;
         written_here += 1;
+    }
+    for (at, held) in held_outline.iter().enumerate() {
+        let field = OUTLINE_FIELDS[at];
+        if !held && fields.iter().any(|(k, _)| **k == *field) {
+            fields.retain(|(k, _)| **k != *field);
+            release_studio_blobs(cx, field);
+            cx.kept.report.studio_fields_not_in_the_file += 1;
+        }
+    }
+    // The vertices of a network read back under the `cornerRadius` the record carries, and the file's network was stored under the
+    // one the file carried (none, for a layer rounded by per-corner radii alone): Studio's own `cornerRadius` of such a layer
+    // would round every vertex the table does not name.
+    if network_written && !holds_corner_radius && fields.iter().any(|(k, _)| &**k == "cornerRadius") {
+        fields.retain(|(k, _)| &**k != "cornerRadius");
+        cx.kept.report.studio_fields_not_in_the_file += 1;
     }
     if written_here > 0 {
         cx.kept.report.nodes_written += 1;
