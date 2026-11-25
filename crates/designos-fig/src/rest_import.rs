@@ -898,6 +898,10 @@ struct Ctx<'a> {
     /// The style id Figma gave each style run of a text layer, in run order (see `FigTextGeometry::run_sids`). Only a text
     /// with runs has an entry; `stored_text_import::attach` takes them.
     text_run_sids: HashMap<NodeId, Vec<u32>>,
+    /// The style ids of the runs a text override built for a copy inside an instance, in run order. A copy that keeps the
+    /// component's runs has no entry and takes the ids of the component's geometry. An override rebuilds the runs from its
+    /// own table, so the ids Figma stored for the copy name that table's entries, not the component's.
+    copy_run_sids: HashMap<NodeId, Vec<u32>>,
     /// The wire bytes of the `derivedTextData` of each text node change of a binary import, by the node's guid (`"s:l"`),
     /// until `stored_text_import::attach` gives them to the nodes.
     text_wires: HashMap<String, std::sync::Arc<[u8]>>,
@@ -1114,6 +1118,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         grid_row_track_ids: HashMap::new(),
         no_auto_layout: HashSet::new(),
         text_run_sids: HashMap::new(),
+        copy_run_sids: HashMap::new(),
         text_wires: texts.wires,
         nested_texts: texts.nested,
         scales: BTreeMap::new(),
@@ -1297,6 +1302,7 @@ pub(crate) fn import_rest_value_with_text_wires<'a>(
         grid_row_track_ids: HashMap::new(),
         no_auto_layout: HashSet::new(),
         text_run_sids: HashMap::new(),
+        copy_run_sids: HashMap::new(),
         text_wires: texts.wires,
         nested_texts: texts.nested,
         scales: BTreeMap::new(),
@@ -2422,6 +2428,7 @@ impl<'a> Ctx<'a> {
             grid_col_track_ids: std::mem::take(&mut self.grid_col_track_ids),
             grid_row_track_ids: std::mem::take(&mut self.grid_row_track_ids),
             no_auto_layout: std::mem::take(&mut self.no_auto_layout),
+            copy_run_sids: std::mem::take(&mut self.copy_run_sids),
             scales: std::mem::take(&mut self.scales),
             path_cache: std::mem::take(&mut self.path_cache),
             blob_cache: std::mem::take(&mut self.blob_cache),
@@ -3004,6 +3011,8 @@ impl<'a> Ctx<'a> {
                             t.content = s.clone();
                             t.runs.clear();
                             t.lists.clear();
+                            // the runs the copy had are gone, and so are their ids
+                            self.copy_run_sids.insert(d, Vec::new());
                         }
                     }
                     (OverrideField::MainComponent, Some(PropValue::Instance(target))) => self.swap_nested(d, *target, targets, done)?,
@@ -3377,6 +3386,7 @@ impl<'a> Ctx<'a> {
         let has_col_tracks = !self.grid_col_track_ids.is_empty();
         let has_row_tracks = !self.grid_row_track_ids.is_empty();
         let has_no_auto_layout = !self.no_auto_layout.is_empty();
+        let has_copy_sids = !self.copy_run_sids.is_empty();
         let mut budget = PER_INSTANCE_CLONE_BUDGET;
         let mut inst_children: Vec<NodeId> = Vec::with_capacity(kids.len());
         let mut staged: Vec<Node> = Vec::new();
@@ -3452,6 +3462,11 @@ impl<'a> Ctx<'a> {
             if has_row_tracks {
                 if let Some(ids) = self.grid_row_track_ids.get(&src).cloned() {
                     self.grid_row_track_ids.insert(id, ids);
+                }
+            }
+            if has_copy_sids {
+                if let Some(sids) = self.copy_run_sids.get(&src).cloned() {
+                    self.copy_run_sids.insert(id, sids);
                 }
             }
             if has_no_auto_layout && self.no_auto_layout.contains(&src) {
@@ -3620,8 +3635,8 @@ impl<'a> Ctx<'a> {
         if held.is_some_and(|g| g.fallback.is_none() && g.matches(node)) {
             return;
         }
-        // the ids Figma gave the runs of the main's text are the ones of a copy that keeps the main's runs
-        let sids: &[u32] = held.map_or(&[], |g| &g.run_sids);
+        // a copy whose override rebuilt its runs has the ids of that override; one that keeps the main's runs has the main's
+        let sids: &[u32] = self.copy_run_sids.get(&id).map_or_else(|| held.map_or(&[][..], |g| &g.run_sids[..]), Vec::as_slice);
         if let Some(geometry) = span.geometry_for(node, sids, self.blobs) {
             node.fig_text_geometry = Some(geometry);
         }
@@ -4255,6 +4270,7 @@ impl<'a> Ctx<'a> {
             if let Some(c) = fstr(set, "characters") {
                 if c != t.content {
                     t.runs.clear(); // byte ranges no longer apply
+                    self.copy_run_sids.insert(id, Vec::new());
                 }
                 t.content = c.to_string();
                 t.lists.clear();
@@ -4264,7 +4280,9 @@ impl<'a> Ctx<'a> {
             }
             if set.get("characterStyleOverrides").is_some() {
                 let ids: Vec<u64> = farr(set, "characterStyleOverrides").iter().map(|x| x.as_u64().unwrap_or(0)).collect();
-                t.runs = build_runs(&t.content, &t.style, &ids, set.get("styleOverrideTable"));
+                let (runs, sids) = build_runs_with_sids(&t.content, &t.style, &ids, set.get("styleOverrideTable"));
+                t.runs = runs;
+                self.copy_run_sids.insert(id, sids);
             }
         }
         let col_tracks: Vec<&str> = farr(set, "_gridColumnTrackIds").iter().filter_map(Value::as_str).collect();
@@ -4379,6 +4397,7 @@ struct DeferredFigHydrator {
     grid_col_track_ids: HashMap<NodeId, Vec<String>>,
     grid_row_track_ids: HashMap<NodeId, Vec<String>>,
     no_auto_layout: HashSet<NodeId>,
+    copy_run_sids: HashMap<NodeId, Vec<u32>>,
     scales: BTreeMap<NodeId, f32>,
     path_cache: HashMap<String, Path>,
     blob_cache: HashMap<(usize, bool), Path>,
@@ -4431,6 +4450,7 @@ impl DeferredFigHydrator {
             self.grid_col_track_ids.clear();
             self.grid_row_track_ids.clear();
             self.no_auto_layout.clear();
+            self.copy_run_sids.clear();
             self.scales.clear();
             self.path_cache.clear();
             self.blob_cache.clear();
@@ -4507,6 +4527,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             grid_row_track_ids: std::mem::take(&mut self.grid_row_track_ids),
             no_auto_layout: std::mem::take(&mut self.no_auto_layout),
             text_run_sids: HashMap::new(),
+            copy_run_sids: std::mem::take(&mut self.copy_run_sids),
             text_wires: HashMap::new(),
             nested_texts: HashMap::new(),
             scales: std::mem::take(&mut self.scales),
@@ -4587,6 +4608,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             self.grid_col_track_ids = cx.grid_col_track_ids;
             self.grid_row_track_ids = cx.grid_row_track_ids;
             self.no_auto_layout = cx.no_auto_layout;
+            self.copy_run_sids = cx.copy_run_sids;
             self.scales = cx.scales;
             self.path_cache = cx.path_cache;
             self.blob_cache = cx.blob_cache;
@@ -4646,6 +4668,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         self.grid_col_track_ids = cx.grid_col_track_ids;
         self.grid_row_track_ids = cx.grid_row_track_ids;
         self.no_auto_layout = cx.no_auto_layout;
+        self.copy_run_sids = cx.copy_run_sids;
         self.scales = cx.scales;
         self.path_cache = cx.path_cache;
         self.blob_cache = cx.blob_cache;
@@ -4787,6 +4810,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         let mut scratch_col_tracks = HashMap::new();
         let mut scratch_row_tracks = HashMap::new();
         let mut scratch_no_auto_layout = HashSet::new();
+        let mut scratch_copy_run_sids = HashMap::new();
         let mut scratch_scales = BTreeMap::new();
         for (&id, node) in &scratch_doc.nodes {
             if let Some(v) = self.override_keys.get(&id).cloned() {
@@ -4810,6 +4834,9 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             if self.no_auto_layout.contains(&id) {
                 scratch_no_auto_layout.insert(id);
             }
+            if let Some(v) = self.copy_run_sids.get(&id).cloned() {
+                scratch_copy_run_sids.insert(id, v);
+            }
             if let Some(&v) = self.scales.get(&id) {
                 scratch_scales.insert(id, v);
             }
@@ -4831,6 +4858,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             grid_row_track_ids: scratch_row_tracks,
             no_auto_layout: scratch_no_auto_layout,
             text_run_sids: HashMap::new(),
+            copy_run_sids: scratch_copy_run_sids,
             text_wires: HashMap::new(),
             nested_texts: HashMap::new(),
             scales: scratch_scales,
@@ -5690,13 +5718,8 @@ fn text_props_with_run_sids(v: &Value) -> (TextProps, Vec<u32>) {
     (tp, run_sids)
 }
 
-/// Style runs over byte ranges from per-UTF-16-unit override ids.
-fn build_runs(content: &str, base: &TextStyle, overrides: &[u64], table: Option<&Value>) -> Vec<TextRun> {
-    build_runs_with_sids(content, base, overrides, table).0
-}
-
-/// [`build_runs`] and, for each run it kept, the override id Figma gave it. A stretch the table has no entry for, or one
-/// with no characters, is no run and has no id.
+/// Style runs over byte ranges from per-UTF-16-unit override ids, and for each run it kept the override id Figma gave it. A
+/// stretch the table has no entry for, or one with no characters, is no run and has no id.
 fn build_runs_with_sids(content: &str, base: &TextStyle, overrides: &[u64], table: Option<&Value>) -> (Vec<TextRun>, Vec<u32>) {
     let mut runs = Vec::new();
     let mut sids = Vec::new();
@@ -6231,6 +6254,7 @@ mod expand_depth_tests {
             grid_col_track_ids: HashMap::new(),
             grid_row_track_ids: HashMap::new(),
             no_auto_layout: HashSet::new(),
+            copy_run_sids: HashMap::new(),
             scales: BTreeMap::new(),
             path_cache: HashMap::new(),
             blob_cache: HashMap::new(),
@@ -6284,6 +6308,7 @@ mod expand_depth_tests {
             grid_col_track_ids: HashMap::new(),
             grid_row_track_ids: HashMap::new(),
             no_auto_layout: HashSet::new(),
+            copy_run_sids: HashMap::new(),
             scales: BTreeMap::new(),
             path_cache: HashMap::new(),
             blob_cache: HashMap::new(),
@@ -6386,6 +6411,7 @@ mod expand_depth_tests {
             grid_col_track_ids: HashMap::new(),
             grid_row_track_ids: HashMap::new(),
             no_auto_layout: HashSet::new(),
+            copy_run_sids: HashMap::new(),
             scales: BTreeMap::new(),
             path_cache: HashMap::new(),
             blob_cache: HashMap::new(),
@@ -6514,6 +6540,7 @@ mod expand_depth_tests {
             grid_row_track_ids: HashMap::new(),
             no_auto_layout: HashSet::new(),
             text_run_sids: HashMap::new(),
+            copy_run_sids: HashMap::new(),
             text_wires: HashMap::new(),
             nested_texts: HashMap::new(),
             scales: BTreeMap::new(),
@@ -6563,6 +6590,7 @@ mod expand_depth_tests {
             grid_row_track_ids: HashMap::new(),
             no_auto_layout: HashSet::new(),
             text_run_sids: HashMap::new(),
+            copy_run_sids: HashMap::new(),
             text_wires: HashMap::new(),
             nested_texts: HashMap::new(),
             scales: BTreeMap::new(),
