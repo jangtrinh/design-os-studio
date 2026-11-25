@@ -208,12 +208,20 @@ fn strip_held_back(schema: &crate::kiwi::Schema, nc_def: usize, def: usize, valu
     if d.kind != DefKind::Message {
         return false;
     }
+    // A value that cannot hold a `NodeChange` has nothing to strip: left as it is, it keeps every field, so it is not
+    // reported empty either. Paint lists, glyph arrays and geometry never reach this walk's per-field work.
+    if !schema.reaches(def, nc_def) {
+        return false;
+    }
     let had = fields.len();
     if def == nc_def {
         fields.retain(|(k, _)| !is_held_back(k));
     }
     fields.retain_mut(|(k, v)| {
-        let Some(FieldType::Def(child)) = d.fields.iter().find(|f| f.name == *k).map(|f| f.ty) else { return true };
+        let Some(FieldType::Def(child)) = d.field_named(k).map(|f| f.ty) else { return true };
+        if !schema.reaches(child, nc_def) {
+            return true;
+        }
         match v {
             V::Array(items) => {
                 let had_items = items.len();
@@ -285,7 +293,7 @@ fn decode_shader_ref(
         if skip.contains(&k.as_str()) || v.is_null() {
             continue;
         }
-        let Some(sf) = def.fields.iter().find(|f| &*f.name == k.as_str()) else {
+        let Some(sf) = def.field_named(k) else {
             return Err(shader_refusal(owner_name, format!("shader key {k:?} is not a field of {def_name} in the .fig schema")));
         };
         if let Some(path) = schema.first_unknown_json_key(sf, v) {
@@ -4950,6 +4958,32 @@ mod held_back_tests {
         let reaching: Vec<&str> =
             (0..schema.defs.len()).filter(|&i| schema.defs[i].kind == DefKind::Struct && reaches(i)).map(|i| &*schema.defs[i].name).collect();
         assert!(reaching.is_empty(), "the strip does not walk these structs: {reaching:?}");
+    }
+
+    #[test]
+    fn the_strip_skips_what_cannot_hold_a_node_change_and_still_strips_what_can() {
+        let s = crate::testkit::figma_like_schema();
+        let nc = s.find("NodeChange").expect("NodeChange");
+        let reaches = |name: &str| s.reaches(s.find(name).unwrap_or_else(|| panic!("{name} in schema")), nc);
+        assert!(reaches("NodeChange") && reaches("SymbolData") && reaches("TextData"), "these hold a NodeChange");
+        assert!(!reaches("DerivedTextData") && !reaches("Path") && !reaches("Vector"), "glyphs and geometry hold none");
+        // Everything reached from `NodeChange` is still stripped: a held-back key inside a symbol override entry.
+        let sd = s.find("SymbolData").unwrap();
+        let mut v = V::Message(vec![(
+            "symbolOverrides".into(),
+            V::Array(vec![V::Message(vec![("fontVersion".into(), V::Uint(1)), ("visible".into(), V::Bool(true))])]),
+        )]);
+        assert!(!strip_held_back(&s, nc, sd, &mut v, 0));
+        let V::Message(fields) = &v else { panic!("message") };
+        let V::Array(items) = &fields[0].1 else { panic!("array") };
+        let V::Message(entry) = &items[0] else { panic!("message") };
+        assert_eq!(entry.iter().map(|(k, _)| &**k).collect::<Vec<_>>(), ["visible"]);
+        // A value that cannot hold a NodeChange is left as it is and is not reported empty.
+        let dt = s.find("DerivedTextData").unwrap();
+        let mut glyphs = V::Message(vec![("fontMetaData".into(), V::Array(vec![]))]);
+        let before = glyphs.clone();
+        assert!(!strip_held_back(&s, nc, dt, &mut glyphs, 0));
+        assert_eq!(glyphs, before);
     }
 
     #[test]

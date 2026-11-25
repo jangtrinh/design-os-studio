@@ -123,6 +123,61 @@ pub struct Def {
     pub kind: DefKind,
     pub fields: Vec<Field>,
     pub field_by_value: Vec<Option<usize>>,
+    /// Field name to position in `fields`; read through [`Def::field_position`].
+    field_by_name: std::collections::HashMap<Box<str>, usize>,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Lookups by name that fell back to a scan of `fields` on this thread.
+    static NAME_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+impl Def {
+    fn new(name: String, kind: DefKind, fields: Vec<Field>) -> Def {
+        let field_by_value = build_field_by_value(&fields);
+        let field_by_name = build_field_by_name(&fields);
+        Def { name, kind, fields, field_by_value, field_by_name }
+    }
+
+    /// The position of the field called `name` (the first one when a hostile schema repeats a name), in constant time.
+    ///
+    /// The table is built with the definition. `fields` is public, so a caller that removes or reorders fields afterwards
+    /// leaves the table stale; a table whose size differs from `fields`, or whose position no longer holds the name, is
+    /// not trusted and the lookup scans instead, so the answer is the one a scan gives (unless a field was renamed in place, which nothing does).
+    pub fn field_position(&self, name: &str) -> Option<usize> {
+        if self.is_indexed() {
+            match self.field_by_name.get(name) {
+                Some(&i) => {
+                    if self.fields.get(i).is_some_and(|f| &*f.name == name) {
+                        return Some(i);
+                    }
+                }
+                None => return None,
+            }
+        }
+        #[cfg(test)]
+        NAME_SCANS.with(|c| c.set(c.get() + 1));
+        self.fields.iter().position(|f| &*f.name == name)
+    }
+
+    /// The field called `name`; see [`Self::field_position`].
+    pub fn field_named(&self, name: &str) -> Option<&Field> {
+        self.field_position(name).map(|i| &self.fields[i])
+    }
+
+    /// Whether the name table describes `fields`: one entry per field, so no name repeats and none was added or removed since.
+    fn is_indexed(&self) -> bool {
+        self.field_by_name.len() == self.fields.len()
+    }
+}
+
+fn build_field_by_name(fields: &[Field]) -> std::collections::HashMap<Box<str>, usize> {
+    let mut by_name = std::collections::HashMap::with_capacity(fields.len());
+    for (i, f) in fields.iter().enumerate() {
+        by_name.entry(Box::<str>::from(&*f.name)).or_insert(i);
+    }
+    by_name
 }
 
 fn build_field_by_value(fields: &[Field]) -> Vec<Option<usize>> {
@@ -145,6 +200,8 @@ fn build_field_by_value(fields: &[Field]) -> Vec<Option<usize>> {
 #[derive(Debug, Clone, Default)]
 pub struct Schema {
     pub defs: Vec<Def>,
+    /// The answer of [`Schema::reaches`] for the first target asked about: the target and one flag per definition.
+    reach: std::sync::OnceLock<(usize, Vec<bool>)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -375,10 +432,9 @@ impl Schema {
                 };
                 fields.push(Field { name: fname.into(), ty, is_array, value });
             }
-            let field_by_value = build_field_by_value(&fields);
-            defs.push(Def { name, kind, fields, field_by_value });
+            defs.push(Def::new(name, kind, fields));
         }
-        let schema = Schema { defs };
+        let schema = Schema { defs, reach: Default::default() };
         for d in &schema.defs {
             for f in &d.fields {
                 if let FieldType::Def(i) = f.ty {
@@ -389,6 +445,36 @@ impl Schema {
             }
         }
         Ok(schema)
+    }
+
+    /// Whether a value of definition `from` can hold a value of definition `target` through message fields, `from == target`
+    /// included. Arrays and nesting are followed; structs are not (a struct holds no message). Worked out once per schema for
+    /// the first target asked about, which in practice is always the same one.
+    pub fn reaches(&self, from: usize, target: usize) -> bool {
+        let compute = || {
+            let mut flags: Vec<bool> = (0..self.defs.len()).map(|i| i == target).collect();
+            loop {
+                let mut changed = false;
+                for (i, d) in self.defs.iter().enumerate() {
+                    if flags[i] || d.kind != DefKind::Message {
+                        continue;
+                    }
+                    let hit = d.fields.iter().any(|f| matches!(f.ty, FieldType::Def(c) if flags.get(c).copied().unwrap_or(false)));
+                    if hit {
+                        flags[i] = true;
+                        changed = true;
+                    }
+                }
+                if !changed {
+                    return flags;
+                }
+            }
+        };
+        let (cached_target, flags) = self.reach.get_or_init(|| (target, compute()));
+        if *cached_target == target {
+            return flags.get(from).copied().unwrap_or(false);
+        }
+        compute().get(from).copied().unwrap_or(false)
     }
 
     pub fn encode(&self) -> Vec<u8> {
@@ -512,9 +598,10 @@ impl Schema {
                 kind: d.kind,
                 fields: d.fields.iter().map(|f| Field { name: Arc::from(&*f.name), ty: f.ty, is_array: f.is_array, value: f.value }).collect(),
                 field_by_value: d.field_by_value.clone(),
+                field_by_name: d.field_by_name.clone(),
             })
             .collect();
-        Schema { defs }
+        Schema { defs, reach: Default::default() }
     }
 
     /// The table [`Self::decode_message_prepared`] reads, built once for a schema that decodes many small messages.
@@ -849,7 +936,7 @@ impl Schema {
         let def = &self.defs[idx];
         match (def.kind, v) {
             (DefKind::Enum, KiwiValue::Enum(n)) => {
-                let f = def.fields.iter().find(|f| f.name == *n).ok_or_else(|| KiwiError::Bad(format!("unknown enum variant {n}")))?;
+                let f = def.field_named(n).ok_or_else(|| KiwiError::Bad(format!("unknown enum variant {n}")))?;
                 w.var_u64(f.value as u64);
             }
             (DefKind::Enum, KiwiValue::EnumRaw(x)) => w.var_u64(*x as u64),
@@ -861,7 +948,7 @@ impl Schema {
             }
             (DefKind::Message, KiwiValue::Message(fs)) => {
                 for (n, fv) in fs {
-                    let f = def.fields.iter().find(|f| f.name == *n).ok_or_else(|| KiwiError::Bad(format!("unknown field {}.{n}", def.name)))?;
+                    let f = def.field_named(n).ok_or_else(|| KiwiError::Bad(format!("unknown field {}.{n}", def.name)))?;
                     w.var_u64(f.value as u64);
                     self.encode_field(f, fv, w, depth).map_err(|e| in_field(&def.name, &f.name, e))?;
                 }
@@ -912,14 +999,14 @@ impl Schema {
     pub fn has_enum_variant(&self, enum_name: &str, variant: &str) -> bool {
         let Some(idx) = self.find(enum_name) else { return false };
         let def = &self.defs[idx];
-        def.kind == DefKind::Enum && def.fields.iter().any(|f| &*f.name == variant)
+        def.kind == DefKind::Enum && def.field_named(variant).is_some()
     }
 
     /// Reconstructs a typed `(field_name, KiwiValue)` pair for field `field_name` of
     /// definition `def_idx` from a string value stored in `Node::fig_metadata`.
     pub fn def_field_from_metadata(&self, def_idx: usize, field_name: &str, raw_str: &str) -> Option<(Arc<str>, KiwiValue)> {
         let def = self.defs.get(def_idx)?;
-        let f = def.fields.iter().find(|f| &*f.name == field_name)?;
+        let f = def.field_named(field_name)?;
         let kv = self.field_from_metadata(f, raw_str, 0)?;
         Some((f.name.clone(), kv))
     }
@@ -928,7 +1015,7 @@ impl Schema {
     /// definition `def_idx` directly from a `serde_json::Value`.
     pub fn def_field_from_json(&self, def_idx: usize, field_name: &str, v: &serde_json::Value) -> Option<(Arc<str>, KiwiValue)> {
         let def = self.defs.get(def_idx)?;
-        let f = def.fields.iter().find(|f| &*f.name == field_name)?;
+        let f = def.field_named(field_name)?;
         let kv = self.field_from_json(f, v, 0)?;
         Some((f.name.clone(), kv))
     }
@@ -977,7 +1064,7 @@ impl Schema {
                     let def = self.defs.get(d)?;
                     if def.kind == DefKind::Enum {
                         let s = raw_str.trim().trim_matches('"');
-                        if let Some(ef) = def.fields.iter().find(|ef| &*ef.name == s) {
+                        if let Some(ef) = def.field_named(s) {
                             return Some(KiwiValue::Enum(ef.name.clone()));
                         }
                         if let Ok(u) = s.parse::<u32>() {
@@ -1088,7 +1175,7 @@ impl Schema {
                 continue;
             }
             let child = format!("{path}.{key}");
-            let Some(field) = def.fields.iter().find(|sf| &*sf.name == key.as_str()) else { return Some(child) };
+            let Some(field) = def.field_named(key) else { return Some(child) };
             let FieldType::Def(inner) = field.ty else { continue };
             let found = if field.is_array {
                 value
@@ -1134,7 +1221,7 @@ impl Schema {
         match def.kind {
             DefKind::Enum => {
                 if let Some(s) = v.as_str() {
-                    if let Some(ef) = def.fields.iter().find(|ef| &*ef.name == s) {
+                    if let Some(ef) = def.field_named(s) {
                         return Some(KiwiValue::Enum(ef.name.clone()));
                     }
                     if let Ok(u) = s.parse::<u32>() {
@@ -1173,13 +1260,32 @@ impl Schema {
                 }
                 let obj = v.as_object()?;
                 let mut fs = Vec::new();
-                for sf in &def.fields {
-                    if let Some(fv) = obj.get(&*sf.name) {
+                let mut convert = |sf: &Field, fv: &serde_json::Value| -> Option<()> {
+                    match self.field_from_json_mode(sf, fv, depth + 1, strict) {
+                        Some(kv) => fs.push((sf.name.clone(), kv)),
+                        None if strict => return None,
+                        None => {}
+                    }
+                    Some(())
+                };
+                if obj.len() < def.fields.len() && def.is_indexed() {
+                    // A short object against a long definition (a record of a few keys against `NodeChange`'s hundreds of
+                    // fields): look up the object's keys and write them in the definition's order.
+                    let mut named: Vec<(usize, &serde_json::Value)> = Vec::with_capacity(obj.len());
+                    for (key, fv) in obj {
                         if !fv.is_null() {
-                            match self.field_from_json_mode(sf, fv, depth + 1, strict) {
-                                Some(kv) => fs.push((sf.name.clone(), kv)),
-                                None if strict => return None,
-                                None => {}
+                            named.extend(def.field_position(key).map(|pos| (pos, fv)));
+                        }
+                    }
+                    named.sort_unstable_by_key(|(pos, _)| *pos);
+                    for (pos, fv) in named {
+                        convert(&def.fields[pos], fv)?;
+                    }
+                } else {
+                    for sf in &def.fields {
+                        if let Some(fv) = obj.get(&*sf.name) {
+                            if !fv.is_null() {
+                                convert(sf, fv)?;
                             }
                         }
                     }
@@ -1491,7 +1597,7 @@ impl SchemaBuilder {
     }
     pub fn define(&mut self, name: &str, kind: DefKind) -> usize {
         let i = self.schema.defs.len();
-        self.schema.defs.push(Def { name: name.into(), kind, fields: Vec::new(), field_by_value: Vec::new() });
+        self.schema.defs.push(Def::new(name.into(), kind, Vec::new()));
         self.names.insert(name.into(), i);
         i
     }
@@ -1507,6 +1613,7 @@ impl SchemaBuilder {
     pub fn build(mut self) -> Schema {
         for d in &mut self.schema.defs {
             d.field_by_value = build_field_by_value(&d.fields);
+            d.field_by_name = build_field_by_name(&d.fields);
         }
         self.schema
     }
@@ -1602,6 +1709,86 @@ mod tests {
             assert_eq!(r.var_u64().unwrap(), v);
         }
         assert!(r.at_end());
+    }
+
+    fn node_change_with(names: &[&str]) -> (Schema, usize, KiwiValue) {
+        let s = crate::testkit::figma_like_schema();
+        let nc = s.find("NodeChange").expect("NodeChange");
+        let json = serde_json::json!({
+            "visible": true, "opacity": 0.5, "name": "n", "locked": false, "size": {"x": 1.0, "y": 2.0}, "fontSize": 12.0, "blendMode": "NORMAL",
+            "mask": false, "cornerRadius": 4.0, "strokeWeight": 1.0, "textData": {"characters": "x"}, "stackMode": "VERTICAL",
+        });
+        let obj = json.as_object().unwrap();
+        let mut fields = Vec::new();
+        for n in names {
+            let f = s.defs[nc].field_named(n).unwrap_or_else(|| panic!("{n} is a NodeChange field"));
+            fields.push((f.name.clone(), s.field_from_json(f, &obj[*n], 0).unwrap_or_else(|| panic!("{n} converts"))));
+        }
+        (s, nc, KiwiValue::Message(fields))
+    }
+
+    #[test]
+    fn a_field_is_found_by_name_without_scanning_the_definition() {
+        let names = ["visible", "opacity", "name", "locked", "size", "fontSize", "blendMode", "mask", "cornerRadius", "strokeWeight", "stackMode"];
+        let (s, nc, value) = node_change_with(&names);
+        assert!(s.defs[nc].fields.len() > 600, "the export schema holds Figma's whole NodeChange");
+        NAME_SCANS.with(|c| c.set(0));
+        let wire = s.encode_message(nc, &value).expect("encodes");
+        assert!(!wire.is_empty());
+        // The last field of the definition, a name that is not there, and the first: all answered from the table.
+        let last = s.defs[nc].fields.last().unwrap().name.clone();
+        assert_eq!(s.defs[nc].field_named(&last).map(|f| f.name.clone()), Some(last));
+        assert!(s.defs[nc].field_named("noSuchField").is_none());
+        assert!(s.def_field_from_json(nc, "visible", &serde_json::json!(true)).is_some());
+        assert_eq!(NAME_SCANS.with(|c| c.get()), 0, "no lookup by name scanned the fields");
+    }
+
+    #[test]
+    fn a_name_table_that_no_longer_describes_the_fields_falls_back_to_the_scan_and_agrees() {
+        let (mut s, nc, _) = node_change_with(&["visible"]);
+        let first = s.defs[nc].fields[0].name.clone();
+        let second = s.defs[nc].fields[1].name.clone();
+        s.defs[nc].fields.retain(|f| f.name != first);
+        NAME_SCANS.with(|c| c.set(0));
+        assert!(s.defs[nc].field_named(&first).is_none(), "a removed field is gone");
+        assert!(s.defs[nc].field_named(&second).is_some(), "a field that moved is still found");
+        assert!(NAME_SCANS.with(|c| c.get()) > 0, "the stale table was not trusted");
+        // A repeated name resolves to the first field, as a scan does.
+        let dup = s.defs[nc].fields[3].clone();
+        s.defs[nc].fields.push(Field { value: 9999, ..dup.clone() });
+        let found = s.defs[nc].field_named(&dup.name).expect("found");
+        assert_eq!(found.value, dup.value);
+    }
+
+    /// A message built from a JSON object of a few keys, whichever way the keys are ordered, holds its fields in the
+    /// definition's order and equals the result of the walk over every field of the definition.
+    #[test]
+    fn a_short_json_object_converts_to_the_same_message_as_the_walk_over_every_field() {
+        let s = crate::testkit::figma_like_schema();
+        let nc = s.find("NodeChange").expect("NodeChange");
+        let objects = [
+            serde_json::json!({"stackMode": "VERTICAL", "name": "n", "visible": true, "size": {"x": 1.0, "y": 2.0}, "opacity": 0.5}),
+            serde_json::json!({"opacity": 0.5, "visible": null, "zzUnknown": 1, "name": "n", "strokeWeight": 2.0}),
+            serde_json::json!({"cornerRadius": 4.0, "mask": false, "locked": true, "fontSize": 12.0, "blendMode": "NORMAL", "textData": {"characters": "x"}}),
+            // a value that does not convert drops (lenient) or fails (strict) the same way in both
+            serde_json::json!({"visible": "not a bool", "name": "n"}),
+            serde_json::json!({"zzUnknown": 1}),
+            serde_json::json!({}),
+        ];
+        let mut walked = s.clone();
+        walked.defs[nc].field_by_name.clear();
+        assert!(!walked.defs[nc].is_indexed());
+        for obj in &objects {
+            for strict in [false, true] {
+                let fast = s.def_from_json(nc, obj, 0, strict);
+                let slow = walked.def_from_json(nc, obj, 0, strict);
+                assert_eq!(fast, slow, "object {obj} strict {strict}");
+                if let Some(KiwiValue::Message(fields)) = &fast {
+                    let pos: Vec<usize> = fields.iter().map(|(n, _)| s.defs[nc].field_position(n).unwrap()).collect();
+                    assert!(pos.windows(2).all(|w| w[0] < w[1]), "definition order: {pos:?}");
+                }
+            }
+        }
     }
 
     #[test]
