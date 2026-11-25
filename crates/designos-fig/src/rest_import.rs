@@ -3585,7 +3585,7 @@ impl<'a> Ctx<'a> {
         }
         // Last, so each text is taken as the overrides, the scale and the derived sizes left it.
         for e in &ov.texts {
-            if let Some(t) = self.resolve_path_cached(inst, &e.path, &mut subtree_maps) {
+            if let Some(t) = self.resolve_path_cached(inst, &e.path(), &mut subtree_maps) {
                 self.attach_nested_text(t, &e.span);
             }
         }

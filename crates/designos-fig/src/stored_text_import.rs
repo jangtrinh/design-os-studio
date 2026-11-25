@@ -17,6 +17,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 /// A glyph blob of the file, held once for every text that names it, with what the importer learned about it.
 pub(crate) struct SharedBlob {
     bytes: Arc<[u8]>,
+    /// The blob's number in the file.
+    file: u32,
     /// `None` when a coordinate of the blob is not finite: no text can draw it.
     extent: Option<GlyphBlobExtent>,
 }
@@ -165,10 +167,19 @@ pub(crate) struct ImportedTexts {
 /// that carry some, each with the path of the node it is for.
 pub(crate) type NestedTexts = HashMap<String, Vec<NestedTextEntry>>;
 
+/// One entry: the path of the node the data is for, as the guids below the instance joined by `;` (one allocation for the path;
+/// the entries of an unopened page are held until it opens), and the data.
 #[derive(Clone, Debug)]
 pub(crate) struct NestedTextEntry {
-    pub path: Vec<String>,
+    pub path: Box<str>,
     pub span: Arc<NestedSpan>,
+}
+
+impl NestedTextEntry {
+    /// The guids of the path, outermost first.
+    pub(crate) fn path(&self) -> Vec<&str> {
+        self.path.split(';').collect()
+    }
 }
 
 /// Spans by content: equal bytes are one span.
@@ -235,7 +246,7 @@ pub(crate) fn take_nested_texts(changes: &mut [K], blobs: &[&[u8]]) -> (NestedTe
                     value => crate::derived_text_wire::wire_from_kiwi(&value),
                 };
                 match bytes {
-                    Some(bytes) if !path.is_empty() => entries.push(NestedTextEntry { path, span: table.intern(bytes) }),
+                    Some(bytes) if !path.is_empty() => entries.push(NestedTextEntry { path: path.join(";").into(), span: table.intern(bytes) }),
                     Some(_) => {}
                     None => unreadable += 1,
                 }
@@ -244,6 +255,7 @@ pub(crate) fn take_nested_texts(changes: &mut [K], blobs: &[&[u8]]) -> (NestedTe
         take(change.get_mut("derivedSymbolData"));
         take(change.get_mut("symbolData").and_then(|sd| sd.get_mut("derivedSymbolData")));
         if !entries.is_empty() {
+            entries.shrink_to_fit();
             out.insert(guid, entries);
         }
     }
@@ -283,7 +295,9 @@ impl BlobCache<'_> {
         }
         let made = {
             let mut shared = self.shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            Arc::clone(shared.entry(index).or_insert_with(|| Arc::new(SharedBlob { bytes: Arc::from(blob), extent: designos_doc::glyph_blob_extent(blob) })))
+            Arc::clone(shared.entry(index).or_insert_with(|| {
+                Arc::new(SharedBlob { bytes: Arc::from(blob), file: u32::try_from(index).unwrap_or(u32::MAX), extent: designos_doc::glyph_blob_extent(blob) })
+            }))
         };
         self.local.insert(index, Arc::clone(&made));
         made
@@ -313,55 +327,68 @@ fn array<'a>(v: &'a K, key: &str) -> &'a [K] {
     v.get(key).and_then(K::as_array).unwrap_or(&[])
 }
 
-/// The blobs the glyphs of one text name, in first-use order, and what the importer saw about them.
+/// The blobs the glyphs of one text name, in first-use order, and what the importer saw about them. Each blob is held through the
+/// file-wide [`SharedBlob`], so a text that names it costs one pointer and not a copy of what is known about it.
 pub(crate) struct TextBlobs {
     /// Each distinct blob once, in first-use order.
-    unique: Vec<Arc<[u8]>>,
-    /// The number of each of [`unique`](Self::unique) in the file.
-    files: Vec<u32>,
-    /// The extent of each of [`unique`](Self::unique).
-    extents: Vec<Option<GlyphBlobExtent>>,
-    /// The slot of each glyph's blob, `None` for a glyph with none or whose blob the file does not have.
-    slots: Vec<Option<u32>>,
+    blobs: Vec<Arc<SharedBlob>>,
+    /// The slot in [`blobs`](Self::blobs) of each glyph's blob, [`NO_SLOT`] for a glyph with none or whose blob the file does not have.
+    slots: Vec<u32>,
     /// Blob bytes, counted once per glyph that names a blob: a shared blob costs its bytes for every glyph that draws it.
     bytes: usize,
     /// A glyph names a blob the file does not have.
     missing: bool,
 }
 
+const NO_SLOT: u32 = u32::MAX;
+
+impl TextBlobs {
+    fn unique(&self) -> Vec<Arc<[u8]>> {
+        self.blobs.iter().map(|b| Arc::clone(&b.bytes)).collect()
+    }
+
+    fn files(&self) -> Arc<[u32]> {
+        self.blobs.iter().map(|b| b.file).collect()
+    }
+
+    /// The slot of glyph `i`'s blob.
+    fn slot(&self, i: usize) -> Option<u32> {
+        self.slots.get(i).copied().filter(|&slot| slot != NO_SLOT)
+    }
+}
+
 fn collect_blobs(glyphs: &[K], blobs: &[&[u8]], shared: &mut BlobCache) -> TextBlobs {
-    let mut out = TextBlobs { unique: Vec::new(), files: Vec::new(), extents: Vec::new(), slots: Vec::with_capacity(glyphs.len()), bytes: 0, missing: false };
+    let mut out = TextBlobs { blobs: Vec::new(), slots: Vec::with_capacity(glyphs.len()), bytes: 0, missing: false };
     let mut slot_of: HashMap<usize, u32> = HashMap::new();
     for glyph in glyphs {
         let Some(index) = uint(glyph, "commandsBlob") else {
-            out.slots.push(None);
+            out.slots.push(NO_SLOT);
             continue;
         };
         let Some((index, blob)) = usize::try_from(index).ok().and_then(|i| blobs.get(i).copied().map(|b| (i, b))) else {
             out.missing = true;
-            out.slots.push(None);
+            out.slots.push(NO_SLOT);
             continue;
         };
         out.bytes = out.bytes.saturating_add(blob.len());
         let entry = shared.get(index, blob);
         let slot = match slot_of.get(&index) {
-            Some(&slot) => Some(slot),
-            None => match (u32::try_from(out.unique.len()), u32::try_from(index)) {
-                (Ok(slot), Ok(file)) => {
-                    out.unique.push(Arc::clone(&entry.bytes));
-                    out.files.push(file);
-                    out.extents.push(entry.extent);
+            Some(&slot) => slot,
+            None => match (u32::try_from(out.blobs.len()), u32::try_from(index)) {
+                (Ok(slot), Ok(_)) => {
+                    out.blobs.push(entry);
                     slot_of.insert(index, slot);
-                    Some(slot)
+                    slot
                 }
                 _ => {
                     out.missing = true;
-                    None
+                    NO_SLOT
                 }
             },
         };
         out.slots.push(slot);
     }
+    out.blobs.shrink_to_fit();
     out
 }
 
@@ -385,8 +412,8 @@ fn build_geometry(node: &Node, wire: Arc<[u8]>, derived: &K, used: &TextBlobs, r
             text: text.clone(),
             size: node.size,
             fallback: Some(why),
-            blobs: used.unique.clone(),
-            blob_files: used.files.clone().into(),
+            blobs: used.unique(),
+            blob_files: used.files(),
             wire: Arc::clone(&wire),
             ..Default::default()
         })
@@ -437,7 +464,7 @@ fn build_geometry(node: &Node, wire: Arc<[u8]>, derived: &K, used: &TextBlobs, r
     let mut drawn_commands = 0usize;
     let mut emoji = false;
     let mut outside = 0usize;
-    for (glyph, slot) in glyphs.iter().zip(&used.slots) {
+    for (i, glyph) in glyphs.iter().enumerate() {
         let (Some(scale), Some(pos)) = (num(glyph, "fontSize"), glyph.get("position")) else { return refused(StoredFallback::Malformed) };
         let (Some(x), Some(y)) = (num(pos, "x"), num(pos, "y")) else { return refused(StoredFallback::Malformed) };
         if !scale.is_finite() || scale <= 0.0 || !x.is_finite() || !y.is_finite() {
@@ -454,9 +481,9 @@ fn build_geometry(node: &Node, wire: Arc<[u8]>, derived: &K, used: &TextBlobs, r
         let style = if inside { style_of(first_char as usize) } else { 0 };
         let flags = if is_emoji { StoredGlyph::EMOJI } else { 0 };
         let mut stored = StoredGlyph { x, y, font_size: scale, blob: StoredGlyph::NO_BLOB, first_char, style, flags };
-        if let Some(slot) = *slot {
+        if let Some(slot) = used.slot(i) {
             stored.blob = slot;
-            let Some(extent) = used.extents[slot as usize] else { return refused(StoredFallback::Malformed) };
+            let Some(extent) = used.blobs[slot as usize].extent else { return refused(StoredFallback::Malformed) };
             // A glyph is drawn at `x + p.x * scale`, `y - p.y * scale`. Both maps are monotonic per axis, so the corners of
             // the blob's box bound every point: when they are finite so is each outline point.
             if extent.commands > 0 {
@@ -505,8 +532,8 @@ fn build_geometry(node: &Node, wire: Arc<[u8]>, derived: &K, used: &TextBlobs, r
     Some(FigTextGeometry {
         text: text.clone(),
         size: node.size,
-        blobs: used.unique.clone(),
-        blob_files: used.files.clone().into(),
+        blobs: used.unique(),
+        blob_files: used.files(),
         glyphs: table.into(),
         decorations: decorations.into(),
         run_sids: run_sids.into(),
