@@ -40,8 +40,7 @@ fn pair(g: &V) -> Option<G> {
 struct Tree<'a> {
     rec: HashMap<G, &'a V>,
     parent: HashMap<G, G>,
-    /// The layer an override key addresses (a layer with no key is addressed by its guid).
-    by_key: HashMap<G, G>,
+    children: HashMap<G, Vec<G>>,
 }
 
 fn ty(r: &V) -> &str {
@@ -63,18 +62,18 @@ impl<'a> Tree<'a> {
     fn new(all: &'a [V]) -> Self {
         let mut rec = HashMap::new();
         let mut parent = HashMap::new();
-        let mut by_key = HashMap::new();
+        let mut children: HashMap<G, Vec<G>> = HashMap::new();
         for r in all {
             let Some(g) = r.get("guid").and_then(pair) else { continue };
             rec.insert(g, r);
-            if let Some(k) = r.get("overrideKey").and_then(pair).filter(|k| *k != (u32::MAX, u32::MAX)) {
-                by_key.entry(k).or_insert(g);
-            }
             if let Some(p) = r.get("parentIndex").and_then(|p| p.get("guid")).and_then(pair) {
                 parent.insert(g, p);
+                if p != g {
+                    children.entry(p).or_default().push(g);
+                }
             }
         }
-        Tree { rec, parent, by_key }
+        Tree { rec, parent, children }
     }
 
     /// The root of the owner group of the component `g`: its nearest state group above (not through an instance), else itself.
@@ -119,17 +118,53 @@ impl<'a> Tree<'a> {
         None
     }
 
-    /// The owner of an assignment in the overrides of the instance `at`: the group of the main of the instance the last step of the
-    /// entry's path addresses; an entry that is the instance's own (its path is its main's guid) belongs to the instance's main.
+    /// The layer inside the component `root` (and what is under it, not into instances) that an override path step addresses: by the
+    /// key the file gave it, else by its guid. Keys are only unique inside one main.
+    fn step_target(&self, root: G, step: G) -> Option<G> {
+        let mut stack = vec![root];
+        let mut guard = 0usize;
+        while let Some(g) = stack.pop() {
+            guard += 1;
+            if guard > self.rec.len() + 1 {
+                return None;
+            }
+            let Some(r) = self.rec.get(&g) else { continue };
+            let key = r.get("overrideKey").and_then(pair).filter(|k| *k != (u32::MAX, u32::MAX));
+            if g != root && (key == Some(step) || (key.is_none() && g == step)) {
+                return Some(g);
+            }
+            if g == root || ty(r) != "INSTANCE" {
+                stack.extend(self.children.get(&g).into_iter().flatten().copied());
+            }
+        }
+        None
+    }
+
+    /// The owner of an assignment in the overrides of the instance `at`: the group of the main of the layer the entry's path leads
+    /// to, going down through the instances on the way; an entry that is the instance's own (its path is its main's guid) belongs to
+    /// the instance's main.
     fn nested_owner(&self, at: G, path: &[G]) -> Option<G> {
         let instance = self.rec.get(&at)?;
-        let last = *path.last()?;
-        if Some(last) == instance.get("symbolData").and_then(|s| s.get("symbolID")).and_then(pair) {
-            return self.main_of(instance).map(|m| self.root(m));
+        let mut main = self.main_of(instance)?;
+        let mut steps = path;
+        if steps.first() == instance.get("symbolData").and_then(|s| s.get("symbolID")).and_then(pair).as_ref() {
+            steps = &steps[1..];
         }
-        let target = self.by_key.get(&last).copied().or_else(|| self.rec.contains_key(&last).then_some(last))?;
-        let r = self.rec.get(&target)?;
-        (ty(r) == "INSTANCE").then(|| self.main_of(r).map(|m| self.root(m))).flatten()
+        if steps.is_empty() {
+            return Some(self.root(main));
+        }
+        for (i, step) in steps.iter().enumerate() {
+            let target = self.step_target(main, *step)?;
+            let r = self.rec.get(&target)?;
+            if ty(r) != "INSTANCE" {
+                return None;
+            }
+            main = self.main_of(r)?;
+            if i + 1 == steps.len() {
+                return Some(self.root(main));
+            }
+        }
+        None
     }
 
     fn assignment_owner(&self, g: G) -> Option<G> {
