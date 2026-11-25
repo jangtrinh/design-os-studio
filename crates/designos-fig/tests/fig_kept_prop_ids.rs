@@ -761,7 +761,7 @@ fn mains_with_a_moved_layer(copy_first: bool, original_key: Option<(u32, u32)>, 
         }
     }
     let copy = [
-        node(copy_main, (0, 1), "e", "SYMBOL", "Copy of Main", vec![("size", vec2(100.0, 40.0))]),
+        node(copy_main, (0, 1), if copy_first { "!" } else { "e" }, "SYMBOL", "Copy of Main", vec![("size", vec2(100.0, 40.0))]),
         glyph_text(copy_text, copy_main, "a", "Moved caption", FAMILY, "\u{e900}", &[(0, 0.0)], vec![("overrideKey", guid(copy_key.0, copy_key.1))]),
     ];
     if copy_first {
