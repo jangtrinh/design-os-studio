@@ -118,7 +118,8 @@ pub fn dashes_by_segment(n: &Node) -> bool {
 /// `n` with [`d::Stroke::continuous_dashes`] set when its dashes run on along the whole path (see [`dashes_by_segment`]),
 /// so the code below it needs no other way to know.
 pub(crate) fn continuous_dashes_of(n: &Node) -> Option<Node> {
-    (has_dashes(&n.stroke) && !dashes_by_segment(n)).then(|| {
+    // a node that carries the flag already (a lowered board item) is not copied
+    (has_dashes(&n.stroke) && !n.stroke.continuous_dashes && !dashes_by_segment(n)).then(|| {
         let mut owned = n.clone();
         owned.stroke.continuous_dashes = true;
         owned
