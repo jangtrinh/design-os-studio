@@ -20,6 +20,7 @@ mod color_profile_image_cost;
 mod color_profile_images;
 mod corners;
 mod dashed_endpoint_caps;
+mod dashes_cut_like_figma;
 mod decoded_image_mean;
 mod fx;
 mod geometry;

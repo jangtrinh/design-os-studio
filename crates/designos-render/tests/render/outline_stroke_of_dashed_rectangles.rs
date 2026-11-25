@@ -100,7 +100,7 @@ fn outline_of_a_dashed_inside_or_outside_rectangle_covers_what_the_canvas_stroke
     let cases = [
         (StrokeAlign::Inside, StrokeCap::Round, 8.0, [10.0, 14.0], 0.0, (39.0, 34.0), 0.001),
         (StrokeAlign::Outside, StrokeCap::Round, 8.0, [10.0, 14.0], 0.0, (31.0, 26.0), 0.001),
-        (StrokeAlign::Outside, StrokeCap::None, 6.0, [9.0, 7.0], 12.0, (46.0, 27.0), 0.01),
+        (StrokeAlign::Outside, StrokeCap::None, 6.0, [9.0, 7.0], 12.0, (44.0, 27.0), 0.01),
     ];
     let mut failures = Vec::new();
     for (align, cap, weight, dashes, radius, first_dash, allowed) in cases {
@@ -124,9 +124,11 @@ fn outline_of_a_dashed_inside_rectangle_keeps_the_cap_size_and_the_gap() {
     let (doc, frame, id) = framed(|id| rectangle(id, 0.0, stroke(8.0, StrokeAlign::Inside, StrokeCap::Round, &[10.0, 14.0])));
     let (canvas, outlined) = canvas_and_outlined(&doc, frame, id);
     for (label, pm) in [("canvas", &canvas), ("outline", &outlined)] {
-        assert_ink(&format!("{label}: a dash"), pm, (39.0, 34.0));
-        assert_ink(&format!("{label}: its round cap"), pm, (46.5, 34.0));
-        assert_white(&format!("{label}: the gap"), pm, (51.0, 34.0));
+        // the inset top edge is 92 long: four periods of 24 stretched by 0.958, so the second dash, 9.58 long, is
+        // centred on x = 57 and ends at 61.8, and the gap after its cap is clear from x = 65.8 to 71.2
+        assert_ink(&format!("{label}: a dash"), pm, (57.0, 34.0));
+        assert_ink(&format!("{label}: its round cap"), pm, (63.5, 34.0));
+        assert_white(&format!("{label}: the gap"), pm, (68.5, 34.0));
     }
 }
 

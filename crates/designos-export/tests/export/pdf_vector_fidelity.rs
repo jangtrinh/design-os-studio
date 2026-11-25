@@ -489,10 +489,10 @@ fn dashed_inside_and_outside_rectangle_strokes_match_the_canvas() {
     // (align, cap, weight, dashes, corner radius, a point in the middle of the first dash)
     let cases = [
         (StrokeAlign::Inside, StrokeCap::Round, 8.0, [10.0, 14.0], 0.0, (39.0, 34.0)),
-        (StrokeAlign::Inside, StrokeCap::None, 8.0, [10.0, 14.0], 0.0, (39.0, 34.0)),
-        (StrokeAlign::Inside, StrokeCap::Square, 6.0, [9.0, 7.0], 12.0, (53.0, 33.0)),
+        (StrokeAlign::Inside, StrokeCap::None, 8.0, [10.0, 14.0], 0.0, (33.0, 34.0)),
+        (StrokeAlign::Inside, StrokeCap::Square, 6.0, [9.0, 7.0], 12.0, (57.0, 33.0)),
         (StrokeAlign::Outside, StrokeCap::Square, 8.0, [10.0, 14.0], 0.0, (31.0, 26.0)),
-        (StrokeAlign::Outside, StrokeCap::None, 6.0, [9.0, 7.0], 12.0, (46.0, 27.0)),
+        (StrokeAlign::Outside, StrokeCap::None, 6.0, [9.0, 7.0], 12.0, (44.0, 27.0)),
     ];
     let mut failures = Vec::new();
     for (align, cap, weight, dashes, radius, first_dash) in cases {
@@ -504,7 +504,10 @@ fn dashed_inside_and_outside_rectangle_strokes_match_the_canvas() {
         let out = export(&doc, frame);
         assert_eq!(out.kind, PageKind::Vector, "{label}");
         out.assert_canvas_shows(&label, first_dash, [200, 30, 30], 3);
-        let (bad, total) = differing_pixels(&out.canvas, &out.page, 200.0, 120.0, 12);
+        // both draw the dashes as filled outlines, one under an anti-aliased mask and one under an exact clip, so an
+        // edge pixel can be covered by a different fraction (up to about a quarter of the ink); a dash in another
+        // place differs by far more
+        let (bad, total) = differing_pixels(&out.canvas, &out.page, 200.0, 120.0, 60);
         if bad * 500 > total {
             failures.push(format!("{label}: {bad} of {total} sampled pixels differ from the canvas"));
         }
@@ -529,12 +532,12 @@ fn thin_dashed_rectangle_stroke_matches_the_canvas() {
     stroked_rect(&mut doc, frame, Rect::new(10.0, 10.0, 200.0, 4.0), stroke);
     let out = export(&doc, frame);
     assert_eq!(out.kind, PageKind::Vector);
-    out.assert_canvas_shows("first dash", (14.0, 12.0), [200, 30, 30], 3);
-    out.assert_canvas_shows("round cap past the dash end", (19.5, 11.5), [200, 30, 30], 3);
+    out.assert_canvas_shows("first dash", (12.0, 12.0), [200, 30, 30], 3);
+    out.assert_canvas_shows("round cap past the dash end", (16.5, 11.5), [200, 30, 30], 3);
     out.assert_canvas_shows("middle of the gap", (40.0, 12.0), [240, 240, 240], 3);
     let (bad, total) = differing_pixels(&out.canvas, &out.page, 240.0, 30.0, 12);
     assert!(bad * 500 <= total, "{bad} of {total} sampled pixels differ from the canvas");
-    out.assert_agree_at("thin rectangle", &[(14.0, 12.0), (19.5, 11.5), (40.0, 12.0)], 12);
+    out.assert_agree_at("thin rectangle", &[(12.0, 12.0), (16.5, 11.5), (40.0, 12.0)], 12);
 }
 
 /// A closed pentagram (five vertices joined to every second one) in a 120 x 120 box at (40, 40): its centre

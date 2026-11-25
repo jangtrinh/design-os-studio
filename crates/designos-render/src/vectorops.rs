@@ -558,7 +558,7 @@ fn sk_stroke(s: &d::Stroke, width: f32, cap: d::StrokeCap) -> sk::Stroke {
 }
 
 fn sk_stroke_with_join(s: &d::Stroke, width: f32, cap: d::StrokeCap, join: d::StrokeJoin) -> sk::Stroke {
-    let mut st = sk::Stroke {
+    sk::Stroke {
         width,
         miter_limit: s.miter_limit.max(1.0),
         line_cap: match cap {
@@ -577,15 +577,14 @@ fn sk_stroke_with_join(s: &d::Stroke, width: f32, cap: d::StrokeCap, join: d::St
             d::StrokeJoin::Round => sk::LineJoin::Round,
         },
         dash: None,
-    };
-    if !s.dashes.is_empty() && s.dashes.iter().all(|x| *x >= 0.0) && s.dashes.iter().sum::<f32>() > 0.0 {
-        let mut v = s.dashes.clone();
-        if v.len() % 2 == 1 {
-            v.extend_from_within(..);
-        }
-        st.dash = sk::StrokeDash::new(v, 0.0);
     }
-    st
+}
+
+/// Expands `path` by `st`, which carries no dash: cut into dashes first (see [`crate::dash`]) when `stroke` is dashed.
+fn expand_stroked(path: &sk::Path, stroke: &d::Stroke, st: &sk::Stroke, res_scale: f32) -> Option<sk::Path> {
+    let Some(array) = crate::dash::dash_array(&stroke.dashes) else { return path.stroke(st, res_scale.max(1e-4)) };
+    let res_scale = res_scale.max(1e-4);
+    crate::dash::dash_path(path, &array, res_scale)?.stroke(st, res_scale)
 }
 
 /// Expands one tiny-skia path by the stroke (dashes first).
@@ -910,8 +909,8 @@ fn expand_dashed_shaft(
     let skp = vector_paths(std::slice::from_ref(shaft)).paths.into_iter().next().map(|x| x.0)?;
     let inner = shaft_cap(stroke.cap);
     let st = sk_stroke(stroke, width, inner);
-    let Some(dash) = st.dash.as_ref() else { return skp.stroke(&st, res_scale) };
-    let dashed = skp.dash(dash, res_scale)?;
+    let Some(array) = crate::dash::dash_array(&stroke.dashes) else { return skp.stroke(&st, res_scale) };
+    let dashed = crate::dash::dash_path(&skp, &array, res_scale)?;
     let (terminal_start, terminal_end) = (skp.points().first().copied()?, skp.points().last().copied()?);
     let at = |a: sk::Point, b: sk::Point| (a.x - b.x).hypot(a.y - b.y) <= 1e-2;
 
@@ -994,6 +993,9 @@ fn expand_open_subpath_with_caps(
     let start_trim = cap_setback(start_cap, width);
     let end_trim = cap_setback(end_cap, width);
     let dashed = crate::outline::has_dashes(stroke);
+    // an arrow head cuts the path short, which would stretch a pattern fitted to its segments: the dashes of that
+    // path run on continuously (the kit holds no dashed arrow to measure)
+    let _continuous = (dashed && (start_cap.is_arrow() || end_cap.is_arrow())).then(crate::dash::ContinuousDashes::begin);
     let mut pb = sk::PathBuilder::new();
     let trimmed = trim_open_cubics(&cs, start_trim, end_trim);
     if !trimmed.is_empty() {
@@ -1055,14 +1057,14 @@ fn open_subpath_caps(
 fn expand_subpath(sub: &d::Path, stroke: &d::Stroke, width: f32, base_cap: d::StrokeCap, network: Option<&VectorNetwork>, res_scale: f32) -> Option<sk::Path> {
     let skp = vector_paths(std::slice::from_ref(sub)).paths.into_iter().next().map(|x| x.0)?;
     let Some(net) = network.filter(|n| !crate::outline::has_dashes(stroke) && n.vertices.iter().any(|v| v.join.is_some_and(|j| j != stroke.join))) else {
-        return crate::outline::stroke_outline(&skp, &sk_stroke(stroke, width, base_cap), res_scale);
+        return expand_stroked(&skp, stroke, &sk_stroke(stroke, width, base_cap), res_scale);
     };
     let Some((cs, is_closed)) = path_curves(sub).into_iter().next() else {
-        return crate::outline::stroke_outline(&skp, &sk_stroke(stroke, width, base_cap), res_scale);
+        return expand_stroked(&skp, stroke, &sk_stroke(stroke, width, base_cap), res_scale);
     };
     let n = cs.len();
     if n == 0 || (!is_closed && n == 1) {
-        return crate::outline::stroke_outline(&skp, &sk_stroke(stroke, width, base_cap), res_scale);
+        return expand_stroked(&skp, stroke, &sk_stroke(stroke, width, base_cap), res_scale);
     }
     let join_at =
         |p: Vec2| -> d::StrokeJoin { net.vertices.iter().find(|v| (v.pos.x - p.x).hypot(v.pos.y - p.y) <= 1e-2).and_then(|v| v.join).unwrap_or(stroke.join) };
@@ -1332,6 +1334,7 @@ pub(crate) fn mixed_subpath_stroke_outline(n: &Node, sh: &crate::geom::Shape) ->
         _ => None,
     };
     let doc_paths: Vec<d::Path> = sh.paths.iter().map(|(p, r)| sk_to_doc(p, rule_of(*r))).collect();
+    let _continuous = (crate::outline::has_dashes(&n.stroke) && !crate::outline::dashes_by_segment(n)).then(crate::dash::ContinuousDashes::begin);
     let outlined = outline_stroke_along(&doc_paths, &n.stroke, network, None);
     vector_paths(&outlined).paths
 }
@@ -1362,6 +1365,8 @@ pub fn outline_node_stroke(doc: &Document, n: &Node) -> Vec<d::Path> {
         _ => None,
     };
     let aligned_outline = node_shape(doc, n, 0.05).and_then(|sh| crate::outline::dashed_rect_stroke_path(n, &sh));
+    // a flattened boolean result has no segments of Figma's kind
+    let _continuous = (crate::outline::has_dashes(&n.stroke) && !crate::outline::dashes_by_segment(n)).then(crate::dash::ContinuousDashes::begin);
     outline_stroke_along(&paths, &n.stroke, network, aligned_outline.as_ref())
 }
 
@@ -1433,7 +1438,7 @@ fn outline_stroke_along(paths: &[d::Path], stroke: &d::Stroke, network: Option<&
             let fill = paths_to_shapes(&[d::Path { cmds: closed_subs.iter().flat_map(|c| c.cmds.clone()).collect(), fill_rule: p.fill_rule }], 0.05);
             let mut ring: Shapes = vec![];
             if let Some(outline) = aligned_outline {
-                if let Some(o) = expand(outline, &st_center) {
+                if let Some(o) = expand_stroked(outline, stroke, &st_center, 1.0) {
                     ring = flatten(&o, 0.05).simplify_shape(FillRule::NonZero);
                     if !leaves_its_side(&ring, &fill, &closed_subs, stroke.align) {
                         // already on its side of the shape: keep the stroker's exact curves

@@ -75,13 +75,14 @@ const SQUARE: StrokeCap = StrokeCap::Square;
 
 #[test]
 fn a_square_end_on_a_dashed_round_line_squares_only_the_end_dash() {
-    // dashes cover x = 10..20, 26..36, 42..52, 58..68, 74..84 and 90..94: the path ends inside the last dash
+    // 84 is 5.25 periods of 16, so five of 16.8 (the pattern stretched by 1.05): dashes of 10.5 centred on x = 10, 26.8,
+    // 43.6, 60.4, 77.2 and 94, half a dash at both ends of the path, which ends at x = 94
     let plain = render(84.0, ROUND, None);
     let capped = render(84.0, ROUND, Some((ROUND, SQUARE)));
 
-    let changed = differing_columns(&plain, &capped, 0..88);
+    let changed = differing_columns(&plain, &capped, 0..86);
     assert!(changed.is_empty(), "dashes before the last one are drawn as on a plain round dashed line, columns {changed:?} differ");
-    for x in [21, 37, 53, 69, 85] {
+    for x in [16, 33, 49, 66, 83] {
         assert!(coverage(&capped, x, 19) > 0.5, "the inner dash end next to column {x} keeps its round cap, coverage {}", coverage(&capped, x, 19));
     }
 
@@ -108,13 +109,17 @@ fn a_square_start_on_a_dashed_round_line_squares_only_the_first_dash() {
 }
 
 #[test]
-fn an_end_cap_does_not_show_where_the_path_ends_in_a_gap() {
-    // 80 is five whole periods: the last dash ends at x = 84 and the path ends at x = 90, inside the gap
+fn a_dashed_line_never_ends_in_a_gap_so_its_end_cap_always_shows() {
+    // 80 is five periods of 16: the pattern is not stretched and the last dash is centred on the end of the path,
+    // x = 90, so half of it (x = 85..90) is left and an end cap shows there
     let plain = render(80.0, ROUND, None);
     let capped = render(80.0, ROUND, Some((ROUND, SQUARE)));
-    let changed = differing_columns(&plain, &capped, 0..VIEW.0);
-    assert!(changed.is_empty(), "a square end in a gap draws nothing, columns {changed:?} differ");
-    assert_eq!(ink(&capped, 86, 0, VIEW.0, VIEW.1), 0.0, "nothing is painted past the last dash");
+    for y in [18, 21] {
+        assert!(coverage(&capped, 91, y) > 0.9, "the end terminal is square: pixel (91, {y}) has coverage {}", coverage(&capped, 91, y));
+        assert!(coverage(&plain, 91, y) < 0.6, "the plain round end has a rounded corner: pixel (91, {y}) has coverage {}", coverage(&plain, 91, y));
+    }
+    let changed = differing_columns(&plain, &capped, 0..82);
+    assert!(changed.is_empty(), "only the last dash changes, columns {changed:?} differ");
 }
 
 #[test]
@@ -135,8 +140,8 @@ fn a_line_arrow_end_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes
         assert!(ink(&arrow, x, y, x + 1, y + 1) > 0.5, "a wing of the head covers pixel ({x}, {y}), coverage {}", ink(&arrow, x, y, x + 1, y + 1));
         assert!(ink(&plain, x, y, x + 1, y + 1) < 0.05, "the plain dashed line has no head at pixel ({x}, {y})");
     }
-    let changed = differing_columns(&plain, &arrow, 0..78);
-    assert!(changed.is_empty(), "the shaft keeps its round dashes before the head, columns {changed:?} differ");
+    // an arrow head cuts the path short, and the dashes of such a path run on continuously: 10 long, 6 apart
+    let _ = &plain;
     for x in [21, 37, 53, 69] {
         assert!(coverage(&arrow, x, 19) > 0.5, "the inner dash end next to column {x} keeps its round cap, coverage {}", coverage(&arrow, x, 19));
     }
@@ -199,9 +204,11 @@ fn outlining_a_dashed_stroke_keeps_the_dash_caps_and_the_end_caps_of_the_vertice
     net.vertices[0].cap = Some(ROUND);
     net.vertices[1].cap = Some(SQUARE);
     let outline = outline_stroke(&net.to_paths(), &stroke(ROUND), Some(&net));
-    // five whole dashes with a round cap at each end, and a last dash 4 long with a round start and a square end
+    // 84 holds five periods of 16.8: the pattern 10, 6 is stretched by 1.05, so four whole dashes of 10.5 (a round cap
+    // at each end) between two half dashes of 5.25: the first with a round start, the last with a square end
     let disc = std::f64::consts::PI * 4.0;
-    let expected = 5.0 * (40.0 + disc) + (16.0 + disc / 2.0 + 8.0);
+    let dash = 10.5;
+    let expected = 4.0 * (dash * 4.0 + disc) + (dash / 2.0 * 4.0 + disc) + (dash / 2.0 * 4.0 + disc / 2.0 + 8.0);
     let got = paths_area(&outline, 0.02);
     assert!((got - expected).abs() < 0.6, "outline area {got}, expected {expected}");
 }

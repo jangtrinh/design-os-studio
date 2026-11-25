@@ -94,6 +94,22 @@ pub fn has_dashes(s: &d::Stroke) -> bool {
     !s.dashes.is_empty() && s.dashes.iter().all(|d| *d >= 0.0) && s.dashes.iter().sum::<f32>() > 0.0
 }
 
+/// Whether the dashes of `n` follow Figma's rule of one pattern per segment (see [`crate::dash`]): a dashed
+/// stroke of anything but a flattened boolean result, whose short lines are not Figma's segments, and text, whose
+/// glyph outlines the kit gives no dashed stroke to measure.
+pub fn dashes_by_segment(n: &Node) -> bool {
+    has_dashes(&n.stroke) && !matches!(n.kind, d::NodeKind::BooleanOp(_) | d::NodeKind::Text(_))
+}
+
+/// Strokes `path` as `n` strokes it at line width `width`, each dash following Figma's rule where that applies.
+pub(crate) fn stroke_node_path(n: &Node, path: &sk::Path, width: f32, res_scale: f32) -> Option<sk::Path> {
+    let st = node_stroke_style(n, width);
+    let Some(array) = crate::dash::dash_array(&n.stroke.dashes).filter(|_| dashes_by_segment(n)) else { return stroke_outline(path, &st, res_scale) };
+    let res_scale = res_scale.max(1e-4);
+    let solid = sk::Stroke { dash: None, ..st };
+    crate::dash::dash_each_segment(path, &array)?.stroke(&solid, res_scale)
+}
+
 /// The stroke style the renderer uses for `n` at line width `width`.
 pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
     let s = &n.stroke;
@@ -253,18 +269,21 @@ pub fn per_side_stroke_path(n: &Node, align: d::StrokeAlign) -> Option<sk::Path>
 }
 
 /// The outline the canvas strokes, at the stroke's own weight, for a rectangle-like shape whose
-/// dashed stroke is aligned `Inside` or `Outside`: the inset or outset centerline, so each dash is
-/// `w` wide and its caps (`Round`, `Square`) sit centered in the `w`-wide stroke band instead of
-/// being half-clipped `2 * w` caps on the boundary. The stroke still has to be clipped to the
-/// matching side of the boundary.
+/// dashed stroke is aligned `Inside` or `Outside` and whose dashes are capped (`Round`, `Square`): the
+/// inset or outset centerline, so each dash is `w` wide and its caps sit centered in the `w`-wide stroke
+/// band instead of being half-clipped `2 * w` caps on the boundary. The stroke still has to be clipped
+/// to the matching side of the boundary.
 ///
-/// `None` for every other stroke: precomputed stroke outlines, per-side weights, solid or
-/// centered strokes, shapes that are not rectangle-like, and rectangles too thin to have an
-/// inset outline. Those are stroked along the shape boundary, at twice the weight when aligned.
+/// `None` for every other stroke: precomputed stroke outlines, per-side weights, solid or centered
+/// strokes, shapes that are not rectangle-like, rectangles too thin to have an inset outline, and
+/// butt dashes. Those are stroked along the shape boundary, at twice the weight when aligned. A butt
+/// dash is what the kit stores for every inside dashed rectangle, and Figma cuts it along the
+/// boundary, so its dashes sit where the boundary segments put them, not where the inset ones would.
 /// Every consumer that draws or expands such a stroke (canvas, GPU plan, PDF, SVG, Outline
 /// stroke) asks here, so they agree on which shapes take this path.
 pub fn dashed_rect_stroke_path(n: &Node, sh: &Shape) -> Option<sk::Path> {
-    if sh.stroke_paths.is_some() || n.stroke.side_weights.is_some() || !sh.is_rect || !has_dashes(&n.stroke) {
+    let capped = matches!(n.stroke.cap, d::StrokeCap::Round | d::StrokeCap::Square);
+    if sh.stroke_paths.is_some() || n.stroke.side_weights.is_some() || !sh.is_rect || !has_dashes(&n.stroke) || !capped {
         return None;
     }
     let align = if sh.closed { n.stroke.align } else { d::StrokeAlign::Center };
@@ -313,6 +332,7 @@ fn dashed_rect_center_path(n: &Node, align: d::StrokeAlign) -> Option<sk::Path> 
 /// Stroke geometry of a node with a shape, mirroring the CPU renderer's
 /// handling of precomputed outlines, per-side weights and the three alignments.
 pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
+    let _continuous = (has_dashes(&n.stroke) && !dashes_by_segment(n)).then(crate::dash::ContinuousDashes::begin);
     let align = if sh.closed { n.stroke.align } else { d::StrokeAlign::Center };
     if let Some(sp) = &sh.stroke_paths {
         let clip = match align {
@@ -334,8 +354,7 @@ pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
         return None;
     }
     if let Some(center_path) = dashed_rect_stroke_path(n, sh) {
-        let st = node_stroke_style(n, w);
-        let outline = stroke_outline(&center_path, &st, res_scale)?;
+        let outline = stroke_node_path(n, &center_path, w, res_scale)?;
         let clip = if align == d::StrokeAlign::Inside { StrokeClip::Inside } else { StrokeClip::Outside };
         return Some(StrokePlan { outline: vec![(outline, sk::FillRule::Winding)], clip });
     }
@@ -352,8 +371,7 @@ pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
         let outline = crate::vectorops::expand_node_subpaths(n, sh, width, res_scale);
         return (!outline.is_empty()).then_some(StrokePlan { outline, clip });
     }
-    let st = node_stroke_style(n, width);
-    let outline: Vec<_> = sh.paths.iter().filter_map(|(p, _)| stroke_outline(p, &st, res_scale)).map(|p| (p, sk::FillRule::Winding)).collect();
+    let outline: Vec<_> = sh.paths.iter().filter_map(|(p, _)| stroke_node_path(n, p, width, res_scale)).map(|p| (p, sk::FillRule::Winding)).collect();
     (!outline.is_empty()).then_some(StrokePlan { outline, clip })
 }
 

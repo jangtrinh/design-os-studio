@@ -338,9 +338,12 @@ fn dashed_line_and_caps() {
         n
     });
     let pm = t.render(60, 20);
-    assert_eq!(px(&pm, 5, 10), [255, 0, 0, 255]);
-    assert_eq!(px(&pm, 15, 10), WHITE);
-    assert_eq!(px(&pm, 25, 10), [255, 0, 0, 255]);
+    // 60 is three periods of 20: dashes of 10 centred on 0, 20, 40 and 60, half a dash at each end
+    assert_eq!(px(&pm, 2, 10), [255, 0, 0, 255]);
+    assert_eq!(px(&pm, 10, 10), WHITE);
+    assert_eq!(px(&pm, 20, 10), [255, 0, 0, 255]);
+    assert_eq!(px(&pm, 30, 10), WHITE);
+    assert_eq!(px(&pm, 57, 10), [255, 0, 0, 255]);
     let _ = l;
 }
 
@@ -682,7 +685,8 @@ fn dashed_rect_round_dash_cap_renders_round_dash_ends() {
     let mut t = T::new();
     // 1. Rectangle with default StrokeAlign::Inside, weight 8, dashes [20, 20].
     // The 8px inside stroke band along the top edge occupies y = 20..28 (centerline y = 24, radius 4).
-    // Inset centerline runs x = 24..76, so the first 20px dash runs x = 24..44.
+    // A butt dash is cut along the boundary, x = 20..80 (60 long): two periods of 30 (the pattern 20, 20 stretched by
+    // 0.75), so the dashes of 15 are centred on x = 20, 50 and 80 and the first one, half a dash, runs x = 20..27.5.
     let r = t.add(None, |id| {
         let mut n = Node::rectangle(id, Rect::new(20.0, 20.0, 60.0, 40.0));
         n.fills.clear();
@@ -694,33 +698,37 @@ fn dashed_rect_round_dash_cap_renders_round_dash_ends() {
         n
     });
     let pm_none = t.render(100, 80);
-    assert_eq!(px(&pm_none, 34, 24), [255, 0, 0, 255], "dash body painted on midline");
-    assert_eq!(px(&pm_none, 46, 24), WHITE, "butt dash cap stops at x=44");
+    assert_eq!(px(&pm_none, 23, 24), [255, 0, 0, 255], "dash body painted on midline");
+    assert_eq!(px(&pm_none, 29, 24), WHITE, "butt dash cap stops at x=27.5");
+    assert_eq!(px(&pm_none, 50, 24), [255, 0, 0, 255], "the middle dash is painted on midline");
 
+    // A capped dash runs along the inset centerline, x = 24..76 (52 long): one period of 52 (stretched by 1.3), so the
+    // dashes of 26 are centred on x = 24 and 76 and the first one, half a dash, runs x = 24..37.
     t.node(r).stroke.cap = StrokeCap::Round;
     let pm_round = t.render(100, 80);
-    assert_eq!(px(&pm_round, 46, 24), [255, 0, 0, 255], "round dash cap extends +2px along midline y=24");
-    assert_eq!(px(&pm_round, 47, 20), WHITE, "round dash cap curves away from outer corner (47, 20) instead of painting a square or 2x-radius shelf");
+    assert_eq!(px(&pm_round, 39, 24), [255, 0, 0, 255], "round dash cap extends +2px along midline y=24");
+    assert_eq!(px(&pm_round, 40, 20), WHITE, "round dash cap curves away from outer corner (40, 20) instead of painting a square or 2x-radius shelf");
 
     t.node(r).stroke.cap = StrokeCap::Square;
     let pm_square = t.render(100, 80);
-    assert_eq!(px(&pm_square, 46, 24), [255, 0, 0, 255], "square dash cap extends along midline");
-    assert_eq!(px(&pm_square, 47, 20), [255, 0, 0, 255], "square dash cap fills outer corner (47, 20)");
+    assert_eq!(px(&pm_square, 39, 24), [255, 0, 0, 255], "square dash cap extends along midline");
+    assert_eq!(px(&pm_square, 40, 20), [255, 0, 0, 255], "square dash cap fills outer corner (40, 20)");
 
     // Outside alignment: outset centerline runs x = 16..84, y = 16..64 (stroke band y = 12..20 along top edge).
-    // First 20px dash along top edge runs x = 16..36, with round cap of radius 4 centered at (36, 16).
+    // The top edge is 68 long: two periods of 34 (stretched by 0.85), so the first dash, half of 17, runs x = 16..24.5
+    // with its round cap of radius 4 centered at (24.5, 16); the next dash is centred on x = 50.
     t.node(r).stroke.align = StrokeAlign::Outside;
     t.node(r).stroke.cap = StrokeCap::Round;
     let pm_outside = t.render(100, 80);
-    assert_eq!(px(&pm_outside, 26, 16), [255, 0, 0, 255], "outside dash body painted on outset midline (26, 16)");
-    assert_eq!(px(&pm_outside, 38, 16), [255, 0, 0, 255], "outside round dash cap extends +2px along outset midline (38, 16)");
-    assert_eq!(px(&pm_outside, 39, 12), WHITE, "outside round dash cap curves away from outer corner (39, 12)");
-    assert_eq!(px(&pm_outside, 46, 16), WHITE, "outside dash gap is unpainted at (46, 16)");
-    assert_eq!(px(&pm_outside, 26, 22), WHITE, "outside alignment clips interior of rectangle at (26, 22)");
+    assert_eq!(px(&pm_outside, 20, 16), [255, 0, 0, 255], "outside dash body painted on outset midline (20, 16)");
+    assert_eq!(px(&pm_outside, 26, 16), [255, 0, 0, 255], "outside round dash cap extends +2px along outset midline (26, 16)");
+    assert_eq!(px(&pm_outside, 27, 12), WHITE, "outside round dash cap curves away from outer corner (27, 12)");
+    assert_eq!(px(&pm_outside, 34, 16), WHITE, "outside dash gap is unpainted at (34, 16)");
+    assert_eq!(px(&pm_outside, 20, 22), WHITE, "outside alignment clips interior of rectangle at (20, 22)");
 }
 
-/// An open vector line from (20, 20) to (100, 20) with dashes `[20, 20]` (dashes at x = 20..40 and 60..80, the path ends
-/// in the gap after the second one), weight 8, `Stroke::cap` Round, whose end vertices carry `vertex_caps`.
+/// An open vector line from (20, 20) to (100, 20) with dashes `[20, 20]` (two periods of 40: dashes at x = 20..30, 50..70
+/// and 90..100, half a dash at both ends of the path), weight 8, `Stroke::cap` Round, whose end vertices carry `vertex_caps`.
 fn dashed_round_line_with_end_caps(t: &mut T, vertex_caps: (Option<StrokeCap>, Option<StrokeCap>)) -> NodeId {
     t.add(None, |id| {
         let p = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(80.0, 0.0))], fill_rule: FillRule::NonZero };
@@ -757,16 +765,16 @@ fn dashed_open_line_uses_stroke_cap_on_every_dash_that_reaches_no_end_point() {
     // end vertices without a cap of their own: every dash, the first one at the start of the path included, uses Stroke::cap (Round)
     let line = dashed_round_line_with_end_caps(&mut t, (None, None));
     let pm = t.render(120, 40);
-    // Start of first dash at x=20 and end of first dash at x=40 both get round caps of radius 4:
+    // Start of first dash at x=20 and end of first dash at x=30 both get round caps of radius 4:
     assert_eq!(px(&pm, 18, 20), [255, 0, 0, 255], "first dash start cap is round at midline (18, 20)");
     assert_eq!(px(&pm, 16, 16), WHITE, "first dash start cap corner (16, 16) is unpainted");
-    assert_eq!(px(&pm, 42, 20), [255, 0, 0, 255], "inner dash end cap is round at midline (42, 20)");
-    assert_eq!(px(&pm, 43, 16), WHITE, "inner dash end cap corner (43, 16) is unpainted");
+    assert_eq!(px(&pm, 32, 20), [255, 0, 0, 255], "inner dash end cap is round at midline (32, 20)");
+    assert_eq!(px(&pm, 33, 16), WHITE, "inner dash end cap corner (33, 16) is unpainted");
 
     t.node(line).stroke.cap = StrokeCap::None;
     let pm_butt = t.render(120, 40);
     assert_eq!(px(&pm_butt, 18, 20), WHITE, "butt cap leaves x < 20 unpainted");
-    assert_eq!(px(&pm_butt, 42, 20), WHITE, "butt cap leaves x > 40 unpainted on first dash");
+    assert_eq!(px(&pm_butt, 32, 20), WHITE, "butt cap leaves x > 30 unpainted on first dash");
 }
 
 #[test]
@@ -776,9 +784,9 @@ fn an_explicit_butt_end_vertex_cap_leaves_only_the_start_of_a_dashed_round_line_
     let pm = t.render(120, 40);
     assert_eq!(px(&pm, 18, 20), WHITE, "the start of the path takes the butt cap of its vertex: x < 20 is unpainted at (18, 20)");
     assert_eq!(px(&pm, 22, 20), [255, 0, 0, 255], "the first dash is painted from the start of the path");
-    assert_eq!(px(&pm, 42, 20), [255, 0, 0, 255], "the inner end of the first dash keeps the round Stroke::cap at (42, 20)");
-    assert_eq!(px(&pm, 43, 16), WHITE, "the inner end of the first dash is round: corner (43, 16) is unpainted");
-    assert_eq!(px(&pm, 58, 20), [255, 0, 0, 255], "the inner start of the second dash keeps the round Stroke::cap at (58, 20)");
+    assert_eq!(px(&pm, 32, 20), [255, 0, 0, 255], "the inner end of the first dash keeps the round Stroke::cap at (32, 20)");
+    assert_eq!(px(&pm, 33, 16), WHITE, "the inner end of the first dash is round: corner (33, 16) is unpainted");
+    assert_eq!(px(&pm, 48, 20), [255, 0, 0, 255], "the inner start of the second dash keeps the round Stroke::cap at (48, 20)");
 }
 
 #[test]
@@ -820,9 +828,9 @@ fn solid_open_line_all_butt_vertex_caps_stay_butt() {
 fn thin_inside_dashed_rect_keeps_stroke() {
     let mut t = T::new();
     // The inset centerline of a 4px tall rectangle with weight 4 collapses, so the stroke is drawn on the
-    // outline at twice the weight and clipped to the inside. The first dash covers x = 10..18 along the top edge
-    // and its round end cap, radius 4, is centered at (18, 10). The dash period is 68 and the outline is 408 long,
-    // so the first dash on the bottom edge sits at x = 66..74, far from that cap and from the gap middle.
+    // outline at twice the weight and clipped to the inside. The top edge is 200 long: three periods of 68 stretched
+    // by 0.98, so the first dash, half of 7.84, covers x = 10..13.9 along the top edge and its round end cap,
+    // radius 4, is centered at (13.9, 10). The next dash is centred on x = 76.7, far from that cap and from the gap middle.
     t.add(None, |id| {
         let mut n = Node::rectangle(id, Rect::new(10.0, 10.0, 200.0, 4.0));
         n.fills.clear();
@@ -834,16 +842,17 @@ fn thin_inside_dashed_rect_keeps_stroke() {
         n
     });
     let pm = t.render(220, 24);
-    assert_eq!(px(&pm, 14, 12), [255, 0, 0, 255], "thin inside dashed rectangle paints the first dash at (14, 12)");
-    assert_eq!(px(&pm, 19, 11), [255, 0, 0, 255], "thin inside dashed rectangle paints the round cap just past the dash end at (19, 11)");
+    assert_eq!(px(&pm, 12, 12), [255, 0, 0, 255], "thin inside dashed rectangle paints the first dash at (12, 12)");
+    assert_eq!(px(&pm, 16, 11), [255, 0, 0, 255], "thin inside dashed rectangle paints the round cap just past the dash end at (16, 11)");
     assert_eq!(px(&pm, 40, 12), WHITE, "thin inside dashed rectangle leaves the middle of the gap unpainted at (40, 12)");
 }
 
 #[test]
 fn inside_dashed_ellipse_round_cap_extends_past_dash_end() {
     let mut t = T::new();
-    // Circle of radius 40 centered at (50, 50). The dash path starts at (90, 50) and runs clockwise, so the first
-    // 40px dash ends at (71.6, 83.7). The gap, 20px, is longer than twice the weight.
+    // Circle of radius 40 centered at (50, 50). The path starts at (90, 50) and runs clockwise in four quarter arcs of
+    // 62.8, each one period (the pattern 40, 20 stretched by 1.05): a dash of 41.9 is centred on every vertex of the
+    // circle, half of it on each arc, and the gap between two of them, 20.9, is centred on the middle of the arc, (78.3, 78.3).
     let e = t.add(None, |id| {
         let mut n = Node::ellipse(id, Rect::new(10.0, 10.0, 80.0, 80.0));
         n.fills.clear();
@@ -855,14 +864,14 @@ fn inside_dashed_ellipse_round_cap_extends_past_dash_end() {
         n
     });
     let pm_round = t.render(100, 100);
-    assert_eq!(px(&pm_round, 83, 68), [255, 0, 0, 255], "inside dash body is painted at (83, 68)");
-    assert_eq!(px(&pm_round, 68, 83), [255, 0, 0, 255], "round cap is painted 2.6px past the dash end at (68, 83)");
-    assert_eq!(px(&pm_round, 61, 86), WHITE, "middle of the gap is unpainted at (61, 86)");
+    assert_eq!(px(&pm_round, 87, 53), [255, 0, 0, 255], "inside dash body is painted at (87, 53)");
+    assert_eq!(px(&pm_round, 82, 70), [255, 0, 0, 255], "round cap is painted 1.7px past the end of the first half dash at (82, 70)");
+    assert_eq!(px(&pm_round, 76, 76), WHITE, "middle of the gap is unpainted at (76, 76)");
 
     t.node(e).stroke.cap = StrokeCap::None;
     let pm_butt = t.render(100, 100);
-    assert_eq!(px(&pm_butt, 83, 68), [255, 0, 0, 255], "butt dash body is painted at (83, 68)");
-    assert_eq!(px(&pm_butt, 68, 83), WHITE, "butt dash ends at the dash end so (68, 83) is unpainted");
+    assert_eq!(px(&pm_butt, 87, 53), [255, 0, 0, 255], "butt dash body is painted at (87, 53)");
+    assert_eq!(px(&pm_butt, 82, 70), WHITE, "butt dash ends at the dash end so (82, 70) is unpainted");
 }
 
 #[test]
