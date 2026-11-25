@@ -45,17 +45,34 @@ fn px(pm: &Pixmap, x: u32, y: u32) -> [u8; 4] {
 
 #[test]
 fn unfilled_regions_are_not_painted_but_still_stroked() {
-    let mut net = VectorNetwork::from_paths(&[rect_path(10.0, 10.0, 80.0, 80.0)]);
+    let mut net = VectorNetwork::from_paths(&[rect_path(10.0, 10.0, 40.0, 80.0), rect_path(60.0, 10.0, 30.0, 80.0)]);
     let red = Color::rgb(255, 0, 0);
     let (d, page) = page_with(net.clone(), red, 4.0, StrokeCap::None);
     let pm = render(&d, page);
-    assert_eq!(px(&pm, 50, 50), [255, 0, 0, 255], "filled");
-    // unfill: the region goes, the segments stay
-    net.regions.clear();
+    assert_eq!(px(&pm, 30, 50), [255, 0, 0, 255], "filled");
+    // unfill the left loop: its region goes, the segments stay
+    net.regions.remove(0);
     let (d, page) = page_with(net, red, 4.0, StrokeCap::None);
     let pm = render(&d, page);
-    assert_eq!(px(&pm, 50, 50), [255, 255, 255, 255], "inside the loop is not filled any more");
+    assert_eq!(px(&pm, 30, 50), [255, 255, 255, 255], "inside the unfilled loop is not painted");
+    assert_eq!(px(&pm, 75, 50), [255, 0, 0, 255], "the other loop keeps its region");
     assert_eq!(px(&pm, 10, 50), [0, 0, 255, 255], "the outline remains");
+}
+
+/// Figma stores a fill outline for the closed loops of a network that has no regions at all (a `.fig` holds a visible
+/// fill for no other kind of region-less network), so a loop with its region dropped fills, and an open chain
+/// does not.
+#[test]
+fn a_network_without_regions_fills_its_closed_loops_only() {
+    let mut net = VectorNetwork::from_paths(&[rect_path(10.0, 10.0, 80.0, 80.0)]);
+    net.regions.clear();
+    let (d, page) = page_with(net, Color::rgb(255, 0, 0), 0.0, StrokeCap::None);
+    assert_eq!(px(&render(&d, page), 50, 50), [255, 0, 0, 255], "the closed loop fills");
+
+    let open =
+        Path { cmds: vec![PathCmd::MoveTo(v(10.0, 10.0)), PathCmd::LineTo(v(90.0, 10.0)), PathCmd::LineTo(v(90.0, 90.0))], fill_rule: FillRule::NonZero };
+    let (d, page) = page_with(VectorNetwork::from_paths(&[open]), Color::rgb(255, 0, 0), 0.0, StrokeCap::None);
+    assert_eq!(px(&render(&d, page), 70, 30), [255, 255, 255, 255], "an open chain has no area to fill");
 }
 
 #[test]
@@ -85,4 +102,25 @@ fn per_vertex_cap_is_drawn_at_that_end_only() {
     assert_eq!(px(&pm, 85, 50), [0, 0, 255, 255], "round cap extends past the end by half the weight");
     assert_eq!(px(&pm, 25, 50), [255, 255, 255, 255], "the other end is butt");
     assert_eq!(px(&pm, 50, 50), [0, 0, 255, 255]);
+}
+
+/// A vector of the Untitled UI kit (five vertices, five straight segments, no region, a visible fill) after a vertex
+/// is nudged: the dog-eared page still fills inside its outline and not inside the cut corner.
+#[test]
+fn a_region_less_kit_outline_still_fills_after_a_vertex_is_nudged() {
+    let verts = [(0.0, 0.0), (43.342762, 59.783123), (0.0, 59.783123), (33.340584, 0.0), (43.342762, 10.002176)];
+    let mut net = VectorNetwork::default();
+    for (x, y) in verts {
+        net.add_vertex(v(x, y));
+    }
+    for (a, b) in [(1, 2), (2, 0), (0, 3), (4, 1), (3, 4)] {
+        net.connect(a, b).unwrap();
+    }
+    assert!(net.regions.is_empty());
+    net.vertices[2].pos = v(0.5, 59.283123);
+    let (d, page) = page_with(net, Color::rgb(255, 0, 0), 0.0, StrokeCap::None);
+    let pm = render(&d, page);
+    assert_eq!(px(&pm, 10, 50), [255, 0, 0, 255], "inside the page");
+    assert_eq!(px(&pm, 20, 20), [255, 0, 0, 255], "inside the page");
+    assert_eq!(px(&pm, 42, 2), [255, 255, 255, 255], "the cut corner is outside it");
 }

@@ -467,9 +467,28 @@ impl VectorNetwork {
         r
     }
 
-    /// Only the filled regions.
+    /// The geometry the fill paints: the filled regions. A network with no regions at all fills each closed loop
+    /// instead (an open chain stays unfilled): Figma stores a fill outline for exactly those loops, the one
+    /// kind of region-less network a `.fig` file holds a visible fill for.
     pub fn fill_paths(&self) -> Vec<Path> {
+        if self.regions.is_empty() && self.is_valid() {
+            return self.closed_loop_paths();
+        }
         self.to_paths_split().0
+    }
+
+    /// One path per closed loop of segments no region covers, filled with the non-zero rule.
+    fn closed_loop_paths(&self) -> Vec<Path> {
+        let covered = vec![false; self.segments.len()];
+        self.leftover_chains(&covered)
+            .into_iter()
+            .filter(|(_, closed)| *closed)
+            .filter_map(|(chain, _)| {
+                let mut cmds = vec![];
+                self.emit_chain(&chain, true, &mut cmds);
+                (!cmds.is_empty()).then_some(Path { cmds, fill_rule: FillRule::NonZero })
+            })
+            .collect()
     }
 
     /// True when some segments are not part of any filled region, so the
@@ -1714,6 +1733,29 @@ mod tests {
         }
         assert_eq!(n.regions.len(), 2);
         assert!((area(&n.fill_paths()) - 5000.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn a_network_without_regions_fills_its_closed_loops_and_not_its_open_chains() {
+        let mut n = VectorNetwork::from_paths(&[rect_path(0.0, 0.0, 50.0, 50.0), rect_path(100.0, 0.0, 50.0, 50.0)]);
+        n.regions.clear();
+        // two closed loops and nothing else: both fill, one path each
+        let fills = n.fill_paths();
+        assert_eq!(fills.len(), 2);
+        assert!((area(&fills) - 5000.0).abs() < 1.0);
+        // the stroke geometry is unchanged: the loops are still the leftover chains of `to_paths`
+        assert!(n.has_stroke_only_segments());
+        // an open chain next to them has no area
+        let a = n.add_vertex(v(200.0, 0.0));
+        let b = n.add_vertex(v(260.0, 0.0));
+        let c = n.add_vertex(v(260.0, 60.0));
+        n.connect(a, b);
+        n.connect(b, c);
+        assert_eq!(n.fill_paths().len(), 2, "the open chain is not filled");
+        // once any region exists the regions alone are filled
+        let f = n.face_at(v(25.0, 25.0)).unwrap();
+        n.toggle_face(&f);
+        assert_eq!(n.fill_paths().len(), 1);
     }
 
     #[test]
