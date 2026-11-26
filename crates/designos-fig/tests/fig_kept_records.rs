@@ -496,6 +496,7 @@ fn a_no_edit_save_counts_no_entry_as_edited_and_writes_every_record_from_the_fil
     assert_eq!((r.styles_edited, r.variables_edited, r.sets_edited, r.internal_canvas_edited), (0, 0, 0, 0), "{r:?}");
     assert_eq!((r.styles_written, r.variables_written, r.sets_written, r.internal_canvas_written), (2, 1, 1, 1), "{r:?}");
     assert_eq!(r.fields_dropped(), 0, "{r:?}");
+    assert!(r.others_not_written.is_empty(), "every record of the file is written or counted: {r:?}");
     assert_eq!(r.internal_canvas_guid, Some(INTERNAL));
 }
 
@@ -529,4 +530,83 @@ fn a_deleted_text_style_of_a_large_file_is_written_with_its_stored_glyphs() {
     let (saved, saved_blobs) = (records(&saved_bytes), blobs(&saved_bytes));
     assert_record_kept(&before, &saved, DELETED_STYLE, "deleted text style");
     assert_stored_glyphs_kept(&saved, &saved_blobs, DELETED_STYLE, "deleted text style of a large file");
+}
+
+#[test]
+fn a_chain_of_forty_deleted_variables_settles_in_a_bounded_number_of_rounds_and_counts_what_is_left() {
+    let mut nodes = live_records();
+    // each aliases the next and the last aliases a variable the file does not hold: one record drops a round
+    for i in 0..40u32 {
+        let target = if i == 39 { (7, 999) } else { (7, 101 + i) };
+        nodes.push(variable((7, 100 + i), SET, &format!("Link {i}"), vec![alias_entry(LIGHT, target)], true));
+    }
+    let doc = import_fig(&file_of(nodes)).expect("imports");
+    let (saved_bytes, report) = designos_fig::export_fig_with_kept_report(&doc).expect("saves");
+    let r = &report.records;
+    assert!(r.settle_rounds <= 32 && r.settle_rounds > 0, "{r:?}");
+    assert_eq!(r.soft_deleted_written.values().sum::<usize>(), 0, "{r:?}");
+    assert_eq!(r.soft_deleted_dropped.values().sum::<usize>(), 40, "every record is counted: {r:?}");
+    assert_eq!(r.soft_deleted_dropped.get("VARIABLE: not_settled"), Some(&8), "the tail past the last round is counted as not settled: {r:?}");
+    let saved = records(&saved_bytes);
+    assert!((100..140).all(|i| find(&saved, (7, i)).is_none()), "nothing of the chain is written");
+    import_fig(&saved_bytes).expect("the saved file opens");
+}
+
+#[test]
+fn a_record_that_is_neither_written_nor_a_deleted_one_is_counted_by_type() {
+    let mut nodes = live_records();
+    // a second internal canvas, which Studio's one canvas replaces
+    nodes.push(node((8, 3), (0, 0), "~~", "CANVAS", "Second internal", vec![("internalOnly", V::Bool(true))]));
+    let doc = import_fig(&file_of(nodes)).expect("imports");
+    let (_, report) = designos_fig::export_fig_with_kept_report(&doc).expect("saves");
+    assert_eq!(report.records.others_not_written.get("CANVAS"), Some(&1), "{:?}", report.records);
+    assert_eq!(report.records.others_not_written.values().sum::<usize>(), 1, "only that record: {:?}", report.records);
+}
+
+#[test]
+fn a_style_whose_file_parent_is_a_layer_is_written_under_the_internal_canvas_and_the_refusal_is_counted() {
+    let mut nodes = live_records();
+    // the frame (2, 1) is a node of this save, but a style may sit only under the canvas this save writes
+    set_field(nodes.last_mut().expect("the text style"), "parentIndex", st(vec![("guid", guid(2, 1)), ("position", text("b"))]));
+    let doc = import_fig(&file_of(nodes)).expect("imports");
+    let (saved_bytes, report) = designos_fig::export_fig_with_kept_report(&doc).expect("saves");
+    let saved = records(&saved_bytes);
+    assert_eq!(parent_of(record_of(&saved, TEXT_STYLE)), INTERNAL);
+    assert_eq!(record_of(&saved, TEXT_STYLE).get("version"), Some(&text("1:1")), "the rest of the record is still the file's");
+    assert_eq!(report.records.fields_dropped_by_reason.get("parent_not_written"), Some(&1), "{:?}", report.records);
+}
+
+#[test]
+fn a_set_names_the_mode_ids_its_values_name_when_the_save_gives_a_mode_another_id() {
+    let mut nodes = live_records();
+    // a layer that carries the guid of the Dark mode takes it first, so the save gives the mode a fresh id
+    let mut taker = node((2, 9), (0, 1), "z", "FRAME", "Taker", vec![("size", vec2(5.0, 5.0))]);
+    set_field(&mut taker, "guid", guid(2, 9));
+    nodes.push(taker);
+    let mut doc = import_fig(&file_of(nodes)).expect("imports");
+    let taker_id = doc.nodes.values().find(|n| n.name == "Taker").expect("the layer").id;
+    doc.get_mut(taker_id).expect("the layer").source_id = Some("7:22".into());
+    let saved = saved_of(&doc);
+    let set_modes: BTreeSet<(u32, u32)> = match record_of(&saved, SET).get("variableSetModes") {
+        Some(V::Array(modes)) => modes.iter().map(|m| guid_of(&msg(vec![("guid", m.get("id").cloned().expect("a mode id"))]))).collect(),
+        other => panic!("no modes: {other:?}"),
+    };
+    let Some(V::Array(entries)) = record_of(&saved, COLOR_VAR).get("variableDataValues").and_then(|v| v.get("entries")) else { panic!("no values") };
+    let named: BTreeSet<(u32, u32)> = entries.iter().map(|e| guid_of(&msg(vec![("guid", e.get("modeID").cloned().expect("a mode id"))]))).collect();
+    assert!(named.is_subset(&set_modes), "the values name modes the set declares: values {named:?}, set {set_modes:?}");
+    assert!(!set_modes.contains(&DARK), "the mode has the id this save gave it, not the file's: {set_modes:?}");
+}
+
+#[test]
+fn a_deleted_record_comes_back_without_the_fields_a_save_never_writes_from_the_store_and_they_are_counted() {
+    let mut nodes = document_and_page();
+    nodes.push(internal_canvas());
+    let mut deleted = paint_style(DELETED_STYLE, "Old/Brand", "a", "old-key", 0.4, true);
+    set_field(&mut deleted, "pluginData", V::Array(vec![msg(vec![("pluginID", text("p")), ("key", text("k")), ("value", text("v"))])]));
+    nodes.push(deleted);
+    let doc = import_fig(&file_of(nodes)).expect("imports");
+    let (saved_bytes, report) = designos_fig::export_fig_with_kept_report(&doc).expect("saves");
+    let saved = records(&saved_bytes);
+    assert!(record_of(&saved, DELETED_STYLE).get("pluginData").is_none());
+    assert_eq!(report.records.soft_deleted_fields_not_written, 1, "{:?}", report.records);
 }

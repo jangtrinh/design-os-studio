@@ -274,6 +274,23 @@ mod tests {
     }
 
     #[test]
+    fn a_bound_variable_of_a_collection_with_two_modes_is_as_invisible_to_the_gate_as_it_is_to_the_writer() {
+        let mut doc = document_with_records();
+        doc.variable_collections.get_mut("VariableCollectionId:1:3").expect("collection").modes.push(VariableMode { id: "1:10".into(), name: "Dark".into() });
+        doc.variables.get_mut("VariableID:1:2").expect("variable").values.insert("1:10".into(), VariableValue::Color(Color::rgb(7, 8, 9)));
+        doc.style_meta.get_mut("1:1").expect("meta").bindings.insert("fills/0".into(), "VariableID:1:2".into());
+        doc.take_fig_kept_record_snapshots();
+        assert_eq!(doc.fig_kept_style_matches_snapshot("1:1"), Some(true));
+        // the writer resolves the variable at no layer, where a collection with two modes has no mode chosen: it sees no value, so a
+        // change of one is no change of what it writes, and the style is not edited by it
+        doc.variables.get_mut("VariableID:1:2").expect("variable").values.insert("1:9".into(), VariableValue::Color(Color::rgb(200, 0, 0)));
+        assert_eq!(doc.fig_kept_style_matches_snapshot("1:1"), Some(true));
+        // a binding it did not have is a change
+        doc.style_meta.get_mut("1:1").expect("meta").bindings.insert("fills/1".into(), "VariableID:1:2".into());
+        assert_eq!(doc.fig_kept_style_matches_snapshot("1:1"), Some(false));
+    }
+
+    #[test]
     fn adding_a_variable_to_a_collection_does_not_change_the_collections_own_record() {
         let mut doc = document_with_records();
         let c = doc.variable_collections.get_mut("VariableCollectionId:1:3").expect("collection");

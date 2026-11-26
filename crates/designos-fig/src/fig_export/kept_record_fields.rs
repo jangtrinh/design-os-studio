@@ -112,6 +112,8 @@ pub(super) struct Decoded {
     /// Why each field that was left out was.
     pub(super) refused: Vec<&'static str>,
     pub(super) values_dropped: usize,
+    /// Fields a save never writes from the store, left out without being refused.
+    pub(super) not_written: usize,
 }
 
 /// Decodes the kept fields of `rec` against `maps`, leaving out the record's own guid. `modes` names the modes a variable's values
@@ -139,7 +141,7 @@ pub(super) fn decode_kept(cx: &mut ExportCtx<'_>, maps: &IdMaps, nums: &Numbers,
                 out.values_dropped += dropped;
                 out.fields.push((name, value));
             }
-            Ok(None) => {}
+            Ok(None) => out.not_written += 1,
             Err(reason) => out.refused.push(reason),
         }
     }

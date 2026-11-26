@@ -12,8 +12,10 @@
 //! and counted.
 //!
 //! Records Studio has no entry for are written too, when Figma marked them deleted and every id they name is written in this
-//! save: a deleted style, a deleted variable nobody uses. They come back as the file had them, so a reopen reads them as the first
-//! open did. A record that names an id this save does not write is left out and counted by type.
+//! save: a deleted style, a deleted variable nobody uses. They come back as the file had them but for the fields a save never writes
+//! from the store (a plugin's data, a cache of the record), which are counted, so a reopen reads them as the first open did. A record
+//! that names an id this save does not write is left out and counted by type, and so is every other record of the file that this save
+//! leaves out.
 //!
 //! The internal canvas the records sit on is written under the guid the file gave it, so the layers and records below it keep their
 //! parent.
@@ -61,6 +63,14 @@ pub struct RecordsKeptReport {
     pub soft_deleted_written: BTreeMap<String, usize>,
     /// Records Studio has no entry for that were left out, by type and reason.
     pub soft_deleted_dropped: BTreeMap<String, usize>,
+    /// How many rounds the pass for deleted records ran (at most 32).
+    pub settle_rounds: usize,
+    /// Kept fields of a deleted record that a save never writes from the store (a plugin's data, a cache of the record), so the record
+    /// comes back without them.
+    pub soft_deleted_fields_not_written: usize,
+    /// Records of the file that this save neither writes nor brings back as deleted ones, by type: a second internal canvas, a
+    /// variable override, a record the importer reads as deleted by its phase, and any entry the user removed.
+    pub others_not_written: BTreeMap<String, usize>,
     /// The first entries found edited, to tell an entry a person edited from one the open itself changed.
     pub edited_sample: Vec<String>,
 }
@@ -95,10 +105,11 @@ pub(super) struct RecordsState {
 }
 
 impl ExportCtx<'_> {
-    /// Whether `g` is the guid of a record this save writes that a record that is not a layer may sit under: the document, the
-    /// internal canvas, or a page or layer.
+    /// Whether `g` is the guid of a record this save writes that a record that is not a layer may sit under: the document, or the
+    /// internal canvas. No other node will do: the styles, variables and sets of the file sit on the internal canvas, and a guid that a
+    /// layer holds is not that canvas.
     pub(super) fn record_parent_is_written(&mut self, g: (u32, u32)) -> bool {
-        g == (0, 0) || self.records.internal_guid == Some(g) || self.node_with_guid(g).is_some()
+        g == (0, 0) || self.records.internal_guid == Some(g)
     }
 }
 

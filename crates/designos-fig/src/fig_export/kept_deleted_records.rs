@@ -93,6 +93,10 @@ fn add_to_maps(cx: &ExportCtx<'_>, nums: &Numbers, maps: &mut IdMaps, rec: KeptR
 }
 
 /// The set a deleted variable's record names.
+/// The most rounds the pass for deleted records runs: a chain of records each naming the next drops one record a round, so a file
+/// could make the pass quadratic. Records still alive when the rounds are spent are left out and counted as not settled.
+pub(super) const MAX_SETTLE_ROUNDS: usize = 32;
+
 fn set_named_by(cx: &ExportCtx<'_>, nums: &Numbers, rec: KeptRecordRef<'_>) -> Option<(u32, u32)> {
     let (no, bytes) = rec.fields().find(|(no, _)| Some(*no) == nums.variable_set_id)?;
     let (_, value) = cx.kept.decode_unchecked(cx.schema, cx.nc_def, no, bytes)?;
@@ -117,6 +121,10 @@ fn plan_soft_deleted(cx: &mut ExportCtx<'_>, nums: &Numbers, claimed: &HashSet<(
         let shape = shape_of(cx, nums, rec);
         if is_soft_deleted_record(&shape) {
             alive.push((rec, shape));
+        } else if rec.guid() != (0, 0) && Some(rec.guid()) != cx.records.internal_guid {
+            // not written by an entry of this save, and not one the file deleted: a second internal canvas, a variable override, a
+            // record the importer reads as deleted by its phase, an entry the user removed
+            *cx.kept.report.records.others_not_written.entry(shape.label()).or_insert(0) += 1;
         }
     }
     if alive.is_empty() {
@@ -124,6 +132,7 @@ fn plan_soft_deleted(cx: &mut ExportCtx<'_>, nums: &Numbers, claimed: &HashSet<(
     }
     let base = id_maps(cx);
     loop {
+        cx.kept.report.records.settle_rounds += 1;
         let mut maps = (*base).clone();
         for (rec, shape) in &alive {
             add_to_maps(cx, nums, &mut maps, *rec, shape);
@@ -135,6 +144,7 @@ fn plan_soft_deleted(cx: &mut ExportCtx<'_>, nums: &Numbers, claimed: &HashSet<(
         let mut failed: Vec<usize> = Vec::new();
         let mut reasons: Vec<&'static str> = Vec::new();
         let mut values_dropped = 0usize;
+        let mut not_written = 0usize;
         for (i, (rec, shape)) in alive.iter().enumerate() {
             let modes = (shape.ty == "VARIABLE").then(|| set_named_by(cx, nums, *rec).map(|s| modes_for_variable(cx, &maps, s)).unwrap_or_default());
             let d = decode_kept(cx, &maps, nums, *rec, modes.as_ref());
@@ -145,6 +155,7 @@ fn plan_soft_deleted(cx: &mut ExportCtx<'_>, nums: &Numbers, claimed: &HashSet<(
                 }
                 None => {
                     values_dropped += d.values_dropped;
+                    not_written += d.not_written;
                     let g = rec.guid();
                     let mut fields: Vec<(Arc<str>, V)> = Vec::with_capacity(d.fields.len() + 1);
                     fields.push(("guid".into(), guid(g.0, g.1)));
@@ -156,6 +167,7 @@ fn plan_soft_deleted(cx: &mut ExportCtx<'_>, nums: &Numbers, claimed: &HashSet<(
         if failed.is_empty() {
             let report = &mut cx.kept.report.records;
             report.variable_values_dropped_mode_gone += values_dropped;
+            report.soft_deleted_fields_not_written += not_written;
             for (_, shape) in &alive {
                 *report.soft_deleted_written.entry(shape.label()).or_insert(0) += 1;
             }
@@ -166,6 +178,14 @@ fn plan_soft_deleted(cx: &mut ExportCtx<'_>, nums: &Numbers, claimed: &HashSet<(
         let report = &mut cx.kept.report.records;
         for (&i, reason) in failed.iter().zip(&reasons) {
             *report.soft_deleted_dropped.entry(format!("{}: {reason}", alive[i].1.label())).or_insert(0) += 1;
+        }
+        if report.settle_rounds >= MAX_SETTLE_ROUNDS {
+            // the rounds are spent and records are still being dropped: what is left is not known to be sound
+            let gone: HashSet<usize> = failed.into_iter().collect();
+            for (_, shape) in alive.iter().enumerate().filter(|(i, _)| !gone.contains(i)).map(|(_, a)| a) {
+                *report.soft_deleted_dropped.entry(format!("{}: not_settled", shape.label())).or_insert(0) += 1;
+            }
+            return Vec::new();
         }
         let gone: HashSet<usize> = failed.into_iter().collect();
         let mut i = 0;

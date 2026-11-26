@@ -5256,9 +5256,6 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
     }
 }
 
-/// Style values that the file states on the style node (`.fig` imports put them in the `styles`
-/// map): the node's values replace the copy seeded from the first consumer, and a style no node
-/// uses is kept too. REST JSON carries no values there, so it is left as seeded.
 /// The hidden library page stands for the file's internal-only canvases. The first one is the canvas a `.fig` save writes the
 /// styles, variables and library components under, so its guid is kept as the page's source id: a save then writes the records
 /// below it under the parent the file gave them. A later canvas (a file can hold several) leaves the page as it is.
@@ -5269,6 +5266,9 @@ fn note_internal_canvas_guid(doc: &mut Document, lib: NodeId, canvas_id: Option<
     }
 }
 
+/// Style values that the file states on the style node (`.fig` imports put them in the `styles`
+/// map): the node's values replace the copy seeded from the first consumer, and a style no node
+/// uses is kept too. REST JSON carries no values there, so it is left as seeded.
 fn apply_style_node_values(doc: &mut Document, styles: Option<&Value>) {
     let Some(map) = styles.and_then(Value::as_object) else { return };
     for (id, m) in map {

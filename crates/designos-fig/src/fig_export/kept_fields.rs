@@ -605,15 +605,15 @@ fn classify(path: &[Arc<str>]) -> Option<IdKind> {
         | ["hyperlink", "guid"]
         | ["detachedSymbolId", "guid"]
         | ["connectorStart" | "connectorEnd", "endpointNodeID"] => Some(IdKind::Node),
-        ["variableSetModes", "#", "id"]
-        | ["gridColumnsSizing" | "gridRowsSizing" | "gridColumns" | "gridRows", "entries", "#", "id"]
+        ["gridColumnsSizing" | "gridRowsSizing" | "gridColumns" | "gridRows", "entries", "#", "id"]
         | ["gridColumnAnchor" | "gridRowAnchor" | "publishID"]
         | ["annotationCategories", "items", "#", "id"]
         // the layers an ancestor path remembers were deleted: the field says what was there, and nothing is meant to resolve it
         | ["ancestorPathBeforeDeletion", "#"] => Some(IdKind::Definition),
         // what a style, a variable and a variable set name: their parent, the mode a value is for, the set a mode extends
         ["parentIndex", "guid"] => Some(IdKind::Parent),
-        ["variableDataValues", "entries", "#", "modeID"] | ["variableSetModes", "#", "parentModeId"] => Some(IdKind::Mode),
+        // a set declares its modes by the same ids the values that name them are written with
+        ["variableDataValues", "entries", "#", "modeID"] | ["variableSetModes", "#", "id" | "parentModeId"] => Some(IdKind::Mode),
         ["variableSetModes", "#", "parentVariableSetId", "guid"] => Some(IdKind::VariableSet),
         _ => None,
     }
