@@ -23,7 +23,6 @@ use std::sync::Arc;
 /// - The override key: Studio's writer gives it from the record (see [`kept_override_key`]), edited layer or not.
 /// - What an instance carries (its overrides and the data Figma derived for it): it is gated on the instance's content and on
 ///   the component it names, not on the instance alone.
-/// - Outlines and vector networks, which name blobs and which Studio re-encodes.
 /// - Prototype interactions, which name other layers and have no writer.
 /// - What Studio writes from outside the layer: guides (kept in the document), plugin data (which also carries the in-progress
 ///   badge and Studio's own carrier entries), the effect style link of an instance (written from the main's link and the style's
@@ -35,9 +34,6 @@ use std::sync::Arc;
 pub(crate) const NOT_WRITTEN_FROM_THE_STORE: &[&str] = &[
     "overrideKey",
     "symbolData",
-    "fillGeometry",
-    "strokeGeometry",
-    "vectorData",
     "prototypeInteractions",
     "scrollBehavior",
     "guides",
@@ -54,6 +50,32 @@ pub(crate) const NOT_WRITTEN_FROM_THE_STORE: &[&str] = &[
     "gridColumnsSizing",
     "gridRowsSizing",
 ];
+
+/// One layer's stored outline or its vector network. A layer written from the store has them exactly as the file had them: the
+/// ones the record holds are Figma's, and the ones it does not hold are not written, so a reopen reads the layer as the open did
+/// (an outline Studio worked out for a layer the file stored none for would be read back as the file's own).
+///
+/// Studio's own version of one of these is not worked out for a layer written from the store until [`apply`] has said whether the
+/// store wrote the field: it is only needed when the file's field was refused, and its blobs are then the only ones in the table.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Outline {
+    Fill,
+    Stroke,
+    Network,
+}
+
+impl Outline {
+    pub(crate) const ALL: [Outline; 3] = [Outline::Fill, Outline::Stroke, Outline::Network];
+
+    /// The `NodeChange` field that holds it.
+    pub(crate) fn field(self) -> &'static str {
+        match self {
+            Outline::Fill => "fillGeometry",
+            Outline::Stroke => "strokeGeometry",
+            Outline::Network => "vectorData",
+        }
+    }
+}
 
 /// Whether a field named `name` is written from the store.
 fn is_written_from_the_store(name: &str) -> bool {
@@ -90,6 +112,10 @@ pub struct KeptWriteReport {
     pub fields_dropped_by_reason: BTreeMap<&'static str, usize>,
     /// Layers written from the store with no kept field left out.
     pub records_written: usize,
+    /// Fields Studio had worked out for a layer written from the store that its record does not hold and that would contradict
+    /// what the store wrote (an outline or network the file stored none of; the node radius of a vector whose network the file
+    /// stored without one): not written.
+    pub studio_fields_not_in_the_file: usize,
     /// The first edited layers, to tell a layer a person edited from one the open itself changed.
     pub edited_sample: Vec<NodeId>,
     /// Where a field was refused for a guid or an image hash at a place the closed list does not name: the field and the path
@@ -150,6 +176,8 @@ pub(crate) struct KeptState {
     maps: Option<Arc<IdMaps>>,
     /// The file's blob number -> the number it has in this save.
     blobs: HashMap<u32, u32>,
+    /// The file's blob numbers added to the table since the field being decoded began, to take them out again if it is refused.
+    blobs_added: Vec<u32>,
     /// The field number of `overrideKey` in the file's schema.
     override_key_no: Option<u32>,
     /// The layer whose kept fields are being written.
@@ -328,6 +356,11 @@ pub(super) fn begin_layer(cx: &mut ExportCtx<'_>) {
     cx.kept.pending = [0; 5];
 }
 
+/// Counts a field Studio worked out for a layer written from the store that the file does not hold and that is therefore left out.
+pub(crate) fn count_studio_field_left_out(cx: &mut ExportCtx<'_>) {
+    cx.kept.report.studio_fields_not_in_the_file += 1;
+}
+
 /// Adds what Studio wrote for the layer to the report, except what the store then replaced: a reference Studio could not resolve
 /// by name is only counted when it is the one that ends up in the file.
 pub(super) fn fold_unresolved(cx: &mut ExportCtx<'_>, applied: Option<&Applied>) {
@@ -347,25 +380,47 @@ pub(super) fn fold_unresolved(cx: &mut ExportCtx<'_>, applied: Option<&Applied>)
 }
 
 /// What [`apply`] did that the rest of the node's record depends on.
+#[derive(Default)]
 pub(crate) struct Applied {
     /// Which of the counted kinds of reference the store wrote the field of (index: the `UNRESOLVED_*` and `PENDING_*` constants).
     pub(super) replaced: [bool; 5],
     /// The kept `textData` is written, so the glyph style ids Figma stored are the ones its rows use.
     pub(crate) text_data: bool,
+    /// Which outlines the record holds, and which of them the store wrote (indexed like [`Outline::ALL`]). One the record holds
+    /// and the store did not write was refused, and Studio's own stands in for it.
+    pub(crate) outline_in_record: [bool; Outline::ALL.len()],
+    pub(crate) outline_from_store: [bool; Outline::ALL.len()],
+}
+
+impl Applied {
+    pub(crate) fn outline_in_record(&self, o: Outline) -> bool {
+        self.outline_in_record[o as usize]
+    }
+
+    pub(crate) fn outline_from_store(&self, o: Outline) -> bool {
+        self.outline_from_store[o as usize]
+    }
 }
 
 /// Writes the kept fields of `rec` into `fields`, each in place of the field of the same name Studio wrote.
 pub(crate) fn apply(cx: &mut ExportCtx<'_>, id: NodeId, rec: KeptRecordRef<'_>, fields: &mut Vec<(Arc<str>, V)>) -> Applied {
     cx.kept.scope = Some(id);
-    let Some(plan) = cx.kept.plan.clone() else { return Applied { text_data: false, replaced: [false; 5] } };
-    let mut applied = Applied { text_data: false, replaced: [false; 5] };
+    let Some(plan) = cx.kept.plan.clone() else { return Applied::default() };
+    let mut applied = Applied::default();
     let (mut written_here, mut dropped_here) = (0usize, 0usize);
+    let mut holds_corner_radius = false;
+    let mut network_written = false;
     for (no, bytes) in rec.fields() {
         let Some(fp) = plan.fields.get(&no) else {
             cx.kept.report.drop_field("field_unknown_to_the_schema");
             dropped_here += 1;
             continue;
         };
+        let outline = Outline::ALL.into_iter().find(|o| o.field() == &*fp.name);
+        if let Some(o) = outline {
+            applied.outline_in_record[o as usize] = true;
+        }
+        holds_corner_radius |= &*fp.name == "cornerRadius";
         if !fp.written {
             continue;
         }
@@ -391,6 +446,10 @@ pub(crate) fn apply(cx: &mut ExportCtx<'_>, id: NodeId, rec: KeptRecordRef<'_>, 
             Some(slot) => slot.1 = value,
             None => fields.push((fp.name.clone(), value)),
         }
+        if let Some(o) = outline {
+            applied.outline_from_store[o as usize] = true;
+        }
+        network_written |= &*fp.name == "vectorData";
         if &*fp.name == "textData" {
             applied.text_data = true;
         }
@@ -404,6 +463,13 @@ pub(crate) fn apply(cx: &mut ExportCtx<'_>, id: NodeId, rec: KeptRecordRef<'_>, 
         cx.kept.report.fields_written += 1;
         written_here += 1;
     }
+    // The vertices of a network read back under the `cornerRadius` the record carries, and the file's network was stored under the
+    // one the file carried (none, for a layer rounded by per-corner radii alone): Studio's own `cornerRadius` of such a layer
+    // would round every vertex the table does not name.
+    if network_written && !holds_corner_radius && fields.iter().any(|(k, _)| &**k == "cornerRadius") {
+        fields.retain(|(k, _)| &**k != "cornerRadius");
+        cx.kept.report.studio_fields_not_in_the_file += 1;
+    }
     if written_here > 0 {
         cx.kept.report.nodes_written += 1;
         if dropped_here == 0 {
@@ -415,7 +481,22 @@ pub(crate) fn apply(cx: &mut ExportCtx<'_>, id: NodeId, rec: KeptRecordRef<'_>, 
     applied
 }
 
+/// The kept field `no` decoded, with its ids and blob numbers mapped into this save. A field that is refused leaves no blob in the
+/// table: the ones it had added before the refusal are taken out again.
 fn decoded(cx: &mut ExportCtx<'_>, plan: &Plan, no: u32, bytes: &[u8]) -> Result<V, &'static str> {
+    let table_len = cx.blobs.len();
+    cx.kept.blobs_added.clear();
+    let value = decoded_into_this_save(cx, plan, no, bytes);
+    if value.is_err() {
+        for old in std::mem::take(&mut cx.kept.blobs_added) {
+            cx.kept.blobs.remove(&old);
+        }
+        cx.blobs.truncate(table_len);
+    }
+    value
+}
+
+fn decoded_into_this_save(cx: &mut ExportCtx<'_>, plan: &Plan, no: u32, bytes: &[u8]) -> Result<V, &'static str> {
     let (name, mut value) = cx.schema.decode_field_value_prepared(cx.nc_def, no, bytes, &plan.zero_wire).map_err(|_| "decode_refused")?;
     let maps = id_maps(cx);
     let mut path = vec![name.clone()];
@@ -653,6 +734,7 @@ fn add_kept_blob(cx: &mut ExportCtx<'_>, old: u32) -> Option<u32> {
     let bytes = cx.doc.fig_kept.blob(old as usize)?.to_vec();
     let slot = cx.add_blob(bytes);
     cx.kept.blobs.insert(old, slot);
+    cx.kept.blobs_added.push(old);
     Some(slot)
 }
 

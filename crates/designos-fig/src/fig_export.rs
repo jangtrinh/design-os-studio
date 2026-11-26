@@ -23,6 +23,7 @@ mod kept_overrides;
 mod prop_ids;
 pub(crate) use carrier::{CARRIED_FIELDS, CARRIER_KEY_PREFIX};
 pub use kept_fields::KeptWriteReport;
+use kept_fields::Outline;
 
 /// Plugin id under which Studio keeps node data that has no field in Figma's NodeChange schema. It travels
 /// as ordinary `pluginData` entries, which Figma keeps for any plugin id and ignores when it does not know the
@@ -2361,30 +2362,13 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         }
     }
 
-    // Geometry blobs.
-    if !matches!(node.kind, NodeKind::Text(_)) {
-        // A vector's own `paths` go out as its fill outline unless they are the stored stroke outline. They are
-        // written anyway when that outline is stale and there is no vector network to rebuild the shape from, or the
-        // reopened layer would have no geometry at all.
-        let fill_paths = node.fill_geometry.as_ref().or(match &node.kind {
-            NodeKind::Vector { paths, network } if !paths.is_empty() => {
-                let is_stored_outline = node.stroke_geometry.as_ref() == Some(paths);
-                let shape_needs_paths = network.as_ref().is_none_or(|net| net.vertices.is_empty()) && node.live_stroke_outline().is_none();
-                (!is_stored_outline || shape_needs_paths).then_some(paths)
-            }
-            _ => None,
-        });
-        if let Some(paths) = fill_paths {
-            let fgs = encode_geometry_blobs(cx, paths);
-            if !fgs.is_empty() {
-                fields.push(("fillGeometry", V::Array(fgs)));
-            }
-        }
-        // Only an outline that still matches the layer's size and stroke: a stale one would be read back as its stroke.
-        if let Some(paths) = node.live_stroke_outline() {
-            let sgs = encode_geometry_blobs(cx, paths);
-            if !sgs.is_empty() {
-                fields.push(("strokeGeometry", V::Array(sgs)));
+    // Geometry blobs. A layer written from the store has Studio's own outlines worked out only if the store refuses the file's (see
+    // `Outline`), after `apply`.
+    let defer_outline = kept_record.is_some() && cx.kept.is_active();
+    if !defer_outline {
+        for which in [Outline::Fill, Outline::Stroke] {
+            if let Some(v) = studio_outline_field(cx, kept_record, &node, which) {
+                fields.push((which.field(), v));
             }
         }
     }
@@ -2440,13 +2424,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             }
         }
         NodeKind::Vector { network: Some(net), .. } if !net.vertices.is_empty() => {
-            let (blob_bytes, style_table) = encode_vector_network_blob(net, carried_corner_radius(cx, kept_record, &node));
-            let blob_idx = cx.add_blob(blob_bytes);
-            let mut vd = vec![("vectorNetworkBlob", V::Uint(blob_idx)), ("normalizedSize", vec2(node.size.x, node.size.y))];
-            if !style_table.is_empty() {
-                vd.push(("styleOverrideTable", V::Array(style_table)));
+            if !defer_outline {
+                if let Some(v) = studio_outline_field(cx, kept_record, &node, Outline::Network) {
+                    fields.push((Outline::Network.field(), v));
+                }
             }
-            fields.push(("vectorData", msg(vd)));
         }
         NodeKind::Text(tp) => {
             let link = node.style_refs.contains_key("text").then_some(node.text_style_overrides);
@@ -2676,6 +2658,21 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     // export's table before writing derived text. An edited text layer must not export its stale glyph cache.
     // Only a layer that carries derived text pays for a copy of its metadata.
     let applied = kept_record.map(|rec| kept_fields::apply(cx, id, rec, &mut msg_fields));
+    if let Some(a) = applied.as_ref().filter(|_| defer_outline) {
+        for which in Outline::ALL {
+            if a.outline_from_store(which) || !studio_writes_outline(&node, which) {
+                continue;
+            }
+            if a.outline_in_record(which) {
+                // the file's field was refused: Studio's own stands in for it
+                if let Some(v) = studio_outline_field(cx, kept_record, &node, which) {
+                    msg_fields.push((which.field().into(), v));
+                }
+            } else {
+                kept_fields::count_studio_field_left_out(cx);
+            }
+        }
+    }
     kept_fields::fold_unresolved(cx, applied.as_ref());
     let figma_style_ids = applied.as_ref().is_some_and(|a| a.text_data);
     let derived_text_meta =
@@ -3800,6 +3797,55 @@ fn bound_prop_variable_of<'a>(node: &'a Node, prop_name: &str) -> Option<&'a str
 
 fn alias_var_data(vg: (u32, u32)) -> V {
     msg(vec![("dataType", en("ALIAS")), ("value", msg(vec![("alias", msg(vec![("guid", guid(vg.0, vg.1))]))]))])
+}
+
+/// The outline paths Studio writes for the layer in `which` (a vector's own `paths` go out as its fill outline unless they are the
+/// stored stroke outline; they are written anyway when that outline is stale and there is no vector network to rebuild the shape
+/// from, or the reopened layer would have no geometry at all). A stroke outline only goes out while it still matches the layer's
+/// size and stroke: a stale one would be read back as its stroke.
+fn studio_outline_paths(node: &Node, which: Outline) -> Option<&[Path]> {
+    if matches!(node.kind, NodeKind::Text(_)) {
+        return None;
+    }
+    let paths = match which {
+        Outline::Fill => node.fill_geometry.as_deref().or(match &node.kind {
+            NodeKind::Vector { paths, network } if !paths.is_empty() => {
+                let is_stored_outline = node.stroke_geometry.as_ref() == Some(paths);
+                let shape_needs_paths = network.as_ref().is_none_or(|net| net.vertices.is_empty()) && node.live_stroke_outline().is_none();
+                (!is_stored_outline || shape_needs_paths).then_some(paths.as_slice())
+            }
+            _ => None,
+        }),
+        Outline::Stroke => node.live_stroke_outline(),
+        Outline::Network => None,
+    };
+    paths.filter(|p| !p.is_empty())
+}
+
+/// Whether Studio has an outline or network of its own to write for the layer in `which`.
+fn studio_writes_outline(node: &Node, which: Outline) -> bool {
+    match which {
+        Outline::Network => matches!(&node.kind, NodeKind::Vector { network: Some(net), .. } if !net.vertices.is_empty()),
+        _ => studio_outline_paths(node, which).is_some(),
+    }
+}
+
+/// Studio's own value of the field `which` names, its blobs added to the table of this save; `None` if it has none.
+fn studio_outline_field(cx: &mut ExportCtx, kept: Option<KeptRecordRef<'_>>, node: &Node, which: Outline) -> Option<V> {
+    if which == Outline::Network {
+        let NodeKind::Vector { network: Some(net), .. } = &node.kind else { return None };
+        if net.vertices.is_empty() {
+            return None;
+        }
+        let (blob_bytes, style_table) = encode_vector_network_blob(net, carried_corner_radius(cx, kept, node));
+        let blob_idx = cx.add_blob(blob_bytes);
+        let mut vd = vec![("vectorNetworkBlob", V::Uint(blob_idx)), ("normalizedSize", vec2(node.size.x, node.size.y))];
+        if !style_table.is_empty() {
+            vd.push(("styleOverrideTable", V::Array(style_table)));
+        }
+        return Some(msg(vd));
+    }
+    studio_outline_paths(node, which).map(|paths| V::Array(encode_geometry_blobs(cx, paths)))
 }
 
 fn encode_geometry_blobs(cx: &mut ExportCtx, paths: &[Path]) -> Vec<V> {
