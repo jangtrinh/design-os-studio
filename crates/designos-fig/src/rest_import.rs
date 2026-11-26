@@ -1186,6 +1186,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         let lib = ensure_library_page(&mut cx.doc);
         let info = ParentInfo { origin: Vec2::ZERO, layout: None };
         for mut p in library_pages {
+            note_internal_canvas_guid(&mut cx.doc, lib, p.get("id").and_then(Value::as_str));
             let children: Vec<Value> = p.get_mut("children").and_then(Value::as_array_mut).map(std::mem::take).unwrap_or_default();
             drop(p);
             for c in children {
@@ -1356,6 +1357,7 @@ pub(crate) fn import_rest_value_with_text_wires<'a>(
         let lib = ensure_library_page(&mut cx.doc);
         let info = ParentInfo { origin: Vec2::ZERO, layout: None };
         for p in library_pages {
+            note_internal_canvas_guid(&mut cx.doc, lib, p.get("id").and_then(Value::as_str));
             for c in farr(p, "children") {
                 cx.import_node(c, lib, info, 0);
             }
@@ -5251,6 +5253,16 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
 
     fn shared_map_entry_count(&self) -> usize {
         self.ids.len() + self.overrides.len() + self.override_keys.len() + self.path_cache.len() + self.blob_cache.len()
+    }
+}
+
+/// The hidden library page stands for the file's internal-only canvases. The first one is the canvas a `.fig` save writes the
+/// styles, variables and library components under, so its guid is kept as the page's source id: a save then writes the records
+/// below it under the parent the file gave them. A later canvas (a file can hold several) leaves the page as it is.
+fn note_internal_canvas_guid(doc: &mut Document, lib: NodeId, canvas_id: Option<&str>) {
+    let Some(id) = canvas_id.filter(|id| !id.is_empty()) else { return };
+    if let Some(page) = doc.get_mut(lib).filter(|page| page.source_id.is_none()) {
+        page.source_id = Some(id.to_string());
     }
 }
 

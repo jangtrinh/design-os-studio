@@ -357,6 +357,7 @@ impl Document {
         }
         let nodes = snapshot_nodes(&wanted);
         self.fig_kept = Arc::new(store.with_nodes(nodes));
+        self.take_fig_kept_record_snapshots();
     }
 
     /// Whether node `id` now sits under another parent than the file put it under: `Some(true)` for a moved layer, `Some(false)`

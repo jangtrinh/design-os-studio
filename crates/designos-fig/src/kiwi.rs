@@ -810,11 +810,16 @@ impl Schema {
                 }
             }
             if skip_heavy && &*f.name == "derivedTextData" {
-                // never kept as a range: the stored glyphs have a place of their own
-                if let (Some(s), Some(at)) = (spans.as_deref_mut(), span_at) {
-                    s.truncate(at);
+                // The stored glyphs of a text have a place of their own, so a layer keeps no range for them (the capture leaves the
+                // field out of a layer's record). A record that is no layer, a text style, has no other place: its range stays when
+                // the glyphs were kept, which charged the caps for them already, and goes when they were not.
+                let kept = self.keep_stored_glyphs(f, r, depth, &out)?;
+                if kept.is_none() {
+                    if let (Some(s), Some(at)) = (spans.as_deref_mut(), span_at) {
+                        s.truncate(at);
+                    }
                 }
-                if let Some(kept) = self.keep_stored_glyphs(f, r, depth, &out)? {
+                if let Some(kept) = kept {
                     out.push((f.name.clone(), kept));
                 }
                 continue;

@@ -121,6 +121,9 @@ pub struct KeptWriteReport {
     /// Where a field was refused for a guid or an image hash at a place the closed list does not name: the field and the path
     /// below it (array positions as `#`), and how often. A new path here is a field Figma added and nothing classifies.
     pub unlisted_paths: BTreeMap<String, usize>,
+    /// What the save wrote from the records that are not layers: styles, variables, variable sets and the records Studio never
+    /// models.
+    pub records: super::kept_records::RecordsKeptReport,
 }
 
 /// The paths [`KeptWriteReport::unlisted_paths`] keeps apart; a hostile file cannot grow the report past this.
@@ -159,14 +162,14 @@ struct Plan {
 }
 
 /// The ids this save writes, by the id the file used.
-#[derive(Default)]
-struct IdMaps {
-    vars: HashMap<(u32, u32), (u32, u32)>,
-    sets: HashMap<(u32, u32), (u32, u32)>,
-    modes: HashMap<(u32, u32), (u32, u32)>,
-    styles: HashMap<(u32, u32), (u32, u32)>,
+#[derive(Clone, Default)]
+pub(super) struct IdMaps {
+    pub(super) vars: HashMap<(u32, u32), (u32, u32)>,
+    pub(super) sets: HashMap<(u32, u32), (u32, u32)>,
+    pub(super) modes: HashMap<(u32, u32), (u32, u32)>,
+    pub(super) styles: HashMap<(u32, u32), (u32, u32)>,
     /// The written modes of each written variable set.
-    modes_of_set: HashMap<(u32, u32), HashSet<(u32, u32)>>,
+    pub(super) modes_of_set: HashMap<(u32, u32), HashSet<(u32, u32)>>,
 }
 
 /// The save's state for the store.
@@ -175,7 +178,7 @@ pub(crate) struct KeptState {
     plan: Option<Arc<Plan>>,
     maps: Option<Arc<IdMaps>>,
     /// The file's blob number -> the number it has in this save.
-    blobs: HashMap<u32, u32>,
+    pub(super) blobs: HashMap<u32, u32>,
     /// The file's blob numbers added to the table since the field being decoded began, to take them out again if it is refused.
     blobs_added: Vec<u32>,
     /// The field number of `overrideKey` in the file's schema.
@@ -497,14 +500,60 @@ fn decoded(cx: &mut ExportCtx<'_>, plan: &Plan, no: u32, bytes: &[u8]) -> Result
 }
 
 fn decoded_into_this_save(cx: &mut ExportCtx<'_>, plan: &Plan, no: u32, bytes: &[u8]) -> Result<V, &'static str> {
-    let (name, mut value) = cx.schema.decode_field_value_prepared(cx.nc_def, no, bytes, &plan.zero_wire).map_err(|_| "decode_refused")?;
     let maps = id_maps(cx);
+    decode_against(cx, plan, &maps, no, bytes, &mut |_, _| {}).map(|(_, value)| value)
+}
+
+/// Decodes kept field `no` and checks its ids against `maps`. `prefilter` sees the decoded value before the check, to take out the
+/// parts of it that are not meant to be checked (the entries of a variable's values that name a mode its set no longer has).
+fn decode_against(
+    cx: &mut ExportCtx<'_>,
+    plan: &Plan,
+    maps: &IdMaps,
+    no: u32,
+    bytes: &[u8],
+    prefilter: &mut dyn FnMut(&str, &mut V),
+) -> Result<(Arc<str>, V), &'static str> {
+    let (name, mut value) = cx.schema.decode_field_value_prepared(cx.nc_def, no, bytes, &plan.zero_wire).map_err(|_| "decode_refused")?;
+    prefilter(&name, &mut value);
     let mut path = vec![name.clone()];
-    walk(cx, &maps, &mut value, &mut path)?;
-    if &*name == "variableModeBySetMap" && !modes_belong_to_their_sets(&maps, &value) {
+    walk(cx, maps, &mut value, &mut path)?;
+    if &*name == "variableModeBySetMap" && !modes_belong_to_their_sets(maps, &value) {
         return Err("mode_not_in_its_variable_set");
     }
-    Ok(value)
+    Ok((name, value))
+}
+
+/// One kept field of a record that is not a layer (a style, a variable, a variable set, a page), checked against `maps` and with its
+/// blobs added to this save's table: `Ok(None)` for a field a save never writes from the store, `Err` with the reason for a field that
+/// cannot be written (its blobs are taken out of the table again). The stored glyphs of a text style (`derivedTextData`) are written:
+/// they are a cache of the style, which the style's own snapshot guards, and no layer's glyph rule applies to a record that is no
+/// layer. The open keeps their range for a record that is no layer (a layer's glyphs have a place of their own).
+pub(super) fn decode_record_field(
+    cx: &mut ExportCtx<'_>,
+    maps: &IdMaps,
+    no: u32,
+    bytes: &[u8],
+    prefilter: &mut dyn FnMut(&str, &mut V),
+) -> Result<Option<(Arc<str>, V)>, &'static str> {
+    let Some(plan) = cx.kept.plan.clone() else { return Ok(None) };
+    let Some(fp) = plan.fields.get(&no) else { return Err("field_unknown_to_the_schema") };
+    if !fp.written && &*fp.name != "derivedTextData" {
+        return Ok(None);
+    }
+    if !fp.decode {
+        return Ok(Some((fp.name.clone(), V::Raw(bytes.to_vec()))));
+    }
+    let table_len = cx.blobs.len();
+    cx.kept.blobs_added.clear();
+    let out = decode_against(cx, &plan, maps, no, bytes, prefilter);
+    if out.is_err() {
+        for old in std::mem::take(&mut cx.kept.blobs_added) {
+            cx.kept.blobs.remove(&old);
+        }
+        cx.blobs.truncate(table_len);
+    }
+    out.map(Some)
 }
 
 /// What a guid at some path of a kept field refers to.
@@ -519,6 +568,8 @@ enum IdKind {
     PropDef,
     /// An id the record defines or remembers, not one that points at something that has to exist.
     Definition,
+    /// The parent of a record that is not a layer: the document, a page or the internal canvas this save writes.
+    Parent,
 }
 
 /// The closed list of places a guid sits in the fields this save writes from the store. A guid anywhere else is not written:
@@ -554,12 +605,16 @@ fn classify(path: &[Arc<str>]) -> Option<IdKind> {
         | ["hyperlink", "guid"]
         | ["detachedSymbolId", "guid"]
         | ["connectorStart" | "connectorEnd", "endpointNodeID"] => Some(IdKind::Node),
-        ["variableSetModes", "#", "id"]
-        | ["gridColumnsSizing" | "gridRowsSizing" | "gridColumns" | "gridRows", "entries", "#", "id"]
+        ["gridColumnsSizing" | "gridRowsSizing" | "gridColumns" | "gridRows", "entries", "#", "id"]
         | ["gridColumnAnchor" | "gridRowAnchor" | "publishID"]
         | ["annotationCategories", "items", "#", "id"]
         // the layers an ancestor path remembers were deleted: the field says what was there, and nothing is meant to resolve it
         | ["ancestorPathBeforeDeletion", "#"] => Some(IdKind::Definition),
+        // what a style, a variable and a variable set name: their parent, the mode a value is for, the set a mode extends
+        ["parentIndex", "guid"] => Some(IdKind::Parent),
+        // a set declares its modes by the same ids the values that name them are written with
+        ["variableDataValues", "entries", "#", "modeID"] | ["variableSetModes", "#", "id" | "parentModeId"] => Some(IdKind::Mode),
+        ["variableSetModes", "#", "parentVariableSetId", "guid"] => Some(IdKind::VariableSet),
         _ => None,
     }
 }
@@ -588,7 +643,7 @@ fn reverse(written: &BTreeMap<String, (u32, u32)>) -> HashMap<(u32, u32), (u32, 
     written.iter().filter_map(|(id, g)| Some((parse_guid_pair(id)?, *g))).collect()
 }
 
-fn id_maps(cx: &mut ExportCtx<'_>) -> Arc<IdMaps> {
+pub(super) fn id_maps(cx: &mut ExportCtx<'_>) -> Arc<IdMaps> {
     if let Some(m) = &cx.kept.maps {
         return m.clone();
     }
@@ -655,6 +710,12 @@ fn walk(cx: &mut ExportCtx<'_>, maps: &IdMaps, value: &mut V, path: &mut Vec<Arc
                 IdKind::VariableSet => *maps.sets.get(&g).ok_or("variable_set_not_written")?,
                 IdKind::Mode => *maps.modes.get(&g).ok_or("mode_not_written")?,
                 IdKind::Style => *maps.styles.get(&g).ok_or("style_not_written")?,
+                IdKind::Parent => {
+                    if !cx.record_parent_is_written(g) {
+                        return Err("parent_not_written");
+                    }
+                    g
+                }
                 IdKind::PropDef => {
                     cx.kept_prop_ref_is_written(path.first().map(|p| &**p).unwrap_or(""), g)?;
                     g
