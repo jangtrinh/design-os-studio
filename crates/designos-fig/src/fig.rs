@@ -3198,8 +3198,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
     }
     if has_text {
         let mut st = Map::new();
-        let own_style = obj.get("styleIdForText").and_then(|r| lk.style_node(r));
-        if let Some(shared) = own_style {
+        if let Some(shared) = obj.get("styleIdForText").and_then(|r| lk.style_node(r)) {
             let mut linked = convert_type_style(shared, None);
             for (key, default) in [("textCase", "ORIGINAL"), ("textDecoration", "NONE")] {
                 linked.entry(key.to_string()).or_insert_with(|| default.into());
@@ -3212,12 +3211,11 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         let base_sz = fnum(o, "fontSize").or_else(|| st.get("fontSize").and_then(Value::as_f64).map(|n| n as f32));
         let mut inline_st = convert_type_style(o, base_sz);
         inline_st.remove("fills");
-        // While a text style is linked, Figma ignores the layer's own `textDecoration`: the style's decoration (none when
-        // it has none) is what draws. A link of this entry that resolves says so here. Without one the copy may still carry
-        // the link of its main, which only the importer sees, so the field travels under a private key and the apply step
-        // keeps it only when no link is left.
-        if let Some(d) = inline_st.remove("textDecoration").filter(|_| own_style.is_none()) {
-            inline_st.insert("_decorationIfUnlinked".into(), d);
+        // While a text style is linked, Figma ignores the layer's own `textDecoration`: the style's decoration (none when it has none)
+        // draws. Whether a link is left after every entry of the copy has applied is known only to the importer, so the field travels
+        // under a private key and the apply step decides, and decides again when a later entry changes the link.
+        if let Some(d) = inline_st.remove("textDecoration") {
+            inline_st.insert("_layerDecoration".into(), d);
         }
         st.extend(inline_st);
         if let Some(ls) = obj.get("letterSpacing") {

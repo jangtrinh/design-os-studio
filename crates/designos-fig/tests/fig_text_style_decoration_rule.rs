@@ -234,3 +234,78 @@ fn a_run_linked_to_a_plain_style_is_not_underlined_by_an_unlinked_underlined_bas
     assert_eq!(drawn(main_text(&doc, "own-run")), vec![Ul; 5], "the run's own decoration wins");
     assert_eq!(drawn(main_text(&doc, "plain-run")), vec![Ul; 5], "a run with no link and no decoration follows the base");
 }
+
+/// Component `Inner` holds the text `T` linked to the plain style; component `Outer` holds an instance `I` of `Inner`, and the
+/// instance `Top` of `Outer` is what is read. `inner` is the entry of `I` for `T` (applied first), `outer` the entry of `Top` for
+/// `I`'s `T`.
+fn nested_case(k: u32, inner: Value, outer: Value) -> Vec<Value> {
+    let (inner_symbol, text, outer_symbol, inner_instance) = ((1, 400 + k), (1, 410 + k), (1, 420 + k), (1, 430 + k));
+    let entry = |path: Vec<Value>, fields: Value| {
+        let mut e = json!({ "guidPath": {"guids": path} });
+        for (key, v) in fields.as_object().unwrap() {
+            e[key] = v.clone();
+        }
+        e
+    };
+    vec![
+        node(inner_symbol, (0, 1), &format!("i{k}"), "SYMBOL", &format!("Inner {k}"), json!({})),
+        node(
+            text,
+            inner_symbol,
+            "a",
+            "TEXT",
+            &format!("Nested text {k}"),
+            json!({"fontSize": 16.0, "fontName": font(), "styleIdForText": link(PLAIN_STYLE), "textData": {"characters": "Hello world"}}),
+        ),
+        node(outer_symbol, (0, 1), &format!("o{k}"), "SYMBOL", &format!("Outer {k}"), json!({})),
+        node(
+            inner_instance,
+            outer_symbol,
+            "a",
+            "INSTANCE",
+            &format!("I {k}"),
+            json!({"symbolData": {"symbolID": g(inner_symbol.0, inner_symbol.1), "symbolOverrides": [entry(vec![g(text.0, text.1)], inner)]}}),
+        ),
+        node(
+            (3, 50 + k),
+            (0, 1),
+            &format!("t{k}"),
+            "INSTANCE",
+            &format!("Top {k}"),
+            json!({"symbolData": {"symbolID": g(outer_symbol.0, outer_symbol.1), "symbolOverrides": [entry(vec![g(inner_instance.0, inner_instance.1), g(text.0, text.1)], outer)]}}),
+        ),
+    ]
+}
+
+fn nested_text(doc: &Document, k: u32) -> &TextProps {
+    let top = doc.nodes.values().find(|n| n.name == format!("Top {k}")).expect("top instance");
+    let mut cur = top;
+    while let Some(&child) = cur.children.first() {
+        cur = doc.get(child).expect("child");
+        if let Some(t) = cur.kind.any_text() {
+            return t;
+        }
+    }
+    panic!("no text under Top {k}");
+}
+
+#[test]
+fn an_outer_detach_takes_the_underline_an_inner_entry_stated() {
+    let im = import(vec![
+        // The inner entry decorates a copy that is linked through its main; the outer entry detaches it with no decoration of its own.
+        nested_case(1, json!({"textDecoration": "UNDERLINE"}), json!({"styleIdForText": detach()})),
+        // The inner entry links the plain style next to the stale underline; the outer entry detaches.
+        nested_case(2, json!({"styleIdForText": link(PLAIN_STYLE), "textDecoration": "UNDERLINE"}), json!({"styleIdForText": detach()})),
+        // Nothing detaches: the link still overrules the inner underline.
+        nested_case(3, json!({"textDecoration": "UNDERLINE"}), json!({"fontSize": 20.0})),
+        // The outer entry relinks the plain style: that link overrules the inner underline.
+        nested_case(4, json!({"textDecoration": "UNDERLINE"}), json!({"styleIdForText": link(PLAIN_STYLE)})),
+        // The outer entry states its own layer decoration after the detach.
+        nested_case(5, json!({"textDecoration": "UNDERLINE"}), json!({"styleIdForText": detach(), "textDecoration": "NONE"})),
+    ]);
+    assert_eq!(drawn(nested_text(&im.doc, 1)), vec![Ul; 11], "detached through an outer entry, the inner underline draws");
+    assert_eq!(drawn(nested_text(&im.doc, 2)), vec![Ul; 11], "also when the inner entry linked a style next to it");
+    assert_eq!(drawn(nested_text(&im.doc, 3)), vec![No; 11], "still linked: the style decides");
+    assert_eq!(drawn(nested_text(&im.doc, 4)), vec![No; 11], "relinked by the outer entry: the style decides");
+    assert_eq!(drawn(nested_text(&im.doc, 5)), vec![No; 11], "the outer entry's own field is the last one stated");
+}

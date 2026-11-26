@@ -131,10 +131,22 @@ pub fn stored_glyph_use(node: &d::Node) -> StoredGlyphUse {
             usize::from(b.style) == style || (style > 0 && figma_id(usize::from(b.style)).is_some() && figma_id(usize::from(b.style)) == figma_id(style))
         })
     };
-    // Figma stores bars per style id, and none for an id no character has: a decorated base style needs a bar only when
-    // some character is drawn with it, that is when the runs do not span the whole text.
-    let run_bytes: usize = props.runs.iter().map(|r| r.end.min(props.content.len()).saturating_sub(r.start)).sum();
-    let base_is_drawn = run_bytes < props.content.len();
+    // Figma stores bars per style id, and none for an id no character has: a decorated base style needs a bar only when some
+    // character is drawn with it, that is when the union of the runs' ranges does not span the whole text.
+    let base_is_drawn = {
+        let len = props.content.len();
+        let mut ranges: Vec<(usize, usize)> = props.runs.iter().map(|r| (r.start.min(len), r.end.min(len))).collect();
+        ranges.sort_unstable();
+        let (mut covered, mut at) = (0, 0);
+        for (start, end) in ranges {
+            let start = start.max(at);
+            if end > start {
+                covered += end - start;
+                at = end;
+            }
+        }
+        covered < len
+    };
     let drawn_style = std::iter::once(&props.style).chain(props.runs.iter().map(|r| &r.style));
     for (i, style) in drawn_style.enumerate() {
         if style.decoration != d::TextDecoration::None && !covered(i) && (i > 0 || base_is_drawn) {

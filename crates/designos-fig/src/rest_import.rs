@@ -902,6 +902,10 @@ struct Ctx<'a> {
     /// component's runs has no entry and takes the ids of the component's geometry. An override rebuilds the runs from its
     /// own table, so the ids Figma stored for the copy name that table's entries, not the component's.
     copy_run_sids: HashMap<NodeId, Vec<u32>>,
+    /// The layer-level `textDecoration` the last override entry gave each text copy, as Figma stores it: it draws only while the copy
+    /// has no text style link, so it is decided again whenever an entry changes the link (an outer entry can detach what an inner
+    /// entry decorated).
+    copy_layer_decoration: HashMap<NodeId, TextDecoration>,
     /// The wire bytes of the `derivedTextData` of each text node change of a binary import, by the node's guid (`"s:l"`),
     /// until `stored_text_import::attach` gives them to the nodes.
     text_wires: HashMap<String, std::sync::Arc<[u8]>>,
@@ -1122,6 +1126,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         no_auto_layout: HashSet::new(),
         text_run_sids: HashMap::new(),
         copy_run_sids: HashMap::new(),
+        copy_layer_decoration: HashMap::new(),
         text_wires: texts.wires,
         nested_texts: texts.nested,
         scales: BTreeMap::new(),
@@ -1307,6 +1312,7 @@ pub(crate) fn import_rest_value_with_text_wires<'a>(
         no_auto_layout: HashSet::new(),
         text_run_sids: HashMap::new(),
         copy_run_sids: HashMap::new(),
+        copy_layer_decoration: HashMap::new(),
         text_wires: texts.wires,
         nested_texts: texts.nested,
         scales: BTreeMap::new(),
@@ -2434,6 +2440,7 @@ impl<'a> Ctx<'a> {
             grid_row_track_ids: std::mem::take(&mut self.grid_row_track_ids),
             no_auto_layout: std::mem::take(&mut self.no_auto_layout),
             copy_run_sids: std::mem::take(&mut self.copy_run_sids),
+            copy_layer_decoration: std::mem::take(&mut self.copy_layer_decoration),
             scales: std::mem::take(&mut self.scales),
             path_cache: std::mem::take(&mut self.path_cache),
             blob_cache: std::mem::take(&mut self.blob_cache),
@@ -3393,6 +3400,7 @@ impl<'a> Ctx<'a> {
         let has_row_tracks = !self.grid_row_track_ids.is_empty();
         let has_no_auto_layout = !self.no_auto_layout.is_empty();
         let has_copy_sids = !self.copy_run_sids.is_empty();
+        let has_layer_decorations = !self.copy_layer_decoration.is_empty();
         let mut budget = PER_INSTANCE_CLONE_BUDGET;
         let mut inst_children: Vec<NodeId> = Vec::with_capacity(kids.len());
         let mut staged: Vec<Node> = Vec::new();
@@ -3473,6 +3481,11 @@ impl<'a> Ctx<'a> {
             if has_copy_sids {
                 if let Some(sids) = self.copy_run_sids.get(&src).cloned() {
                     self.copy_run_sids.insert(id, sids);
+                }
+            }
+            if has_layer_decorations {
+                if let Some(&d) = self.copy_layer_decoration.get(&src) {
+                    self.copy_layer_decoration.insert(id, d);
                 }
             }
             if has_no_auto_layout && self.no_auto_layout.contains(&src) {
@@ -4247,9 +4260,17 @@ impl<'a> Ctx<'a> {
         apply_paint_style_links(n, set);
         apply_effect_style_link(n, set);
         apply_text_style_link(n, set);
-        // The link this copy has after the entry, from the entry itself or from its main.
-        let decoration_if_unlinked = set.get("style").and_then(|st| fstr(st, "_decorationIfUnlinked")).map(str::to_string);
-        let keeps_layer_decoration = decoration_if_unlinked.is_some() && !n.style_refs.get("text").is_some_and(|id| self.text_style_ids.contains(id));
+        // A layer-level decoration draws only while no text style is linked (the file's TEXT styles are the ones that resolve). Each
+        // entry that states one is remembered for the copy; whenever an entry changes the link, it is decided again against the link
+        // the copy is left with, so an outer entry that detaches takes the underline an inner entry stated.
+        if let Some(d) = set.get("style").and_then(|st| fstr(st, "_layerDecoration")) {
+            self.copy_layer_decoration.insert(id, decoration_named(d));
+        }
+        let touches_link =
+            set.get("style").is_some() || fbool(set, "_clearTextStyle") == Some(true) || set.get("styles").is_some_and(|s| s.get("text").is_some());
+        let layer_decoration = Some(())
+            .filter(|_| touches_link && !n.style_refs.get("text").is_some_and(|sid| self.text_style_ids.contains(sid)))
+            .and_then(|_| self.copy_layer_decoration.get(&id).copied());
         if let NodeKind::Text(t) = &mut n.kind {
             if let Some(ar) = fbool(set, "autoRename") {
                 t.auto_rename = ar;
@@ -4259,9 +4280,6 @@ impl<'a> Ctx<'a> {
             }
             if let Some(st) = set.get("style") {
                 apply_type_style(&mut t.style, st);
-                if let Some(d) = decoration_if_unlinked.as_deref().filter(|_| keeps_layer_decoration) {
-                    apply_type_style(&mut t.style, &serde_json::json!({ "textDecoration": d }));
-                }
                 crate::textfmt::apply_paragraph(t, st);
                 if let Some(a) = fstr(st, "textAutoResize") {
                     t.auto_resize = auto_resize(a);
@@ -4278,6 +4296,9 @@ impl<'a> Ctx<'a> {
                 if let Some(si) = fbool(st, "textDecorationSkipInk") {
                     t.decoration_skip_ink = si;
                 }
+            }
+            if let Some(d) = layer_decoration {
+                t.style.decoration = d;
             }
             if let Some(c) = fstr(set, "characters") {
                 if c != t.content {
@@ -4410,6 +4431,10 @@ struct DeferredFigHydrator {
     grid_row_track_ids: HashMap<NodeId, Vec<String>>,
     no_auto_layout: HashSet<NodeId>,
     copy_run_sids: HashMap<NodeId, Vec<u32>>,
+    /// The layer-level `textDecoration` the last override entry gave each text copy, as Figma stores it: it draws only while the copy
+    /// has no text style link, so it is decided again whenever an entry changes the link (an outer entry can detach what an inner
+    /// entry decorated).
+    copy_layer_decoration: HashMap<NodeId, TextDecoration>,
     scales: BTreeMap<NodeId, f32>,
     path_cache: HashMap<String, Path>,
     blob_cache: HashMap<(usize, bool), Path>,
@@ -4465,6 +4490,7 @@ impl DeferredFigHydrator {
             self.grid_row_track_ids.clear();
             self.no_auto_layout.clear();
             self.copy_run_sids.clear();
+            self.copy_layer_decoration.clear();
             self.scales.clear();
             self.path_cache.clear();
             self.blob_cache.clear();
@@ -4542,6 +4568,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             no_auto_layout: std::mem::take(&mut self.no_auto_layout),
             text_run_sids: HashMap::new(),
             copy_run_sids: std::mem::take(&mut self.copy_run_sids),
+            copy_layer_decoration: std::mem::take(&mut self.copy_layer_decoration),
             text_wires: HashMap::new(),
             nested_texts: HashMap::new(),
             scales: std::mem::take(&mut self.scales),
@@ -4624,6 +4651,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             self.grid_row_track_ids = cx.grid_row_track_ids;
             self.no_auto_layout = cx.no_auto_layout;
             self.copy_run_sids = cx.copy_run_sids;
+            self.copy_layer_decoration = cx.copy_layer_decoration;
             self.scales = cx.scales;
             self.path_cache = cx.path_cache;
             self.blob_cache = cx.blob_cache;
@@ -4684,6 +4712,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         self.grid_row_track_ids = cx.grid_row_track_ids;
         self.no_auto_layout = cx.no_auto_layout;
         self.copy_run_sids = cx.copy_run_sids;
+        self.copy_layer_decoration = cx.copy_layer_decoration;
         self.scales = cx.scales;
         self.path_cache = cx.path_cache;
         self.blob_cache = cx.blob_cache;
@@ -4826,6 +4855,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         let mut scratch_row_tracks = HashMap::new();
         let mut scratch_no_auto_layout = HashSet::new();
         let mut scratch_copy_run_sids = HashMap::new();
+        let mut scratch_copy_layer_decoration = HashMap::new();
         let mut scratch_scales = BTreeMap::new();
         for (&id, node) in &scratch_doc.nodes {
             if let Some(v) = self.override_keys.get(&id).cloned() {
@@ -4852,6 +4882,9 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             if let Some(v) = self.copy_run_sids.get(&id).cloned() {
                 scratch_copy_run_sids.insert(id, v);
             }
+            if let Some(&v) = self.copy_layer_decoration.get(&id) {
+                scratch_copy_layer_decoration.insert(id, v);
+            }
             if let Some(&v) = self.scales.get(&id) {
                 scratch_scales.insert(id, v);
             }
@@ -4874,6 +4907,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             no_auto_layout: scratch_no_auto_layout,
             text_run_sids: HashMap::new(),
             copy_run_sids: scratch_copy_run_sids,
+            copy_layer_decoration: scratch_copy_layer_decoration,
             text_wires: HashMap::new(),
             nested_texts: HashMap::new(),
             scales: scratch_scales,
@@ -5271,6 +5305,15 @@ fn count_missing_variable_bindings(doc: &Document) -> usize {
     let style_bindings = doc.style_meta.values().flat_map(|meta| meta.bindings.values());
     let missing: BTreeSet<&str> = layer_bindings.chain(style_bindings).filter(|id| !doc.variables.contains_key(*id)).map(String::as_str).collect();
     missing.len()
+}
+
+/// The decoration a REST `textDecoration` value names.
+fn decoration_named(name: &str) -> TextDecoration {
+    match name {
+        "UNDERLINE" => TextDecoration::Underline,
+        "STRIKETHROUGH" => TextDecoration::Strikethrough,
+        _ => TextDecoration::None,
+    }
 }
 
 /// The ids of the text styles in the top-level REST `styles` map: the styles a text link can resolve to.
@@ -6277,6 +6320,7 @@ mod expand_depth_tests {
             grid_row_track_ids: HashMap::new(),
             no_auto_layout: HashSet::new(),
             copy_run_sids: HashMap::new(),
+            copy_layer_decoration: HashMap::new(),
             scales: BTreeMap::new(),
             path_cache: HashMap::new(),
             blob_cache: HashMap::new(),
@@ -6332,6 +6376,7 @@ mod expand_depth_tests {
             grid_row_track_ids: HashMap::new(),
             no_auto_layout: HashSet::new(),
             copy_run_sids: HashMap::new(),
+            copy_layer_decoration: HashMap::new(),
             scales: BTreeMap::new(),
             path_cache: HashMap::new(),
             blob_cache: HashMap::new(),
@@ -6436,6 +6481,7 @@ mod expand_depth_tests {
             grid_row_track_ids: HashMap::new(),
             no_auto_layout: HashSet::new(),
             copy_run_sids: HashMap::new(),
+            copy_layer_decoration: HashMap::new(),
             scales: BTreeMap::new(),
             path_cache: HashMap::new(),
             blob_cache: HashMap::new(),
@@ -6566,6 +6612,7 @@ mod expand_depth_tests {
             no_auto_layout: HashSet::new(),
             text_run_sids: HashMap::new(),
             copy_run_sids: HashMap::new(),
+            copy_layer_decoration: HashMap::new(),
             text_wires: HashMap::new(),
             nested_texts: HashMap::new(),
             scales: BTreeMap::new(),
@@ -6617,6 +6664,7 @@ mod expand_depth_tests {
             no_auto_layout: HashSet::new(),
             text_run_sids: HashMap::new(),
             copy_run_sids: HashMap::new(),
+            copy_layer_decoration: HashMap::new(),
             text_wires: HashMap::new(),
             nested_texts: HashMap::new(),
             scales: BTreeMap::new(),
