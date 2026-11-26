@@ -464,12 +464,18 @@ fn a_layer_written_from_the_store_has_the_outlines_the_file_had_and_none_the_fil
 }
 
 #[test]
-fn the_blobs_studio_worked_out_for_a_field_the_store_wrote_are_not_left_in_the_table() {
+fn a_save_writes_no_blob_that_no_record_names() {
     let original = small_file();
     let saved = export_fig(&import_fig(&original).expect("imports")).expect("saves");
-    let (all, table) = (records(&saved), blobs(&saved));
+    assert_eq!(unnamed_blobs(&saved), Vec::<usize>::new(), "no empty entry and no blob that nothing references");
+    // what Figma stored is all there
+    assert_eq!(named_blobs(&saved).len(), 6, "the frame's two outlines, three networks and the stroked vector's outline");
+}
+
+/// Every blob number an outline or a network names.
+fn named_blobs(file: &[u8]) -> std::collections::BTreeSet<usize> {
     let mut named = std::collections::BTreeSet::new();
-    for r in &all {
+    for r in &records(file) {
         for key in ["fillGeometry", "strokeGeometry"] {
             for p in r.get(key).and_then(V::as_array).into_iter().flatten() {
                 named.insert(blob_number(p.get("commandsBlob").expect("commands")));
@@ -479,9 +485,95 @@ fn the_blobs_studio_worked_out_for_a_field_the_store_wrote_are_not_left_in_the_t
             named.insert(blob_number(vd.get("vectorNetworkBlob").expect("a network")));
         }
     }
-    for (i, b) in table.iter().enumerate() {
-        assert!(b.is_empty() || named.contains(&i), "blob {i} of {} bytes is named by no record", b.len());
+    named
+}
+
+/// The entries of the blob table that are empty or that no outline or network names.
+fn unnamed_blobs(file: &[u8]) -> Vec<usize> {
+    let named = named_blobs(file);
+    blobs(file).iter().enumerate().filter(|(i, b)| b.is_empty() || !named.contains(i)).map(|(i, _)| i).collect()
+}
+
+const BROKEN: (u32, u32) = (2, 5);
+
+/// A frame whose fill outline and stroke outline each hold one path that is in the file's blob table and one whose blob number is
+/// past its end.
+fn broken_outlines_file() -> Vec<u8> {
+    let mut all = document_and_page();
+    all.push(node(
+        BROKEN,
+        (0, 1),
+        "a",
+        "FRAME",
+        "Broken",
+        vec![
+            ("size", vec2(40.0, 30.0)),
+            ("fillPaints", V::Array(vec![solid(0.5, 0.5, 0.5)])),
+            ("fillGeometry", V::Array(vec![path("NONZERO", 0), path("NONZERO", 99)])),
+            ("strokePaints", V::Array(vec![solid(0.0, 0.0, 0.0)])),
+            ("strokeWeight", fl(1.0)),
+            ("strokeAlign", en("INSIDE")),
+            ("strokeGeometry", V::Array(vec![path("ODD", 1), path("ODD", 98)])),
+        ],
+    ));
+    fig_file(all, vec![rect_commands(40.0, 30.0), rect_commands(41.0, 31.0)])
+}
+
+#[test]
+fn an_outline_whose_blob_is_not_in_the_file_is_written_as_studio_worked_it_out_and_no_entry_is_left_empty() {
+    let original = broken_outlines_file();
+    let doc = import_fig(&original).expect("imports");
+    let node = doc.get(by_name(&doc, "Broken")).expect("the frame");
+    assert!(node.fill_geometry.is_some() && node.stroke_geometry.is_some(), "the import keeps the outline paths it can read");
+
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+    assert_eq!(report.nodes_edited, 0, "{report:?}");
+    assert_eq!(report.fields_dropped_by_reason.get("blob_missing"), Some(&2), "one refused fill outline and one refused stroke outline: {report:?}");
+
+    let mut without = import_fig(&original).expect("imports");
+    without.fig_kept = Default::default();
+    let studios = export_fig(&without).expect("saves");
+    for key in ["fillGeometry", "strokeGeometry"] {
+        let written = outline(&saved, BROKEN, key).unwrap_or_else(|| panic!("{key} is written"));
+        assert!(!written.is_empty() && written.iter().all(|(_, commands)| !commands.is_empty()), "{key}: Studio's own paths, with their blobs");
+        assert_eq!(Some(written), outline(&studios, BROKEN, key), "{key}: what Studio wrote before the store");
     }
-    // what Figma stored is all there
-    assert_eq!(named.len(), 6, "the frame's two outlines, three networks and the stroked vector's outline: {named:?}");
+    assert_eq!(unnamed_blobs(&saved), Vec::<usize>::new(), "no empty entry in the table");
+}
+
+#[test]
+fn a_vector_rounded_by_per_corner_radii_alone_gets_no_corner_radius_beside_the_network_figma_stored() {
+    let mut all = document_and_page();
+    all.push(node(
+        (2, 2),
+        (0, 1),
+        "a",
+        "VECTOR",
+        "Rounded",
+        vec![
+            ("size", vec2(100.0, 50.0)),
+            ("fillPaints", V::Array(vec![solid(0.2, 0.4, 0.6)])),
+            ("rectangleCornerRadiiIndependent", V::Bool(true)),
+            ("rectangleTopLeftCornerRadius", fl(4.0)),
+            ("rectangleTopRightCornerRadius", fl(2.0)),
+            ("rectangleBottomRightCornerRadius", fl(0.0)),
+            ("rectangleBottomLeftCornerRadius", fl(6.0)),
+            ("vectorData", msg(vec![("vectorNetworkBlob", V::Uint(0)), ("normalizedSize", vec2(200.0, 100.0))])),
+        ],
+    ));
+    let original = fig_file(all, vec![network_blob(&triangle(), true)]);
+    assert!(record_of(&records(&original), (2, 2)).get("cornerRadius").is_none(), "the file has no cornerRadius for it");
+
+    let doc = import_fig(&original).expect("imports");
+    let (saved, report) = export_fig_with_kept_report(&doc).expect("saves");
+    assert_eq!(report.nodes_edited, 0, "{report:?}");
+    let record = record_of(&records(&saved), (2, 2)).clone();
+    assert!(record.get("cornerRadius").is_none(), "Studio's own cornerRadius would round every vertex the file's table does not name: {record:?}");
+    assert_eq!(record.get("rectangleTopLeftCornerRadius"), Some(&fl(4.0)), "the per-corner radii are the file's");
+    assert_eq!(network(&saved, (2, 2)), Some(network_blob(&triangle(), true)));
+    assert!(report.studio_fields_not_in_the_file > 0, "{report:?}");
+
+    let reopened = import_fig(&saved).expect("reopens");
+    let (a, b) = (doc.get(by_name(&doc, "Rounded")).unwrap(), reopened.get(by_name(&reopened, "Rounded")).unwrap());
+    assert_eq!(designos_doc::branch_diff::node_content_hash(a), designos_doc::branch_diff::node_content_hash(b), "the layer reopens the same");
 }
