@@ -3211,6 +3211,12 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         let base_sz = fnum(o, "fontSize").or_else(|| st.get("fontSize").and_then(Value::as_f64).map(|n| n as f32));
         let mut inline_st = convert_type_style(o, base_sz);
         inline_st.remove("fills");
+        // While a text style is linked, Figma ignores the layer's own `textDecoration`: the style's decoration (none when it has none)
+        // draws. Whether a link is left after every entry of the copy has applied is known only to the importer, so the field travels
+        // under a private key and the apply step decides, and decides again when a later entry changes the link.
+        if let Some(d) = inline_st.remove("textDecoration") {
+            inline_st.insert("_layerDecoration".into(), d);
+        }
         st.extend(inline_st);
         if let Some(ls) = obj.get("letterSpacing") {
             if fstr(ls, "units") == Some("PERCENT") && base_sz.is_none() {
@@ -3910,6 +3916,9 @@ fn text_overrides(m: &mut Map<String, Value>, td: &Value, base_size: Option<f32>
                 let mut st = Map::new();
                 if let Some(shared) = o.get("styleIdForText").and_then(|r| lk.style_node(r)) {
                     let mut linked = convert_type_style(shared, base_size);
+                    // A run linked to a text style takes the style's decoration, none when the style has none, not the
+                    // layer's.
+                    linked.entry("textDecoration".to_string()).or_insert_with(|| "NONE".into());
                     for key in ["fills", "textAlignHorizontal", "textAlignVertical"] {
                         linked.remove(key);
                     }
