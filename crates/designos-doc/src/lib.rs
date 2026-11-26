@@ -54,6 +54,7 @@ mod dev;
 pub mod diff;
 mod fig_kept;
 mod fig_kept_arena;
+mod fig_kept_records;
 mod fig_kept_snapshot;
 #[cfg(test)]
 mod fig_kept_tests;
@@ -158,6 +159,7 @@ pub use dev::*;
 pub use diff::*;
 pub use fig_kept::{BlobSlot, FigKeptStore, KeptCounts, KeptData, KeptField, KeptRecord, KeptRecordKind, KeptRecordRef, RetainedBytes};
 pub use fig_kept_arena::KeptArena;
+pub use fig_kept_records::RecordSnapshots;
 pub use fig_kept_snapshot::NodeSnapshot;
 pub use geom::*;
 pub use history::*;
@@ -378,6 +380,10 @@ pub struct Document {
     /// reads it yet, and a clone shares it.
     #[serde(skip)]
     pub fig_kept: Arc<FigKeptStore>,
+    /// The value each style, variable and variable set had when the store's snapshot was taken (see [`RecordSnapshots`]). Runtime
+    /// only, like the store, and shared by a clone.
+    #[serde(skip)]
+    fig_kept_records: Arc<RecordSnapshots>,
 }
 
 /// Default staleness threshold for [`InProgress`] flags in minutes (`agent.in_progress_stale_minutes`, E15-7 §3.3).
@@ -882,6 +888,7 @@ impl Document {
             deferred: self.deferred.clone(),
             derived_id: DerivedId::default(),
             fig_kept: self.fig_kept.clone(),
+            fig_kept_records: self.fig_kept_records.clone(),
         }
     }
 

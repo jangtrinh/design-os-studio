@@ -20,10 +20,12 @@ mod grid;
 mod kept_derived;
 mod kept_fields;
 mod kept_overrides;
+mod kept_records;
 mod prop_ids;
 pub(crate) use carrier::{CARRIED_FIELDS, CARRIER_KEY_PREFIX};
 pub use kept_fields::KeptWriteReport;
 use kept_fields::Outline;
+pub use kept_records::RecordsKeptReport;
 
 /// Plugin id under which Studio keeps node data that has no field in Figma's NodeChange schema. It travels
 /// as ordinary `pluginData` entries, which Figma keeps for any plugin id and ignores when it does not know the
@@ -435,6 +437,7 @@ struct ExportCtx<'a> {
     blobs: Vec<Vec<u8>>,
     changes: Vec<V>,
     kept: kept_fields::KeptState,
+    records: kept_records::RecordsState,
     prop_ids: prop_ids::PropIds,
 }
 
@@ -557,6 +560,7 @@ impl<'a> ExportCtx<'a> {
             blobs: Vec::new(),
             changes: Vec::new(),
             kept: kept_fields::KeptState::new(doc, schema, nc_def),
+            records: Default::default(),
             prop_ids: Default::default(),
         };
         let bump_next_local = |next_local: &mut u32, local: u32| {
@@ -1089,24 +1093,29 @@ fn build_message(doc: &Document, schema: &crate::kiwi::Schema) -> (V, KeptWriteR
 
     // 3. Internal-only canvas for variables, styles, and library components.
     let detached_preferred = detached_slot_preferred(doc);
+    let deleted_records = kept_records::plan_internal(&mut cx);
     let has_internal = !doc.variable_collections.is_empty()
         || !doc.variables.is_empty()
         || !doc.styles.is_empty()
         || doc.library_page.is_some()
-        || !detached_preferred.is_empty();
+        || !detached_preferred.is_empty()
+        || !deleted_records.is_empty();
     if has_internal {
-        let iguid = (0, 999_999);
-        cx.changes.push(msg(vec![
+        let iguid = kept_records::internal_canvas_guid(&cx);
+        let mut canvas = msg(vec![
             ("guid", guid(iguid.0, iguid.1)),
             ("phase", en("CREATED")),
             ("parentIndex", st(vec![("guid", guid(0, 0)), ("position", V::String(pos_str(doc.pages.len())))])),
             ("type", en("CANVAS")),
             ("name", V::String("Internal Only Canvas".into())),
             ("internalOnly", V::Bool(true)),
-        ]));
+        ]);
+        kept_records::write_internal_canvas(&mut cx, iguid, &mut canvas);
+        cx.changes.push(canvas);
         let mut internal_idx = 0usize;
         export_variables_on_internal(&mut cx, iguid, &mut internal_idx);
         export_styles_on_internal(&mut cx, iguid, &mut internal_idx);
+        cx.changes.extend(deleted_records);
         if let Some(lp) = doc.library_page {
             if let Some(lib_page) = doc.get(lp) {
                 let kids = lib_page.children.clone();
@@ -1277,7 +1286,9 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         if c.is_soft_deleted() {
             fields.push(("isSoftDeleted", V::Bool(true)));
         }
-        cx.changes.push(msg(fields));
+        let mut record = msg(fields);
+        kept_records::write_set(cx, &c.id, cguid, &mut record);
+        cx.changes.push(record);
         *idx += 1;
     }
 
@@ -1375,7 +1386,9 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         if v.is_soft_deleted() {
             fields.push(("isSoftDeleted", V::Bool(true)));
         }
-        cx.changes.push(msg(fields));
+        let mut record = msg(fields);
+        kept_records::write_variable(cx, &v.id, vguid, cguid, &mut record);
+        cx.changes.push(record);
         *idx += 1;
     }
 
@@ -1572,8 +1585,22 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
                 }
             }
         }
-        cx.changes.push(msg(fields));
+        let mut record = msg(fields);
+        kept_records::write_style(cx, &sid, sguid, style_types_written_as(&style), &mut record);
+        cx.changes.push(record);
         *idx += 1;
+    }
+}
+
+/// The style types of Figma's record that a style Studio holds is written from: a fill style is written as `FILL`, and Figma's record for
+/// it may say `STROKE`, which Studio models the same way.
+fn style_types_written_as(style: &Style) -> &'static [&'static str] {
+    match style {
+        Style::Fill(_) => &["FILL", "STROKE"],
+        Style::Text(_) => &["TEXT"],
+        Style::Effect(_) => &["EFFECT"],
+        Style::Grid(_) => &["GRID"],
+        Style::Animation(_) => &["ANIMATION"],
     }
 }
 
