@@ -1,0 +1,2394 @@
+[
+ {
+  "name": "Divider/Hairline",
+  "tier": "element",
+  "composes": [],
+  "tokens": [
+   "colors.border"
+  ],
+  "pending": [],
+  "paints": [
+   "BORDER"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default"
+  ],
+  "selected": false,
+  "rust": [
+   "widgets/mod.rs::hline",
+   "widgets/mod.rs::vline"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Menu/Separator",
+  "tier": "element",
+  "composes": [],
+  "tokens": [
+   "colors.border"
+  ],
+  "pending": [],
+  "paints": [
+   "BORDER"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default"
+  ],
+  "selected": false,
+  "rust": [
+   "widgets/menu.rs::popup_tree"
+  ],
+  "rust_status": "exists",
+  "today": "widgets/menu.rs:441,504",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Menu/Shortcut",
+  "tier": "element",
+  "composes": [],
+  "tokens": [
+   "typography.font-size-caption"
+  ],
+  "pending": [
+   "TEXT_QUATERNARY"
+  ],
+  "paints": [
+   "TEXT_QUATERNARY"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "active",
+   "disabled"
+  ],
+  "selected": false,
+  "rust": [
+   "widgets/menu.rs::popup_tree"
+  ],
+  "rust_status": "exists",
+  "today": "widgets/menu.rs:492-501",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Focus/Ring",
+  "tier": "element",
+  "composes": [],
+  "tokens": [
+   "colors.ring"
+  ],
+  "pending": [
+   "FOCUS_RING_ERROR"
+  ],
+  "paints": [
+   "FOCUS_RING",
+   "FOCUS_RING_ERROR"
+  ],
+  "paints_from_parts_line": [],
+  "states": null,
+  "selected": false,
+  "rust": [
+   "kit/focus.rs::focus_ring"
+  ],
+  "rust_status": "new-in-C",
+  "today": "",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Icon/Glyph",
+  "tier": "element",
+  "composes": [],
+  "tokens": [
+   "colors.neutral"
+  ],
+  "pending": [
+   "ICON_QUATERNARY_HOVER",
+   "ICON_SECONDARY_HOVER"
+  ],
+  "paints": [
+   "ICON_QUATERNARY",
+   "ICON_QUATERNARY_HOVER",
+   "ICON_SECONDARY_HOVER"
+  ],
+  "paints_from_parts_line": [],
+  "states": null,
+  "selected": false,
+  "rust": [
+   "icons.rs::paint"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Status/Dot",
+  "tier": "element",
+  "composes": [],
+  "tokens": [
+   "colors.success"
+  ],
+  "pending": [
+   "ICON_BRAND_PRIMARY",
+   "DANGER"
+  ],
+  "paints": [
+   "ICON_BRAND_PRIMARY",
+   "DANGER",
+   "SUCCESS"
+  ],
+  "paints_from_parts_line": [],
+  "states": null,
+  "selected": false,
+  "rust": [
+   "kit/badge.rs::status_dot"
+  ],
+  "rust_status": "new-in-C",
+  "today": "shell.rs::toast (:1136)",
+  "spec": "C/J",
+  "flow": []
+ },
+ {
+  "name": "Button/Primary",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.primary",
+   "colors.primary-active",
+   "colors.primary-foreground",
+   "colors.primary-hover",
+   "colors.ring",
+   "radius.radius-md"
+  ],
+  "pending": [],
+  "paints": [
+   "TEXT_ON_BRAND",
+   "BG_BRAND_PRESSED",
+   "BG_BRAND",
+   "BG_BRAND_HOVER",
+   "FOCUS_RING"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "active",
+   "focus",
+   "disabled"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/button.rs::button"
+  ],
+  "rust_status": "new-in-C",
+  "today": "home/dialog.rs:367-386 and four more (C 3.3)",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Button/Secondary",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg",
+   "colors.bg-hover",
+   "colors.border-strong",
+   "colors.neutral",
+   "colors.ring",
+   "colors.secondary-active",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "ICON_QUATERNARY_HOVER",
+   "TEXT_SECONDARY",
+   "TEXT_SECONDARY_HOVER"
+  ],
+  "paints": [
+   "BG",
+   "BG_HOVER",
+   "BG_PRESSED",
+   "BORDER_STRONG",
+   "ICON_QUATERNARY",
+   "ICON_QUATERNARY_HOVER",
+   "FOCUS_RING",
+   "TEXT_SECONDARY",
+   "TEXT_SECONDARY_HOVER"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "active",
+   "focus",
+   "disabled"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/button.rs::button"
+  ],
+  "rust_status": "new-in-C",
+  "today": "comments/ui.rs:92-108 and three more",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Button/Tertiary",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg",
+   "colors.bg-hover",
+   "colors.muted-foreground",
+   "colors.neutral",
+   "colors.ring",
+   "colors.secondary-active",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "ICON_QUATERNARY_HOVER",
+   "TEXT_TERTIARY_HOVER"
+  ],
+  "paints": [
+   "BG",
+   "BG_HOVER",
+   "BG_PRESSED",
+   "ICON_QUATERNARY",
+   "ICON_QUATERNARY_HOVER",
+   "FOCUS_RING",
+   "TEXT_TERTIARY",
+   "TEXT_TERTIARY_HOVER"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "active",
+   "focus",
+   "disabled"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/button.rs::button"
+  ],
+  "rust_status": "new-in-C",
+  "today": "home/dialog.rs:401-410",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Button/Destructive",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.destructive",
+   "colors.destructive-foreground",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "BG_ERROR_SOLID_PRESSED",
+   "BG_ERROR_SOLID_HOVER",
+   "FOCUS_RING_ERROR"
+  ],
+  "paints": [
+   "BG_ERROR_SOLID_PRESSED",
+   "BG_ERROR_SOLID",
+   "BG_ERROR_SOLID_HOVER",
+   "FOCUS_RING_ERROR",
+   "TEXT_WHITE"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "active",
+   "focus",
+   "disabled"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/button.rs::button"
+  ],
+  "rust_status": "new-in-C",
+  "today": "home/mod.rs:1412-1417",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Button/SecondaryDestructive",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "BG_ERROR_PRIMARY",
+   "BORDER_ERROR",
+   "BORDER_ERROR_SUBTLE",
+   "FOCUS_RING_ERROR",
+   "TEXT_ERROR",
+   "TEXT_ERROR_HOVER"
+  ],
+  "paints": [
+   "BG_ERROR_PRIMARY",
+   "BG",
+   "BORDER_ERROR",
+   "BORDER_ERROR_SUBTLE",
+   "FOCUS_RING_ERROR",
+   "TEXT_ERROR",
+   "TEXT_ERROR_HOVER"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "active",
+   "focus",
+   "disabled"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/button.rs::button"
+  ],
+  "rust_status": "new-in-C",
+  "today": "home/mod.rs:1241",
+  "spec": "C/H",
+  "flow": []
+ },
+ {
+  "name": "Button/Icon",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg",
+   "colors.bg-active",
+   "colors.bg-hover",
+   "colors.neutral",
+   "colors.ring",
+   "colors.secondary-active",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "ICON_QUATERNARY_HOVER",
+   "ICON_SECONDARY_HOVER"
+  ],
+  "paints": [
+   "BG",
+   "BG_HOVER",
+   "BG_PRESSED",
+   "BG_SELECTED",
+   "ICON_QUATERNARY",
+   "ICON_QUATERNARY_HOVER",
+   "ICON_SECONDARY_HOVER",
+   "FOCUS_RING"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "active",
+   "focus",
+   "disabled"
+  ],
+  "selected": true,
+  "rust": [
+   "kit/button.rs::button"
+  ],
+  "rust_status": "new-in-C",
+  "today": "widgets/mod.rs::icon_button",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Button/Tool",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg",
+   "colors.bg-active",
+   "colors.bg-hover",
+   "colors.ring",
+   "colors.secondary-active",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "ICON",
+   "ICON_QUATERNARY_HOVER",
+   "ICON_SECONDARY_HOVER"
+  ],
+  "paints": [
+   "BG",
+   "BG_HOVER",
+   "BG_PRESSED",
+   "BG_SELECTED",
+   "ICON",
+   "ICON_QUATERNARY_HOVER",
+   "ICON_SECONDARY_HOVER",
+   "FOCUS_RING"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "active",
+   "focus",
+   "disabled"
+  ],
+  "selected": true,
+  "rust": [
+   "kit/button.rs::button"
+  ],
+  "rust_status": "new-in-C",
+  "today": "panels/toolbar.rs:209-227",
+  "spec": "C/D",
+  "flow": []
+ },
+ {
+  "name": "Button/Close",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg",
+   "colors.bg-hover",
+   "colors.neutral",
+   "colors.ring",
+   "colors.secondary-active",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "ICON_QUATERNARY_HOVER"
+  ],
+  "paints": [
+   "BG",
+   "BG_HOVER",
+   "BG_PRESSED",
+   "ICON_QUATERNARY",
+   "ICON_QUATERNARY_HOVER",
+   "FOCUS_RING"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "active",
+   "focus"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/button.rs::button"
+  ],
+  "rust_status": "new-in-C",
+  "today": "widgets/popover.rs:40-43",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Input/Field",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg-foreground",
+   "colors.border-focus",
+   "colors.border-strong",
+   "colors.input",
+   "colors.neutral",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "TEXT_PLACEHOLDER"
+  ],
+  "paints": [
+   "BG",
+   "BORDER_SELECTED",
+   "BORDER_STRONG",
+   "ICON_QUATERNARY",
+   "TEXT",
+   "TEXT_PLACEHOLDER"
+  ],
+  "paints_from_parts_line": [
+   "TEXT_PLACEHOLDER"
+  ],
+  "states": [
+   "default",
+   "hover",
+   "focus",
+   "disabled"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/field.rs::paint_field"
+  ],
+  "rust_status": "new-in-C",
+  "today": "widgets/field.rs::field_bg",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Input/PropertyField",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg-foreground",
+   "colors.border-focus",
+   "colors.border-strong",
+   "colors.input",
+   "colors.muted-foreground",
+   "radius.radius-md",
+   "typography.font-family-mono"
+  ],
+  "pending": [],
+  "paints": [
+   "BG",
+   "BORDER_SELECTED",
+   "BORDER_STRONG",
+   "TEXT",
+   "TEXT_TERTIARY"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "focus",
+   "disabled"
+  ],
+  "selected": false,
+  "rust": [
+   "widgets/field.rs::num_field"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "C/F",
+  "flow": []
+ },
+ {
+  "name": "Input/Search",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg-foreground",
+   "colors.border-focus",
+   "colors.border-strong",
+   "colors.input",
+   "colors.neutral",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "TEXT_PLACEHOLDER"
+  ],
+  "paints": [
+   "BG",
+   "BORDER_SELECTED",
+   "BORDER_STRONG",
+   "ICON_QUATERNARY",
+   "TEXT_PLACEHOLDER",
+   "TEXT"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "focus",
+   "disabled"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/field.rs::paint_field"
+  ],
+  "rust_status": "new-in-C",
+  "today": "find/filter.rs::show_field",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Select/Trigger",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg-foreground",
+   "colors.border-focus",
+   "colors.border-strong",
+   "colors.input",
+   "colors.neutral",
+   "radius.radius-md"
+  ],
+  "pending": [],
+  "paints": [
+   "BG",
+   "BORDER_SELECTED",
+   "BORDER_STRONG",
+   "ICON_QUATERNARY",
+   "TEXT"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "focus",
+   "disabled"
+  ],
+  "selected": false,
+  "rust": [
+   "widgets/menu.rs::dropdown"
+  ],
+  "rust_status": "exists",
+  "today": "widgets/menu.rs:571-606",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Menu/Item",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg-hover",
+   "colors.neutral",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "ICON_BRAND_PRIMARY",
+   "ICON_QUATERNARY_HOVER",
+   "TEXT_SECONDARY",
+   "TEXT_SECONDARY_HOVER"
+  ],
+  "paints": [
+   "BG_HOVER",
+   "ICON_BRAND_PRIMARY",
+   "ICON_QUATERNARY",
+   "ICON_QUATERNARY_HOVER",
+   "TEXT_SECONDARY",
+   "TEXT_SECONDARY_HOVER"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "active",
+   "focus",
+   "disabled"
+  ],
+  "selected": true,
+  "rust": [
+   "widgets/menu.rs::popup_tree"
+  ],
+  "rust_status": "exists",
+  "today": "widgets/menu.rs:430-505",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Tabs/Pill",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg",
+   "colors.bg-active",
+   "colors.bg-hover",
+   "colors.neutral",
+   "colors.ring",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "ICON_QUATERNARY_HOVER",
+   "TEXT_QUATERNARY",
+   "TEXT_SECONDARY"
+  ],
+  "paints": [
+   "BG",
+   "BG_HOVER",
+   "BG_SELECTED",
+   "ICON_QUATERNARY",
+   "ICON_QUATERNARY_HOVER",
+   "FOCUS_RING",
+   "TEXT_QUATERNARY",
+   "TEXT_SECONDARY"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "focus",
+   "disabled"
+  ],
+  "selected": true,
+  "rust": [
+   "kit/tabs.rs::tab"
+  ],
+  "rust_status": "new-in-C",
+  "today": "panels/right.rs:103-127",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Toggle/Switch",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.border",
+   "colors.primary",
+   "colors.ring",
+   "colors.secondary",
+   "radius.radius-pill"
+  ],
+  "pending": [
+   "ICON_WHITE"
+  ],
+  "paints": [
+   "BG_BRAND",
+   "BG_TERTIARY",
+   "BORDER",
+   "ICON_WHITE",
+   "FOCUS_RING"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "focus",
+   "disabled"
+  ],
+  "selected": true,
+  "rust": [
+   "kit/choice.rs::toggle"
+  ],
+  "rust_status": "new-in-C",
+  "today": "panels/components.rs::toggle",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Checkbox/Box",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg",
+   "colors.border-strong",
+   "colors.primary",
+   "colors.primary-foreground",
+   "colors.ring",
+   "colors.secondary",
+   "radius.radius-xs"
+  ],
+  "pending": [],
+  "paints": [
+   "TEXT_ON_BRAND",
+   "BG_BRAND",
+   "BG",
+   "BG_TERTIARY",
+   "BORDER_STRONG",
+   "FOCUS_RING"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "focus",
+   "disabled"
+  ],
+  "selected": true,
+  "rust": [
+   "kit/choice.rs::checkbox"
+  ],
+  "rust_status": "new-in-C",
+  "today": "widgets/popover.rs::check",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Radio/Card",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg",
+   "colors.bg-foreground",
+   "colors.bg-hover",
+   "colors.border",
+   "colors.border-focus",
+   "colors.border-strong",
+   "colors.primary",
+   "colors.primary-foreground",
+   "colors.ring",
+   "radius.radius-xl"
+  ],
+  "pending": [
+   "TEXT_SECONDARY"
+  ],
+  "paints": [
+   "BG_BRAND",
+   "BG",
+   "BG_HOVER",
+   "BORDER_SELECTED",
+   "BORDER_STRONG",
+   "BORDER",
+   "FOCUS_RING",
+   "TEXT",
+   "TEXT_SECONDARY",
+   "TEXT_ON_BRAND"
+  ],
+  "paints_from_parts_line": [
+   "TEXT_ON_BRAND"
+  ],
+  "states": [
+   "default",
+   "hover",
+   "focus",
+   "disabled"
+  ],
+  "selected": true,
+  "rust": [
+   "kit/choice.rs::radio_card"
+  ],
+  "rust_status": "new-in-C",
+  "today": "agent_approval_card.rs:256-286",
+  "spec": "C/I",
+  "flow": []
+ },
+ {
+  "name": "Badge/StatusCount",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "radius.radius-pill",
+   "typography.font-size-caption"
+  ],
+  "pending": [
+   "BADGE_NEUTRAL_BORDER",
+   "BADGE_NEUTRAL_BG",
+   "BADGE_NEUTRAL_TEXT",
+   "BG_SUCCESS_PRIMARY",
+   "BADGE_SUCCESS_BORDER",
+   "BADGE_SUCCESS_TEXT",
+   "BG_WARNING_PRIMARY",
+   "BADGE_WARNING_BORDER",
+   "BADGE_WARNING_TEXT",
+   "BG_ERROR_PRIMARY",
+   "BADGE_ERROR_BORDER",
+   "BADGE_ERROR_TEXT"
+  ],
+  "paints": [
+   "BADGE_NEUTRAL_BORDER",
+   "BADGE_NEUTRAL_BG",
+   "BADGE_NEUTRAL_TEXT",
+   "BG_SUCCESS_PRIMARY",
+   "BADGE_SUCCESS_BORDER",
+   "BADGE_SUCCESS_TEXT",
+   "BG_WARNING_PRIMARY",
+   "BADGE_WARNING_BORDER",
+   "BADGE_WARNING_TEXT",
+   "BG_ERROR_PRIMARY",
+   "BADGE_ERROR_BORDER",
+   "BADGE_ERROR_TEXT"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/badge.rs::count_badge"
+  ],
+  "rust_status": "new-in-C",
+  "today": "home/mod.rs:1113-1115",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Tag/Chip",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg",
+   "colors.border-strong",
+   "colors.neutral",
+   "colors.ring",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "ICON_QUATERNARY_HOVER",
+   "TEXT_SECONDARY"
+  ],
+  "paints": [
+   "BG",
+   "BORDER_STRONG",
+   "ICON_QUATERNARY",
+   "ICON_QUATERNARY_HOVER",
+   "FOCUS_RING",
+   "TEXT_SECONDARY"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "focus"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/badge.rs::tag"
+  ],
+  "rust_status": "new-in-C",
+  "today": "agent_selection_chip.rs:160-200",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Tooltip/Default",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg-foreground",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "BG_PRIMARY_SOLID",
+   "TEXT_SECONDARY"
+  ],
+  "paints": [
+   "BG_PRIMARY_SOLID",
+   "TEXT",
+   "TEXT_SECONDARY"
+  ],
+  "paints_from_parts_line": [
+   "TEXT_SECONDARY"
+  ],
+  "states": [
+   "default"
+  ],
+  "selected": false,
+  "rust": [
+   "theme.rs::apply"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Tree/Row",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg-active",
+   "colors.bg-hover",
+   "colors.muted-foreground",
+   "colors.neutral",
+   "radius.radius-md"
+  ],
+  "pending": [],
+  "paints": [
+   "BG_HOVER",
+   "BG_SELECTED",
+   "ICON_QUATERNARY",
+   "TEXT_TERTIARY"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover"
+  ],
+  "selected": true,
+  "rust": [
+   "kit/rows.rs::tree_row_bg"
+  ],
+  "rust_status": "new-in-C",
+  "today": "panels/layers.rs:516-596",
+  "spec": "C/E",
+  "flow": []
+ },
+ {
+  "name": "List/Row",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg",
+   "colors.bg-active",
+   "colors.bg-hover",
+   "colors.neutral",
+   "colors.ring",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "ICON_QUATERNARY_HOVER",
+   "TEXT_SECONDARY",
+   "TEXT_SECONDARY_HOVER"
+  ],
+  "paints": [
+   "BG",
+   "BG_HOVER",
+   "BG_SELECTED",
+   "ICON_QUATERNARY",
+   "ICON_QUATERNARY_HOVER",
+   "FOCUS_RING",
+   "TEXT_SECONDARY",
+   "TEXT_SECONDARY_HOVER"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "focus"
+  ],
+  "selected": true,
+  "rust": [
+   "kit/rows.rs::list_row"
+  ],
+  "rust_status": "new-in-C",
+  "today": "home/mod.rs:1173-1190",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Swatch/Color",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.ring"
+  ],
+  "pending": [
+   "BORDER_TRANSLUCENT"
+  ],
+  "paints": [
+   "BORDER_TRANSLUCENT",
+   "FOCUS_RING"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "focus"
+  ],
+  "selected": true,
+  "rust": [
+   "kit/choice.rs::swatch_ring"
+  ],
+  "rust_status": "new-in-C",
+  "today": "widgets/mod.rs::swatch",
+  "spec": "C/F",
+  "flow": []
+ },
+ {
+  "name": "Slider/Handle",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.bg",
+   "colors.ring",
+   "colors.secondary-active",
+   "radius.radius-pill"
+  ],
+  "pending": [
+   "ICON_BRAND_PRIMARY"
+  ],
+  "paints": [
+   "BG",
+   "BG_PRESSED",
+   "ICON_BRAND_PRIMARY",
+   "FOCUS_RING"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "active",
+   "focus",
+   "disabled"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/choice.rs::slider_handle"
+  ],
+  "rust_status": "new-in-C",
+  "today": "",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Progress/Bar",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.secondary-active",
+   "radius.radius-pill"
+  ],
+  "pending": [
+   "ICON_BRAND_PRIMARY",
+   "TEXT_SECONDARY"
+  ],
+  "paints": [
+   "BG_PRESSED",
+   "ICON_BRAND_PRIMARY",
+   "TEXT_SECONDARY"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/feedback.rs::progress_bar"
+  ],
+  "rust_status": "new-in-C",
+  "today": "panels/check_designs.rs::progress_row",
+  "spec": "C/K",
+  "flow": []
+ },
+ {
+  "name": "Loading/Inline",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.border",
+   "colors.secondary",
+   "colors.surface",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "ICON_BRAND_PRIMARY",
+   "TEXT_SECONDARY"
+  ],
+  "paints": [
+   "BG_SECONDARY",
+   "BORDER",
+   "ICON_BRAND_PRIMARY",
+   "TEXT_SECONDARY",
+   "BG_TERTIARY"
+  ],
+  "paints_from_parts_line": [
+   "BG_TERTIARY"
+  ],
+  "states": [
+   "default"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/feedback.rs::loading_ring"
+  ],
+  "rust_status": "new-in-C",
+  "today": "image_jobs.rs::layer_row_progress_chip",
+  "spec": "C/I",
+  "flow": []
+ },
+ {
+  "name": "Icon/Tile",
+  "tier": "component",
+  "composes": [],
+  "tokens": [
+   "colors.accent",
+   "colors.border-strong",
+   "colors.neutral",
+   "radius.radius-md"
+  ],
+  "pending": [
+   "TILE_DESIGN_BG",
+   "TILE_DESIGN_GLYPH",
+   "TILE_BOARD_BG",
+   "TILE_BOARD_GLYPH",
+   "TILE_DECK_BG",
+   "TILE_DECK_GLYPH",
+   "TILE_SPEC_GLYPH"
+  ],
+  "paints": [
+   "TILE_DESIGN_BG",
+   "TILE_DESIGN_GLYPH",
+   "TILE_BOARD_BG",
+   "TILE_BOARD_GLYPH",
+   "TILE_DECK_BG",
+   "TILE_DECK_GLYPH",
+   "TILE_SPEC_BG",
+   "TILE_SPEC_GLYPH",
+   "BORDER_STRONG",
+   "ICON_QUATERNARY"
+  ],
+  "paints_from_parts_line": [],
+  "states": null,
+  "selected": false,
+  "rust": [
+   "kit/feedback.rs::tile_icon"
+  ],
+  "rust_status": "new-in-C",
+  "today": "home/mod.rs:2583-2601",
+  "spec": "C/H",
+  "flow": []
+ },
+ {
+  "name": "Menu/Panel",
+  "tier": "composite",
+  "composes": [
+   "Menu/Item",
+   "Menu/Separator",
+   "Menu/Shortcut"
+  ],
+  "tokens": [
+   "colors.neutral",
+   "colors.popover",
+   "spacing.space-2"
+  ],
+  "pending": [
+   "BORDER_MENU",
+   "TEXT_SECONDARY",
+   "RADIUS_FRAME"
+  ],
+  "paints": [
+   "BG_MENU",
+   "BORDER_MENU",
+   "ICON_QUATERNARY",
+   "TEXT_SECONDARY",
+   "RADIUS_FRAME"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/surface.rs::menu_surface"
+  ],
+  "rust_status": "new-in-C",
+  "today": "widgets/mod.rs::menu_panel",
+  "spec": "C/J",
+  "flow": []
+ },
+ {
+  "name": "Menu/Context",
+  "tier": "composite",
+  "composes": [
+   "Menu/Item",
+   "Menu/Separator",
+   "Menu/Shortcut"
+  ],
+  "tokens": [
+   "colors.neutral",
+   "colors.popover",
+   "spacing.space-2"
+  ],
+  "pending": [
+   "BORDER_MENU",
+   "TEXT_SECONDARY",
+   "RADIUS_FRAME"
+  ],
+  "paints": [
+   "BG_MENU",
+   "BORDER_MENU",
+   "ICON_QUATERNARY",
+   "TEXT_SECONDARY",
+   "RADIUS_FRAME"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default"
+  ],
+  "selected": false,
+  "rust": [
+   "panels/context.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "C/J",
+  "flow": []
+ },
+ {
+  "name": "Tabs/Segmented",
+  "tier": "composite",
+  "composes": [
+   "Tabs/Pill"
+  ],
+  "tokens": [
+   "colors.bg",
+   "colors.bg-active",
+   "colors.border-strong",
+   "colors.neutral",
+   "colors.ring",
+   "radius.radius-md",
+   "radius.radius-sm"
+  ],
+  "pending": [
+   "ICON_QUATERNARY_HOVER",
+   "ICON_SECONDARY",
+   "TEXT_QUATERNARY",
+   "TEXT_SECONDARY"
+  ],
+  "paints": [
+   "BG",
+   "BG_SELECTED",
+   "BORDER_STRONG",
+   "ICON_QUATERNARY",
+   "ICON_QUATERNARY_HOVER",
+   "ICON_SECONDARY",
+   "FOCUS_RING",
+   "TEXT_QUATERNARY",
+   "TEXT_SECONDARY"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default",
+   "hover",
+   "focus",
+   "disabled"
+  ],
+  "selected": true,
+  "rust": [
+   "kit/tabs.rs::segmented"
+  ],
+  "rust_status": "new-in-C",
+  "today": "comments/ui.rs:133-152",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Panel/Header",
+  "tier": "composite",
+  "composes": [
+   "Button/Icon",
+   "Badge/StatusCount"
+  ],
+  "tokens": [
+   "colors.bg-foreground",
+   "colors.neutral",
+   "typography.font-size-heading"
+  ],
+  "pending": [],
+  "paints": [
+   "ICON_QUATERNARY",
+   "TEXT"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/rows.rs::panel_header"
+  ],
+  "rust_status": "new-in-C",
+  "today": "panels/left.rs::section_title",
+  "spec": "C/E",
+  "flow": []
+ },
+ {
+  "name": "Section/Header",
+  "tier": "composite",
+  "composes": [
+   "Button/Icon",
+   "Divider/Hairline"
+  ],
+  "tokens": [
+   "colors.bg-foreground",
+   "colors.border",
+   "colors.muted-foreground",
+   "colors.neutral"
+  ],
+  "pending": [],
+  "paints": [
+   "BORDER",
+   "ICON_QUATERNARY",
+   "TEXT",
+   "TEXT_TERTIARY"
+  ],
+  "paints_from_parts_line": [
+   "TEXT_TERTIARY"
+  ],
+  "states": [
+   "default",
+   "disabled"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/rows.rs::section_header"
+  ],
+  "rust_status": "new-in-C",
+  "today": "panels/properties.rs::title",
+  "spec": "C/F",
+  "flow": []
+ },
+ {
+  "name": "Dialog/Modal",
+  "tier": "composite",
+  "composes": [
+   "Panel/Header",
+   "Button/Close",
+   "Button/*",
+   "Divider/Hairline"
+  ],
+  "tokens": [
+   "colors.bg",
+   "colors.bg-foreground",
+   "colors.muted-foreground",
+   "colors.neutral"
+  ],
+  "pending": [
+   "BG_OVERLAY",
+   "RADIUS_FRAME"
+  ],
+  "paints": [
+   "BG",
+   "ICON_QUATERNARY",
+   "TEXT",
+   "BG_OVERLAY",
+   "TEXT_TERTIARY",
+   "RADIUS_FRAME"
+  ],
+  "paints_from_parts_line": [
+   "BG_OVERLAY",
+   "TEXT_TERTIARY"
+  ],
+  "states": [
+   "default"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/surface.rs::modal_surface"
+  ],
+  "rust_status": "new-in-C",
+  "today": "home/dialog.rs::show",
+  "spec": "C/J",
+  "flow": [
+   "modal-assets-libraries",
+   "modal-plugins"
+  ]
+ },
+ {
+  "name": "Popover/Panel",
+  "tier": "composite",
+  "composes": [
+   "Panel/Header",
+   "Menu/Item",
+   "List/Row"
+  ],
+  "tokens": [
+   "colors.neutral",
+   "colors.popover",
+   "colors.popover-foreground"
+  ],
+  "pending": [
+   "BORDER_MENU",
+   "RADIUS_FRAME"
+  ],
+  "paints": [
+   "BG_MENU",
+   "BORDER_MENU",
+   "ICON_QUATERNARY",
+   "TEXT",
+   "RADIUS_FRAME"
+  ],
+  "paints_from_parts_line": [],
+  "states": [
+   "default"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/surface.rs::popover_surface"
+  ],
+  "rust_status": "new-in-C",
+  "today": "widgets/popover.rs::show",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Dialog/CommandPalette",
+  "tier": "composite",
+  "composes": [
+   "Input/Search",
+   "Tabs/Segmented",
+   "Menu/Item",
+   "Badge/StatusCount",
+   "Menu/Shortcut"
+  ],
+  "tokens": [
+   "colors.muted-foreground",
+   "colors.neutral",
+   "colors.popover",
+   "colors.popover-foreground",
+   "radius.radius-xl"
+  ],
+  "pending": [
+   "BORDER_MENU"
+  ],
+  "paints": [
+   "BG_MENU",
+   "BORDER_MENU",
+   "ICON_QUATERNARY",
+   "TEXT",
+   "TEXT_TERTIARY"
+  ],
+  "paints_from_parts_line": [
+   "TEXT_TERTIARY"
+  ],
+  "states": [
+   "default"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/surface.rs::command_bar_surface"
+  ],
+  "rust_status": "new-in-C",
+  "today": "cmdk.rs::show; panels/menus.rs:907-1085",
+  "spec": "C/J/D",
+  "flow": [
+   "modal-cmdk"
+  ]
+ },
+ {
+  "name": "Toast/Default",
+  "tier": "composite",
+  "composes": [
+   "Status/Dot",
+   "Button/Tertiary"
+  ],
+  "tokens": [
+   "colors.bg-foreground",
+   "colors.success",
+   "colors.surface-hover",
+   "radius.radius-xl"
+  ],
+  "pending": [
+   "BG_PRIMARY_ALT",
+   "BORDER_MENU",
+   "ICON_BRAND_PRIMARY",
+   "DANGER"
+  ],
+  "paints": [
+   "BG_PRIMARY_ALT",
+   "BORDER_MENU",
+   "ICON_BRAND_PRIMARY",
+   "TEXT",
+   "DANGER",
+   "SUCCESS",
+   "BG_SECONDARY_HOVER"
+  ],
+  "paints_from_parts_line": [
+   "DANGER",
+   "SUCCESS"
+  ],
+  "states": [
+   "default"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/surface.rs::toast_surface"
+  ],
+  "rust_status": "new-in-C",
+  "today": "shell.rs::toast",
+  "spec": "C/D/J",
+  "flow": []
+ },
+ {
+  "name": "EmptyState/Default",
+  "tier": "composite",
+  "composes": [
+   "Icon/Tile",
+   "Button/Secondary"
+  ],
+  "tokens": [
+   "colors.bg-foreground",
+   "colors.border-strong",
+   "colors.muted-foreground",
+   "colors.neutral",
+   "radius.radius-md"
+  ],
+  "pending": [],
+  "paints": [
+   "BORDER_STRONG",
+   "ICON_QUATERNARY",
+   "TEXT",
+   "TEXT_TERTIARY"
+  ],
+  "paints_from_parts_line": [
+   "TEXT_TERTIARY"
+  ],
+  "states": [
+   "default"
+  ],
+  "selected": false,
+  "rust": [
+   "kit/feedback.rs::empty_state"
+  ],
+  "rust_status": "new-in-C",
+  "today": "home/mod.rs::main_view::empty_state",
+  "spec": "C",
+  "flow": []
+ },
+ {
+  "name": "Card/FileThumbnail",
+  "tier": "composite",
+  "composes": [
+   "Icon/Tile",
+   "Badge/StatusCount"
+  ],
+  "tokens": [
+   "colors.border",
+   "colors.border-focus",
+   "colors.card",
+   "colors.card-foreground",
+   "colors.muted-foreground",
+   "colors.secondary",
+   "colors.surface-hover"
+  ],
+  "pending": [],
+  "paints": [
+   "BG_SECONDARY",
+   "TEXT",
+   "TEXT_TERTIARY",
+   "BG_SECONDARY_HOVER",
+   "BORDER",
+   "BORDER_SELECTED",
+   "HOME_THUMB_BG"
+  ],
+  "paints_from_parts_line": [],
+  "states": null,
+  "selected": false,
+  "rust": [
+   "home/mod.rs::main_view::card"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "H",
+  "flow": []
+ },
+ {
+  "name": "Card/StarterTemplate",
+  "tier": "composite",
+  "composes": [
+   "Button/Secondary"
+  ],
+  "tokens": [
+   "colors.border",
+   "colors.card",
+   "colors.card-foreground"
+  ],
+  "pending": [],
+  "paints": [
+   "BG_SECONDARY",
+   "TEXT",
+   "BORDER"
+  ],
+  "paints_from_parts_line": [],
+  "states": null,
+  "selected": false,
+  "rust": [
+   "home/mod.rs::main_view::templates_view"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "H",
+  "flow": []
+ },
+ {
+  "name": "Card/Library",
+  "tier": "composite",
+  "composes": [
+   "Tag/Chip",
+   "Toggle/Switch"
+  ],
+  "tokens": [
+   "colors.border",
+   "colors.card"
+  ],
+  "pending": [],
+  "paints": [
+   "BG_SECONDARY",
+   "BORDER"
+  ],
+  "paints_from_parts_line": [],
+  "states": null,
+  "selected": false,
+  "rust": [
+   "panels/assets.rs::library_card"
+  ],
+  "rust_status": "new-in-K",
+  "today": "panels/assets.rs:542-552",
+  "spec": "K",
+  "flow": []
+ },
+ {
+  "name": "Card/Approval",
+  "tier": "composite",
+  "composes": [
+   "Badge/StatusCount",
+   "Button/*",
+   "Radio/Card"
+  ],
+  "tokens": [
+   "colors.border",
+   "colors.card",
+   "radius.radius-xl"
+  ],
+  "pending": [],
+  "paints": [
+   "BG_SECONDARY",
+   "BORDER"
+  ],
+  "paints_from_parts_line": [],
+  "states": null,
+  "selected": false,
+  "rust": [
+   "agent_approval_card.rs::paint_approval_card"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "I",
+  "flow": []
+ },
+ {
+  "name": "Card/AgentTurn",
+  "tier": "composite",
+  "composes": [
+   "Status/Dot",
+   "Badge/StatusCount"
+  ],
+  "tokens": [
+   "colors.border",
+   "colors.card"
+  ],
+  "pending": [],
+  "paints": [
+   "BG_SECONDARY",
+   "BORDER"
+  ],
+  "paints_from_parts_line": [],
+  "states": null,
+  "selected": false,
+  "rust": [
+   "agent_turn_card.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "I",
+  "flow": []
+ },
+ {
+  "name": "Banner/Inline",
+  "tier": "composite",
+  "composes": [
+   "Status/Dot",
+   "Button/*"
+  ],
+  "tokens": [
+   "colors.bg-foreground",
+   "colors.border",
+   "colors.surface"
+  ],
+  "pending": [
+   "BG_SUCCESS_PRIMARY",
+   "BG_WARNING_PRIMARY",
+   "BG_ERROR_PRIMARY"
+  ],
+  "paints": [
+   "BG_SECONDARY",
+   "BG_SUCCESS_PRIMARY",
+   "BG_WARNING_PRIMARY",
+   "BG_ERROR_PRIMARY",
+   "TEXT",
+   "BORDER"
+  ],
+  "paints_from_parts_line": [],
+  "states": null,
+  "selected": false,
+  "rust": [
+   "history/banner.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "J/I/K",
+  "flow": []
+ },
+ {
+  "name": "Table/Data",
+  "tier": "composite",
+  "composes": [
+   "List/Row",
+   "Input/PropertyField",
+   "Badge/StatusCount",
+   "Toggle/Switch"
+  ],
+  "tokens": [
+   "colors.bg",
+   "colors.bg-hover",
+   "colors.border"
+  ],
+  "pending": [],
+  "paints": [
+   "BG_PRIMARY",
+   "BG_HOVER",
+   "BORDER"
+  ],
+  "paints_from_parts_line": [],
+  "states": null,
+  "selected": false,
+  "rust": [
+   "variables/view.rs::table"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "K",
+  "flow": []
+ },
+ {
+  "name": "Code/Block",
+  "tier": "composite",
+  "composes": [],
+  "tokens": [
+   "colors.border",
+   "colors.surface",
+   "typography.font-family-mono"
+  ],
+  "pending": [],
+  "paints": [
+   "BG_SECONDARY",
+   "BORDER"
+  ],
+  "paints_from_parts_line": [],
+  "states": null,
+  "selected": false,
+  "rust": [
+   "dev/code_view.rs::code_block"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "G",
+  "flow": []
+ },
+ {
+  "name": "Input/Composer",
+  "tier": "composite",
+  "composes": [
+   "Tag/Chip",
+   "Button/Icon",
+   "Button/Primary"
+  ],
+  "tokens": [
+   "colors.border",
+   "colors.ring",
+   "colors.surface"
+  ],
+  "pending": [],
+  "paints": [
+   "BG_SECONDARY",
+   "BORDER",
+   "FOCUS_RING"
+  ],
+  "paints_from_parts_line": [],
+  "states": null,
+  "selected": false,
+  "rust": [
+   "agent_composer.rs::show_composer"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "I",
+  "flow": []
+ },
+ {
+  "name": "Popover/ColorPicker",
+  "tier": "composite",
+  "composes": [
+   "Swatch/Color",
+   "Slider/Handle",
+   "Input/PropertyField",
+   "Select/Trigger"
+  ],
+  "tokens": [
+   "colors.popover"
+  ],
+  "pending": [
+   "BORDER_MENU",
+   "RADIUS_FRAME"
+  ],
+  "paints": [
+   "BG_MENU",
+   "BORDER_MENU",
+   "RADIUS_FRAME"
+  ],
+  "paints_from_parts_line": [],
+  "states": null,
+  "selected": false,
+  "rust": [
+   "widgets/picker.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "F",
+  "flow": []
+ },
+ {
+  "name": "Bar/Contextual",
+  "tier": "composite",
+  "composes": [
+   "Button/Icon",
+   "Button/Tertiary",
+   "Divider/Hairline"
+  ],
+  "tokens": [
+   "colors.bg",
+   "colors.border"
+  ],
+  "pending": [
+   "INNER_HIGHLIGHT"
+  ],
+  "paints": [
+   "BG_TOOLBAR",
+   "INNER_HIGHLIGHT",
+   "BORDER"
+  ],
+  "paints_from_parts_line": [],
+  "states": null,
+  "selected": false,
+  "rust": [
+   "panels/toolbar.rs::contextual_bar"
+  ],
+  "rust_status": "new-in-D",
+  "today": "panels/toolbar.rs:160-189",
+  "spec": "D",
+  "flow": []
+ },
+ {
+  "name": "Navigation/TitleBar",
+  "tier": "region",
+  "composes": [
+   "Icon/Glyph",
+   "Divider/Hairline"
+  ],
+  "rust": [
+   "shell.rs::title_bar"
+  ],
+  "rust_status": "new-in-D",
+  "today": "shell.rs:1536-1562 (inside draw_window)",
+  "spec": "D",
+  "flow": []
+ },
+ {
+  "name": "Navigation/TopTabBar",
+  "tier": "region",
+  "composes": [
+   "Tabs/Pill",
+   "Button/Icon",
+   "Menu/Panel"
+  ],
+  "rust": [
+   "tabs.rs::show_top_tab_bar"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "D",
+  "flow": []
+ },
+ {
+  "name": "Navigation/LeftRail",
+  "tier": "region",
+  "composes": [
+   "Button/Icon",
+   "Button/Tool",
+   "Tooltip/Default"
+  ],
+  "rust": [
+   "panels/rail.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "D",
+  "flow": []
+ },
+ {
+  "name": "Navigation/BottomCanvasToolbar",
+  "tier": "region",
+  "composes": [
+   "Button/Tool",
+   "Tabs/Segmented",
+   "Bar/Contextual",
+   "Button/Secondary"
+  ],
+  "rust": [
+   "panels/toolbar.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "D",
+  "flow": []
+ },
+ {
+  "name": "Navigation/Rulers",
+  "tier": "region",
+  "composes": [
+   "Divider/Hairline"
+  ],
+  "rust": [
+   "canvas/rulers.rs::strips"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "D",
+  "flow": []
+ },
+ {
+  "name": "Panel/LeftLayers",
+  "tier": "region",
+  "composes": [
+   "Panel/Header",
+   "List/Row",
+   "Tree/Row",
+   "Input/Search",
+   "Menu/Panel",
+   "Badge/StatusCount"
+  ],
+  "rust": [
+   "panels/left.rs::show",
+   "panels/layers.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "E",
+  "flow": []
+ },
+ {
+  "name": "Panel/RightInspector",
+  "tier": "region",
+  "composes": [
+   "Tabs/Pill",
+   "Section/Header",
+   "Input/PropertyField",
+   "Select/Trigger",
+   "Tabs/Segmented",
+   "Checkbox/Box",
+   "Popover/ColorPicker",
+   "Button/*"
+  ],
+  "rust": [
+   "panels/right.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "F",
+  "flow": []
+ },
+ {
+  "name": "Panel/DevInspect",
+  "tier": "region",
+  "composes": [
+   "Section/Header",
+   "Badge/StatusCount",
+   "Code/Block",
+   "Button/Primary",
+   "Tabs/Pill",
+   "Tree/Row"
+  ],
+  "rust": [
+   "panels/inspect.rs::show",
+   "dev/list.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "F/G",
+  "flow": []
+ },
+ {
+  "name": "Panel/AgentTerminal",
+  "tier": "region",
+  "composes": [
+   "Tabs/Pill",
+   "Button/*",
+   "Tag/Chip",
+   "Card/Approval",
+   "Card/AgentTurn",
+   "Input/Composer",
+   "Input/Search",
+   "Banner/Inline"
+  ],
+  "rust": [
+   "terminal.rs::show_left_with_doc"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "I",
+  "flow": [
+   "panel-agents-terminal"
+  ]
+ },
+ {
+  "name": "Panel/SpecReader",
+  "tier": "region",
+  "composes": [
+   "Section/Header"
+  ],
+  "rust": [
+   "specs.rs::show_reader"
+  ],
+  "rust_status": "exists",
+  "today": "hidden: specs_reader_open = false",
+  "spec": "G",
+  "flow": [
+   "panel-specs-reader"
+  ]
+ },
+ {
+  "name": "Panel/HomeSidebar",
+  "tier": "region",
+  "composes": [
+   "Input/Search",
+   "List/Row",
+   "Badge/StatusCount"
+  ],
+  "rust": [
+   "home/mod.rs::sidebar::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "H",
+  "flow": []
+ },
+ {
+  "name": "Panel/HomeMain",
+  "tier": "region",
+  "composes": [
+   "Button/*",
+   "Card/FileThumbnail",
+   "Card/StarterTemplate",
+   "List/Row",
+   "EmptyState/Default",
+   "Icon/Tile"
+  ],
+  "rust": [
+   "home/mod.rs::main_view::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "H",
+  "flow": []
+ },
+ {
+  "name": "Panel/Assets",
+  "tier": "region",
+  "composes": [
+   "Panel/Header",
+   "Input/Search",
+   "Card/Library",
+   "List/Row",
+   "Badge/StatusCount"
+  ],
+  "rust": [
+   "panels/assets.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "K",
+  "flow": []
+ },
+ {
+  "name": "Panel/CheckDesigns",
+  "tier": "region",
+  "composes": [
+   "Panel/Header",
+   "Button/*",
+   "Badge/StatusCount",
+   "Tabs/Segmented",
+   "Progress/Bar",
+   "EmptyState/Default"
+  ],
+  "rust": [
+   "panels/check_designs.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "K",
+  "flow": []
+ },
+ {
+  "name": "Panel/Comments",
+  "tier": "region",
+  "composes": [
+   "Tabs/Segmented",
+   "Input/Search",
+   "Popover/Panel"
+  ],
+  "rust": [
+   "comments/panel.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "J",
+  "flow": []
+ },
+ {
+  "name": "Panel/VersionHistory",
+  "tier": "region",
+  "composes": [
+   "List/Row",
+   "Banner/Inline"
+  ],
+  "rust": [
+   "history/panel.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "J",
+  "flow": []
+ },
+ {
+  "name": "Panel/FindReplace",
+  "tier": "region",
+  "composes": [
+   "Input/Search",
+   "Input/Field",
+   "Button/Secondary",
+   "Button/Icon"
+  ],
+  "rust": [
+   "find/panel.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "J",
+  "flow": []
+ },
+ {
+  "name": "Window/Variables",
+  "tier": "region",
+  "composes": [
+   "Table/Data",
+   "Popover/Panel",
+   "Menu/Item"
+  ],
+  "rust": [
+   "variables/view.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "K",
+  "flow": [
+   "modal-variables"
+  ]
+ },
+ {
+  "name": "Bar/Presentation",
+  "tier": "region",
+  "composes": [
+   "Button/*",
+   "Tooltip/Default",
+   "Divider/Hairline"
+  ],
+  "rust": [
+   "present.rs::show"
+  ],
+  "rust_status": "exists",
+  "today": "",
+  "spec": "J",
+  "flow": []
+ },
+ {
+  "name": "Screen/Home",
+  "tier": "screen",
+  "composes": [
+   "Navigation/TitleBar",
+   "Navigation/TopTabBar",
+   "Panel/HomeSidebar",
+   "Panel/HomeMain",
+   "Dialog/Modal",
+   "Toast/Default"
+  ],
+  "rust": [
+   "shell.rs::home_frame"
+  ],
+  "rust_status": "exists",
+  "spec": "H",
+  "flow": [
+   "home-recents",
+   "home-templates",
+   "home-all-folders",
+   "home-resources",
+   "home-drafts",
+   "home-trash"
+  ]
+ },
+ {
+  "name": "Screen/EditorDesign",
+  "tier": "screen",
+  "composes": [
+   "Navigation/TitleBar",
+   "Navigation/TopTabBar",
+   "Navigation/LeftRail",
+   "Panel/LeftLayers",
+   "Navigation/Rulers",
+   "Navigation/BottomCanvasToolbar",
+   "Panel/RightInspector",
+   "Menu/Panel",
+   "Dialog/CommandPalette",
+   "Toast/Default"
+  ],
+  "rust": [
+   "shell.rs::draw_window"
+  ],
+  "rust_status": "exists",
+  "spec": "D",
+  "flow": [
+   "editor-canvas"
+  ]
+ },
+ {
+  "name": "Screen/EditorPrototype",
+  "tier": "screen",
+  "composes": [
+   "Navigation/TitleBar",
+   "Navigation/TopTabBar",
+   "Navigation/LeftRail",
+   "Panel/LeftLayers",
+   "Navigation/Rulers",
+   "Navigation/BottomCanvasToolbar",
+   "Panel/RightInspector",
+   "Menu/Panel",
+   "Dialog/CommandPalette",
+   "Toast/Default"
+  ],
+  "rust": [
+   "shell.rs::draw_window"
+  ],
+  "rust_status": "exists",
+  "spec": "F",
+  "flow": [
+   "editor-prototype"
+  ]
+ },
+ {
+  "name": "Screen/EditorDev",
+  "tier": "screen",
+  "composes": [
+   "Navigation/TitleBar",
+   "Navigation/TopTabBar",
+   "Navigation/LeftRail",
+   "Panel/LeftLayers",
+   "Navigation/Rulers",
+   "Navigation/BottomCanvasToolbar",
+   "Panel/RightInspector",
+   "Panel/DevInspect",
+   "Menu/Panel",
+   "Dialog/CommandPalette",
+   "Toast/Default"
+  ],
+  "rust": [
+   "shell.rs::draw_window"
+  ],
+  "rust_status": "exists",
+  "spec": "G",
+  "flow": [
+   "editor-devmode"
+  ]
+ },
+ {
+  "name": "Screen/Present",
+  "tier": "screen",
+  "composes": [
+   "Bar/Presentation"
+  ],
+  "rust": [
+   "shell.rs::draw_window"
+  ],
+  "rust_status": "exists",
+  "spec": "J",
+  "flow": [
+   "editor-present"
+  ]
+ }
+]

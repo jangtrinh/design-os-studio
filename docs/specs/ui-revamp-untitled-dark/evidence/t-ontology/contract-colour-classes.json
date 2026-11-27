@@ -1,0 +1,947 @@
+[
+[
+"BG",
+"untitled semantic",
+"bg-primary"
+],
+[
+"BG_PRIMARY",
+"untitled semantic",
+"bg-primary"
+],
+[
+"BG_SECONDARY",
+"untitled semantic",
+"bg-secondary"
+],
+[
+"BG_TERTIARY",
+"untitled semantic",
+"bg-tertiary"
+],
+[
+"BG_HOVER",
+"untitled semantic",
+"bg-primary_hover"
+],
+[
+"BG_PRESSED",
+"untitled semantic",
+"bg-quaternary"
+],
+[
+"BG_MENU",
+"untitled semantic",
+"bg-primary"
+],
+[
+"BG_SELECTED",
+"untitled semantic",
+"bg-secondary_hover"
+],
+[
+"BG_SELECTED_HOVER",
+"untitled semantic",
+"bg-secondary_hover"
+],
+[
+"BG_SELECTED_SECONDARY",
+"untitled semantic",
+"bg-secondary"
+],
+[
+"BG_TEXT_SELECTION",
+"untitled semantic",
+"utility-orange-50"
+],
+[
+"BG_BRAND",
+"untitled semantic",
+"bg-brand-solid"
+],
+[
+"BG_BRAND_HOVER",
+"untitled semantic",
+"bg-brand-solid_hover"
+],
+[
+"BG_BRAND_PRESSED",
+"untitled semantic",
+"Orange-600 (primitive)"
+],
+[
+"BG_TOOLBAR",
+"untitled semantic",
+"bg-primary"
+],
+[
+"BG_TOOLBAR_HOVER",
+"untitled semantic",
+"bg-primary_hover"
+],
+[
+"BG_TOOLBAR_SELECTED",
+"untitled semantic",
+"= BG_SELECTED"
+],
+[
+"BG_TOOLBAR_MODE_SWITCHER",
+"untitled semantic",
+"bg-secondary"
+],
+[
+"BG_SELECTED_AREA",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"BORDER",
+"untitled semantic",
+"border-secondary"
+],
+[
+"BORDER_SUBTLE",
+"untitled semantic",
+"border-tertiary"
+],
+[
+"BORDER_MENU",
+"untitled semantic",
+"border-secondary_alt"
+],
+[
+"BORDER_SELECTED",
+"untitled semantic",
+"border-brand"
+],
+[
+"BORDER_TRANSLUCENT",
+"untitled semantic",
+"alpha-black-10"
+],
+[
+"TEXT",
+"untitled semantic",
+"text-primary"
+],
+[
+"TEXT_SECONDARY",
+"untitled semantic",
+"text-secondary"
+],
+[
+"TEXT_TERTIARY",
+"untitled semantic",
+"text-tertiary"
+],
+[
+"TEXT_DISABLED",
+"untitled semantic",
+"text-secondary at opacity 0.5"
+],
+[
+"TEXT_BRAND",
+"untitled semantic",
+"fg-brand-secondary (Studio orange)"
+],
+[
+"TEXT_COMPONENT",
+"studio-only role",
+"Studio-only: component (Cyan-400 primitive)"
+],
+[
+"ICON",
+"untitled semantic",
+"fg-primary"
+],
+[
+"ICON_SECONDARY",
+"untitled semantic",
+"fg-secondary"
+],
+[
+"ICON_TERTIARY",
+"untitled semantic",
+"fg-tertiary"
+],
+[
+"ICON_SELECTED",
+"untitled semantic",
+"= ICON"
+],
+[
+"DANGER",
+"untitled semantic",
+"fg-error-primary"
+],
+[
+"INFO",
+"studio-only role",
+"Studio-only: info"
+],
+[
+"SUCCESS",
+"untitled semantic",
+"fg-success-primary"
+],
+[
+"WARNING",
+"untitled semantic",
+"fg-warning-primary"
+],
+[
+"BG_ELEVATED",
+"deleted",
+"-"
+],
+[
+"BG_MENU_HOVER",
+"untitled semantic",
+"bg-primary_hover"
+],
+[
+"BG_DISABLED",
+"deleted",
+"-"
+],
+[
+"BG_TRANSPARENT_HOVER",
+"untitled semantic",
+"alpha-black-10"
+],
+[
+"BORDER_STRONG",
+"untitled semantic",
+"border-primary"
+],
+[
+"COMPONENT",
+"studio-only role",
+"Studio-only: component (Cyan-500 primitive)"
+],
+[
+"TEXT_ON_LIGHT_CANVAS",
+"untitled semantic",
+"Neutral-950 (dark label, R4)"
+],
+[
+"TEXT_ON_LIGHT_CANVAS_SECONDARY",
+"deleted",
+"-"
+],
+[
+"TEXT_ON_DARK_CANVAS",
+"deleted",
+"-"
+],
+[
+"SHADOW_COLOR",
+"untitled semantic",
+"shadow-* (alpha 0 in dark)"
+],
+[
+"SHADOW_COLOR_STRONG",
+"untitled semantic",
+"shadow-* (alpha 0 in dark)"
+],
+[
+"ELEVATION_400_SHADOW",
+"untitled semantic",
+"shadow-* (alpha 0 in dark)"
+],
+[
+"ELEVATION_400_RING",
+"untitled semantic",
+"border-secondary_alt"
+],
+[
+"ELEVATION_400_TOP",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none (alpha 0)"
+],
+[
+"INNER_HIGHLIGHT",
+"untitled semantic",
+"border-secondary_alt"
+],
+[
+"LOGO_GRADIENT_A",
+"deleted",
+"-"
+],
+[
+"CHECKER_A",
+"exempt: canvas, Dev overlay, content, identity, board",
+"content"
+],
+[
+"CHECKER_B",
+"exempt: canvas, Dev overlay, content, identity, board",
+"content"
+],
+[
+"CANVAS_SELECTION",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"CANVAS_COMPONENT",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"CANVAS_HANDLE_FILL",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"CANVAS_SIZE_BADGE_TEXT",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"CANVAS_LABEL",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"CANVAS_LABEL_DARK",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"CANVAS_MARQUEE_FILL",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay (alias)"
+],
+[
+"GUIDE_COLOR",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"GUIDE_TEXT",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"PEN_POINT",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"DROP_INDICATOR",
+"untitled semantic",
+"bg-brand-solid (R4)"
+],
+[
+"AGENT_1",
+"studio-only role",
+"Studio-only: agent presence"
+],
+[
+"AGENT_2",
+"studio-only role",
+"Studio-only: agent presence"
+],
+[
+"AGENT_3",
+"studio-only role",
+"Studio-only: agent presence"
+],
+[
+"AGENT_4",
+"studio-only role",
+"Studio-only: agent presence"
+],
+[
+"AGENT_COLORS",
+"exempt: canvas, Dev overlay, content, identity, board",
+"array of AGENT_1..4"
+],
+[
+"AGENT_LABEL_TEXT",
+"untitled semantic",
+"Neutral-950 (dark label, R4)"
+],
+[
+"FIND_HIGHLIGHT",
+"studio-only role",
+"Studio-only: info family"
+],
+[
+"FIND_HIGHLIGHT_SELECTED",
+"studio-only role",
+"Studio-only: info family"
+],
+[
+"BG_MENU_SELECTED",
+"untitled semantic",
+"= BG_SELECTED"
+],
+[
+"MENU_SHORTCUT_HIGHLIGHT",
+"untitled semantic",
+"text-secondary_hover"
+],
+[
+"COMMENT_PIN_RESOLVED",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"AVATAR_COLORS",
+"exempt: canvas, Dev overlay, content, identity, board",
+"content (identity colours)"
+],
+[
+"RULER_TEXT",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"RULER_TICK",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"RULER_SELECTION_FILL",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"RULER_GUIDE",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"PIXEL_GRID_LIGHT_LINES",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"PIXEL_GRID_DARK_LINES",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"TEXT_SELECTION",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"FIND_CANVAS_MATCH",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay (alias)"
+],
+[
+"FIND_CANVAS_MATCH_CURRENT",
+"alias of another constant",
+"alias of BG_BRAND"
+],
+[
+"SYNTAX_PLAIN",
+"untitled semantic",
+"= TEXT (text-primary)"
+],
+[
+"SYNTAX_PROPERTY",
+"untitled semantic",
+"utility-sky-700"
+],
+[
+"SYNTAX_KEYWORD",
+"untitled semantic",
+"utility-pink-600"
+],
+[
+"SYNTAX_STRING",
+"untitled semantic",
+"utility-green-600"
+],
+[
+"SYNTAX_NUMBER",
+"untitled semantic",
+"utility-orange-600"
+],
+[
+"SYNTAX_TYPE",
+"untitled semantic",
+"utility-yellow-600"
+],
+[
+"SYNTAX_FUNCTION",
+"untitled semantic",
+"utility-blue-600"
+],
+[
+"SYNTAX_COMMENT",
+"untitled semantic",
+"text-quaternary"
+],
+[
+"SYNTAX_PUNCT",
+"untitled semantic",
+"text-secondary"
+],
+[
+"DEV_READY",
+"exempt: canvas, Dev overlay, content, identity, board",
+"Dev overlay"
+],
+[
+"DEV_COMPLETED",
+"exempt: canvas, Dev overlay, content, identity, board",
+"Dev overlay"
+],
+[
+"DEV_CHANGED",
+"exempt: canvas, Dev overlay, content, identity, board",
+"Dev overlay"
+],
+[
+"STATUS_INFO_TEXT",
+"studio-only role",
+"Studio-only: info family"
+],
+[
+"STATUS_INFO_BG",
+"studio-only role",
+"Studio-only: info family"
+],
+[
+"STATUS_INFO_BORDER",
+"studio-only role",
+"Studio-only: info family"
+],
+[
+"BOX_MARGIN",
+"exempt: canvas, Dev overlay, content, identity, board",
+"Dev overlay"
+],
+[
+"BOX_PADDING",
+"exempt: canvas, Dev overlay, content, identity, board",
+"Dev overlay"
+],
+[
+"BOX_CONTENT",
+"exempt: canvas, Dev overlay, content, identity, board",
+"Dev overlay"
+],
+[
+"BOX_TEXT",
+"exempt: canvas, Dev overlay, content, identity, board",
+"Dev overlay"
+],
+[
+"ANNOTATION_BG",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"ANNOTATION_TEXT",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"ANNOTATION_LINE",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"MEASURE",
+"exempt: canvas, Dev overlay, content, identity, board",
+"canvas overlay"
+],
+[
+"PROTO_BLUE",
+"alias of another constant",
+"alias of BG_BRAND (canvas noodles)"
+],
+[
+"PRESENT_BG",
+"untitled semantic",
+"bg-primary"
+],
+[
+"HOME_THUMB_BG",
+"untitled semantic",
+"bg-tertiary"
+],
+[
+"VAR_SCROLL_THUMB",
+"untitled semantic",
+"fg-quaternary"
+],
+[
+"BOARD_DOT",
+"exempt: canvas, Dev overlay, content, identity, board",
+"board content"
+],
+[
+"BG_SECONDARY_HOVER",
+"untitled semantic",
+"bg-secondary_hover"
+],
+[
+"TEXT_SECONDARY_HOVER",
+"untitled semantic",
+"text-secondary_hover"
+],
+[
+"TEXT_TERTIARY_HOVER",
+"untitled semantic",
+"text-tertiary_hover"
+],
+[
+"TEXT_QUATERNARY",
+"untitled semantic",
+"text-quaternary"
+],
+[
+"TEXT_PLACEHOLDER",
+"untitled semantic",
+"text-placeholder (kit value, R8.1)"
+],
+[
+"ICON_QUATERNARY",
+"untitled semantic",
+"fg-quaternary"
+],
+[
+"TEXT_ERROR",
+"untitled semantic",
+"text-error-primary"
+],
+[
+"TEXT_WARNING",
+"untitled semantic",
+"text-warning-primary"
+],
+[
+"TEXT_SUCCESS",
+"untitled semantic",
+"text-success-primary"
+],
+[
+"TEXT_ON_BRAND",
+"untitled semantic",
+"Neutral-950 (dark label, R4)"
+],
+[
+"FOCUS_RING",
+"untitled semantic",
+"focus-ring (R4: Orange-500)"
+],
+[
+"BG_ERROR_SOLID",
+"untitled semantic",
+"bg-error-solid"
+],
+[
+"TEXT_WHITE",
+"untitled semantic",
+"text-white"
+],
+[
+"ICON_BRAND_PRIMARY",
+"untitled semantic",
+"fg-brand-primary (R4 remap: kit `#9E77ED` Brand-500 \u2192 Orange-500)"
+],
+[
+"ICON_SECONDARY_HOVER",
+"untitled semantic",
+"fg-secondary_hover"
+],
+[
+"ICON_QUATERNARY_HOVER",
+"untitled semantic",
+"fg-quaternary_hover"
+],
+[
+"ICON_WHITE",
+"untitled semantic",
+"fg-white"
+],
+[
+"BG_PRIMARY_ALT",
+"untitled semantic",
+"bg-primary_alt (dark: alias of bg-secondary)"
+],
+[
+"BG_PRIMARY_SOLID",
+"untitled semantic",
+"bg-primary-solid (dark: alias of bg-tertiary)"
+],
+[
+"BG_ERROR_SOLID_HOVER",
+"untitled semantic",
+"bg-error-solid_hover, owner override R8.7 (`_Primitives` Red-700; the "
+],
+[
+"UTILITY_NEUTRAL_50",
+"untitled semantic",
+"utility-neutral-50 (dark: Neutral-900)"
+],
+[
+"UTILITY_NEUTRAL_200",
+"untitled semantic",
+"utility-neutral-200 (dark: Neutral-700)"
+],
+[
+"UTILITY_NEUTRAL_700",
+"untitled semantic",
+"utility-neutral-700 (dark: Neutral-300)"
+],
+[
+"BG_SUCCESS_PRIMARY",
+"untitled semantic",
+"bg-success-primary (= utility-green-50, Green-950)"
+],
+[
+"BG_WARNING_PRIMARY",
+"untitled semantic",
+"bg-warning-primary (= utility-yellow-50, Yellow-950)"
+],
+[
+"BG_ERROR_PRIMARY",
+"untitled semantic",
+"bg-error-primary (= utility-red-50, Red-950)"
+],
+[
+"UTILITY_GREEN_200",
+"untitled semantic",
+"utility-green-200 (Green-800)"
+],
+[
+"UTILITY_YELLOW_200",
+"untitled semantic",
+"utility-yellow-200 (Yellow-800)"
+],
+[
+"UTILITY_RED_200",
+"untitled semantic",
+"utility-red-200 (Red-800)"
+],
+[
+"UTILITY_GREEN_700",
+"untitled semantic",
+"utility-green-700 (Green-300)"
+],
+[
+"UTILITY_YELLOW_700",
+"untitled semantic",
+"utility-yellow-700 (Yellow-300)"
+],
+[
+"UTILITY_RED_700",
+"untitled semantic",
+"utility-red-700 (Red-300; not the Red-700 primitive of N20)"
+],
+[
+"BG_OVERLAY",
+"untitled semantic",
+"bg-overlay (Neutral-800) at the kit overlay's 70% layer opacity"
+],
+[
+"PROVIDER_CLAUDE",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none: third-party identity (G-2, content)"
+],
+[
+"PROVIDER_CODEX",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none: identity, equals text-primary"
+],
+[
+"PROVIDER_GROK",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none: identity, Neutral-200 (was Zinc-200 `#E4E4E7`)"
+],
+[
+"PROVIDER_GEMINI",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none: identity, equals utility-blue-600 (dark)"
+],
+[
+"BG_ERROR_SOLID_PRESSED",
+"untitled semantic",
+"Red-800 (same value as N29 `UTILITY_RED_200`; kit has no pressed role)"
+],
+[
+"UTILITY_BLUE_50",
+"untitled semantic",
+"utility-blue-50 (Blue-950)"
+],
+[
+"UTILITY_BLUE_600",
+"untitled semantic",
+"utility-blue-600 (Blue-400)"
+],
+[
+"UTILITY_AMBER_50",
+"untitled semantic",
+"utility-amber-50 (Amber-950)"
+],
+[
+"UTILITY_AMBER_600",
+"untitled semantic",
+"utility-amber-600 (Amber-400)"
+],
+[
+"UTILITY_GREEN_50",
+"untitled semantic",
+"utility-green-50 (Green-950)"
+],
+[
+"UTILITY_GREEN_600",
+"untitled semantic",
+"utility-green-600 (Green-400)"
+],
+[
+"UTILITY_ORANGE_50",
+"untitled semantic",
+"utility-orange-50 (Orange-950)"
+],
+[
+"UTILITY_ORANGE_600",
+"untitled semantic",
+"utility-orange-600 (Orange-400)"
+],
+[
+"DEV_READY_HOVER",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none: Studio Dev accent, hover"
+],
+[
+"HUD_POINTER_FILL",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none: content (a cursor, not chrome)"
+],
+[
+"PLAYGROUND_GRID_DOT",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none: `TEXT` at 7 % alpha"
+],
+[
+"SWATCH_PLACEHOLDER",
+"untitled semantic",
+"bg-quaternary"
+],
+[
+"TYPE_PREVIEW_BASELINE",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none: content overlay (info blue at alpha 110)"
+],
+[
+"CONTENT_HANDLE_FILL",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none: content overlay (alias)"
+],
+[
+"CONTENT_HANDLE_RING",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none: content overlay"
+],
+[
+"CONTENT_HANDLE_CASING",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none: content overlay"
+],
+[
+"CONTENT_HANDLE_AXIS",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none: content overlay"
+],
+[
+"CONTENT_HANDLE_STOP_IDLE",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none: content overlay"
+],
+[
+"CONTENT_MARK_SHADOW",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none: content overlay"
+],
+[
+"CONTENT_MARK_LIGHT",
+"exempt: canvas, Dev overlay, content, identity, board",
+"none: content overlay"
+],
+[
+"READER_LIGHT_BG_PAGE",
+"exempt: spec-reader light content (G rule 4)",
+"kit Light mode value (G rule 4)"
+],
+[
+"READER_LIGHT_DOC_SHEET",
+"exempt: spec-reader light content (G rule 4)",
+"kit Light mode value (G rule 4)"
+],
+[
+"READER_LIGHT_SURFACE",
+"exempt: spec-reader light content (G rule 4)",
+"kit Light mode value (G rule 4)"
+],
+[
+"READER_LIGHT_SURFACE_2",
+"exempt: spec-reader light content (G rule 4)",
+"kit Light mode value (G rule 4)"
+],
+[
+"READER_LIGHT_SURFACE_3",
+"exempt: spec-reader light content (G rule 4)",
+"kit Light mode value (G rule 4)"
+],
+[
+"READER_LIGHT_CODE_BG",
+"exempt: spec-reader light content (G rule 4)",
+"kit Light mode value (G rule 4)"
+],
+[
+"READER_LIGHT_BORDER",
+"exempt: spec-reader light content (G rule 4)",
+"kit Light mode value (G rule 4)"
+],
+[
+"READER_LIGHT_HAIRLINE",
+"exempt: spec-reader light content (G rule 4)",
+"kit Light mode value (G rule 4)"
+],
+[
+"READER_LIGHT_TEXT",
+"exempt: spec-reader light content (G rule 4)",
+"kit Light mode value (G rule 4)"
+],
+[
+"READER_LIGHT_TEXT_MUTED",
+"exempt: spec-reader light content (G rule 4)",
+"kit Light mode value (G rule 4)"
+],
+[
+"READER_LIGHT_TEXT_SUBTLE",
+"exempt: spec-reader light content (G rule 4)",
+"kit Light mode value (G rule 4)"
+],
+[
+"READER_LIGHT_DOT_OK",
+"exempt: spec-reader light content (G rule 4)",
+"kit Light mode value (G rule 4)"
+],
+[
+"READER_LIGHT_DOT_WARN",
+"exempt: spec-reader light content (G rule 4)",
+"kit Light mode value (G rule 4)"
+],
+[
+"READER_LIGHT_DOT_NEUTRAL",
+"exempt: spec-reader light content (G rule 4)",
+"kit Light mode value (G rule 4)"
+],
+[
+"READER_LIGHT_HIGHLIGHT",
+"exempt: spec-reader light content (G rule 4)",
+"kit Light mode value (G rule 4)"
+]
+]

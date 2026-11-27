@@ -1,0 +1,557 @@
+{
+ "kit_component_set_text": {
+  "Dropdown menu": {
+   "type": "COMPONENT_SET",
+   "n": 180,
+   "words_med": 2.0,
+   "words_p90": 3,
+   "chars_med": 9.0,
+   "chars_p90": 14,
+   "chars_max": 22,
+   "allcaps": 5
+  },
+  "Context menu": {
+   "type": "COMPONENT_SET",
+   "n": 27,
+   "words_med": 1,
+   "words_p90": 2,
+   "chars_med": 6,
+   "chars_p90": 13,
+   "chars_max": 16,
+   "allcaps": 0
+  },
+  "_Dropdown menu list item": {
+   "type": "COMPONENT_SET",
+   "n": 16,
+   "words_med": 1.0,
+   "words_p90": 1,
+   "chars_med": 6.5,
+   "chars_p90": 11,
+   "chars_max": 11,
+   "allcaps": 0
+  },
+  "Tooltip": {
+   "type": "COMPONENT_SET",
+   "n": 21,
+   "words_med": 4,
+   "words_p90": 21,
+   "chars_med": 17,
+   "chars_p90": 138,
+   "chars_max": 138,
+   "allcaps": 0
+  },
+  "Notification": {
+   "type": "COMPONENT_SET",
+   "n": 76,
+   "words_med": 2.0,
+   "words_p90": 13,
+   "chars_med": 14.0,
+   "chars_p90": 76,
+   "chars_max": 80,
+   "allcaps": 0
+  },
+  "Modal": {
+   "type": "COMPONENT_SET",
+   "n": 1381,
+   "words_med": 1,
+   "words_p90": 5,
+   "chars_med": 9,
+   "chars_p90": 30,
+   "chars_max": 850,
+   "allcaps": 42
+  },
+  "_Modal header": {
+   "type": "COMPONENT_SET",
+   "n": 12,
+   "words_med": 10.5,
+   "words_p90": 18,
+   "chars_med": 60.0,
+   "chars_p90": 101,
+   "chars_max": 101,
+   "allcaps": 0
+  },
+  "Tree view": {
+   "type": "COMPONENT_SET",
+   "n": 104,
+   "words_med": 1.0,
+   "words_p90": 2,
+   "chars_med": 10.0,
+   "chars_p90": 13,
+   "chars_max": 16,
+   "allcaps": 0
+  },
+  "_Tree view item": {
+   "type": "COMPONENT_SET",
+   "n": 16,
+   "words_med": 1.0,
+   "words_p90": 1,
+   "chars_med": 11.0,
+   "chars_p90": 11,
+   "chars_max": 11,
+   "allcaps": 0
+  },
+  "Command bar": {
+   "type": "COMPONENT_SET",
+   "n": 200,
+   "words_med": 1.0,
+   "words_p90": 3,
+   "chars_med": 8.0,
+   "chars_p90": 18,
+   "chars_max": 79,
+   "allcaps": 0
+  },
+  "_Command dropdown menu item": {
+   "type": "COMPONENT_SET",
+   "n": 72,
+   "words_med": 1.0,
+   "words_p90": 2,
+   "chars_med": 7.0,
+   "chars_p90": 11,
+   "chars_max": 11,
+   "allcaps": 0
+  },
+  "Badge": {
+   "type": "COMPONENT_SET",
+   "n": 591,
+   "words_med": 1,
+   "words_p90": 1,
+   "chars_med": 5,
+   "chars_p90": 5,
+   "chars_max": 5,
+   "allcaps": 0
+  },
+  "Empty state": {
+   "type": "COMPONENT_SET",
+   "n": 108,
+   "words_med": 2.0,
+   "words_p90": 13,
+   "chars_med": 12.0,
+   "chars_p90": 79,
+   "chars_max": 79,
+   "allcaps": 3
+  },
+  "Horizontal tabs": {
+   "type": "COMPONENT_SET",
+   "n": 190,
+   "words_med": 1.0,
+   "words_p90": 2,
+   "chars_med": 7.0,
+   "chars_p90": 12,
+   "chars_max": 13,
+   "allcaps": 10
+  }
+ },
+ "kit_dark_screen_slots": {
+  "Page header": {
+   "n": 88,
+   "words_med": 2.0,
+   "words_p90": 7,
+   "chars_med": 14.5,
+   "chars_p90": 40,
+   "chars_max": 66
+  },
+  "Select < Page header": {
+   "n": 22,
+   "words_med": 1.0,
+   "words_p90": 1,
+   "chars_med": 4.0,
+   "chars_p90": 6,
+   "chars_max": 6
+  },
+  "_Tab button base < Horizontal tabs": {
+   "n": 228,
+   "words_med": 1.0,
+   "words_p90": 2,
+   "chars_med": 7.0,
+   "chars_p90": 12,
+   "chars_max": 15
+  },
+  "Badge < _Tab button base": {
+   "n": 24,
+   "words_med": 1.0,
+   "words_p90": 1,
+   "chars_med": 1.0,
+   "chars_p90": 1,
+   "chars_max": 1
+  },
+  "Section header": {
+   "n": 119,
+   "words_med": 3,
+   "words_p90": 9,
+   "chars_med": 18,
+   "chars_p90": 59,
+   "chars_max": 103
+  },
+  "Buttons/Button < Section header": {
+   "n": 32,
+   "words_med": 2.0,
+   "words_p90": 2,
+   "chars_med": 11.5,
+   "chars_p90": 15,
+   "chars_max": 19
+  },
+  "_Integration card desktop": {
+   "n": 42,
+   "words_med": 3.5,
+   "words_p90": 11,
+   "chars_med": 23.0,
+   "chars_p90": 68,
+   "chars_max": 81
+  },
+  "Buttons/Button < Section footer": {
+   "n": 67,
+   "words_med": 2,
+   "words_p90": 2,
+   "chars_med": 12,
+   "chars_p90": 16,
+   "chars_max": 21
+  },
+  "Select < Sidebar navigation": {
+   "n": 38,
+   "words_med": 1.0,
+   "words_p90": 1,
+   "chars_med": 6.0,
+   "chars_p90": 6,
+   "chars_max": 6
+  },
+  "_Nav item base < Sidebar navigation": {
+   "n": 236,
+   "words_med": 1.0,
+   "words_p90": 2,
+   "chars_med": 8.0,
+   "chars_p90": 13,
+   "chars_max": 17
+  },
+  "_Nav item base < _Nav item dropdown base": {
+   "n": 61,
+   "words_med": 1,
+   "words_p90": 1,
+   "chars_med": 7,
+   "chars_p90": 9,
+   "chars_max": 9
+  },
+  "Badge < _Nav item base": {
+   "n": 79,
+   "words_med": 1,
+   "words_p90": 1,
+   "chars_med": 2,
+   "chars_p90": 6,
+   "chars_max": 6
+  },
+  "Avatar label group < _Nav account card": {
+   "n": 50,
+   "words_med": 1.5,
+   "words_p90": 2,
+   "chars_med": 17.0,
+   "chars_p90": 21,
+   "chars_max": 22
+  },
+  "_Integration row desktop": {
+   "n": 24,
+   "words_med": 3.0,
+   "words_p90": 9,
+   "chars_med": 19.0,
+   "chars_p90": 66,
+   "chars_max": 79
+  },
+  "Sidebar navigation": {
+   "n": 21,
+   "words_med": 1,
+   "words_p90": 2,
+   "chars_med": 9,
+   "chars_p90": 11,
+   "chars_max": 11
+  },
+  "Section label": {
+   "n": 218,
+   "words_med": 2.0,
+   "words_p90": 12,
+   "chars_med": 14.0,
+   "chars_p90": 71,
+   "chars_max": 101
+  },
+  "Checkbox": {
+   "n": 54,
+   "words_med": 4.0,
+   "words_p90": 9,
+   "chars_med": 24.0,
+   "chars_p90": 45,
+   "chars_max": 86
+  },
+  "_Nav featured card < Sidebar navigation": {
+   "n": 35,
+   "words_med": 3,
+   "words_p90": 11,
+   "chars_med": 20,
+   "chars_p90": 58,
+   "chars_max": 62
+  },
+  "Buttons/Button < _Nav featured card": {
+   "n": 20,
+   "words_med": 2.0,
+   "words_p90": 3,
+   "chars_med": 10.0,
+   "chars_p90": 18,
+   "chars_max": 18
+  },
+  "Buttons/Button": {
+   "n": 23,
+   "words_med": 2,
+   "words_p90": 4,
+   "chars_med": 8,
+   "chars_p90": 22,
+   "chars_max": 22
+  },
+  "Toggle": {
+   "n": 28,
+   "words_med": 1.0,
+   "words_p90": 3,
+   "chars_med": 4.0,
+   "chars_p90": 22,
+   "chars_max": 32
+  },
+  "(frame text)": {
+   "n": 134,
+   "words_med": 2.0,
+   "words_p90": 7,
+   "chars_med": 14.0,
+   "chars_p90": 39,
+   "chars_max": 80
+  },
+  "_Button group base < Button group": {
+   "n": 137,
+   "words_med": 1,
+   "words_p90": 2,
+   "chars_med": 6,
+   "chars_p90": 10,
+   "chars_max": 13
+  },
+  "Radio group item < Radio group": {
+   "n": 62,
+   "words_med": 2.0,
+   "words_p90": 14,
+   "chars_med": 14.0,
+   "chars_p90": 74,
+   "chars_max": 74
+  },
+  "Buttons/Button < Radio group item": {
+   "n": 20,
+   "words_med": 2.0,
+   "words_p90": 3,
+   "chars_med": 9.0,
+   "chars_p90": 14,
+   "chars_max": 14
+  },
+  "_Table header label < Table header cell": {
+   "n": 129,
+   "words_med": 1,
+   "words_p90": 2,
+   "chars_med": 6,
+   "chars_p90": 11,
+   "chars_max": 13
+  },
+  "Table cell": {
+   "n": 864,
+   "words_med": 2.0,
+   "words_p90": 3,
+   "chars_med": 11.0,
+   "chars_p90": 21,
+   "chars_max": 37
+  },
+  "Avatar < Avatar group": {
+   "n": 44,
+   "words_med": 1.0,
+   "words_p90": 1,
+   "chars_med": 2.0,
+   "chars_p90": 2,
+   "chars_max": 2
+  },
+  "Badge < Table cell": {
+   "n": 258,
+   "words_med": 1.0,
+   "words_p90": 2,
+   "chars_med": 6.0,
+   "chars_p90": 13,
+   "chars_max": 20
+  },
+  "Input field": {
+   "n": 138,
+   "words_med": 1.0,
+   "words_p90": 2,
+   "chars_med": 10.0,
+   "chars_p90": 20,
+   "chars_max": 30
+  },
+  "Select": {
+   "n": 30,
+   "words_med": 1.0,
+   "words_p90": 2,
+   "chars_med": 9.0,
+   "chars_p90": 12,
+   "chars_max": 27
+  },
+  "Buttons/Button < Table cell": {
+   "n": 68,
+   "words_med": 1.0,
+   "words_p90": 1,
+   "chars_med": 4.0,
+   "chars_p90": 6,
+   "chars_max": 6
+  },
+  "Buttons/Button < Pagination": {
+   "n": 22,
+   "words_med": 1.0,
+   "words_p90": 1,
+   "chars_med": 6.0,
+   "chars_p90": 8,
+   "chars_max": 8
+  },
+  "_Pagination number base < Pagination": {
+   "n": 47,
+   "words_med": 1,
+   "words_p90": 1,
+   "chars_med": 1,
+   "chars_p90": 2,
+   "chars_max": 3
+  },
+  "Buttons/Button < Page header": {
+   "n": 35,
+   "words_med": 1,
+   "words_p90": 2,
+   "chars_med": 8,
+   "chars_p90": 13,
+   "chars_max": 16
+  },
+  "_Nav button < Header navigation": {
+   "n": 150,
+   "words_med": 1.0,
+   "words_p90": 1,
+   "chars_med": 7.5,
+   "chars_p90": 9,
+   "chars_max": 13
+  },
+  "Header navigation": {
+   "n": 21,
+   "words_med": 1,
+   "words_p90": 1,
+   "chars_med": 1,
+   "chars_p90": 1,
+   "chars_max": 1
+  },
+  "_Tab button base < Vertical tabs": {
+   "n": 86,
+   "words_med": 1.0,
+   "words_p90": 2,
+   "chars_med": 7.0,
+   "chars_p90": 13,
+   "chars_max": 15
+  },
+  "_X-axis < Line and bar chart": {
+   "n": 253,
+   "words_med": 1,
+   "words_p90": 1,
+   "chars_med": 3,
+   "chars_p90": 3,
+   "chars_max": 6
+  },
+  "Message": {
+   "n": 26,
+   "words_med": 2.0,
+   "words_p90": 14,
+   "chars_med": 16.0,
+   "chars_p90": 77,
+   "chars_max": 100
+  },
+  "Metric item": {
+   "n": 54,
+   "words_med": 2.0,
+   "words_p90": 3,
+   "chars_med": 8.5,
+   "chars_p90": 16,
+   "chars_max": 19
+  },
+  "_Change < Metric item": {
+   "n": 21,
+   "words_med": 1,
+   "words_p90": 1,
+   "chars_med": 3,
+   "chars_p90": 4,
+   "chars_max": 4
+  },
+  "Credit card mockup": {
+   "n": 44,
+   "words_med": 1.5,
+   "words_p90": 4,
+   "chars_med": 10.0,
+   "chars_p90": 19,
+   "chars_max": 19
+  },
+  "_Feed item base": {
+   "n": 83,
+   "words_med": 3,
+   "words_p90": 4,
+   "chars_med": 13,
+   "chars_p90": 29,
+   "chars_max": 41
+  },
+  "Progress bar < Table cell": {
+   "n": 21,
+   "words_med": 1,
+   "words_p90": 1,
+   "chars_med": 2,
+   "chars_p90": 4,
+   "chars_max": 5
+  }
+ },
+ "kit_dark_screen_totals": {
+  "nodes": 25932,
+  "total": 4749,
+  "upper": 192,
+  "textCaseUpper": 11,
+  "mono": 11,
+  "gradientFills": 743,
+  "frames": 61
+ },
+ "kit_dark_screen_upper_by_slot": {
+  "_Tab button base": 23,
+  "Toggle": 8,
+  "Table cell": 84,
+  "_Button group base": 5,
+  "Sidebar navigation": 15,
+  "_Nav account card menu item": 2,
+  "Input field": 6,
+  "Avatar": 16,
+  "File type icon": 14,
+  "Select": 6,
+  "Message": 1,
+  "_Legend": 2,
+  "Credit card mockup": 9,
+  "(frame)": 1
+ },
+ "kit_dark_screen_upper_len": {
+  "2-4": 168,
+  "5+": 24
+ },
+ "kit_dark_screen_gradient_owner": {
+  "Logomark": 378,
+  "Status icon": 304,
+  "linear": 4,
+  "jira": 4,
+  "_Nav featured card": 3,
+  "(frame)": 21,
+  "chrome": 1,
+  "discord": 1,
+  "Page header": 1,
+  "_Chart data": 9,
+  "_Chart mini": 15,
+  "Chart marker": 2
+ },
+ "kit_dark_screen_mono_by_slot": {
+  "Credit card mockup": 11
+ },
+ "kit_font_readable": {
+  "?": 4616,
+  "Inter": 122,
+  "Roboto Mono": 11
+ }
+}

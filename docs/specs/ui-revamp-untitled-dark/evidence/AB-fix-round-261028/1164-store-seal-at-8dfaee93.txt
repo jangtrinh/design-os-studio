@@ -1,0 +1,37 @@
+$ git -C <repo> archive 8dfaee93 design | tar -x -m -C <scratch>; ui --version; ui ds status --dir <scratch>   (2026-10-28, ui 0.6.0)
+0.6.0
+ui: tokens file hash mismatch — manifest has sha256-1izY1I1zaVGRQzwiik2vdeZJYcwzWuxTWW-GHSBOnVE, file hashes to sha256-ev7pnlT8h7z2mmIB_g2eTKuoV77rsXZ_MJGdAugnVuA. Use 'ui ds change-token' to update tokens safely.
+exit=1
+
+$ git log -1 --format="%h %s" 8dfaee93 -- design/design.tokens.json
+b598a499 2026-10-25 feat(rail): make left rail icon-only with hover and focus tooltips (#1106) (#1131)
+
+# R12 repair path, emulated in the scratch copy: restore 56px, then change-token
+restored via json dump (formatting may differ)
+ds: designos-studio (gen 28)
+persona: imported / imported
+intent:  imported from design/tokens.json
+tokens:  77 (semantic + primitive)
+components: 12
+manifest: <scratch>/agents/ab/r1164/design/ds.manifest.json
+status after restore exit=0
+{
+  "ok": true,
+  "command": "ds change-token",
+  "data": {
+    "path": "spacing.rail-width",
+    "from": "56px",
+    "to": "48px",
+    "changed": true,
+    "generation": 29,
+    "compiledHash": "sha256-ev7pnlT8h7z2mmIB_g2eTKuoV77rsXZ_MJGdAugnVuA"
+  }
+}
+change-token exit=0
+ds: designos-studio (gen 29)
+persona: imported / imported
+intent:  imported from design/tokens.json
+tokens:  77 (semantic + primitive)
+components: 12
+manifest: <scratch>/agents/ab/r1164/design/ds.manifest.json
+status after change-token exit=0
