@@ -10,6 +10,7 @@
 <meta name="theme-color" content="#121215">
 <link rel="canonical" href="https://jangtrinh.github.io/design-os-studio/">
 <link rel="alternate" type="text/plain" href="https://jangtrinh.github.io/design-os-studio/llms.txt" title="LLM documentation">
+<link rel="alternate" type="application/atom+xml" href="https://github.com/jangtrinh/design-os-studio/releases.atom">
 <link rel="icon" href="data:,">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="DESIGN:OS Studio">
@@ -43,8 +44,15 @@
       "license": "https://polyformproject.org/licenses/shield/1.0.0",
       "author": {
         "@type": "Person",
-        "name": "jangtrinh",
-        "url": "https://github.com/jangtrinh"
+        "name": "Jang Trịnh",
+        "url": "https://www.jang.work/",
+        "jobTitle": "creative technologist and autonomous system architect",
+        "sameAs": [
+          "https://github.com/jangtrinh",
+          "https://www.linkedin.com/in/jangtrinh/",
+          "https://x.com/Jangtrinhvn",
+          "https://www.youtube.com/@designosbyjang"
+        ]
       },
       "keywords": "design editor, figma fig files, mcp server, claude code, codex, grok, antigravity, gemini cli, wgpu, rust",
       "@id": "https://jangtrinh.github.io/design-os-studio/#source",
@@ -66,11 +74,37 @@
       "url": "https://jangtrinh.github.io/design-os-studio/",
       "downloadUrl": "https://github.com/jangtrinh/design-os-studio/releases",
       "softwareVersion": "0.7.17",
-      "dateModified": "2026-11-13",
+      "dateModified": "2026-11-20",
       "@id": "https://jangtrinh.github.io/design-os-studio/#app",
       "isBasedOn": {
         "@id": "https://jangtrinh.github.io/design-os-studio/#source"
       }
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://jangtrinh.github.io/#org",
+      "name": "DESIGN:OS",
+      "url": "https://jangtrinh.github.io/",
+      "founder": {
+        "@type": "Person",
+        "name": "Jang Trịnh",
+        "url": "https://www.jang.work/",
+        "jobTitle": "creative technologist and autonomous system architect"
+      },
+      "sameAs": [
+        "https://github.com/jangtrinh",
+        "https://www.linkedin.com/in/jangtrinh/",
+        "https://x.com/Jangtrinhvn",
+        "https://www.youtube.com/@designosbyjang",
+        "https://www.jang.work/"
+      ]
+    },
+    {
+      "@type": "WebSite",
+      "name": "DESIGN:OS Studio",
+      "url": "https://jangtrinh.github.io/design-os-studio/",
+      "description": "FREE native editor in Rust. Open, edit and write .fig files with no Figma app, headless via designos-mcp (39 tools). Source-available (PolyForm Shield).",
+      "publisher": { "@id": "https://jangtrinh.github.io/#org" }
     },
     {
       "@type": "FAQPage",
@@ -402,6 +436,7 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
   <!-- 1. Hero -->
   <section id="top" class="hero" aria-labelledby="title">
     <div class="wrap">
+      <p class="sub">DESIGN:OS Studio · Updated <time datetime="2026-11-20">20 November 2026</time> (Asia/Saigon).</p>
       <h1 id="title"><span class="sel sel-box" id="sel-box">Open and write .fig files. No Figma required.<span class="pill" id="sel-pill" aria-hidden="true" hidden></span></span></h1>
       <p class="sub">Edit them on a local GPU canvas, or headless through designos-mcp (39 tools) and the designos CLI. FREE + source-available (PolyForm Shield).</p>
       <div class="cta">
