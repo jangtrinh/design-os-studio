@@ -111,18 +111,20 @@ To read the container version of an exported file, run `unzip -p out.fig canvas.
 
 ## Watch
 
-Four short films of DESIGN:OS Studio, starting with an agent editing a `.fig` headless, with no Figma app and no display. Writing `.fig` files is still [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834). Current release is v0.7.17. FREE and source-available (PolyForm Shield).
+Five short films of DESIGN:OS Studio, starting with an agent editing a `.fig` headless, with no Figma app and no display. Writing `.fig` files is still [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834). Current release is v0.7.17. FREE and source-available (PolyForm Shield).
 
 <p align="left">
   <a href="https://www.youtube.com/watch?v=_LtPH2uREr0"><img src="https://i.ytimg.com/vi/_LtPH2uREr0/mqdefault.jpg" alt="An agent edits a .fig headless, without Figma | DESIGN:OS Studio (YouTube, 0:57)" width="320"></a>
   <a href="https://www.youtube.com/watch?v=LJQwnIcHIUA"><img src="https://i.ytimg.com/vi/LJQwnIcHIUA/mqdefault.jpg" alt="DESIGN:OS Studio v0.7.10: live connectors that follow your screens (YouTube, 1:00)" width="320"></a>
   <a href="https://www.youtube.com/watch?v=4aDiDqNm8a0"><img src="https://i.ytimg.com/vi/4aDiDqNm8a0/mqdefault.jpg" alt="DESIGN:OS Studio 0.7.0 → 0.7.7: masks, style folders, shadow blend modes, Ask for risky only (YouTube, 1:00)" width="320"></a>
+  <a href="https://www.youtube.com/watch?v=V76BySt9WOs"><img src="https://i.ytimg.com/vi/V76BySt9WOs/mqdefault.jpg" alt="DESIGN:OS Studio v0.6.0: a FREE Figma alternative for AI #Shorts (YouTube, 0:30)" width="320"></a>
   <a href="https://www.youtube.com/watch?v=LDzKn-GSwUk"><img src="https://i.ytimg.com/vi/LDzKn-GSwUk/mqdefault.jpg" alt="DESIGN:OS Studio: open and write .fig files without Figma (YouTube, 1:10)" width="320"></a>
 </p>
 
 - [An agent edits a .fig headless, without Figma | DESIGN:OS Studio](https://www.youtube.com/watch?v=_LtPH2uREr0) (0:57): An agent edits a .fig headless, with no Figma app and no display. Writing .fig files is still #834.
 - [DESIGN:OS Studio v0.7.10: live connectors that follow your screens](https://www.youtube.com/watch?v=LJQwnIcHIUA) (1:00): Live connectors that follow your screens, filmed on v0.7.10.
 - [DESIGN:OS Studio 0.7.0 → 0.7.7: masks, style folders, shadow blend modes, Ask for risky only](https://www.youtube.com/watch?v=4aDiDqNm8a0) (1:00): A recap of 0.7.0 to 0.7.7: masks, style folders, shadow blend modes, and Ask for risky only.
+- [DESIGN:OS Studio v0.6.0: a FREE Figma alternative for AI #Shorts](https://www.youtube.com/watch?v=V76BySt9WOs) (0:30): A 30-second recap of v0.6.0, a FREE Figma alternative built for AI.
 - [DESIGN:OS Studio: open and write .fig files without Figma](https://www.youtube.com/watch?v=LDzKn-GSwUk) (1:10): Why Studio exists: open and write .fig files without Figma, with a Native Terminal on the open file.
 
 More films: the [DESIGN:OS videos hub](https://jangtrinh.github.io/videos/) and the [design:os by Jang](https://www.youtube.com/@designosbyjang) channel.
