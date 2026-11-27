@@ -1306,6 +1306,20 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
         }
     }
     crate::board::canvas::overlay(app, &p, rect);
+    if let Some(id) = app.board.dots.filter(|&id| crate::board::connect::quick_create_dot_enabled(app, id)) {
+        for (side, pos) in crate::board::connect::dot_positions(app, id) {
+            if crate::board::connect::hot_dot_at(app, id, side, pos) {
+                let c = to_s(pos);
+                let r = theme::BOARD_MAGNET_RADIUS * 1.3;
+                let arm = r * 0.45;
+                let stroke = Stroke::new(theme::PEN_LINE_WIDTH, theme::BG_BRAND);
+                p.circle_filled(c, r, theme::CANVAS_HANDLE_FILL);
+                p.circle_stroke(c, r, stroke);
+                p.line_segment([c - EV::new(arm, 0.0), c + EV::new(arm, 0.0)], stroke);
+                p.line_segment([c - EV::new(0.0, arm), c + EV::new(0.0, arm)], stroke);
+            }
+        }
+    }
 
     draw_find_matches(app, &p, rect);
 
