@@ -1,0 +1,55 @@
+{
+  "format": "2",
+  "title": "design:os studio UI Revamp (Untitled UI dark), epic #1118",
+  "language": "vi (EN product terms kept)",
+  "date": "2026-10-25",
+  "tests_root": "tests",
+  "glossary": {
+    "document": "decisions/glossary.md"
+  },
+  "ui_contract": "optional",
+  "artifacts": [
+    {
+      "id": "intake",
+      "folder": "intake",
+      "name": "Intake",
+      "status": "Draft for G1",
+      "owner_role": "PM"
+    },
+    {
+      "id": "contract",
+      "folder": "contract",
+      "name": "Feature contract",
+      "status": "Draft for G2",
+      "owner_role": "PM"
+    },
+    {
+      "id": "prd",
+      "folder": "prd",
+      "name": "PRD",
+      "status": "Draft",
+      "owner_role": "PM"
+    },
+    {
+      "id": "us",
+      "folder": "us",
+      "name": "Stories, slice 1",
+      "status": "Draft",
+      "owner_role": "PM"
+    },
+    {
+      "id": "decisions",
+      "folder": "decisions",
+      "name": "Decision log",
+      "status": "Current to D5",
+      "owner_role": "PM"
+    },
+    {
+      "id": "detail",
+      "folder": "detail",
+      "name": "Spec chi tiết (copy từ docs/specs-untitled-ui-dark)",
+      "status": "Reference",
+      "owner_role": "PM"
+    }
+  ]
+}
